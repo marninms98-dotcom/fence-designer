@@ -1,9 +1,41 @@
 # SecureWorks WA — Fence Designer Pro: SPEC.md
 
-> **Version:** 1.0  
+> **Version:** 1.1  
 > **Date:** 6 February 2026  
 > **Owner:** Marnin Stobbe, SecureWorks WA  
 > **Purpose:** Locked specification for Claude Code development. Do not deviate from this document. If something is ambiguous, ask — don't guess.
+
+---
+
+## 0. BRANDING
+
+All UI elements must follow the SecureWorks WA brand guide.
+
+**Colours:**
+
+| Name | Hex | Usage |
+|---|---|---|
+| SecureWorks Orange | `#F15A29` | Primary accent, buttons, active states, highlights, + Add buttons |
+| Dark Dusty Blue | `#293C46` | Header bar background, dark text, headings |
+| Mid Dusty Blue | `#4C6A70` | Secondary elements, borders, inactive tabs, stat labels |
+| White | `#FFFFFF` | Background, text on dark backgrounds |
+| Light Grey | `#F5F5F5` | Panel backgrounds, table alternating rows |
+
+**NOTE:** The previous header colour `#1a3a2a` (dark green) is replaced with `#293C46` (Dark Dusty Blue) to match brand.
+
+**Typography:**
+- Headings / labels: `font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700;`
+- Body / inputs: `font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 400;`
+- All caps for small labels (SUPPLIER, COLOUR, etc.)
+
+**UI Style:**
+- Clean, professional, minimal — trade tool, not consumer app
+- Buttons: Orange background `#F15A29`, white text, slight border-radius (4px)
+- Active/selected tabs: Orange underline or background
+- Inputs: Clean borders, subtle focus states
+- Panel table: Compact, no wasted space, alternating row backgrounds
+- No rounded corners larger than 6px anywhere
+- No shadows heavier than `0 1px 3px rgba(0,0,0,0.1)`
 
 ---
 
@@ -45,7 +77,7 @@ job = {
   client: "",              // client name
   address: "",             // property address
   supplier: "RNR",         // "RNR" | "Metroll" | "Lysaght" | "Stratco"
-  profile: "trimclad",    // "trimclad" | "harmony" | "corrugated" — see Section 4B
+  profile: "Trimclad",    // supplier-specific product name — see Section 4B
   colour: "Shale Grey",   // Colorbond colour name (with hex code — see Section 9)
   pricePerMetre: 115,      // $/metre for quick estimate
   runs: [],                // array of Run objects
@@ -116,10 +148,10 @@ gate = {
 
 | Supplier | Panel Width (mm) | Code | Available Profiles |
 |---|---|---|---|
-| RnR Fencing | 2380 | `RNR` | Ridgeside (≈Trimclad), Sameside (≈Harmony) |
-| Metroll | 2365 | `Metroll` | Trimclad, Harmony, Corodek, MAC Atlas/Gemini/Polaris |
-| Lysaght | 2360 | `Lysaght` | Neetascreen (≈Trimclad), Smartascreen (≈Harmony), Miniscreen |
-| Stratco | 2350 | `Stratco` | Superdek (≈Trimclad), Wavelok (≈Harmony), CGI |
+| RnR Fencing | 2380 | `RNR` | Ridgeside, Sameside |
+| Metroll | 2365 | `Metroll` | Trimclad, Harmony |
+| Lysaght | 2360 | `Lysaght` | Neetascreen, Smartascreen |
+| Stratco | 2350 | `Stratco` | Superdek, Good Neighbour |
 
 **NEVER mix suppliers on the same job.** Supplier is set at job level. Sheets, posts, and rails from different manufacturers CANNOT be mixed — different panel widths and proprietary locking mechanisms. Mixing voids BlueScope's 15-year fencing warranty.
 
@@ -131,7 +163,7 @@ gate = {
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  HEADER BAR (fixed top, dark green #1a3a2a)              │
+│  HEADER BAR (fixed top, Dark Dusty Blue #293C46)          │
 │  [SW Logo] Job Ref | Client | Address | Supplier | Profile │
 │  Colour | $/Metre                          [Saved] [New] │
 ├────────────────────┬─────────────────────────────────────┤
@@ -218,138 +250,74 @@ The left panel is the **workspace**. This is where all input happens.
 
 **Generate Outputs Button:** Large, prominent, bottom-right. Opens modal with Material Order / Work Order / Quote tabs.
 
-### 4.4 Colour Scheme
+### 4.4 Colour Scheme (see Section 0 for brand guide)
 
 | Element | Colour | Hex |
 |---|---|---|
-| Header bar | Dark green | `#1a3a2a` |
-| Header text | White | `#ffffff` |
-| Run tab (active) | Teal | `#0d9488` |
+| Header bar | Dark Dusty Blue | `#293C46` |
+| Header text / labels | White | `#FFFFFF` |
+| Run tab (active) | SecureWorks Orange | `#F15A29` |
 | Run tab (inactive) | Light grey | `#e5e7eb` |
 | Quick retaining bg | Light amber | `#fef3c7` |
-| Panel table header | Medium grey | `#f3f4f6` |
-| Total > 1800 | Orange | `#ea580c` |
-| Post with patio tube | Orange + † | `#ea580c` |
-| Generate button | Teal | `#0d9488` |
+| Panel table header | Light grey | `#F5F5F5` |
+| Total > standard | SecureWorks Orange | `#F15A29` |
+| Post with patio tube | SecureWorks Orange + † | `#F15A29` |
+| Generate button | SecureWorks Orange | `#F15A29` |
+| + Add Run / + Add Gate | SecureWorks Orange | `#F15A29` |
+| Borders / dividers | Mid Dusty Blue | `#4C6A70` |
+| Stats bar labels | Mid Dusty Blue | `#4C6A70` |
 | Price badge | Green | `#16a34a` |
 | Delete buttons | Red text | `#dc2626` |
 | Body background | Light grey | `#f8fafc` |
 
 ---
 
-## 4B. FENCE PROFILE CROSS-SECTIONS (FOR RENDERING)
+## 4B. FENCE PROFILES
 
-The `profile` field on the Job determines the corrugation pattern used in both the Profile View (2D canvas) and 3D View (Three.js). Each profile has specific geometry the renderer must reproduce.
+Each supplier has their own sheet profiles. They are **separate products with distinct geometry** — NOT interchangeable, NOT equivalents. The profile dropdown shows only the products available from the selected supplier.
 
-### Profile 1: Trimclad / Trimdek / Superdek / Ridgeside — "trimclad"
+### Supplier Profile Lists
 
-**This is the most common fencing profile in Perth. Default selection.**
-
-Cross-section type: **5-rib trapezoidal** (different appearance each side)
-
-| Dimension | Value |
-|---|---|
-| Cover width | 762 mm |
-| Rib height (profile depth) | 29 mm |
-| Pan width (flat between ribs) | ~130 mm |
-| Rib crest width (flat top) | ~60 mm |
-| Rib pitch (centre-to-centre) | ~152 mm (762 ÷ 5) |
-| Flank angle | ~70-75° from horizontal |
-| Total ribs per sheet | 5 (but 1 overlaps = 4 visible per sheet) |
-| BMT | 0.35 mm |
-
-**How to render (2D Profile View):**
-Each panel face = repeating unit of: `flat pan (130px scaled) → sloped flank up → flat rib crest (60px scaled) → sloped flank down → flat pan`
-- Ribs get a lighter shade (highlight — the crest catches light)
-- Pans get a slightly darker shade (recessed, in shadow)
-- The flank transitions create the depth illusion
-- Pan has a subtle 2mm centre flute (tiny bump at midpoint) — optional but adds realism
-
-**How to render (3D View):**
-Use custom BufferGeometry or displacement map. The cross-section is a trapezoid wave:
-```
-For each rib: base_width=130mm, top_width=60mm, height=29mm
-Pattern repeats every 152mm across the sheet face
-```
-
-**Brand equivalents:** Metroll Trimclad, Lysaght Trimdek/Neetascreen, Stratco Superdek, RnR Ridgeside
-
-**Reference images (for visual accuracy):**
-- Metroll Trimclad technical drawing: https://www.metroll.com.au/wp-content/uploads/metroll_trimclad_24.pdf (page 1 cross-section)
-- Steel Select dimension diagram: https://steelselect.com.au/products/lysaght/lysaght-trimdek
-- Installed fence photo reference: https://steelselect.com.au/products/rr-fencing/rr-fencing-ridgeside
-
----
-
-### Profile 2: Harmony / Metline / Wavelok / Sameside — "harmony"
-
-**The "good neighbour" profile — identical appearance both sides.**
-
-Cross-section type: **Symmetric multi-rib** (more numerous, narrower ribs than Trimclad)
-
-| Dimension | Value | Confidence |
+| Supplier | Standard Profile | Same-Both-Sides Profile |
 |---|---|---|
-| Cover width | ~762 mm | High (3-sheet panel = 2365mm) |
-| Rib height | ~20-25 mm | Medium (not published — estimate from photos) |
-| Number of ribs | 6-8 | Medium (more than Trimclad's 5) |
-| Rib shape | Symmetric trapezoid | High |
-| BMT | 0.35 mm | Confirmed |
+| RNR | Ridgeside | Sameside |
+| Metroll | Trimclad | Harmony |
+| Lysaght | Neetascreen | Smartascreen |
+| Stratco | Superdek | Good Neighbour |
 
-**How to render (2D):**
-Same concept as Trimclad but with **more frequent, narrower ribs**. Key visual difference: the ribs are closer together and the pans are narrower. Both faces look the same (symmetric).
+When supplier changes: the profile dropdown updates to show only that supplier's two options. Default: the standard (first) option.
 
-**How to render (3D):**
-Narrower trapezoid wave: `rib_pitch ≈ 100mm` (vs Trimclad's 152mm), `rib_height ≈ 22mm` (vs 29mm). The shorter, more frequent ribs give a smoother, more refined appearance.
+### Data Model
 
-**Brand equivalents:** Metroll Harmony (WA name) / Metline (east coast), Stratco Wavelok, Lysaght Smartascreen, RnR Sameside
+The `profile` field stores the actual product name as selected:
 
-**Reference images:**
-- Metroll Harmony product page: https://www.metroll.com.au/products/colorbond-fencing/metline-harmony-colorbond-fencing/
-- Steel Select dimension diagram: search "Metroll Metline Harmony" on steelselect.com.au
-- BIMstore 3D model available: https://www.bimstore.co/products/metline-fencing
+```
+profile: "Trimclad"  // stores the exact supplier product name shown in dropdown
+```
 
----
+Valid values depend on supplier:
+- RNR: `"Ridgeside"` | `"Sameside"`
+- Metroll: `"Trimclad"` | `"Harmony"`
+- Lysaght: `"Neetascreen"` | `"Smartascreen"`
+- Stratco: `"Superdek"` | `"Good Neighbour"`
 
-### Profile 3: Corrugated (CGI) — "corrugated"
+When supplier changes, reset profile to that supplier's default (standard profile).
 
-**Traditional Australian sinusoidal wave.**
+### Rendering
 
-Cross-section type: **Pure sine wave**
+Each product has distinct geometry in reality. For V1 rendering, use a generic ribbed sheet appearance (vertical ribs with light/shadow) and vary two things based on profile type:
 
-| Dimension | Value |
-|---|---|
-| Cover width | 762 mm |
-| Rib height (peak-to-trough) | 16 mm |
-| Corrugation pitch | 76 mm |
-| Waves per sheet | 10 |
-| BMT (fencing) | 0.35 mm |
+**Standard profiles** (Ridgeside, Trimclad, Neetascreen, Superdek):
+- Wider pans, fewer ribs, trapezoidal cross-section
+- Different appearance front vs back
+- Cover width: 762 mm, BMT: 0.35 mm
 
-**How to render (2D + 3D):**
-Mathematical sine wave: `y = 8 × sin(2π × x / 76)` where amplitude = 8mm (half of 16mm peak-to-trough). This is the simplest profile to render parametrically.
+**Same-both-sides profiles** (Sameside, Harmony, Smartascreen, Good Neighbour):
+- Narrower pans, more frequent ribs, symmetric cross-section
+- Identical appearance both sides
+- Cover width: ~762 mm, BMT: 0.35 mm
 
-**Brand equivalents:** Metroll Corodek, Lysaght Custom Orb/Customscreen, Stratco CGI Corrugated
-
-**Reference images:**
-- Steel Select CGI diagram: https://steelselect.com.au/products/stratco/stratco-cgi-corrugated
-
----
-
-### Profile Selector in UI
-
-The profile dropdown should appear in the **Header bar** next to Supplier.
-
-**Display names change based on selected supplier:**
-
-| Profile Code | RNR | Metroll | Lysaght | Stratco |
-|---|---|---|---|---|
-| `trimclad` | Ridgeside | Trimclad | Neetascreen | Superdek |
-| `harmony` | Sameside | Harmony | Smartascreen | Wavelok |
-| `corrugated` | Corrugated | Corodek | Customscreen | CGI Corrugated |
-
-Default profile: `trimclad`
-
-When supplier changes: update the profile dropdown labels to match that supplier's product names.
-When profile changes: re-render both Profile View and 3D View with the new corrugation pattern. All calculations stay the same (panel count, post heights etc are profile-independent).
+**Important:** These rendering descriptions are approximate for visual representation only. The material order output must use the exact product name — that's what matters for ordering.
 
 ---
 
@@ -376,7 +344,7 @@ For each panel in the active run:
 
 **The fence must look like actual Colorbond fencing, not a children's drawing.**
 
-- Corrugation pattern: Render according to the selected profile (see Section 4B). The default Trimclad pattern uses vertical lines with alternating widths — wide flat pans (~20px) separated by narrow raised ribs (~3px). The ribs should have a slight highlight (lighter shade) and the pans a slightly darker shade. Other profiles have different patterns — Harmony has more frequent narrower ribs, Corrugated is a smooth sine wave.
+- Corrugation pattern: Render according to the selected profile (see Section 4B). Standard profiles use wider pans with fewer trapezoidal ribs. Same-both-sides profiles have more frequent, narrower symmetric ribs with identical appearance on both sides.
 - Posts: Darker shade than fence sheets. Narrower. Show the C-channel profile shape or at minimum a distinct rectangular post.
 - Post caps: Small triangular/pyramid shape on top.
 - Plinths: Grey rectangular blocks, each 150mm tall. Stack visually under the panel. Slightly different shade to fence sheets.
@@ -546,7 +514,7 @@ Three.js loaded from CDN. Lazy initialization — only load/render when "3D View
 ### 7.3 Fence Geometry
 
 Each panel consists of:
-- **Fence sheet:** A box geometry with corrugated surface matching the selected profile (see Section 4B for exact geometry per profile). Use a displacement map or custom BufferGeometry to create the rib pattern on the face. Trimclad = trapezoidal ribs, Harmony = narrower symmetric ribs, Corrugated = sine wave. If custom geometry is too complex, use a normal map texture to simulate the ribs.
+- **Fence sheet:** A box geometry with ribbed surface matching the selected profile (see Section 4B). Standard profiles = trapezoidal ribs, same-both-sides profiles = narrower symmetric ribs. Use a displacement map or custom BufferGeometry. If custom geometry is too complex, use a normal map texture to simulate the ribs.
 - **Posts:** Box geometry, darker colour, positioned between panels. Height extends from below ground to top.
 - **Top rail / capping:** Thin box along the top of each panel.
 - **Post caps:** Small pyramid (ConeGeometry) on top of each post.
@@ -608,16 +576,16 @@ PANELS & POSTS:
 {Group by post height — list each distinct height separately}
 
 {count} × {height}H × {panelWidth}W panels W/ {postHeight}H posts
-    Profile: {profile} Equivalent
+    Profile: {profile}
     Colour: {colour}
 
 {If different post heights exist, separate lines:}
 {count} × 1800H × 2380W panels W/ 2400H posts
-    Profile: RnR Trimclad Equivalent
+    Profile: Ridgeside
     Colour: Shale Grey
 
 {count} × 1800H × 2380W panels W/ 3000H posts
-    Profile: RnR Trimclad Equivalent
+    Profile: Ridgeside
     Colour: Shale Grey
 
 PLINTHS:
