@@ -1599,6 +1599,71 @@
       },
 
       // ── Profile View: main render ──
+      // Offscreen texture canvas (generated once, cached)
+      _panelTexture: null,
+
+      _generatePanelTexture() {
+        // Procedural corrugation pattern matching Colorbond Trimclad profile photo.
+        // Drawn in near-white (Surfmist) so multiply-blend tints to any colour.
+        const tw = 200;  // texture tile width in px
+        const th = 300;  // texture tile height in px
+        const c = document.createElement('canvas');
+        c.width = tw;
+        c.height = th;
+        const g = c.getContext('2d');
+
+        // Base fill — Surfmist white
+        g.fillStyle = '#E4E2D5';
+        g.fillRect(0, 0, tw, th);
+
+        // Corrugation pattern: groups of ribs matching the photo.
+        // The photo shows ~13 wide pans with narrow trapezoidal ribs between them.
+        // Each rib group: narrow shadow line, bright highlight, narrow shadow.
+        const ribPositions = [];
+        const ribCount = 14;
+        const panWidth = tw / ribCount;
+        for (let r = 0; r < ribCount; r++) {
+          const cx = (r + 0.5) * panWidth;
+          ribPositions.push(cx);
+        }
+
+        for (let r = 0; r < ribPositions.length; r++) {
+          const cx = ribPositions[r];
+          const ribW = panWidth * 0.35;
+
+          // Left shadow edge of rib
+          g.fillStyle = 'rgba(0,0,0,0.08)';
+          g.fillRect(cx - ribW / 2 - 1, 0, 2, th);
+
+          // Rib body — slightly recessed (darker)
+          g.fillStyle = 'rgba(0,0,0,0.04)';
+          g.fillRect(cx - ribW / 2, 0, ribW, th);
+
+          // Right highlight edge of rib
+          g.fillStyle = 'rgba(255,255,255,0.12)';
+          g.fillRect(cx + ribW / 2 - 1, 0, 2, th);
+
+          // Pan highlight (between ribs) — subtle bright strip
+          if (r < ribPositions.length - 1) {
+            const nextCx = ribPositions[r + 1];
+            const midX = cx + ribW / 2 + 2;
+            const midW = (nextCx - ribW / 2 - 2) - midX;
+            if (midW > 2) {
+              g.fillStyle = 'rgba(255,255,255,0.04)';
+              g.fillRect(midX, 0, midW, th);
+            }
+          }
+        }
+
+        // Subtle horizontal grain lines
+        for (let y = 0; y < th; y += 8) {
+          g.fillStyle = `rgba(0,0,0,${0.01 + Math.random() * 0.01})`;
+          g.fillRect(0, y, tw, 1);
+        }
+
+        this._panelTexture = c;
+      },
+
       renderProfileView() {
         const container = document.getElementById('profileViewContainer');
         const canvas = document.getElementById('profileCanvas');
@@ -1614,22 +1679,21 @@
         canvas.height = ch;
         const ctx = canvas.getContext('2d');
 
-        ctx.clearRect(0, 0, cw, ch);
+        // Background
         ctx.fillStyle = '#f0f4f8';
         ctx.fillRect(0, 0, cw, ch);
 
-        // Reset hit regions
-        const hitRegions = [];
-
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run || run.panels.length === 0) {
-          this._profileHitRegions = hitRegions;
           ctx.fillStyle = '#4C6A70';
           ctx.font = '18px Helvetica Neue, Helvetica, Arial, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText('No panels — add a run and set its length', cw / 2, ch / 2);
           return;
         }
+
+        // Generate texture once
+        if (!this._panelTexture) this._generatePanelTexture();
 
         // ── Colour lookup ──
         const allColours = [...COLOURS_STOCK, ...COLOURS_SPECIAL];
@@ -1643,22 +1707,14 @@
           return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
-        const postColour = darkenHex(fenceHex, 0.65);
-        const postCapColour = darkenHex(fenceHex, 0.55);
-        const railColour = darkenHex(fenceHex, 0.6);
-        const ribLight = darkenHex(fenceHex, 1.07);
-        const ribDark = darkenHex(fenceHex, 0.9);
-
-        // ── Profile type ──
-        const supplierData = SUPPLIER_PROFILES[this.job.supplier] || SUPPLIER_PROFILES.RNR;
-        const isSameBothSides = supplierData.profiles[1] === this.job.profile;
+        const postColour = '#5a5a5a';       // flat dark grey
+        const postCapColour = '#4a4a4a';
+        const railColour = '#505050';
 
         // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
         const panelWidthMm = this.getPanelWidthMm();
-        const sheetCoverMm = 762;
-        const sheetsPerPanel = Math.floor(panelWidthMm / sheetCoverMm);
         const postWidthMm = 90;
         const embedDepthMm = 600;
         const capHeightMm = 50;
@@ -1691,29 +1747,24 @@
           if (above > maxPostAbove) maxPostAbove = above;
         });
 
-        // ── Scaling ──
+        // ── Scaling: 90% width, 70% height ──
         const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
         const totalAboveMm = capHeightMm + maxPostAbove;
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
-        const totalVisualHeightMm = totalAboveMm + totalBelowMm + 100;
+        const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
 
         const scaleX = (cw * 0.90) / totalFenceWidthMm;
         const scaleY = (ch * 0.70) / totalVisualHeightMm;
         const scale = Math.min(scaleX, scaleY);
 
-        // Apply pan/zoom
+        // Pan/zoom transform
         ctx.save();
         ctx.translate(this.profilePan.x, this.profilePan.y);
         ctx.scale(this.profileZoom, this.profileZoom);
 
         const fencePixelW = totalFenceWidthMm * scale;
         const originX = (cw / this.profileZoom - fencePixelW) / 2;
-        const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.15;
-
-        // Hover state ref
-        const hover = this._profileHover;
-        const hlIdx = this.highlightedPanelIdx;
-        const ORANGE = '#F15A29';
+        const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.1;
 
         // ── Run label ──
         const labelFontSize = Math.max(11, Math.min(18, 14 * scale * 2.5));
@@ -1721,11 +1772,13 @@
         ctx.font = `700 ${labelFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        const labelX = originX + fencePixelW / 2;
-        const labelY = groundY - (maxPostAbove + capHeightMm) * scale - 10;
-        ctx.fillText(`${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`, labelX, labelY);
+        ctx.fillText(
+          `${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`,
+          originX + fencePixelW / 2,
+          groundY - (maxPostAbove + capHeightMm) * scale - 10
+        );
 
-        // ── Continuous capping rail ──
+        // ── Pre-calculate panel positions for capping rail ──
         let railTopY = Infinity;
         let railLeftX = 0;
         let railRightX = 0;
@@ -1734,11 +1787,10 @@
           for (let i = 0; i <= panelCount; i++) {
             cx += postWidthMm * scale;
             if (i < panelCount) {
-              const panel = run.panels[i];
               const panelW = panelWidthMm * scale;
               const gndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
               const panelGndY = groundY + gndOff * scale;
-              const sheetTopY = panelGndY - panel.height * scale;
+              const sheetTopY = panelGndY - run.panels[i].height * scale;
               if (sheetTopY < railTopY) railTopY = sheetTopY;
               if (i === 0) railLeftX = cx;
               railRightX = cx + panelW;
@@ -1746,45 +1798,44 @@
             }
           }
         }
+
+        // ── Continuous capping rail across ALL panels ──
         const railH = railHeightMm * scale;
         ctx.fillStyle = railColour;
         ctx.fillRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
-        ctx.strokeStyle = darkenHex(fenceHex, 0.5);
+        ctx.strokeStyle = '#404040';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
 
         // ── Draw posts and panels ──
         let cursorX = originX;
+        const pw = postWidthMm * scale;
 
         for (let i = 0; i <= panelCount; i++) {
           const panel = i < panelCount ? run.panels[i] : null;
           const gndOff = groundOffsets[i] * scale;
           const postGndY = groundY + gndOff;
 
-          // ── POST ──
+          // ── POST (dark grey rectangle, cap to footing) ──
           const postInfo = posts[i];
           const postH = postInfo.postSize;
-          const pw = postWidthMm * scale;
           const postAboveMm = postH - embedDepthMm;
           const postTopY = postGndY - postAboveMm * scale;
 
-          // Post body
+          // Post above ground
           ctx.fillStyle = postColour;
           ctx.fillRect(cursorX, postTopY, pw, postAboveMm * scale);
-
-          // Post below ground (dashed)
-          ctx.save();
-          ctx.setLineDash([4, 3]);
-          ctx.strokeStyle = postColour;
-          ctx.lineWidth = 1;
-          const embedH = embedDepthMm * scale;
-          ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedH);
-          ctx.restore();
-
-          // Post border
-          ctx.strokeStyle = darkenHex(fenceHex, 0.5);
+          ctx.strokeStyle = '#404040';
           ctx.lineWidth = 0.5;
           ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
+
+          // Post below ground (dashed footing)
+          ctx.save();
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = '#888';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedDepthMm * scale);
+          ctx.restore();
 
           // Post cap (triangle)
           const capH = capHeightMm * scale;
@@ -1795,167 +1846,73 @@
           ctx.lineTo(cursorX + pw + 1, postTopY);
           ctx.closePath();
           ctx.fill();
-          ctx.strokeStyle = darkenHex(fenceHex, 0.45);
+          ctx.strokeStyle = '#404040';
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
-          // Post hit region (associated with the panel to its right, or left for last post)
-          const postPanelIdx = i < panelCount ? i : i - 1;
-          hitRegions.push({
-            shape: 'rect', x: cursorX, y: postTopY, w: pw, h: postAboveMm * scale,
-            type: 'post', panelIdx: postPanelIdx,
-            label: `P${postPanelIdx + 1} Post (${postH}mm)`
-          });
-
-          // Hover glow on post
-          if (hover && hover.type === 'post' && hover.x === cursorX && hover.y === postTopY) {
-            ctx.save();
-            ctx.strokeStyle = ORANGE;
-            ctx.lineWidth = 2;
-            ctx.shadowColor = ORANGE;
-            ctx.shadowBlur = 6;
-            ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
-            ctx.restore();
-          }
-
           cursorX += pw;
 
-          // ── PANEL ──
+          // ── PANEL (texture-mapped sheets) ──
           if (panel) {
             const panelW = panelWidthMm * scale;
             const sheetH = panel.height * scale;
-            const retH = panel.retaining * scale;
             const plinths = panel.retaining / plinthHeightMm;
 
-            const leftGndOff = groundOffsets[i];
-            const rightGndOff = groundOffsets[i + 1];
-            const panelGndOff = Math.min(leftGndOff, rightGndOff);
+            const panelGndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
             const panelGndY = groundY + panelGndOff * scale;
             const sheetTopY = panelGndY - sheetH;
 
-            const isHighlighted = (hlIdx === i);
+            // Draw the texture stretched to fill the panel, then tint with multiply
+            ctx.save();
+            // Step 1: draw the Surfmist base texture
+            ctx.drawImage(this._panelTexture, cursorX, sheetTopY, panelW, sheetH);
+            // Step 2: multiply-blend the selected Colorbond colour over it
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.fillStyle = fenceHex;
+            ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.restore();
 
-            // ── Individual sheets ──
-            const gapPx = 1;
-            const totalGaps = (sheetsPerPanel - 1) * gapPx;
-            const sheetW = (panelW - totalGaps) / sheetsPerPanel;
+            // Sheet border
+            ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(cursorX, sheetTopY, panelW, sheetH);
 
-            for (let s = 0; s < sheetsPerPanel; s++) {
-              const sx = cursorX + s * (sheetW + gapPx);
-
-              ctx.fillStyle = fenceHex;
-              ctx.fillRect(sx, sheetTopY, sheetW, sheetH);
-
-              // Corrugation ribs
-              if (isSameBothSides) {
-                const ribSpacing = Math.max(3, sheetW / 12);
-                for (let rx = ribSpacing; rx < sheetW; rx += ribSpacing) {
-                  ctx.strokeStyle = (Math.round(rx / ribSpacing) % 2 === 0) ? ribLight : ribDark;
-                  ctx.lineWidth = 0.6;
-                  ctx.beginPath();
-                  ctx.moveTo(sx + rx, sheetTopY);
-                  ctx.lineTo(sx + rx, sheetTopY + sheetH);
-                  ctx.stroke();
-                }
-              } else {
-                const ribSpacing = Math.max(4, sheetW / 8);
-                for (let rx = ribSpacing; rx < sheetW; rx += ribSpacing) {
-                  const isRib = (Math.round(rx / ribSpacing) % 3 === 0);
-                  ctx.strokeStyle = isRib ? ribDark : ribLight;
-                  ctx.lineWidth = isRib ? 1.0 : 0.5;
-                  ctx.beginPath();
-                  ctx.moveTo(sx + rx, sheetTopY);
-                  ctx.lineTo(sx + rx, sheetTopY + sheetH);
-                  ctx.stroke();
-                }
-              }
-
-              // Sheet border
-              ctx.strokeStyle = darkenHex(fenceHex, 0.78);
-              ctx.lineWidth = 0.5;
-              ctx.strokeRect(sx, sheetTopY, sheetW, sheetH);
-
-              // Sheet hit region
-              hitRegions.push({
-                shape: 'rect', x: sx, y: sheetTopY, w: sheetW, h: sheetH,
-                type: 'sheet', panelIdx: i, sheetIdx: s,
-                label: `P${i + 1} Sheet ${s + 1}`
-              });
-
-              // Hover glow on sheet
-              if (hover && hover.type === 'sheet' && hover.panelIdx === i && hover.sheetIdx === s) {
-                ctx.save();
-                ctx.strokeStyle = ORANGE;
-                ctx.lineWidth = 2;
-                ctx.shadowColor = ORANGE;
-                ctx.shadowBlur = 6;
-                ctx.strokeRect(sx, sheetTopY, sheetW, sheetH);
-                ctx.restore();
-              }
-            }
-
-            // ── Highlighted panel (orange border around entire panel) ──
-            if (isHighlighted) {
-              ctx.save();
-              ctx.strokeStyle = ORANGE;
-              ctx.lineWidth = 3;
-              ctx.shadowColor = ORANGE;
-              ctx.shadowBlur = 8;
-              ctx.strokeRect(cursorX - 1, sheetTopY - 1, panelW + 2, sheetH + 2);
-              ctx.restore();
-            }
-
-            // ── Plinths ──
+            // ── Plinths (stacked blocks, 2px gaps, alternating grey) ──
             if (plinths > 0) {
               const plinthH = plinthHeightMm * scale;
-              const plinthGap = Math.max(1, 1.5 * scale);
+              const plinthGap = 2;
               for (let pi = 0; pi < plinths; pi++) {
                 const py = panelGndY + pi * (plinthH + plinthGap);
-                ctx.fillStyle = pi % 2 === 0 ? '#9ca3af' : '#b0b5bc';
+                ctx.fillStyle = pi % 2 === 0 ? '#9ca3af' : '#b4b9c1';
                 ctx.fillRect(cursorX, py, panelW, plinthH);
                 ctx.strokeStyle = '#7b8290';
                 ctx.lineWidth = 0.7;
                 ctx.strokeRect(cursorX, py, panelW, plinthH);
-
-                // Plinth hit region
-                hitRegions.push({
-                  shape: 'rect', x: cursorX, y: py, w: panelW, h: plinthH,
-                  type: 'plinth', panelIdx: i, plinthIdx: pi,
-                  label: `P${i + 1} Plinth ${pi + 1} of ${plinths}`
-                });
-
-                // Hover glow on plinth
-                if (hover && hover.type === 'plinth' && hover.panelIdx === i && hover.plinthIdx === pi) {
-                  ctx.save();
-                  ctx.strokeStyle = ORANGE;
-                  ctx.lineWidth = 2;
-                  ctx.shadowColor = ORANGE;
-                  ctx.shadowBlur = 6;
-                  ctx.strokeRect(cursorX, py, panelW, plinthH);
-                  ctx.restore();
-                }
               }
             }
 
             // ── Ground lines ──
-            const glw = 2;
+            // High side (green) at panel ground
             ctx.strokeStyle = '#22c55e';
-            ctx.lineWidth = glw;
+            ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(cursorX - pw, panelGndY);
             ctx.lineTo(cursorX + panelW + pw, panelGndY);
             ctx.stroke();
 
+            // Low side (brown) at bottom of plinths
             if (plinths > 0) {
-              const plinthGap = Math.max(1, 1.5 * scale);
+              const plinthGap = 2;
               const lowSideY = panelGndY + plinths * (plinthHeightMm * scale + plinthGap);
               ctx.strokeStyle = '#92400e';
-              ctx.lineWidth = glw;
+              ctx.lineWidth = 2;
               ctx.beginPath();
               ctx.moveTo(cursorX - pw, lowSideY);
               ctx.lineTo(cursorX + panelW + pw, lowSideY);
               ctx.stroke();
 
+              // Gradient fill between ground lines
               const grd = ctx.createLinearGradient(0, panelGndY, 0, lowSideY);
               grd.addColorStop(0, 'rgba(34,197,94,0.12)');
               grd.addColorStop(0.3, 'rgba(146,64,14,0.08)');
@@ -1968,48 +1925,25 @@
             const circleCX = cursorX + panelW / 2;
             const circleCY = sheetTopY + sheetH / 2;
             const circleR = Math.max(9, Math.min(18, 14 * scale));
-
-            // Circle highlight when this panel is selected
-            const circleIsHighlighted = isHighlighted;
-            ctx.fillStyle = circleIsHighlighted ? 'rgba(241,90,41,0.15)' : 'rgba(255,255,255,0.88)';
+            ctx.fillStyle = 'rgba(255,255,255,0.88)';
             ctx.beginPath();
             ctx.arc(circleCX, circleCY, circleR, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = circleIsHighlighted ? ORANGE : '#293C46';
-            ctx.lineWidth = circleIsHighlighted ? 2.5 : 1.5;
+            ctx.strokeStyle = '#293C46';
+            ctx.lineWidth = 1.5;
             ctx.stroke();
-            ctx.fillStyle = circleIsHighlighted ? ORANGE : '#293C46';
+            ctx.fillStyle = '#293C46';
             const numFontSize = Math.max(8, Math.min(14, 11 * scale));
             ctx.font = `700 ${numFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
 
-            // Circle hit region (clickable)
-            hitRegions.push({
-              shape: 'circle', cx: circleCX, cy: circleCY, r: circleR + 4,
-              type: 'circle', panelIdx: i,
-              label: `P${i + 1} — click to select`
-            });
-
-            // Hover glow on circle
-            if (hover && hover.type === 'circle' && hover.panelIdx === i) {
-              ctx.save();
-              ctx.strokeStyle = ORANGE;
-              ctx.lineWidth = 2.5;
-              ctx.shadowColor = ORANGE;
-              ctx.shadowBlur = 8;
-              ctx.beginPath();
-              ctx.arc(circleCX, circleCY, circleR + 2, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            }
-
             cursorX += panelW;
           }
         }
 
-        // ── Ground gradient fill ──
+        // ── Ground gradient band ──
         const groundBandTop = groundY;
         const groundBandH = (ch / this.profileZoom) - groundBandTop + 100;
         if (groundBandH > 0) {
@@ -2023,7 +1957,6 @@
         }
 
         ctx.restore();
-        this._profileHitRegions = hitRegions;
       },
 
       generateOutputs() {
