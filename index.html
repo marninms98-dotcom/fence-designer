@@ -1510,8 +1510,6 @@
         const ctx = canvas.getContext('2d');
 
         ctx.clearRect(0, 0, cw, ch);
-
-        // Background
         ctx.fillStyle = '#f0f4f8';
         ctx.fillRect(0, 0, cw, ch);
 
@@ -1529,124 +1527,168 @@
         const colourEntry = allColours.find(c => c.name === this.job.colour) || { hex: '#BDBFBA' };
         const fenceHex = colourEntry.hex;
 
-        // Darken helper
         function darkenHex(hex, factor) {
           const r = parseInt(hex.slice(1, 3), 16);
           const g = parseInt(hex.slice(3, 5), 16);
           const b = parseInt(hex.slice(5, 7), 16);
-          return `rgb(${Math.round(r * factor)},${Math.round(g * factor)},${Math.round(b * factor)})`;
+          return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
-        const postColour = darkenHex(fenceHex, 0.7);
-        const postCapColour = darkenHex(fenceHex, 0.6);
-        const ribLight = darkenHex(fenceHex, 1.08);
-        const ribDark = darkenHex(fenceHex, 0.88);
+        const postColour = darkenHex(fenceHex, 0.65);
+        const postCapColour = darkenHex(fenceHex, 0.55);
+        const railColour = darkenHex(fenceHex, 0.6);
+        const ribLight = darkenHex(fenceHex, 1.07);
+        const ribDark = darkenHex(fenceHex, 0.9);
 
-        // ── Profile type for rib pattern ──
+        // ── Profile type ──
         const supplierData = SUPPLIER_PROFILES[this.job.supplier] || SUPPLIER_PROFILES.RNR;
         const isSameBothSides = supplierData.profiles[1] === this.job.profile;
 
-        // ── Scaling: fit fence into ~70% of canvas ──
+        // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
         const panelWidthMm = this.getPanelWidthMm();
+        const sheetCoverMm = 762;
+        const sheetsPerPanel = Math.floor(panelWidthMm / sheetCoverMm); // typically 3
+        const postWidthMm = 90;
+        const embedDepthMm = 600;
+        const capHeightMm = 50;
+        const railHeightMm = 25;
+        const plinthHeightMm = 150;
 
-        // Find max total height (sheet + retaining) across all panels
+        // Max heights across all panels for scaling
         let maxTotalH = 0;
-        let maxRetaining = 0;
+        let maxStepOffset = 0;
         run.panels.forEach(p => {
           const th = p.height + p.retaining;
           if (th > maxTotalH) maxTotalH = th;
-          if (p.retaining > maxRetaining) maxRetaining = p.retaining;
         });
 
-        const postWidthMm = 90; // C-channel post
-        const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
-        const maxPostAboveGround = maxTotalH;
-        const embedDepth = 600; // below ground
-        const capHeight = 40;
-        const railHeight = 30;
-        const totalVisualHeightMm = maxPostAboveGround + embedDepth + capHeight + 200; // 200mm padding
+        // ── Ground offsets from Step column ──
+        const groundOffsets = new Array(postCount).fill(0);
+        for (let i = 0; i < panelCount; i++) {
+          const step = run.panels[i].step || 'level';
+          if (step === 'down') groundOffsets[i + 1] = groundOffsets[i] + plinthHeightMm;
+          else if (step === 'up') groundOffsets[i + 1] = groundOffsets[i] - plinthHeightMm;
+          else groundOffsets[i + 1] = groundOffsets[i];
+        }
+        const minGndOffset = Math.min(...groundOffsets);
+        for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGndOffset;
+        const maxGndOffset = Math.max(...groundOffsets);
 
-        // Target: fence fills 70% width, 70% height
-        const scaleX = (cw * 0.7) / totalFenceWidthMm;
-        const scaleY = (ch * 0.7) / totalVisualHeightMm;
+        // Posts data
+        const posts = this.getRunPosts(run);
+
+        // Find tallest post above ground
+        let maxPostAbove = 0;
+        posts.forEach(p => {
+          const above = p.postSize - embedDepthMm;
+          if (above > maxPostAbove) maxPostAbove = above;
+        });
+
+        // ── Scaling ──
+        // Total fence width in mm
+        const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
+        // Total visual height: cap + tallest post above ground + max ground step + max retaining below ground + embed
+        const totalAboveMm = capHeightMm + maxPostAbove;
+        const totalBelowMm = maxGndOffset + embedDepthMm + 200; // 200mm extra below
+        const totalVisualHeightMm = totalAboveMm + totalBelowMm + 100; // 100mm label space
+
+        // Auto-fit: ~90% width, ~70% height
+        const scaleX = (cw * 0.90) / totalFenceWidthMm;
+        const scaleY = (ch * 0.70) / totalVisualHeightMm;
         const scale = Math.min(scaleX, scaleY);
 
-        // Apply pan/zoom transform
+        // Apply pan/zoom
         ctx.save();
         ctx.translate(this.profilePan.x, this.profilePan.y);
         ctx.scale(this.profileZoom, this.profileZoom);
 
-        // Origin: centre the fence horizontally, and place ground line at ~75% of canvas height
-        const fencePixelWidth = totalFenceWidthMm * scale;
-        const originX = (cw / this.profileZoom - fencePixelWidth) / 2;
-        const groundY = (ch / this.profileZoom) * 0.75;
+        // Coordinate system: originX = left edge of fence, groundY = base ground line (offset 0)
+        const fencePixelW = totalFenceWidthMm * scale;
+        const originX = (cw / this.profileZoom - fencePixelW) / 2;
+        // Place ground at ~65% of canvas height to leave room for label above and footing below
+        const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.15;
 
         // ── Run label ──
-        const labelY = groundY - (maxPostAboveGround + capHeight + 80) * scale;
+        const labelFontSize = Math.max(11, Math.min(18, 14 * scale * 2.5));
         ctx.fillStyle = '#293C46';
-        ctx.font = `700 ${Math.max(12, 14 * scale * 3)}px Helvetica Neue, Helvetica, Arial, sans-serif`;
+        ctx.font = `700 ${labelFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
         ctx.textAlign = 'center';
-        const labelX = originX + fencePixelWidth / 2;
-        ctx.fillText(`${run.name} · ${panelCount} panels · ${run.length}m`, labelX, labelY);
+        ctx.textBaseline = 'bottom';
+        const labelX = originX + fencePixelW / 2;
+        const labelY = groundY - (maxPostAbove + capHeightMm) * scale - 10;
+        ctx.fillText(`${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`, labelX, labelY);
 
-        // ── Compute ground elevation at each post position based on Step column ──
-        // groundOffsets[i] = mm below the high-side ground at post position i
-        // Step on panel i affects ground between post i and post i+1
-        const groundOffsets = new Array(postCount).fill(0);
-        // Walk through panels: step "down" means ground goes lower (positive offset), "up" means higher (negative offset)
-        for (let i = 0; i < panelCount; i++) {
-          const step = run.panels[i].step || 'level';
-          const retDiff = 150; // each step = one plinth height (150mm)
-          if (step === 'down') {
-            groundOffsets[i + 1] = groundOffsets[i] + retDiff;
-          } else if (step === 'up') {
-            groundOffsets[i + 1] = groundOffsets[i] - retDiff;
-          } else {
-            groundOffsets[i + 1] = groundOffsets[i];
+        // ── Continuous capping rail ──
+        // Find the top of the tallest sheet to set rail position
+        // We need to iterate panels to find the highest sheet top across all panels
+        // The rail runs as one bar from left edge of first panel to right edge of last panel
+        let railTopY = Infinity;
+        let railLeftX = 0;
+        let railRightX = 0;
+        {
+          let cx = originX;
+          for (let i = 0; i <= panelCount; i++) {
+            cx += postWidthMm * scale; // skip post
+            if (i < panelCount) {
+              const panel = run.panels[i];
+              const panelW = panelWidthMm * scale;
+              const gndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
+              const panelGndY = groundY + gndOff * scale;
+              const sheetTopY = panelGndY - panel.height * scale;
+              if (sheetTopY < railTopY) railTopY = sheetTopY;
+              if (i === 0) railLeftX = cx;
+              railRightX = cx + panelW;
+              cx += panelW;
+            }
           }
         }
+        const railH = railHeightMm * scale;
+        ctx.fillStyle = railColour;
+        ctx.fillRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
+        // Rail border
+        ctx.strokeStyle = darkenHex(fenceHex, 0.5);
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
 
-        // Normalise so the highest ground is at 0
-        const minOffset = Math.min(...groundOffsets);
-        for (let i = 0; i < groundOffsets.length; i++) {
-          groundOffsets[i] -= minOffset;
-        }
-
-        // ── Draw each panel ──
+        // ── Draw posts and panels ──
         let cursorX = originX;
-        const posts = this.getRunPosts(run);
 
         for (let i = 0; i <= panelCount; i++) {
           const panel = i < panelCount ? run.panels[i] : null;
 
           // Ground elevation at this post
-          const gndOffset = groundOffsets[i] * scale;
-          const postGroundY = groundY + gndOffset;
+          const gndOff = groundOffsets[i] * scale;
+          const postGndY = groundY + gndOff;
 
           // ── POST ──
           const postInfo = posts[i];
           const postH = postInfo.postSize;
           const pw = postWidthMm * scale;
-          const postAboveGroundMm = postH - embedDepth;
-          const postTopY = postGroundY - postAboveGroundMm * scale;
-          const postBottomY = postGroundY + embedDepth * scale;
+          const postAboveMm = postH - embedDepthMm;
+          const postTopY = postGndY - postAboveMm * scale;
 
-          // Post body
+          // Post body (full height: above + below ground)
           ctx.fillStyle = postColour;
-          ctx.fillRect(cursorX, postTopY, pw, postAboveGroundMm * scale);
+          ctx.fillRect(cursorX, postTopY, pw, postAboveMm * scale);
 
           // Post below ground (dashed)
           ctx.save();
           ctx.setLineDash([4, 3]);
           ctx.strokeStyle = postColour;
           ctx.lineWidth = 1;
-          ctx.strokeRect(cursorX + 1, postGroundY, pw - 2, embedDepth * scale);
+          const embedH = embedDepthMm * scale;
+          ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedH);
           ctx.restore();
 
+          // Post border for definition
+          ctx.strokeStyle = darkenHex(fenceHex, 0.5);
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
+
           // Post cap (triangle)
-          const capH = capHeight * scale;
+          const capH = capHeightMm * scale;
           ctx.fillStyle = postCapColour;
           ctx.beginPath();
           ctx.moveTo(cursorX - 1, postTopY);
@@ -1654,113 +1696,117 @@
           ctx.lineTo(cursorX + pw + 1, postTopY);
           ctx.closePath();
           ctx.fill();
+          ctx.strokeStyle = darkenHex(fenceHex, 0.45);
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
 
           cursorX += pw;
 
-          // ── PANEL (between post i and post i+1) ──
+          // ── PANEL ──
           if (panel) {
             const panelW = panelWidthMm * scale;
             const sheetH = panel.height * scale;
             const retH = panel.retaining * scale;
-            const plinths = panel.retaining / 150;
+            const plinths = panel.retaining / plinthHeightMm;
 
-            // Ground elevations at left and right posts of this panel
-            const leftGndOffset = groundOffsets[i] * scale;
-            const rightGndOffset = groundOffsets[i + 1] * scale;
-            // Use the higher ground (smaller offset) as the high side for the panel
-            const panelGndOffset = Math.min(leftGndOffset, rightGndOffset);
-            const panelGroundY = groundY + panelGndOffset;
+            // Ground for this panel (use higher side)
+            const leftGndOff = groundOffsets[i];
+            const rightGndOff = groundOffsets[i + 1];
+            const panelGndOff = Math.min(leftGndOff, rightGndOff);
+            const panelGndY = groundY + panelGndOff * scale;
+            const sheetTopY = panelGndY - sheetH;
 
-            // Sheet top
-            const sheetTopY = panelGroundY - sheetH;
+            // ── Individual sheets (3 per panel with 1px gaps) ──
+            const gapPx = 1;
+            const totalGaps = (sheetsPerPanel - 1) * gapPx;
+            const sheetW = (panelW - totalGaps) / sheetsPerPanel;
 
-            // ── Top capping rail ──
-            const railH = railHeight * scale;
-            ctx.fillStyle = postColour;
-            ctx.fillRect(cursorX, sheetTopY - railH, panelW, railH);
+            for (let s = 0; s < sheetsPerPanel; s++) {
+              const sx = cursorX + s * (sheetW + gapPx);
 
-            // ── Fence sheet ──
-            ctx.fillStyle = fenceHex;
-            ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+              // Sheet fill
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(sx, sheetTopY, sheetW, sheetH);
 
-            // ── Corrugation ribs ──
-            if (isSameBothSides) {
-              // Same-both-sides: narrower, more frequent symmetric ribs
-              const ribSpacing = Math.max(3, 15 * scale);
-              for (let rx = ribSpacing; rx < panelW; rx += ribSpacing) {
-                ctx.strokeStyle = (Math.round(rx / ribSpacing) % 2 === 0) ? ribLight : ribDark;
-                ctx.lineWidth = 0.6;
-                ctx.beginPath();
-                ctx.moveTo(cursorX + rx, sheetTopY);
-                ctx.lineTo(cursorX + rx, sheetTopY + sheetH);
-                ctx.stroke();
+              // ── Corrugation ribs within each sheet ──
+              if (isSameBothSides) {
+                const ribSpacing = Math.max(3, sheetW / 12);
+                for (let rx = ribSpacing; rx < sheetW; rx += ribSpacing) {
+                  ctx.strokeStyle = (Math.round(rx / ribSpacing) % 2 === 0) ? ribLight : ribDark;
+                  ctx.lineWidth = 0.6;
+                  ctx.beginPath();
+                  ctx.moveTo(sx + rx, sheetTopY);
+                  ctx.lineTo(sx + rx, sheetTopY + sheetH);
+                  ctx.stroke();
+                }
+              } else {
+                const ribSpacing = Math.max(4, sheetW / 8);
+                for (let rx = ribSpacing; rx < sheetW; rx += ribSpacing) {
+                  const isRib = (Math.round(rx / ribSpacing) % 3 === 0);
+                  ctx.strokeStyle = isRib ? ribDark : ribLight;
+                  ctx.lineWidth = isRib ? 1.0 : 0.5;
+                  ctx.beginPath();
+                  ctx.moveTo(sx + rx, sheetTopY);
+                  ctx.lineTo(sx + rx, sheetTopY + sheetH);
+                  ctx.stroke();
+                }
               }
-            } else {
-              // Standard: wider pans, fewer trapezoidal ribs
-              const ribSpacing = Math.max(5, 25 * scale);
-              for (let rx = ribSpacing; rx < panelW; rx += ribSpacing) {
-                const isRib = (Math.round(rx / ribSpacing) % 3 === 0);
-                ctx.strokeStyle = isRib ? ribDark : ribLight;
-                ctx.lineWidth = isRib ? 1.2 : 0.5;
-                ctx.beginPath();
-                ctx.moveTo(cursorX + rx, sheetTopY);
-                ctx.lineTo(cursorX + rx, sheetTopY + sheetH);
-                ctx.stroke();
-              }
+
+              // Sheet border
+              ctx.strokeStyle = darkenHex(fenceHex, 0.78);
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(sx, sheetTopY, sheetW, sheetH);
             }
 
-            // Sheet border
-            ctx.strokeStyle = darkenHex(fenceHex, 0.75);
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(cursorX, sheetTopY, panelW, sheetH);
-
-            // ── Plinths (stacked grey blocks below sheet) ──
+            // ── Plinths (stacked blocks below sheet, with visible gaps) ──
             if (plinths > 0) {
-              const plinthH = 150 * scale;
+              const plinthH = plinthHeightMm * scale;
+              const plinthGap = Math.max(1, 1.5 * scale);
               for (let pi = 0; pi < plinths; pi++) {
-                const py = panelGroundY + pi * plinthH;
-                ctx.fillStyle = pi % 2 === 0 ? '#9ca3af' : '#8b95a0';
+                const py = panelGndY + pi * (plinthH + plinthGap);
+                ctx.fillStyle = pi % 2 === 0 ? '#9ca3af' : '#b0b5bc';
                 ctx.fillRect(cursorX, py, panelW, plinthH);
-                ctx.strokeStyle = '#6b7280';
-                ctx.lineWidth = 0.5;
+                ctx.strokeStyle = '#7b8290';
+                ctx.lineWidth = 0.7;
                 ctx.strokeRect(cursorX, py, panelW, plinthH);
               }
             }
 
             // ── Ground lines ──
-            // High side (customer side) = green line at fence base (panelGroundY)
-            const groundLineWidth = 2;
+            const glw = 2;
+            // High side (green) at panel ground level
             ctx.strokeStyle = '#22c55e';
-            ctx.lineWidth = groundLineWidth;
+            ctx.lineWidth = glw;
             ctx.beginPath();
-            ctx.moveTo(cursorX - pw, panelGroundY);
-            ctx.lineTo(cursorX + panelW + pw, panelGroundY);
+            ctx.moveTo(cursorX - pw, panelGndY);
+            ctx.lineTo(cursorX + panelW + pw, panelGndY);
             ctx.stroke();
 
-            // Low side (neighbour side) = brown line at bottom of plinths
+            // Low side (brown) at bottom of plinths
             if (plinths > 0) {
-              const lowSideY = panelGroundY + retH;
+              const plinthGap = Math.max(1, 1.5 * scale);
+              const lowSideY = panelGndY + plinths * (plinthHeightMm * scale + plinthGap);
               ctx.strokeStyle = '#92400e';
-              ctx.lineWidth = groundLineWidth;
+              ctx.lineWidth = glw;
               ctx.beginPath();
               ctx.moveTo(cursorX - pw, lowSideY);
               ctx.lineTo(cursorX + panelW + pw, lowSideY);
               ctx.stroke();
 
-              // Ground fill between high and low side
-              const grd = ctx.createLinearGradient(0, panelGroundY, 0, lowSideY);
-              grd.addColorStop(0, 'rgba(34,197,94,0.15)');
-              grd.addColorStop(0.3, 'rgba(146,64,14,0.1)');
-              grd.addColorStop(1, 'rgba(146,64,14,0.2)');
+              // Ground gradient fill between high and low side
+              const grd = ctx.createLinearGradient(0, panelGndY, 0, lowSideY);
+              grd.addColorStop(0, 'rgba(34,197,94,0.12)');
+              grd.addColorStop(0.3, 'rgba(146,64,14,0.08)');
+              grd.addColorStop(1, 'rgba(146,64,14,0.15)');
               ctx.fillStyle = grd;
-              ctx.fillRect(cursorX, panelGroundY, panelW, retH);
+              ctx.fillRect(cursorX, panelGndY, panelW, lowSideY - panelGndY);
             }
 
             // ── Panel number (circled) ──
             const circleCX = cursorX + panelW / 2;
             const circleCY = sheetTopY + sheetH / 2;
-            const circleR = Math.max(10, 16 * scale);
-            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            const circleR = Math.max(9, Math.min(18, 14 * scale));
+            ctx.fillStyle = 'rgba(255,255,255,0.88)';
             ctx.beginPath();
             ctx.arc(circleCX, circleCY, circleR, 0, Math.PI * 2);
             ctx.fill();
@@ -1768,7 +1814,8 @@
             ctx.lineWidth = 1.5;
             ctx.stroke();
             ctx.fillStyle = '#293C46';
-            ctx.font = `700 ${Math.max(9, 12 * scale)}px Helvetica Neue, Helvetica, Arial, sans-serif`;
+            const numFontSize = Math.max(8, Math.min(14, 11 * scale));
+            ctx.font = `700 ${numFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
@@ -1777,18 +1824,17 @@
           }
         }
 
-        // ── Ground gradient fill below ground line (grass to dirt) ──
-        // Draw a full-width ground band at the bottom
+        // ── Ground gradient fill across the full fence width ──
         const groundBandTop = groundY;
-        const groundBandH = ch / this.profileZoom - groundBandTop + 50;
+        const groundBandH = (ch / this.profileZoom) - groundBandTop + 100;
         if (groundBandH > 0) {
           const grdGround = ctx.createLinearGradient(0, groundBandTop, 0, groundBandTop + groundBandH);
-          grdGround.addColorStop(0, 'rgba(74, 222, 128, 0.18)');
-          grdGround.addColorStop(0.15, 'rgba(74, 222, 128, 0.08)');
-          grdGround.addColorStop(0.4, 'rgba(146,64,14,0.06)');
-          grdGround.addColorStop(1, 'rgba(146,64,14,0.12)');
+          grdGround.addColorStop(0, 'rgba(74, 222, 128, 0.15)');
+          grdGround.addColorStop(0.12, 'rgba(74, 222, 128, 0.06)');
+          grdGround.addColorStop(0.4, 'rgba(146,64,14,0.05)');
+          grdGround.addColorStop(1, 'rgba(146,64,14,0.1)');
           ctx.fillStyle = grdGround;
-          ctx.fillRect(originX - 20, groundBandTop, fencePixelWidth + 40, groundBandH);
+          ctx.fillRect(originX - 30, groundBandTop, fencePixelW + 60, groundBandH);
         }
 
         ctx.restore();
