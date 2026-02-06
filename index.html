@@ -856,6 +856,7 @@
         }
 
         this.updateProfileDropdown();
+        this._loadPanelTexture();
         this.render();
 
         // Resize handler for profile view canvas
@@ -1599,69 +1600,18 @@
       },
 
       // ── Profile View: main render ──
-      // Offscreen texture canvas (generated once, cached)
-      _panelTexture: null,
+      // Panel texture image (loaded from file, cached)
+      _panelTextureImg: null,
+      _panelTextureLoaded: false,
 
-      _generatePanelTexture() {
-        // Procedural corrugation pattern matching Colorbond Trimclad profile photo.
-        // Drawn in near-white (Surfmist) so multiply-blend tints to any colour.
-        const tw = 200;  // texture tile width in px
-        const th = 300;  // texture tile height in px
-        const c = document.createElement('canvas');
-        c.width = tw;
-        c.height = th;
-        const g = c.getContext('2d');
-
-        // Base fill — Surfmist white
-        g.fillStyle = '#E4E2D5';
-        g.fillRect(0, 0, tw, th);
-
-        // Corrugation pattern: groups of ribs matching the photo.
-        // The photo shows ~13 wide pans with narrow trapezoidal ribs between them.
-        // Each rib group: narrow shadow line, bright highlight, narrow shadow.
-        const ribPositions = [];
-        const ribCount = 14;
-        const panWidth = tw / ribCount;
-        for (let r = 0; r < ribCount; r++) {
-          const cx = (r + 0.5) * panWidth;
-          ribPositions.push(cx);
-        }
-
-        for (let r = 0; r < ribPositions.length; r++) {
-          const cx = ribPositions[r];
-          const ribW = panWidth * 0.35;
-
-          // Left shadow edge of rib
-          g.fillStyle = 'rgba(0,0,0,0.08)';
-          g.fillRect(cx - ribW / 2 - 1, 0, 2, th);
-
-          // Rib body — slightly recessed (darker)
-          g.fillStyle = 'rgba(0,0,0,0.04)';
-          g.fillRect(cx - ribW / 2, 0, ribW, th);
-
-          // Right highlight edge of rib
-          g.fillStyle = 'rgba(255,255,255,0.12)';
-          g.fillRect(cx + ribW / 2 - 1, 0, 2, th);
-
-          // Pan highlight (between ribs) — subtle bright strip
-          if (r < ribPositions.length - 1) {
-            const nextCx = ribPositions[r + 1];
-            const midX = cx + ribW / 2 + 2;
-            const midW = (nextCx - ribW / 2 - 2) - midX;
-            if (midW > 2) {
-              g.fillStyle = 'rgba(255,255,255,0.04)';
-              g.fillRect(midX, 0, midW, th);
-            }
-          }
-        }
-
-        // Subtle horizontal grain lines
-        for (let y = 0; y < th; y += 8) {
-          g.fillStyle = `rgba(0,0,0,${0.01 + Math.random() * 0.01})`;
-          g.fillRect(0, y, tw, 1);
-        }
-
-        this._panelTexture = c;
+      _loadPanelTexture() {
+        const img = new Image();
+        img.onload = () => {
+          this._panelTextureImg = img;
+          this._panelTextureLoaded = true;
+          this.renderProfileView();
+        };
+        img.src = 'textures/panel_harmony_surfmist.png';
       },
 
       renderProfileView() {
@@ -1691,9 +1641,6 @@
           ctx.fillText('No panels — add a run and set its length', cw / 2, ch / 2);
           return;
         }
-
-        // Generate texture once
-        if (!this._panelTexture) this._generatePanelTexture();
 
         // ── Colour lookup ──
         const allColours = [...COLOURS_STOCK, ...COLOURS_SPECIAL];
@@ -1862,15 +1809,21 @@
             const panelGndY = groundY + panelGndOff * scale;
             const sheetTopY = panelGndY - sheetH;
 
-            // Draw the texture stretched to fill the panel, then tint with multiply
+            // Draw the panel texture, then tint with multiply
             ctx.save();
-            // Step 1: draw the Surfmist base texture
-            ctx.drawImage(this._panelTexture, cursorX, sheetTopY, panelW, sheetH);
-            // Step 2: multiply-blend the selected Colorbond colour over it
-            ctx.globalCompositeOperation = 'multiply';
-            ctx.fillStyle = fenceHex;
-            ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
-            ctx.globalCompositeOperation = 'source-over';
+            if (this._panelTextureLoaded) {
+              // Step 1: draw the photorealistic panel texture stretched to fit
+              ctx.drawImage(this._panelTextureImg, cursorX, sheetTopY, panelW, sheetH);
+              // Step 2: multiply-blend the selected Colorbond colour over it
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+              ctx.globalCompositeOperation = 'source-over';
+            } else {
+              // Fallback: flat rectangle in selected colour while image loads
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+            }
             ctx.restore();
 
             // Sheet border
