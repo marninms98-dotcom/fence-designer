@@ -422,7 +422,7 @@
         </div>
         <div class="modal-bottom">
             <button class="m-btn m-btn-sec" onclick="closeModal()">Close</button>
-            <button class="m-btn m-btn-pri" onclick="copyOutput()">📋 Copy</button>
+            <button class="m-btn m-btn-pri" onclick="copyOutput(event)">📋 Copy</button>
         </div>
     </div>
 </div>
@@ -441,17 +441,31 @@ const COLOURS = {
 };
 
 const POST_SIZES = [2400, 2700, 3000, 3300, 3600];
+const POST_FOOTING_MM = 600;
+const GST_RATE = 0.1;
+const DEFAULT_PRICE_PER_M = 115;
+const SCALE_3D = 0.55;
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function parsePricePerM() {
+    const val = parseFloat(document.getElementById('pricePerM')?.value);
+    return Number.isFinite(val) ? val : DEFAULT_PRICE_PER_M;
+}
 
 // ========== STATE ==========
 let job = { ref: '', client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
 let curRun = 0, selPanel = -1, curTab = 'material', dirty = false;
-let scene, camera, renderer, threeReady = false;
+let scene, camera, renderer, threeReady = false, resizeObserver = null;
 
 // ========== INIT ==========
 function init() {
-    document.getElementById('jobDate')?.setAttribute('value', job.date);
     const saved = localStorage.getItem('fenceJob_v12');
-    if (saved) { try { job = JSON.parse(saved); curRun = 0; } catch(e) { createDefault(); } }
+    if (saved) { try { job = JSON.parse(saved); curRun = 0; } catch(e) { console.error('Failed to parse saved job data:', e); createDefault(); } }
     else { createDefault(); }
     loadUI();
     renderAll();
@@ -550,8 +564,14 @@ function applyHeightToAll() {
 
 // ========== QUICK RETAINING ==========
 function applyQuickRetaining() {
-    const from = parseInt(document.getElementById('retFromPanel').value) - 1;
-    const to = parseInt(document.getElementById('retToPanel').value) - 1;
+    const fromVal = parseInt(document.getElementById('retFromPanel').value);
+    const toVal = parseInt(document.getElementById('retToPanel').value);
+    if (fromVal > toVal) {
+        alert('"From" panel must be less than or equal to "To" panel');
+        return;
+    }
+    const from = fromVal - 1;
+    const to = toVal - 1;
     const val = parseInt(document.getElementById('retValue').value);
     const run = job.runs[curRun];
     for (let i = Math.max(0, from); i <= Math.min(run.panels.length - 1, to); i++) {
@@ -597,7 +617,14 @@ function addGate() {
 
 function updateGate(i, field, val) {
     if (field === 'type') job.gates[i].type = val;
-    if (field === 'width') job.gates[i].width = parseInt(val) || 900;
+    if (field === 'width') {
+        const w = parseInt(val);
+        if (!Number.isFinite(w) || w < 600 || w > 6000) {
+            alert('Gate width must be between 600mm and 6000mm');
+            return;
+        }
+        job.gates[i].width = w;
+    }
     if (field === 'afterPanel') job.gates[i].afterPanel = parseInt(val);
     if (field === 'run') job.gates[i].runIndex = parseInt(val);
     renderGates(); updateStats(); autoSave();
@@ -620,11 +647,22 @@ function getStep(run, i) {
 function getTotalHeight(p) { return p.height + p.retaining; }
 
 function getPostHeight(p, run, i) {
-    const footing = 600, ext = run.extension || 0;
+    const ext = run.extension || 0;
     let maxH = p.height + p.retaining;
-    if (i > 0) { const prev = run.panels[i-1]; maxH = Math.max(maxH, prev.height + prev.retaining); }
-    const req = maxH + footing + ext;
-    return POST_SIZES.find(s => s >= req) || POST_SIZES[POST_SIZES.length - 1];
+    if (i > 0) {
+        const prev = run.panels[i - 1];
+        maxH = Math.max(maxH, prev.height + prev.retaining);
+    }
+    if (i < run.panels.length - 1) {
+        const next = run.panels[i + 1];
+        maxH = Math.max(maxH, next.height + next.retaining);
+    }
+    const req = maxH + POST_FOOTING_MM + ext;
+    const size = POST_SIZES.find(s => s >= req);
+    if (!size) {
+        console.warn(`Post ${i + 1}: required ${req}mm exceeds max available ${POST_SIZES[POST_SIZES.length - 1]}mm`);
+    }
+    return size || POST_SIZES[POST_SIZES.length - 1];
 }
 
 function needsPatio(p) { return getPlinths(p) >= 3; }
@@ -645,7 +683,7 @@ function renderAll() { renderTabs(); renderSettings(); renderTable(); renderGate
 function renderTabs() {
     document.getElementById('runTabs').innerHTML = job.runs.map((r, i) => `
         <button class="run-tab ${i === curRun ? 'active' : ''}" onclick="selectRun(${i})">
-            ${r.name}<span class="num">(${r.panels.length})</span>
+            ${escapeHtml(r.name)}<span class="num">(${r.panels.length})</span>
         </button>
     `).join('');
 }
@@ -712,7 +750,7 @@ function renderGates() {
         return;
     }
     box.innerHTML = job.gates.map((g, i) => {
-        const runOpts = job.runs.map((r, ri) => `<option value="${ri}" ${g.runIndex===ri?'selected':''}>${r.name}</option>`).join('');
+        const runOpts = job.runs.map((r, ri) => `<option value="${ri}" ${g.runIndex===ri?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
         const maxP = job.runs[g.runIndex || 0]?.panels.length || 8;
         return `
         <div class="gate-row">
@@ -743,8 +781,8 @@ function updateStats() {
     });
     posts += job.gates.length * 2;
     const metres = (panels * pw) / 1000;
-    const pricePerM = parseFloat(document.getElementById('pricePerM')?.value) || 115;
-    const estimate = metres * pricePerM * 1.1; // +10% GST
+    const pricePerM = parsePricePerM();
+    const estimate = metres * pricePerM * (1 + GST_RATE);
 
     document.getElementById('sMetres').textContent = metres.toFixed(1);
     document.getElementById('sPanels').textContent = panels;
@@ -757,7 +795,8 @@ function updateStats() {
 // ========== CANVAS RESIZE ==========
 function setupResize() {
     const box = document.querySelector('.canvas-box');
-    new ResizeObserver(entries => {
+    if (resizeObserver) resizeObserver.disconnect();
+    resizeObserver = new ResizeObserver(entries => {
         for (let e of entries) {
             const { width, height } = e.contentRect;
             if (width > 0 && height > 0) {
@@ -765,7 +804,8 @@ function setupResize() {
                 if (threeReady) { renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); }
             }
         }
-    }).observe(box);
+    });
+    resizeObserver.observe(box);
 }
 
 // ========== PROFILE VIEW ==========
@@ -968,11 +1008,16 @@ function render3D() {
 
     const rem = [];
     scene.traverse(o => { if (o.userData.fence) rem.push(o); });
-    rem.forEach(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); scene.remove(o); });
+    const disposedMats = new Set();
+    rem.forEach(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && !disposedMats.has(o.material)) { o.material.dispose(); disposedMats.add(o.material); }
+        scene.remove(o);
+    });
 
     const col = new THREE.Color(COLOURS[job.colour]);
     const pwM = SUPPLIERS[job.supplier].width / 1000;
-    const sc = 0.55;
+    const sc = SCALE_3D;
 
     let offX = 0, totalW = 0, maxH = 0;
     job.runs.forEach(run => { totalW += run.panels.length * pwM * sc; run.panels.forEach(p => { const h = (p.height / 1000) * sc; if (h > maxH) maxH = h; }); });
@@ -1079,7 +1124,7 @@ function switchTab(btn, tab) {
 
 function renderOutput() {
     const spec = SUPPLIERS[job.supplier];
-    const pricePerM = parseFloat(document.getElementById('pricePerM')?.value) || 115;
+    const pricePerM = parsePricePerM();
     let totalPanels = 0, totalPlinths = 0, totalPosts = 0, totalPatio = 0;
     let groups = {};
 
@@ -1102,9 +1147,12 @@ function renderOutput() {
     let out = '';
 
     if (curTab === 'material') {
-        const del = new Date(job.date || new Date());
-        del.setDate(del.getDate() - 1);
-        const delStr = del.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+        const deliveryDate = new Date(job.date || new Date());
+        deliveryDate.setDate(deliveryDate.getDate() - 1);
+        // Skip weekends: if Saturday go to Friday, if Sunday go to Friday
+        if (deliveryDate.getDay() === 0) deliveryDate.setDate(deliveryDate.getDate() - 2);
+        if (deliveryDate.getDay() === 6) deliveryDate.setDate(deliveryDate.getDate() - 1);
+        const deliveryStr = deliveryDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
         let items = [], n = 1;
         Object.values(groups).forEach(g => {
             items.push(`${n}) ${g.count} x ${g.sheetH}mm panels with ${g.postH}mm posts\n   Profile: ${spec.profile}\n   Colour: ${job.colour}`);
@@ -1131,7 +1179,7 @@ Hi Team,
 
 Please order the following for delivery:
 
-Delivery: ${delStr}
+Delivery: ${deliveryStr}
 Address:  ${job.address || '[Address]'}
 Contact:  ${job.client || '[Client]'}
 
@@ -1197,7 +1245,7 @@ SUMMARY
 † = Patio tube required (3+ plinths / 450mm+ retaining)`;
     } else {
         const sub = totalM * pricePerM;
-        const gst = sub * 0.1;
+        const gst = sub * GST_RATE;
         const total = sub + gst;
 
         out = `════════════════════════════════════════════════
@@ -1239,10 +1287,10 @@ ABN: XX XXX XXX XXX`;
     document.getElementById('outputPre').textContent = out;
 }
 
-function copyOutput() {
+function copyOutput(e) {
     const txt = document.getElementById('outputPre').textContent;
+    const btn = e.target.closest('.m-btn-pri');
     navigator.clipboard.writeText(txt).then(() => {
-        const btn = event.target;
         const orig = btn.innerHTML;
         btn.innerHTML = '✓ Copied!';
         setTimeout(() => btn.innerHTML = orig, 1500);
