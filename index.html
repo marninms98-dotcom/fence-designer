@@ -1,1488 +1,968 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecureWorks WA - Fence Designer Pro</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <style>
-        :root {
-            --primary: #059669;
-            --primary-dark: #047857;
-            --primary-light: #d1fae5;
-            --accent: #d97706;
-            --accent-light: #fef3c7;
-            --bg: #ffffff;
-            --surface: #f8fafc;
-            --surface-2: #f1f5f9;
-            --border: #e2e8f0;
-            --text: #0f172a;
-            --text-secondary: #475569;
-            --text-muted: #94a3b8;
-            --danger: #dc2626;
-            --info: #0284c7;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fence Designer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f5f5;
+    }
 
-        html {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: var(--surface);
-            color: var(--text);
-            font-size: 14px;
-            line-height: 1.5;
-        }
+    /* Header Bar - Section 4.1 */
+    .header {
+      background: #1a3a2a;
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
 
-        body { min-height: 100vh; }
+    .header-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
 
-        /* ===== HEADER ===== */
-        .header {
-            background: linear-gradient(135deg, #065f46 0%, #059669 100%);
-            padding: 0 24px;
-            display: flex;
-            align-items: center;
-            height: 64px;
-            gap: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            position: relative;
-            z-index: 100;
-        }
+    .header-group label {
+      font-size: 11px;
+      opacity: 0.9;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
 
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-        }
+    .header-group input,
+    .header-group select {
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
 
-        .logo-mark {
-            width: 42px;
-            height: 42px;
-            background: white;
-            border-radius: 10px;
-            display: grid;
-            place-items: center;
-            color: var(--primary);
-            font-weight: 800;
-            font-size: 16px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        }
+    .header-group input {
+      min-width: 120px;
+    }
 
-        .logo-text { color: white; }
-        .logo-text .brand { font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
-        .logo-text .sub { font-size: 11px; opacity: 0.85; font-weight: 500; }
+    .header-group select {
+      min-width: 140px;
+    }
 
-        .header-sep { width: 1px; height: 32px; background: rgba(255,255,255,0.25); }
+    /* Main Layout - Section 4 */
+    .main {
+      display: flex;
+      height: calc(100vh - 80px);
+    }
 
-        .job-fields { display: flex; gap: 12px; align-items: center; flex: 1; }
+    .left-panel {
+      width: 40%;
+      background: white;
+      overflow-y: auto;
+      border-right: 1px solid #ddd;
+    }
 
-        .field { display: flex; flex-direction: column; gap: 2px; }
-        .field label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.75); font-weight: 600; }
-        .field input, .field select { border: none; border-radius: 6px; padding: 7px 10px; font-size: 13px; background: rgba(255,255,255,0.95); color: var(--text); font-weight: 500; }
+    .right-panel {
+      width: 60%;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+    }
 
-        .header-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-        .save-status { font-size: 12px; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.15); padding: 6px 14px; border-radius: 20px; font-weight: 500; }
-        .btn-new { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    /* Run Tabs */
+    .run-tabs {
+      display: flex;
+      background: #e9ecef;
+      border-bottom: 2px solid #dee2e6;
+      padding: 8px 8px 0 8px;
+      gap: 4px;
+    }
 
-        /* ===== MAIN LAYOUT ===== */
-        .main { display: flex; height: calc(100vh - 64px); }
+    .run-tab {
+      padding: 8px 16px;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      font-size: 14px;
+      position: relative;
+    }
 
-        /* ===== LEFT PANEL ===== */
-        .panel-left { width: 340px; background: white; border-right: 1px solid var(--border); display: flex; flex-direction: column; transition: width 0.25s ease; flex-shrink: 0; }
-        .panel-left.collapsed { width: 0; overflow: hidden; border-right: none; }
-        .collapse-btn { position: absolute; top: 8px; left: 8px; z-index: 50; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: white; color: var(--text-secondary); font-size: 16px; cursor: pointer; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-        .collapse-btn:hover { background: var(--surface-2); }
+    .run-tab.active {
+      background: white;
+      font-weight: 600;
+      border-bottom: 2px solid white;
+      margin-bottom: -2px;
+    }
 
-        .runs-header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
-        .runs-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .run-tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 2px solid var(--border); background: white; color: var(--text-secondary); }
-        .run-tab.active { background: var(--primary); border-color: var(--primary); color: white; }
-        .run-tab .num { opacity: 0.7; margin-left: 4px; font-weight: 500; }
-        .btn-add-run { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 2px dashed var(--primary); background: var(--primary-light); color: var(--primary); }
+    .run-tab:not(.active) {
+      background: #f8f9fa;
+      color: #6c757d;
+    }
 
-        .run-settings { padding: 16px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: white; }
-        .setting { display: flex; flex-direction: column; gap: 4px; }
-        .setting label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
-        .setting input, .setting select { padding: 10px 12px; border: 2px solid var(--border); border-radius: 8px; font-size: 14px; background: white; color: var(--text); font-weight: 500; }
-        .setting input:focus, .setting select:focus { outline: none; border-color: var(--primary); }
-        .length-group { display: flex; gap: 6px; }
-        .length-group input { flex: 1; min-width: 0; }
-        .length-group select { width: 58px; padding: 10px 6px; }
+    .run-tab:not(.active):hover {
+      background: #e9ecef;
+    }
 
-        .run-actions { grid-column: 1 / -1; display: flex; gap: 10px; padding-top: 4px; flex-wrap: wrap; }
-        .btn { padding: 9px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: 2px solid var(--border); background: white; color: var(--text-secondary); }
-        .btn:hover { border-color: var(--text-secondary); }
-        .btn-danger { color: var(--danger); border-color: #fecaca; }
-        .btn-danger:hover { background: #fee2e2; border-color: var(--danger); }
-        .btn-accent { color: var(--accent); border-color: var(--accent-light); background: var(--accent-light); }
-        .btn-accent:hover { background: var(--accent); color: white; }
+    .add-run-btn {
+      padding: 8px 16px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
 
-        /* ===== QUICK RETAINING TOOL ===== */
-        .quick-ret { grid-column: 1 / -1; background: var(--accent-light); border-radius: 8px; padding: 12px; margin-top: 4px; }
-        .quick-ret-title { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; margin-bottom: 8px; }
-        .quick-ret-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .quick-ret-row span { font-size: 12px; color: var(--text-secondary); }
-        .quick-ret-row select, .quick-ret-row input { padding: 6px 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 13px; background: white; }
-        .quick-ret-row input { width: 50px; }
-        .quick-ret-row button { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; background: var(--accent); color: white; }
+    .add-run-btn:hover {
+      background: #218838;
+    }
 
-        /* ===== PANEL TABLE ===== */
-        .table-wrap { flex: 1; overflow-y: auto; }
-        .panel-table { width: 100%; border-collapse: collapse; }
-        .panel-table th { position: sticky; top: 0; background: var(--surface-2); padding: 10px 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; }
-        .panel-table td { padding: 6px; border-bottom: 1px solid var(--border); background: white; vertical-align: middle; }
-        .panel-table tr:hover td { background: var(--primary-light); }
-        .panel-table tr.selected td { background: #a7f3d0; }
+    /* Run Content */
+    .run-content {
+      padding: 20px;
+    }
 
-        .p-num { font-weight: 700; color: var(--primary); cursor: pointer; font-size: 13px; }
-        .p-num:hover { text-decoration: underline; }
+    .run-settings {
+      background: #f8f9fa;
+      padding: 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
 
-        .panel-table select { padding: 4px 6px; border: 2px solid transparent; border-radius: 4px; font-size: 12px; background: transparent; color: var(--text); font-weight: 500; width: 100%; }
-        .panel-table select:hover { background: var(--surface); border-color: var(--border); }
-        .panel-table select:focus { outline: none; border-color: var(--primary); background: white; }
+    .run-settings h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #495057;
+    }
 
-        .ret-visual { display: flex; gap: 2px; }
-        .ret-block { width: 8px; height: 8px; background: var(--text-secondary); border-radius: 2px; }
-        .ret-block.empty { background: var(--border); }
+    .run-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
 
-        .step-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; font-size: 11px; font-weight: 700; }
-        .step-icon.down { background: #fee2e2; color: var(--danger); }
-        .step-icon.up { background: var(--primary-light); color: var(--primary); }
-        .step-icon.level { background: var(--surface-2); color: var(--text-muted); }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
 
-        .total-ht { font-weight: 700; color: var(--info); font-size: 11px; }
-        .post-ht { font-weight: 700; color: var(--primary); font-size: 11px; }
-        .post-ht.patio { color: var(--accent); }
-        .post-ht.patio::after { content: '†'; font-size: 9px; margin-left: 1px; }
+    .form-group label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #495057;
+    }
 
-        .btn-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 14px; border-radius: 4px; }
-        .btn-remove:hover { background: #fee2e2; color: var(--danger); }
+    .form-group input,
+    .form-group select {
+      padding: 6px 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 14px;
+    }
 
-        .add-row td { padding: 10px; text-align: center; }
-        .btn-add-panel { padding: 6px 14px; border: 2px solid var(--primary); border-radius: 6px; background: var(--primary-light); color: var(--primary); font-size: 11px; font-weight: 600; cursor: pointer; }
+    /* Quick Retaining Tool */
+    .quick-retaining {
+      background: #e7f3ff;
+      border: 1px solid #b3d9ff;
+      padding: 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
 
-        /* ===== GATES ===== */
-        .gates-section { padding: 16px; border-top: 2px solid var(--border); background: var(--surface); }
-        .gates-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .gates-header h4 { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-        .gate-row { display: flex; align-items: center; gap: 6px; padding: 10px; background: white; border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border); flex-wrap: wrap; }
-        .gate-row select, .gate-row input { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; background: white; }
-        .gate-row input { width: 60px; }
-        .gate-row span { font-size: 11px; color: var(--text-muted); }
+    .quick-retaining h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #004085;
+    }
 
-        /* ===== RIGHT PANEL ===== */
-        .panel-right { flex: 1; display: flex; flex-direction: column; background: var(--surface-2); }
+    .quick-retaining-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
 
-        .viz-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: white; border-bottom: 1px solid var(--border); gap: 16px; flex-wrap: wrap; }
-        .view-tabs { display: flex; background: var(--surface-2); padding: 4px; border-radius: 10px; gap: 4px; }
-        .view-tab { padding: 10px 18px; border: none; background: transparent; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
-        .view-tab.active { background: white; color: var(--text); box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+    .quick-retaining button {
+      padding: 6px 16px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
 
-        .stats { display: flex; gap: 20px; align-items: center; }
-        .stat { text-align: center; }
-        .stat-val { font-size: 20px; font-weight: 800; color: var(--primary); line-height: 1.1; }
-        .stat-lbl { font-size: 9px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-        .stat-price { background: var(--accent-light); padding: 8px 16px; border-radius: 8px; }
-        .stat-price .stat-val { color: var(--accent); }
-        .stat-calc { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .quick-retaining button:hover {
+      background: #0056b3;
+    }
 
-        .btn-generate { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: white; border: none; padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(5,150,105,0.35); }
+    /* Panel Table - Section 4.2 */
+    .panel-table-section h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #495057;
+    }
 
-        /* ===== CANVAS ===== */
-        .viz-area { flex: 1; position: relative; overflow: hidden; }
-        .canvas-box { position: absolute; inset: 0; }
-        #profileCanvas { display: block; }
-        #threeBox { display: none; width: 100%; height: 100%; }
-        .viz-area.mode-3d #profileCanvas { display: none; }
-        .viz-area.mode-3d #threeBox { display: block; }
-        .legend { position: absolute; bottom: 12px; left: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .hint-3d { position: absolute; bottom: 12px; right: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: none; }
-        .viz-area.mode-3d .hint-3d { display: block; }
-        .tooltip-3d { position: absolute; display: none; background: rgba(15,23,42,0.92); color: white; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; pointer-events: none; z-index: 10; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.3); backdrop-filter: blur(4px); }
-        .tooltip-3d .tt-sub { font-weight: 400; opacity: 0.75; font-size: 11px; }
+    .panel-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
 
-        /* ===== MODAL ===== */
-        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; }
-        .modal-bg.open { opacity: 1; visibility: visible; }
-        .modal { background: white; border-radius: 16px; width: 90%; max-width: 620px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
-        .modal-top { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-        .modal-tabs { display: flex; gap: 4px; }
-        .modal-tab { padding: 8px 16px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
-        .modal-tab.active { background: var(--primary-light); color: var(--primary); }
-        .modal-close { background: none; border: none; font-size: 22px; color: var(--text-muted); cursor: pointer; }
-        .modal-body { flex: 1; overflow-y: auto; padding: 20px; }
-        .output-pre { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; background: var(--surface-2); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
-        .modal-bottom { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
-        .m-btn { padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .m-btn-sec { background: white; border: 2px solid var(--border); color: var(--text); }
-        .m-btn-pri { background: var(--primary); border: none; color: white; }
-    </style>
+    .panel-table th {
+      background: #e9ecef;
+      padding: 8px;
+      text-align: left;
+      font-weight: 600;
+      border: 1px solid #dee2e6;
+      font-size: 12px;
+    }
+
+    .panel-table td {
+      padding: 6px 8px;
+      border: 1px solid #dee2e6;
+    }
+
+    .panel-table input[type="number"] {
+      width: 80px;
+      padding: 4px 6px;
+      border: 1px solid #ced4da;
+      border-radius: 3px;
+    }
+
+    .panel-table select {
+      padding: 4px 6px;
+      border: 1px solid #ced4da;
+      border-radius: 3px;
+    }
+
+    .panel-table .calc-value {
+      font-weight: 600;
+      color: #495057;
+    }
+
+    .delete-panel-btn {
+      padding: 4px 12px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .delete-panel-btn:hover {
+      background: #c82333;
+    }
+
+    .add-panel-btn {
+      padding: 8px 16px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .add-panel-btn:hover {
+      background: #218838;
+    }
+
+    /* Right Panel */
+    .visualiser-placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #adb5bd;
+      font-weight: 300;
+    }
+
+    .stats-bar {
+      background: white;
+      border-top: 1px solid #dee2e6;
+      padding: 16px 20px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-item label {
+      font-size: 11px;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-item .value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #212529;
+    }
+
+    .generate-btn {
+      width: 100%;
+      padding: 12px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .generate-btn:hover {
+      background: #0056b3;
+    }
+
+    /* Compliance Warning - Section 11 */
+    .compliance-warning {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-left: 4px solid #ffc107;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .compliance-warning.show {
+      display: block;
+    }
+
+    .compliance-warning h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #856404;
+      margin-bottom: 6px;
+    }
+
+    .compliance-warning ul {
+      margin-left: 20px;
+      color: #856404;
+      font-size: 13px;
+    }
+  </style>
 </head>
 <body>
-
-<header class="header">
-    <div class="logo">
-        <div class="logo-mark">SW</div>
-        <div class="logo-text">
-            <div class="brand">SecureWorks WA</div>
-            <div class="sub">Fence Designer Pro</div>
-        </div>
+  <!-- Header Bar -->
+  <div class="header">
+    <div class="header-group">
+      <label>Job Ref</label>
+      <input type="text" id="jobRef" placeholder="e.g. 2024-001">
     </div>
-    <div class="header-sep"></div>
-    <div class="job-fields">
-        <div class="field">
-            <label>Job Ref</label>
-            <input type="text" id="jobRef" style="width:85px" onchange="saveJob()">
-        </div>
-        <div class="field">
-            <label>Client</label>
-            <input type="text" id="clientName" placeholder="Client name" style="width:130px" onchange="saveJob()">
-        </div>
-        <div class="field">
-            <label>Address</label>
-            <input type="text" id="address" placeholder="Property address" style="width:200px" onchange="saveJob()">
-        </div>
-        <div class="header-sep"></div>
-        <div class="field">
-            <label>Supplier</label>
-            <select id="supplier" onchange="onSupplierChange()">
-                <option value="RNR">RNR (2380mm)</option>
-                <option value="Metroll">Metroll (2365mm)</option>
-                <option value="Lysaght">Lysaght (2360mm)</option>
-            </select>
-        </div>
-        <div class="field">
-            <label>Colour</label>
-            <select id="colour" onchange="onColourChange()">
-                <option value="Shale Grey">Shale Grey</option>
-                <option value="Monument">Monument</option>
-                <option value="Woodland Grey">Woodland Grey</option>
-                <option value="Basalt">Basalt</option>
-                <option value="Surfmist">Surfmist</option>
-                <option value="Dune">Dune</option>
-                <option value="Paperbark">Paperbark</option>
-            </select>
-        </div>
-        <div class="field">
-            <label>$/Metre</label>
-            <input type="number" id="pricePerM" value="115" style="width:70px" onchange="updateStats()">
-        </div>
+    <div class="header-group">
+      <label>Client</label>
+      <input type="text" id="client" placeholder="Client name">
     </div>
-    <div class="header-actions">
-        <span class="save-status" id="saveStatus">Saved</span>
-        <button class="btn-new" onclick="newJob()">New Job</button>
+    <div class="header-group">
+      <label>Address</label>
+      <input type="text" id="address" placeholder="Site address">
     </div>
-</header>
+    <div class="header-group">
+      <label>Supplier</label>
+      <select id="supplier">
+        <option value="RNR">RNR</option>
+        <option value="Metroll">Metroll</option>
+        <option value="Lysaght">Lysaght</option>
+        <option value="Stratco">Stratco</option>
+      </select>
+    </div>
+    <div class="header-group">
+      <label>Profile</label>
+      <select id="profile">
+        <option value="Trimclad">Trimclad</option>
+        <option value="Harmony">Harmony</option>
+        <option value="Spandek">Spandek</option>
+        <option value="Corrugated">Corrugated</option>
+      </select>
+    </div>
+    <div class="header-group">
+      <label>Colour</label>
+      <select id="colour"></select>
+    </div>
+    <div class="header-group">
+      <label>$/metre</label>
+      <input type="number" id="pricePerMetre" placeholder="0.00" step="0.01" min="0">
+    </div>
+  </div>
 
-<div class="main">
-    <div class="panel-left">
-        <div class="runs-header">
-            <div class="runs-tabs">
-                <span id="runTabs"></span>
-                <button class="btn-add-run" onclick="addRun()">+ Add Run</button>
-            </div>
+  <!-- Main Layout -->
+  <div class="main">
+    <!-- Left Panel -->
+    <div class="left-panel">
+      <!-- Run Tabs -->
+      <div class="run-tabs" id="runTabs">
+        <button class="add-run-btn" onclick="app.addRun()">+ Add Run</button>
+      </div>
+
+      <!-- Run Content -->
+      <div class="run-content" id="runContent">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div class="right-panel">
+      <!-- Visualiser Placeholder -->
+      <div class="visualiser-placeholder">
+        Profile View
+      </div>
+
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stats-grid">
+          <div class="stat-item">
+            <label>Total Panels</label>
+            <div class="value" id="statPanels">0</div>
+          </div>
+          <div class="stat-item">
+            <label>Total Posts</label>
+            <div class="value" id="statPosts">0</div>
+          </div>
+          <div class="stat-item">
+            <label>Total Metres</label>
+            <div class="value" id="statMetres">0.0</div>
+          </div>
+          <div class="stat-item">
+            <label>Total Cost</label>
+            <div class="value" id="statCost">$0.00</div>
+          </div>
         </div>
+        <button class="generate-btn" onclick="app.generateOutputs()">Generate Outputs</button>
+      </div>
+    </div>
+  </div>
 
-        <div class="run-settings">
-            <div class="setting">
-                <label>Run Name</label>
-                <input type="text" id="runName" onchange="updateRunName()">
-            </div>
-            <div class="setting">
-                <label>Total Length</label>
-                <div class="length-group">
-                    <input type="number" id="runLength" step="0.1" onchange="updateRunLength()">
-                    <select id="lengthUnit" onchange="updateRunLength()">
-                        <option value="m">m</option>
-                        <option value="mm">mm</option>
-                    </select>
-                </div>
-            </div>
-            <div class="setting">
-                <label>Fence Height</label>
-                <select id="defaultHeight" onchange="updateDefaultHeight()">
-                    <option value="1200">1200mm</option>
-                    <option value="1500">1500mm</option>
-                    <option value="1800" selected>1800mm</option>
-                    <option value="2100">2100mm</option>
+  <script>
+    // Section 9: Colour data with hex codes
+    const COLOURS = [
+      { name: 'Classic Cream™', hex: '#E8D7B8' },
+      { name: 'Cottage Green™', hex: '#404F3A' },
+      { name: 'Cove™', hex: '#B8BCBC' },
+      { name: 'Dune®', hex: '#C9BCA1' },
+      { name: 'Evening Haze®', hex: '#626466' },
+      { name: 'Gully™', hex: '#565A5C' },
+      { name: 'Ironstone®', hex: '#3F3834' },
+      { name: 'Jasper®', hex: '#8B7F77' },
+      { name: 'Mangrove™', hex: '#5D5852' },
+      { name: 'Manor Red®', hex: '#6F413A' },
+      { name: 'Monument®', hex: '#3A3A3A' },
+      { name: 'Night Sky®', hex: '#1F1F27' },
+      { name: 'Pale Eucalypt®', hex: '#BDC7B8' },
+      { name: 'Paperbark®', hex: '#B5AA9C' },
+      { name: 'Shale Grey™', hex: '#898D8D' },
+      { name: 'Surfmist®', hex: '#DCDBD9' },
+      { name: 'Terrain®', hex: '#9A8C7C' },
+      { name: 'Wallaby®', hex: '#8C8675' },
+      { name: 'Wilderness®', hex: '#464C43' },
+      { name: 'Windspray®', hex: '#ACAFB0' },
+      { name: 'Woodland Grey®', hex: '#494B48' }
+    ];
+
+    // Application State
+    const app = {
+      job: null,
+      currentRunId: null,
+
+      init() {
+        this.loadFromStorage();
+        this.populateColourDropdown();
+        this.bindHeaderInputs();
+
+        if (!this.job) {
+          this.job = {
+            jobRef: '',
+            client: '',
+            address: '',
+            supplier: 'RNR',
+            profile: 'Trimclad',
+            colour: COLOURS[0].name,
+            pricePerMetre: 0,
+            runs: []
+          };
+          this.addRun();
+        } else {
+          this.syncHeaderFromJob();
+          if (this.job.runs.length > 0) {
+            this.currentRunId = this.job.runs[0].id;
+          }
+        }
+
+        this.render();
+      },
+
+      populateColourDropdown() {
+        const select = document.getElementById('colour');
+        select.innerHTML = COLOURS.map(c =>
+          `<option value="${c.name}" data-hex="${c.hex}">
+            ${c.name}
+          </option>`
+        ).join('');
+      },
+
+      bindHeaderInputs() {
+        document.getElementById('jobRef').addEventListener('input', (e) => {
+          this.job.jobRef = e.target.value;
+          this.save();
+        });
+        document.getElementById('client').addEventListener('input', (e) => {
+          this.job.client = e.target.value;
+          this.save();
+        });
+        document.getElementById('address').addEventListener('input', (e) => {
+          this.job.address = e.target.value;
+          this.save();
+        });
+        document.getElementById('supplier').addEventListener('change', (e) => {
+          this.job.supplier = e.target.value;
+          this.save();
+        });
+        document.getElementById('profile').addEventListener('change', (e) => {
+          this.job.profile = e.target.value;
+          this.recalculateAll();
+          this.save();
+        });
+        document.getElementById('colour').addEventListener('change', (e) => {
+          this.job.colour = e.target.value;
+          this.save();
+        });
+        document.getElementById('pricePerMetre').addEventListener('input', (e) => {
+          this.job.pricePerMetre = parseFloat(e.target.value) || 0;
+          this.updateStats();
+          this.save();
+        });
+      },
+
+      syncHeaderFromJob() {
+        document.getElementById('jobRef').value = this.job.jobRef;
+        document.getElementById('client').value = this.job.client;
+        document.getElementById('address').value = this.job.address;
+        document.getElementById('supplier').value = this.job.supplier;
+        document.getElementById('profile').value = this.job.profile;
+        document.getElementById('colour').value = this.job.colour;
+        document.getElementById('pricePerMetre').value = this.job.pricePerMetre;
+      },
+
+      // Section 6.1: Panel Width Calculation
+      getPanelWidth() {
+        return this.job.profile === 'Spandek' ? 2.5 : 2.4;
+      },
+
+      // Section 6.2: Plinth Calculation
+      calculatePlinth(retaining) {
+        if (retaining === 0) return 0;
+        return Math.floor(retaining / 150) * 150 + 150;
+      },
+
+      // Section 6.3: Post Height Calculation
+      calculatePostHeights(panel, index, panels) {
+        const allowedPostHeights = [2400, 2700, 3000];
+
+        // Left Post
+        let leftBase;
+        if (index === 0) {
+          leftBase = 0;
+        } else {
+          leftBase = Math.max(panels[index - 1].retaining, panel.retaining);
+        }
+
+        let leftNeeded = leftBase + panel.height;
+        if (panel.extension === 'Patio Tube') leftNeeded += 300;
+        else if (panel.extension === 'Flat Top') leftNeeded += 150;
+
+        const postLeft = allowedPostHeights.find(h => h >= leftNeeded) || 3000;
+
+        // Right Post
+        let rightBase;
+        if (index === panels.length - 1) {
+          rightBase = panel.retaining;
+        } else {
+          rightBase = Math.max(panel.retaining, panels[index + 1].retaining);
+        }
+
+        let rightNeeded = rightBase + panel.height;
+        if (panel.extension === 'Patio Tube') rightNeeded += 300;
+        else if (panel.extension === 'Flat Top') rightNeeded += 150;
+
+        const postRight = allowedPostHeights.find(h => h >= rightNeeded) || 3000;
+
+        return { postLeft, postRight };
+      },
+
+      recalculateRun(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+
+        run.panels.forEach((panel, index) => {
+          panel.plinth = this.calculatePlinth(panel.retaining);
+          const posts = this.calculatePostHeights(panel, index, run.panels);
+          panel.postLeft = posts.postLeft;
+          panel.postRight = posts.postRight;
+        });
+      },
+
+      recalculateAll() {
+        this.job.runs.forEach(run => this.recalculateRun(run.id));
+        this.render();
+      },
+
+      addRun() {
+        const runNumber = this.job.runs.length + 1;
+        const run = {
+          id: 'run-' + Date.now(),
+          name: `Run ${runNumber}`,
+          length: 10,
+          defaultHeight: 1800,
+          extension: null,
+          panels: []
+        };
+
+        this.job.runs.push(run);
+        this.currentRunId = run.id;
+        this.addPanel(run.id);
+        this.save();
+        this.render();
+      },
+
+      switchRun(runId) {
+        this.currentRunId = runId;
+        this.render();
+      },
+
+      addPanel(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+
+        const panel = {
+          id: 'panel-' + Date.now(),
+          retaining: 0,
+          height: run.defaultHeight,
+          extension: run.extension,
+          plinth: 0,
+          postLeft: 0,
+          postRight: 0
+        };
+
+        run.panels.push(panel);
+        this.recalculateRun(runId);
+        this.save();
+        this.render();
+      },
+
+      deletePanel(runId, panelId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run || run.panels.length <= 1) {
+          alert('Each run must have at least 1 panel.');
+          return;
+        }
+
+        run.panels = run.panels.filter(p => p.id !== panelId);
+        this.recalculateRun(runId);
+        this.save();
+        this.render();
+      },
+
+      updatePanel(runId, panelId, field, value) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+
+        const panel = run.panels.find(p => p.id === panelId);
+        if (!panel) return;
+
+        if (field === 'retaining') {
+          panel.retaining = parseInt(value) || 0;
+        } else if (field === 'height') {
+          panel.height = parseInt(value);
+        } else if (field === 'extension') {
+          panel.extension = value === 'null' ? null : value;
+        }
+
+        this.recalculateRun(runId);
+        this.save();
+        this.render();
+      },
+
+      updateRunSettings(runId, field, value) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+
+        if (field === 'name') {
+          run.name = value;
+        } else if (field === 'length') {
+          run.length = parseFloat(value) || 0;
+        } else if (field === 'defaultHeight') {
+          run.defaultHeight = parseInt(value);
+        } else if (field === 'extension') {
+          run.extension = value === 'null' ? null : value;
+        }
+
+        this.save();
+        this.render();
+      },
+
+      applyQuickRetaining(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+
+        const startPanel = parseInt(document.getElementById(`qr-start-${runId}`).value) - 1;
+        const endPanel = parseInt(document.getElementById(`qr-end-${runId}`).value) - 1;
+        const retaining = parseInt(document.getElementById(`qr-retaining-${runId}`).value) || 0;
+
+        if (startPanel < 0 || endPanel >= run.panels.length || startPanel > endPanel) {
+          alert('Invalid panel range.');
+          return;
+        }
+
+        for (let i = startPanel; i <= endPanel; i++) {
+          run.panels[i].retaining = retaining;
+        }
+
+        this.recalculateRun(runId);
+        this.save();
+        this.render();
+      },
+
+      // Section 11: Compliance Warnings
+      getComplianceWarnings() {
+        const warnings = [];
+
+        this.job.runs.forEach(run => {
+          // Patio Tube only if <= 5 panels
+          const hasPatioTube = run.panels.some(p => p.extension === 'Patio Tube');
+          if (hasPatioTube && run.panels.length > 5) {
+            warnings.push(`${run.name}: Patio Tube extension is only allowed for runs with 5 or fewer panels.`);
+          }
+
+          // Check post heights
+          run.panels.forEach((panel, idx) => {
+            if (![2400, 2700, 3000].includes(panel.postLeft)) {
+              warnings.push(`${run.name} Panel ${idx + 1}: Left post height ${panel.postLeft}mm is not standard (2400/2700/3000).`);
+            }
+            if (![2400, 2700, 3000].includes(panel.postRight)) {
+              warnings.push(`${run.name} Panel ${idx + 1}: Right post height ${panel.postRight}mm is not standard (2400/2700/3000).`);
+            }
+          });
+        });
+
+        return warnings;
+      },
+
+      updateStats() {
+        let totalPanels = 0;
+        let totalPosts = 0;
+        let totalMetres = 0;
+
+        this.job.runs.forEach(run => {
+          totalPanels += run.panels.length;
+          totalPosts += run.panels.length + 1; // n panels need n+1 posts
+          totalMetres += run.panels.length * this.getPanelWidth();
+        });
+
+        const totalCost = totalMetres * this.job.pricePerMetre;
+
+        document.getElementById('statPanels').textContent = totalPanels;
+        document.getElementById('statPosts').textContent = totalPosts;
+        document.getElementById('statMetres').textContent = totalMetres.toFixed(1);
+        document.getElementById('statCost').textContent = `$${totalCost.toFixed(2)}`;
+      },
+
+      render() {
+        this.renderRunTabs();
+        this.renderRunContent();
+        this.updateStats();
+      },
+
+      renderRunTabs() {
+        const tabsHtml = this.job.runs.map(run => `
+          <div class="run-tab ${run.id === this.currentRunId ? 'active' : ''}"
+               onclick="app.switchRun('${run.id}')">
+            ${run.name}
+          </div>
+        `).join('');
+
+        document.getElementById('runTabs').innerHTML = `
+          ${tabsHtml}
+          <button class="add-run-btn" onclick="app.addRun()">+ Add Run</button>
+        `;
+      },
+
+      renderRunContent() {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run) {
+          document.getElementById('runContent').innerHTML = '<p style="padding: 20px;">No run selected.</p>';
+          return;
+        }
+
+        const warnings = this.getComplianceWarnings();
+        const warningsHtml = warnings.length > 0 ? `
+          <div class="compliance-warning show">
+            <h4>Compliance Warnings</h4>
+            <ul>
+              ${warnings.map(w => `<li>${w}</li>`).join('')}
+            </ul>
+          </div>
+        ` : '';
+
+        const panelsHtml = run.panels.map((panel, idx) => `
+          <tr>
+            <td>${idx + 1}</td>
+            <td>
+              <input type="number" value="${panel.retaining}" min="0" step="50"
+                     onchange="app.updatePanel('${run.id}', '${panel.id}', 'retaining', this.value)">
+            </td>
+            <td>
+              <select onchange="app.updatePanel('${run.id}', '${panel.id}', 'height', this.value)">
+                <option value="1800" ${panel.height === 1800 ? 'selected' : ''}>1800</option>
+                <option value="2100" ${panel.height === 2100 ? 'selected' : ''}>2100</option>
+              </select>
+            </td>
+            <td>
+              <select onchange="app.updatePanel('${run.id}', '${panel.id}', 'extension', this.value)">
+                <option value="null" ${panel.extension === null ? 'selected' : ''}>-</option>
+                <option value="Patio Tube" ${panel.extension === 'Patio Tube' ? 'selected' : ''}>Patio</option>
+                <option value="Flat Top" ${panel.extension === 'Flat Top' ? 'selected' : ''}>Flat</option>
+              </select>
+            </td>
+            <td class="calc-value">${panel.plinth}</td>
+            <td class="calc-value">${panel.postLeft}</td>
+            <td class="calc-value">${panel.postRight}</td>
+            <td>
+              <button class="delete-panel-btn" onclick="app.deletePanel('${run.id}', '${panel.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        document.getElementById('runContent').innerHTML = `
+          ${warningsHtml}
+
+          <div class="run-settings">
+            <h3>Run Settings</h3>
+            <div class="run-settings-grid">
+              <div class="form-group">
+                <label>Name</label>
+                <input type="text" value="${run.name}"
+                       onchange="app.updateRunSettings('${run.id}', 'name', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Length (m)</label>
+                <input type="number" value="${run.length}" min="0" step="0.1"
+                       onchange="app.updateRunSettings('${run.id}', 'length', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Default Height</label>
+                <select onchange="app.updateRunSettings('${run.id}', 'defaultHeight', this.value)">
+                  <option value="1800" ${run.defaultHeight === 1800 ? 'selected' : ''}>1800</option>
+                  <option value="2100" ${run.defaultHeight === 2100 ? 'selected' : ''}>2100</option>
                 </select>
-            </div>
-            <div class="setting">
+              </div>
+              <div class="form-group">
                 <label>Extension</label>
-                <select id="extension" onchange="updateExtension()">
-                    <option value="0">None</option>
-                    <option value="150">150mm Solid</option>
-                    <option value="300">300mm Lattice</option>
+                <select onchange="app.updateRunSettings('${run.id}', 'extension', this.value)">
+                  <option value="null" ${run.extension === null ? 'selected' : ''}>None</option>
+                  <option value="Patio Tube" ${run.extension === 'Patio Tube' ? 'selected' : ''}>Patio Tube</option>
+                  <option value="Flat Top" ${run.extension === 'Flat Top' ? 'selected' : ''}>Flat Top</option>
                 </select>
+              </div>
             </div>
-            <div class="run-actions">
-                <button class="btn" onclick="applyHeightToAll()">Apply Height to All</button>
-                <button class="btn btn-danger" onclick="deleteRun()">Delete Run</button>
-            </div>
+          </div>
 
-            <!-- Quick Retaining Tool -->
-            <div class="quick-ret">
-                <div class="quick-ret-title">⚡ Quick Retaining</div>
-                <div class="quick-ret-row">
-                    <span>Panels</span>
-                    <input type="number" id="retFromPanel" value="1" min="1">
-                    <span>to</span>
-                    <input type="number" id="retToPanel" value="3" min="1">
-                    <span>→</span>
-                    <select id="retValue">
-                        <option value="0">0mm</option>
-                        <option value="150">150mm</option>
-                        <option value="300">300mm</option>
-                        <option value="450">450mm</option>
-                        <option value="600">600mm</option>
-                        <option value="750">750mm</option>
-                    </select>
-                    <button onclick="applyQuickRetaining()">Apply</button>
-                </div>
+          <div class="quick-retaining">
+            <h3>Quick Retaining Tool</h3>
+            <div class="quick-retaining-grid">
+              <div class="form-group">
+                <label>From Panel</label>
+                <input type="number" id="qr-start-${run.id}" min="1" max="${run.panels.length}" value="1">
+              </div>
+              <div class="form-group">
+                <label>To Panel</label>
+                <input type="number" id="qr-end-${run.id}" min="1" max="${run.panels.length}" value="${run.panels.length}">
+              </div>
+              <div class="form-group">
+                <label>Retaining (mm)</label>
+                <input type="number" id="qr-retaining-${run.id}" min="0" step="50" value="0">
+              </div>
+              <button onclick="app.applyQuickRetaining('${run.id}')">Apply</button>
             </div>
-        </div>
+          </div>
 
-        <div class="table-wrap">
+          <div class="panel-table-section">
+            <h3>Panel Table</h3>
             <table class="panel-table">
-                <thead>
-                    <tr>
-                        <th style="width:36px">P#</th>
-                        <th style="width:55px">Height</th>
-                        <th style="width:55px">Ret</th>
-                        <th style="width:50px">Grnd</th>
-                        <th style="width:28px">Stp</th>
-                        <th style="width:45px">Tot</th>
-                        <th style="width:45px">Post</th>
-                        <th style="width:24px"></th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody"></tbody>
+              <thead>
+                <tr>
+                  <th>Panel #</th>
+                  <th>Retaining (mm)</th>
+                  <th>Height</th>
+                  <th>Ext</th>
+                  <th>Plinths (Pl)</th>
+                  <th>Post L</th>
+                  <th>Post R</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${panelsHtml}
+              </tbody>
             </table>
-        </div>
+            <button class="add-panel-btn" onclick="app.addPanel('${run.id}')">+ Add Panel</button>
+          </div>
+        `;
+      },
 
-        <div class="gates-section">
-            <div class="gates-header">
-                <h4>Gates</h4>
-                <button class="btn" onclick="addGate()">+ Add Gate</button>
-            </div>
-            <div id="gatesBox"></div>
-        </div>
-    </div>
+      generateOutputs() {
+        alert('Output generation not yet implemented.');
+      },
 
-    <div class="panel-right">
-        <div class="viz-toolbar">
-            <div class="view-tabs">
-                <button class="view-tab active" id="tabProfile" onclick="showView('profile')">Profile View</button>
-                <button class="view-tab" id="tab3d" onclick="showView('3d')">3D View</button>
-            </div>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-val" id="sMetres">0</div>
-                    <div class="stat-lbl">Metres</div>
-                    <div class="stat-calc" id="sCalc">0 × 2380mm</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-val" id="sPanels">0</div>
-                    <div class="stat-lbl">Panels</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-val" id="sPosts">0</div>
-                    <div class="stat-lbl">Posts</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-val" id="sRet">0</div>
-                    <div class="stat-lbl">Plinths</div>
-                </div>
-                <div class="stat stat-price">
-                    <div class="stat-val" id="sPrice">$0</div>
-                    <div class="stat-lbl">Est. Total</div>
-                </div>
-            </div>
-            <button class="btn-generate" onclick="showOutputs()">Generate Outputs</button>
-        </div>
+      // Section 10.5: Auto-save to localStorage
+      save() {
+        localStorage.setItem('fenceJob', JSON.stringify(this.job));
+      },
 
-        <div class="viz-area" id="vizArea">
-            <button class="collapse-btn" id="collapseBtn" onclick="togglePanel()" title="Toggle panel">◀</button>
-            <div class="canvas-box">
-                <canvas id="profileCanvas"></canvas>
-                <div id="threeBox"></div>
-            </div>
-            <div class="tooltip-3d" id="tooltip3d"></div>
-            <div class="legend">Click panel # to select · <span style="color:#d97706">†</span> = patio tube (3+ plinths)</div>
-            <div class="hint-3d">Drag to rotate · Scroll to zoom · Hover for details</div>
-        </div>
-    </div>
-</div>
-
-<div class="modal-bg" id="modalBg">
-    <div class="modal">
-        <div class="modal-top">
-            <div class="modal-tabs">
-                <button class="modal-tab active" onclick="switchTab(this,'material')">Material Order</button>
-                <button class="modal-tab" onclick="switchTab(this,'work')">Work Order</button>
-                <button class="modal-tab" onclick="switchTab(this,'quote')">Quote</button>
-            </div>
-            <button class="modal-close" onclick="closeModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <pre class="output-pre" id="outputPre"></pre>
-        </div>
-        <div class="modal-bottom">
-            <button class="m-btn m-btn-sec" onclick="closeModal()">Close</button>
-            <button class="m-btn m-btn-pri" onclick="copyOutput(event)">📋 Copy</button>
-        </div>
-    </div>
-</div>
-
-<script>
-// ========== CONFIG ==========
-const SUPPLIERS = {
-    'RNR': { width: 2380, name: 'RnR Fencing', profile: 'RnR Trimclad Equivalent' },
-    'Metroll': { width: 2365, name: 'Metroll', profile: 'Metroll Trimdek' },
-    'Lysaght': { width: 2360, name: 'Lysaght', profile: 'Lysaght Neetascreen' }
-};
-
-const COLOURS = {
-    'Shale Grey': '#B2ADA3', 'Monument': '#54504A', 'Woodland Grey': '#5D5E50',
-    'Basalt': '#6E6E68', 'Surfmist': '#E8E4DA', 'Dune': '#B5A78C', 'Paperbark': '#C6BDAC'
-};
-
-const POST_SIZES = [2400, 2700, 3000, 3300, 3600];
-const POST_FOOTING_MM = 600;
-const GST_RATE = 0.1;
-const DEFAULT_PRICE_PER_M = 115;
-const SCALE_3D = 0.55;
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
-function parsePricePerM() {
-    const val = parseFloat(document.getElementById('pricePerM')?.value);
-    return Number.isFinite(val) ? val : DEFAULT_PRICE_PER_M;
-}
-
-// ========== STATE ==========
-let job = { ref: '', client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
-let curRun = 0, selPanel = -1, curTab = 'material', dirty = false;
-let scene, camera, renderer, threeReady = false, resizeObserver = null;
-let hoveredObj = null;
-const raycaster = typeof THREE !== 'undefined' ? new THREE.Raycaster() : null;
-const mouseVec = typeof THREE !== 'undefined' ? new THREE.Vector2() : null;
-
-// ========== INIT ==========
-function init() {
-    const saved = localStorage.getItem('fenceJob_v12');
-    if (saved) { try { job = JSON.parse(saved); curRun = 0; } catch(e) { console.error('Failed to parse saved job data:', e); createDefault(); } }
-    else { createDefault(); }
-    loadUI();
-    renderAll();
-    setupResize();
-}
-
-function createDefault() {
-    job = { ref: 'SW' + Math.floor(1000 + Math.random() * 9000), client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
-    addRun('Rear', 19);
-}
-
-function loadUI() {
-    document.getElementById('jobRef').value = job.ref;
-    document.getElementById('clientName').value = job.client;
-    document.getElementById('address').value = job.address;
-    document.getElementById('supplier').value = job.supplier;
-    document.getElementById('colour').value = job.colour;
-}
-
-function newJob() {
-    if (dirty && !confirm('Discard changes?')) return;
-    localStorage.removeItem('fenceJob_v12');
-    createDefault(); loadUI(); curRun = 0; selPanel = -1; renderAll(); markSaved();
-}
-
-function togglePanel() {
-    const panel = document.querySelector('.panel-left');
-    const btn = document.getElementById('collapseBtn');
-    panel.classList.toggle('collapsed');
-    btn.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
-    setTimeout(() => { renderProfile(); if (threeReady) { const box = document.getElementById('threeBox'); const r = box.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); } }, 300);
-}
-
-// ========== SAVE ==========
-function saveJob() {
-    job.ref = document.getElementById('jobRef').value;
-    job.client = document.getElementById('clientName').value;
-    job.address = document.getElementById('address').value;
-    localStorage.setItem('fenceJob_v12', JSON.stringify(job));
-    markSaved();
-}
-
-function autoSave() { localStorage.setItem('fenceJob_v12', JSON.stringify(job)); markSaved(); }
-function markSaved() { dirty = false; document.getElementById('saveStatus').textContent = 'Saved'; }
-function markDirty() { dirty = true; document.getElementById('saveStatus').textContent = 'Unsaved'; }
-
-// ========== RUNS ==========
-function addRun(name, len = 19) {
-    const names = ['Rear','LHS','RHS','Front'];
-    const used = job.runs.map(r => r.name);
-    const defName = name || names.find(n => !used.includes(n)) || `Run ${job.runs.length+1}`;
-    const pw = SUPPLIERS[job.supplier].width;
-    const cnt = Math.ceil(len * 1000 / pw);
-    const panels = [];
-    for (let i = 0; i < cnt; i++) panels.push({ height: 1800, retaining: 0, groundOffset: 0 });
-    job.runs.push({ name: defName, length: cnt * pw, defaultHeight: 1800, extension: 0, panels });
-    curRun = job.runs.length - 1;
-    selPanel = -1;
-    renderAll();
-    autoSave();
-}
-
-function deleteRun() {
-    if (job.runs.length <= 1) { alert('Need at least one run'); return; }
-    if (!confirm(`Delete "${job.runs[curRun].name}"?`)) return;
-    job.runs.splice(curRun, 1);
-    curRun = Math.max(0, curRun - 1);
-    selPanel = -1;
-    renderAll();
-    autoSave();
-}
-
-function selectRun(i) { curRun = i; selPanel = -1; renderAll(); }
-
-function updateRunName() { job.runs[curRun].name = document.getElementById('runName').value; renderTabs(); autoSave(); }
-
-function updateRunLength() {
-    const val = parseFloat(document.getElementById('runLength').value) || 10;
-    const unit = document.getElementById('lengthUnit').value;
-    const mm = unit === 'm' ? val * 1000 : val;
-    const pw = SUPPLIERS[job.supplier].width;
-    const cnt = Math.ceil(mm / pw);
-    const run = job.runs[curRun];
-    while (run.panels.length < cnt) run.panels.push({ height: run.defaultHeight, retaining: 0, groundOffset: 0 });
-    while (run.panels.length > cnt) run.panels.pop();
-    run.length = cnt * pw;
-    document.getElementById('runLength').value = unit === 'm' ? (run.length/1000).toFixed(2) : run.length;
-    // Update quick retaining max
-    document.getElementById('retToPanel').max = run.panels.length;
-    document.getElementById('retFromPanel').max = run.panels.length;
-    renderAll();
-    autoSave();
-}
-
-function updateDefaultHeight() { job.runs[curRun].defaultHeight = parseInt(document.getElementById('defaultHeight').value); autoSave(); }
-
-function updateExtension() { job.runs[curRun].extension = parseInt(document.getElementById('extension').value) || 0; renderAll(); autoSave(); }
-
-function applyHeightToAll() {
-    const h = job.runs[curRun].defaultHeight;
-    job.runs[curRun].panels.forEach(p => p.height = h);
-    renderAll(); autoSave();
-}
-
-// ========== QUICK RETAINING ==========
-function applyQuickRetaining() {
-    const fromVal = parseInt(document.getElementById('retFromPanel').value);
-    const toVal = parseInt(document.getElementById('retToPanel').value);
-    if (fromVal > toVal) {
-        alert('"From" panel must be less than or equal to "To" panel');
-        return;
-    }
-    const from = fromVal - 1;
-    const to = toVal - 1;
-    const val = parseInt(document.getElementById('retValue').value);
-    const run = job.runs[curRun];
-    for (let i = Math.max(0, from); i <= Math.min(run.panels.length - 1, to); i++) {
-        run.panels[i].retaining = val;
-    }
-    renderAll();
-    autoSave();
-}
-
-// ========== PANELS ==========
-function updatePanel(i, field, val) {
-    const p = job.runs[curRun].panels[i];
-    if (field === 'height') p.height = parseInt(val);
-    if (field === 'retaining') p.retaining = Math.max(0, Math.min(750, parseInt(val) || 0));
-    if (field === 'groundOffset') p.groundOffset = Math.max(-300, Math.min(300, parseInt(val) || 0));
-    renderAll(); autoSave();
-}
-
-function selectPanel(i) { selPanel = i; renderTable(); renderProfile(); }
-
-function addPanel() {
-    const run = job.runs[curRun];
-    const last = run.panels[run.panels.length - 1];
-    run.panels.push({ height: last?.height || run.defaultHeight, retaining: last?.retaining || 0, groundOffset: last?.groundOffset || 0 });
-    run.length = run.panels.length * SUPPLIERS[job.supplier].width;
-    renderAll(); autoSave();
-}
-
-function removePanel(i) {
-    const run = job.runs[curRun];
-    if (run.panels.length <= 1) return;
-    run.panels.splice(i, 1);
-    run.length = run.panels.length * SUPPLIERS[job.supplier].width;
-    if (selPanel >= run.panels.length) selPanel = run.panels.length - 1;
-    renderAll(); autoSave();
-}
-
-// ========== GATES ==========
-function addGate() {
-    const run = job.runs[curRun];
-    job.gates.push({ type: 'pedestrian', width: 900, afterPanel: run.panels.length, runIndex: curRun });
-    renderGates(); updateStats(); autoSave();
-}
-
-function updateGate(i, field, val) {
-    if (field === 'type') job.gates[i].type = val;
-    if (field === 'width') {
-        const w = parseInt(val);
-        if (!Number.isFinite(w) || w < 600 || w > 6000) {
-            alert('Gate width must be between 600mm and 6000mm');
-            return;
+      loadFromStorage() {
+        const saved = localStorage.getItem('fenceJob');
+        if (saved) {
+          this.job = JSON.parse(saved);
+          // Ensure currentRunId is set
+          if (this.job.runs.length > 0 && !this.currentRunId) {
+            this.currentRunId = this.job.runs[0].id;
+          }
         }
-        job.gates[i].width = w;
-    }
-    if (field === 'afterPanel') job.gates[i].afterPanel = parseInt(val);
-    if (field === 'run') job.gates[i].runIndex = parseInt(val);
-    renderGates(); updateStats(); autoSave();
-}
-
-function removeGate(i) { job.gates.splice(i, 1); renderGates(); updateStats(); autoSave(); }
-
-// ========== CALCULATIONS ==========
-function getPlinths(p) { return Math.ceil(p.retaining / 150); }
-
-function getStep(run, i) {
-    if (i === 0) return 'level';
-    const cur = run.panels[i].retaining;
-    const prev = run.panels[i-1].retaining;
-    if (cur > prev) return 'down';
-    if (cur < prev) return 'up';
-    return 'level';
-}
-
-function getTotalHeight(p) { return p.height + p.retaining; }
-
-function getPostHeight(p, run, i) {
-    const ext = run.extension || 0;
-    let maxH = p.height + p.retaining;
-    if (i > 0) {
-        const prev = run.panels[i - 1];
-        maxH = Math.max(maxH, prev.height + prev.retaining);
-    }
-    if (i < run.panels.length - 1) {
-        const next = run.panels[i + 1];
-        maxH = Math.max(maxH, next.height + next.retaining);
-    }
-    const req = maxH + POST_FOOTING_MM + ext;
-    const size = POST_SIZES.find(s => s >= req);
-    if (!size) {
-        console.warn(`Post ${i + 1}: required ${req}mm exceeds max available ${POST_SIZES[POST_SIZES.length - 1]}mm`);
-    }
-    return size || POST_SIZES[POST_SIZES.length - 1];
-}
-
-function needsPatio(p) { return getPlinths(p) >= 3; }
-function getPatioForRun(run) { const cnt = run.panels.filter(p => needsPatio(p)).length; return cnt > 0 ? cnt + 1 : 0; }
-
-// ========== SUPPLIER/COLOUR ==========
-function onSupplierChange() {
-    job.supplier = document.getElementById('supplier').value;
-    job.runs.forEach(run => { run.length = run.panels.length * SUPPLIERS[job.supplier].width; });
-    renderAll(); autoSave();
-}
-
-function onColourChange() { job.colour = document.getElementById('colour').value; renderProfile(); if (threeReady) render3D(); autoSave(); }
-
-// ========== RENDER ==========
-function renderAll() { renderTabs(); renderSettings(); renderTable(); renderGates(); updateStats(); renderProfile(); if (threeReady) render3D(); }
-
-function renderTabs() {
-    document.getElementById('runTabs').innerHTML = job.runs.map((r, i) => `
-        <button class="run-tab ${i === curRun ? 'active' : ''}" onclick="selectRun(${i})">
-            ${escapeHtml(r.name)}<span class="num">(${r.panels.length})</span>
-        </button>
-    `).join('');
-}
-
-function renderSettings() {
-    const run = job.runs[curRun];
-    if (!run) return;
-    document.getElementById('runName').value = run.name;
-    document.getElementById('defaultHeight').value = run.defaultHeight;
-    document.getElementById('extension').value = run.extension;
-    const unit = document.getElementById('lengthUnit').value;
-    document.getElementById('runLength').value = unit === 'm' ? (run.length/1000).toFixed(2) : run.length;
-    // Update quick retaining defaults
-    document.getElementById('retToPanel').value = Math.min(3, run.panels.length);
-    document.getElementById('retToPanel').max = run.panels.length;
-    document.getElementById('retFromPanel').max = run.panels.length;
-}
-
-function renderTable() {
-    const run = job.runs[curRun];
-    if (!run) return;
-    let html = '';
-    run.panels.forEach((p, i) => {
-        const step = getStep(run, i);
-        const postH = getPostHeight(p, run, i);
-        const patio = needsPatio(p);
-        const sel = i === selPanel;
-        const plinths = getPlinths(p);
-        const total = getTotalHeight(p);
-        let blocks = '';
-        for (let b = 0; b < 5; b++) blocks += `<div class="ret-block ${b < plinths ? '' : 'empty'}"></div>`;
-
-        html += `<tr class="${sel ? 'selected' : ''}">
-            <td><span class="p-num" onclick="selectPanel(${i})">P${i+1}</span></td>
-            <td><select onchange="updatePanel(${i},'height',this.value)">
-                <option value="1200" ${p.height===1200?'selected':''}>1200</option>
-                <option value="1500" ${p.height===1500?'selected':''}>1500</option>
-                <option value="1800" ${p.height===1800?'selected':''}>1800</option>
-                <option value="2100" ${p.height===2100?'selected':''}>2100</option>
-            </select></td>
-            <td><select onchange="updatePanel(${i},'retaining',this.value)">
-                <option value="0" ${p.retaining===0?'selected':''}>0</option>
-                <option value="150" ${p.retaining===150?'selected':''}>150</option>
-                <option value="300" ${p.retaining===300?'selected':''}>300</option>
-                <option value="450" ${p.retaining===450?'selected':''}>450</option>
-                <option value="600" ${p.retaining===600?'selected':''}>600</option>
-                <option value="750" ${p.retaining===750?'selected':''}>750</option>
-            </select></td>
-            <td><select onchange="updatePanel(${i},'groundOffset',this.value)" style="font-size:11px">
-                <option value="-300" ${p.groundOffset===-300?'selected':''}>-300</option>
-                <option value="-150" ${p.groundOffset===-150?'selected':''}>-150</option>
-                <option value="0" ${(p.groundOffset||0)===0?'selected':''}>0</option>
-                <option value="150" ${p.groundOffset===150?'selected':''}>+150</option>
-                <option value="300" ${p.groundOffset===300?'selected':''}>+300</option>
-            </select></td>
-            <td><span class="step-icon ${step}">${step==='down'?'↓':step==='up'?'↑':'—'}</span></td>
-            <td><span class="total-ht">${total}</span></td>
-            <td><span class="post-ht ${patio?'patio':''}">${postH}</span></td>
-            <td><button class="btn-remove" onclick="removePanel(${i})">×</button></td>
-        </tr>`;
-    });
-    html += `<tr class="add-row"><td colspan="8"><button class="btn-add-panel" onclick="addPanel()">+ Add Panel</button></td></tr>`;
-    document.getElementById('tableBody').innerHTML = html;
-}
-
-function renderGates() {
-    const box = document.getElementById('gatesBox');
-    if (job.gates.length === 0) {
-        box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No gates added</div>';
-        return;
-    }
-    box.innerHTML = job.gates.map((g, i) => {
-        const runOpts = job.runs.map((r, ri) => `<option value="${ri}" ${g.runIndex===ri?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
-        const maxP = job.runs[g.runIndex || 0]?.panels.length || 8;
-        return `
-        <div class="gate-row">
-            <select onchange="updateGate(${i},'type',this.value)">
-                <option value="pedestrian" ${g.type==='pedestrian'?'selected':''}>Pedestrian</option>
-                <option value="single" ${g.type==='single'?'selected':''}>Single Drive</option>
-                <option value="double" ${g.type==='double'?'selected':''}>Double Drive</option>
-                <option value="sliding" ${g.type==='sliding'?'selected':''}>Sliding</option>
-            </select>
-            <input type="number" value="${g.width}" onchange="updateGate(${i},'width',this.value)">
-            <span>mm</span>
-            <span>in</span>
-            <select onchange="updateGate(${i},'run',this.value)">${runOpts}</select>
-            <span>after P</span>
-            <input type="number" value="${g.afterPanel || maxP}" min="1" max="${maxP}" style="width:45px" onchange="updateGate(${i},'afterPanel',this.value)">
-            <button class="btn-remove" onclick="removeGate(${i})">×</button>
-        </div>`;
-    }).join('');
-}
-
-function updateStats() {
-    const pw = SUPPLIERS[job.supplier].width;
-    let panels = 0, plinths = 0, posts = 0;
-    job.runs.forEach(run => {
-        panels += run.panels.length;
-        plinths += run.panels.reduce((s, p) => s + getPlinths(p), 0);
-        posts += run.panels.length + 1;
-    });
-    posts += job.gates.length * 2;
-    const metres = (panels * pw) / 1000;
-    const pricePerM = parsePricePerM();
-    const estimate = metres * pricePerM * (1 + GST_RATE);
-
-    document.getElementById('sMetres').textContent = metres.toFixed(1);
-    document.getElementById('sPanels').textContent = panels;
-    document.getElementById('sPosts').textContent = posts;
-    document.getElementById('sRet').textContent = plinths;
-    document.getElementById('sCalc').textContent = `${panels} × ${pw}mm`;
-    document.getElementById('sPrice').textContent = '$' + Math.round(estimate).toLocaleString();
-}
-
-// ========== CANVAS RESIZE ==========
-function setupResize() {
-    const box = document.querySelector('.canvas-box');
-    if (resizeObserver) resizeObserver.disconnect();
-    resizeObserver = new ResizeObserver(entries => {
-        for (let e of entries) {
-            const { width, height } = e.contentRect;
-            if (width > 0 && height > 0) {
-                renderProfile();
-                if (threeReady) { renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); }
-            }
-        }
-    });
-    resizeObserver.observe(box);
-}
-
-// ========== PROFILE VIEW ==========
-function renderProfile() {
-    const canvas = document.getElementById('profileCanvas');
-    const box = canvas.parentElement;
-    const ctx = canvas.getContext('2d');
-    const rect = box.getBoundingClientRect();
-    const w = rect.width, h = rect.height;
-    if (w === 0 || h === 0) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-    ctx.scale(dpr, dpr);
-
-    const col = COLOURS[job.colour];
-
-    // Sky
-    const sky = ctx.createLinearGradient(0, 0, 0, h * 0.6);
-    sky.addColorStop(0, '#7dd3fc'); sky.addColorStop(0.6, '#bae6fd'); sky.addColorStop(1, '#e0f2fe');
-    ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
-
-    const groundY = h * 0.55;
-
-    // Draw base soil (fills everything below ground)
-    const soil = ctx.createLinearGradient(0, groundY, 0, h);
-    soil.addColorStop(0, '#a3724a'); soil.addColorStop(0.3, '#8b5d3a'); soil.addColorStop(1, '#6b4530');
-    ctx.fillStyle = soil; ctx.fillRect(0, groundY, w, h - groundY);
-
-    // High-side grass strip
-    ctx.fillStyle = '#4ade80'; ctx.fillRect(0, groundY - 4, w, 18);
-    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, groundY - 4); ctx.lineTo(w, groundY - 4); ctx.stroke();
-
-    const pad = 60, gap = 50;
-    let totalP = job.runs.reduce((s, r) => s + r.panels.length, 0);
-    if (totalP === 0) return;
-
-    const availW = w - pad * 2 - (job.runs.length - 1) * gap;
-    const panelW = Math.min(85, Math.max(35, availW / totalP));
-
-    let maxH = 0;
-    job.runs.forEach(run => { run.panels.forEach(p => { const tot = p.height + p.retaining + (run.extension || 0); if (tot > maxH) maxH = tot; }); });
-
-    const hScale = (groundY - pad - 80) / Math.max(maxH, 1800);
-    let curX = pad;
-
-    job.runs.forEach((run, ri) => {
-        const runW = run.panels.length * panelW;
-
-        ctx.font = 'bold 14px -apple-system, sans-serif'; ctx.fillStyle = '#1e293b'; ctx.textAlign = 'center';
-        ctx.fillText(run.name, curX + runW / 2, 26);
-        ctx.font = '12px -apple-system, sans-serif'; ctx.fillStyle = '#64748b';
-        ctx.fillText(`${run.panels.length} panels · ${(run.length / 1000).toFixed(1)}m`, curX + runW / 2, 44);
-
-        run.panels.forEach((p, pi) => {
-            const sel = ri === curRun && pi === selPanel;
-            const px = curX + pi * panelW;
-            const gOff = (p.groundOffset || 0) * hScale;
-            const fenceH = p.height * hScale;
-            const panelTop = groundY - fenceH - gOff;
-
-            const plinths = getPlinths(p);
-            const singlePlinthH = 150 * hScale;
-            for (let pl = 0; pl < plinths; pl++) {
-                const py = groundY + 30 + pl * singlePlinthH;
-                const plGrad = ctx.createLinearGradient(px, py, px + panelW, py);
-                plGrad.addColorStop(0, '#9ca3af'); plGrad.addColorStop(0.5, '#d1d5db'); plGrad.addColorStop(1, '#9ca3af');
-                ctx.fillStyle = plGrad; ctx.fillRect(px + 3, py, panelW - 6, singlePlinthH - 2);
-                ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1; ctx.strokeRect(px + 3, py, panelW - 6, singlePlinthH - 2);
-            }
-
-            drawPanel(ctx, px + 3, panelTop, panelW - 6, fenceH, col, sel);
-
-            if (run.extension > 0) {
-                const extH = run.extension * hScale;
-                ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(px + 3, panelTop - extH, panelW - 6, extH);
-                ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.strokeRect(px + 3, panelTop - extH, panelW - 6, extH);
-            }
-
-            const retH = p.retaining * hScale;
-            const postH = fenceH + retH + 25;
-            const postGrad = ctx.createLinearGradient(px - 2, 0, px + 6, 0);
-            postGrad.addColorStop(0, '#4b5563'); postGrad.addColorStop(0.5, '#6b7280'); postGrad.addColorStop(1, '#4b5563');
-            ctx.fillStyle = postGrad; ctx.fillRect(px - 2, groundY - fenceH - 12, 7, postH + 42);
-
-            ctx.fillStyle = '#374151'; ctx.beginPath();
-            ctx.moveTo(px - 4, panelTop - 12); ctx.lineTo(px + 1.5, panelTop - 22); ctx.lineTo(px + 7, panelTop - 12); ctx.fill();
-
-            const numX = px + panelW / 2, numY = panelTop + fenceH / 2;
-            ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.arc(numX, numY, 13, 0, Math.PI * 2); ctx.fill();
-            ctx.font = sel ? 'bold 14px -apple-system' : '13px -apple-system'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-            ctx.fillText(pi + 1, numX, numY + 4);
-
-            if (sel) { ctx.strokeStyle = '#059669'; ctx.lineWidth = 3; ctx.strokeRect(px + 1, panelTop - 2, panelW - 2, fenceH + 4); }
-        });
-
-        // === TERRAIN STEPPING (low-side ground) ===
-        run.panels.forEach((p, pi) => {
-            if (p.retaining > 0) {
-                const px = curX + pi * panelW;
-                const retDrop = p.retaining * hScale;
-                const lowGroundY = groundY + 14 + retDrop;
-                // Soil exposed section
-                const soilGrad = ctx.createLinearGradient(0, groundY + 14, 0, lowGroundY + 12);
-                soilGrad.addColorStop(0, '#a3724a'); soilGrad.addColorStop(1, '#8b5d3a');
-                ctx.fillStyle = soilGrad;
-                ctx.fillRect(px + 2, groundY + 14, panelW - 4, retDrop);
-                // Low-side grass
-                ctx.fillStyle = '#66bb6a';
-                ctx.fillRect(px + 2, lowGroundY, panelW - 4, 10);
-                // Step edge line
-                ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5;
-                ctx.beginPath(); ctx.moveTo(px + 2, groundY + 14); ctx.lineTo(px + 2, lowGroundY + 10); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(px + panelW - 2, groundY + 14); ctx.lineTo(px + panelW - 2, lowGroundY + 10); ctx.stroke();
-            }
-        });
-
-        const last = run.panels[run.panels.length - 1];
-        const lastX = curX + run.panels.length * panelW;
-        const lastFH = last.height * hScale;
-        const lastRH = last.retaining * hScale;
-        const finalPostH = lastFH + lastRH + 25;
-
-        const pGrad = ctx.createLinearGradient(lastX - 5, 0, lastX + 3, 0);
-        pGrad.addColorStop(0, '#4b5563'); pGrad.addColorStop(0.5, '#6b7280'); pGrad.addColorStop(1, '#4b5563');
-        ctx.fillStyle = pGrad; ctx.fillRect(lastX - 5, groundY - lastFH - 12, 7, finalPostH + 42);
-
-        ctx.fillStyle = '#374151'; ctx.beginPath();
-        ctx.moveTo(lastX - 7, groundY - lastFH - 12); ctx.lineTo(lastX - 1.5, groundY - lastFH - 22); ctx.lineTo(lastX + 4, groundY - lastFH - 12); ctx.fill();
-
-        curX += runW + gap;
-    });
-}
-
-function drawPanel(ctx, x, y, w, h, col, sel) {
-    const rgb = hexToRgb(col);
-    const ribs = Math.max(4, Math.floor(w / 9));
-    const ribW = w / ribs;
-
-    for (let i = 0; i < ribs; i++) {
-        const rx = x + i * ribW;
-        const raised = i % 2 === 0;
-        const shade = raised ? 1.0 : 0.8;
-        ctx.fillStyle = `rgb(${Math.round(rgb.r*shade)},${Math.round(rgb.g*shade)},${Math.round(rgb.b*shade)})`;
-        ctx.fillRect(rx, y, ribW - 0.5, h);
-        if (raised && ribW > 5) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(rx + 1, y, 2, h); }
-    }
-
-    ctx.fillStyle = '#52525b'; ctx.fillRect(x - 1, y - 4, w + 2, 5);
-    ctx.fillStyle = '#71717a'; ctx.fillRect(x - 1, y - 4, w + 2, 2);
-
-    ctx.strokeStyle = sel ? '#059669' : '#374151';
-    ctx.lineWidth = sel ? 3 : 1;
-    ctx.strokeRect(x, y, w, h);
-}
-
-function hexToRgb(hex) {
-    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) } : { r:128, g:128, b:128 };
-}
-
-// ========== 3D VIEW ==========
-function init3D() {
-    if (threeReady) return;
-    const box = document.getElementById('threeBox');
-    const rect = box.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) { setTimeout(init3D, 100); return; }
-
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xd4e8f0);
-    scene.fog = new THREE.Fog(0xd4e8f0, 8, 25);
-    camera = new THREE.PerspectiveCamera(35, rect.width / rect.height, 0.1, 100);
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(rect.width, rect.height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
-    box.appendChild(renderer.domElement);
-
-    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x556b2f, 0.5));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-    const sun = new THREE.DirectionalLight(0xfff5e6, 0.9);
-    sun.position.set(4, 8, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -8; sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 8; sun.shadow.camera.bottom = -8;
-    sun.shadow.bias = -0.001;
-    scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xc4d8ff, 0.3);
-    fill.position.set(-3, 4, -2); scene.add(fill);
-
-    const groundGeo = new THREE.PlaneGeometry(20, 20);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x6b8c42, roughness: 0.95 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
-
-    // Concrete strip under fence
-    const conGeo = new THREE.PlaneGeometry(20, 0.25);
-    const conMat = new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.85 });
-    const concrete = new THREE.Mesh(conGeo, conMat);
-    concrete.rotation.x = -Math.PI / 2; concrete.position.y = 0.002; concrete.receiveShadow = true; scene.add(concrete);
-
-    setupControls();
-    setup3DHover();
-    threeReady = true;
-    render3D();
-    animate3D();
-}
-
-let camTarget = new THREE.Vector3(0, 0.3, 0);
-let isDragging = false, prevMX = 0, prevMY = 0;
-
-function setupControls() {
-    const el = renderer.domElement;
-    el.addEventListener('mousedown', e => { isDragging = true; prevMX = e.clientX; prevMY = e.clientY; });
-    window.addEventListener('mouseup', () => isDragging = false);
-    el.addEventListener('mousemove', e => {
-        if (!isDragging) return;
-        const dx = e.clientX - prevMX, dy = e.clientY - prevMY;
-        const sph = new THREE.Spherical();
-        sph.setFromVector3(camera.position.clone().sub(camTarget));
-        sph.theta -= dx * 0.01; sph.phi -= dy * 0.01;
-        sph.phi = Math.max(0.1, Math.min(Math.PI/2 - 0.1, sph.phi));
-        camera.position.setFromSpherical(sph).add(camTarget);
-        camera.lookAt(camTarget);
-        prevMX = e.clientX; prevMY = e.clientY;
-    });
-    el.addEventListener('wheel', e => {
-        e.preventDefault();
-        const f = e.deltaY > 0 ? 1.1 : 0.9;
-        const dir = camera.position.clone().sub(camTarget).multiplyScalar(f);
-        if (dir.length() > 0.8 && dir.length() < 15) camera.position.copy(camTarget).add(dir);
-    }, { passive: false });
-}
-
-function animate3D() { requestAnimationFrame(animate3D); if (renderer) renderer.render(scene, camera); }
-
-function render3D() {
-    if (!scene) return;
-    const rem = [];
-    scene.traverse(o => { if (o.userData.fence) rem.push(o); });
-    const disposedMats = new Set();
-    rem.forEach(o => { if (o.geometry) o.geometry.dispose(); if (o.material && !disposedMats.has(o.material)) { o.material.dispose(); disposedMats.add(o.material); } scene.remove(o); });
-    hoveredObj = null;
-
-    const baseCol = new THREE.Color(COLOURS[job.colour]);
-    const pwM = SUPPLIERS[job.supplier].width / 1000;
-    const sc = SCALE_3D;
-    const postSize = 0.038;
-    const railH = 0.02;
-    const railD = 0.03;
-    const corrDepth = 0.009;
-
-    let offX = 0, totalW = 0, maxH = 0;
-    job.runs.forEach(run => { totalW += run.panels.length * pwM * sc; run.panels.forEach(p => { const h = (p.height / 1000) * sc; if (h > maxH) maxH = h; }); });
-    totalW += (job.runs.length - 1) * 0.15;
-
-    job.runs.forEach((run, ri) => {
-        run.panels.forEach((p, pi) => {
-            const fH = (p.height / 1000) * sc;
-            const pW = pwM * sc;
-            const retH = (p.retaining / 1000) * sc;
-            const gOff = ((p.groundOffset || 0) / 1000) * sc;
-            const colName = job.colour;
-
-            // === CORRUGATED PANEL ===
-            const panelGrp = new THREE.Group();
-            panelGrp.userData = { fence: true, componentType: 'panel', componentInfo: `Panel ${pi+1}: ${p.height}mm ${colName}` };
-            const strips = Math.max(16, Math.round(pW / 0.06));
-            const stripW = pW / strips;
-            for (let s = 0; s < strips; s++) {
-                const raised = s % 2 === 0;
-                const z = raised ? corrDepth : -corrDepth;
-                const shade = raised ? 1.0 : 0.78;
-                const geo = new THREE.BoxGeometry(stripW * 0.92, fH - 0.005, 0.002);
-                const mat = new THREE.MeshStandardMaterial({ color: baseCol.clone().multiplyScalar(shade), metalness: 0.55, roughness: 0.38, emissive: new THREE.Color(0x000000) });
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(stripW * (s + 0.5) - pW / 2, 0, z);
-                mesh.castShadow = true; mesh.receiveShadow = true;
-                panelGrp.add(mesh);
-            }
-            // Connecting strips between corrugations
-            for (let s = 0; s < strips - 1; s++) {
-                const geo = new THREE.BoxGeometry(0.002, fH - 0.005, corrDepth * 2);
-                const mat = new THREE.MeshStandardMaterial({ color: baseCol.clone().multiplyScalar(0.85), metalness: 0.55, roughness: 0.4, emissive: new THREE.Color(0x000000) });
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(stripW * (s + 1) - pW / 2, 0, 0);
-                panelGrp.add(mesh);
-            }
-            panelGrp.position.set(offX + pW / 2, fH / 2 + gOff, 0);
-            scene.add(panelGrp);
-
-            // === TOP RAIL (C-channel) ===
-            const topRailGrp = new THREE.Group();
-            topRailGrp.userData = { fence: true, componentType: 'rail', componentInfo: `Top Rail: ${run.name} P${pi+1}` };
-            const trMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.65, roughness: 0.3, emissive: new THREE.Color(0x000000) });
-            const trBack = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, railH, 0.002), trMat);
-            const trTop = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, 0.002, railD), trMat.clone());
-            trTop.position.set(0, railH / 2, -railD / 2);
-            const trBot = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, 0.002, railD * 0.6), trMat.clone());
-            trBot.position.set(0, -railH / 2, -railD * 0.3);
-            topRailGrp.add(trBack, trTop, trBot);
-            topRailGrp.position.set(offX + pW / 2, fH + railH / 2 + 0.002 + gOff, railD / 2);
-            topRailGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; } });
-            scene.add(topRailGrp);
-
-            // === BOTTOM RAIL ===
-            const botRailGrp = topRailGrp.clone(true);
-            botRailGrp.userData = { fence: true, componentType: 'rail', componentInfo: `Bottom Rail: ${run.name} P${pi+1}` };
-            botRailGrp.position.set(offX + pW / 2, -railH / 2 - 0.002 + gOff, railD / 2);
-            scene.add(botRailGrp);
-
-            // === PLINTHS (retaining wall) ===
-            const plinths = getPlinths(p);
-            if (plinths > 0) {
-                const plinthGrp = new THREE.Group();
-                plinthGrp.userData = { fence: true, componentType: 'plinth', componentInfo: `Plinth: ${p.retaining}mm (${plinths} sleepers)` };
-                const singleH = 0.15 * sc;
-                for (let pl = 0; pl < plinths; pl++) {
-                    const geo = new THREE.BoxGeometry(pW * 0.96, singleH * 0.88, 0.025);
-                    const mat = new THREE.MeshStandardMaterial({ color: 0x8b8680, roughness: 0.9, metalness: 0.1, emissive: new THREE.Color(0x000000) });
-                    const mesh = new THREE.Mesh(geo, mat);
-                    mesh.position.set(0, -singleH * (pl + 0.5), 0);
-                    mesh.castShadow = true; mesh.receiveShadow = true;
-                    plinthGrp.add(mesh);
-                    // Mortar line between sleepers
-                    if (pl < plinths - 1) {
-                        const line = new THREE.Mesh(new THREE.BoxGeometry(pW * 0.97, 0.003, 0.026), new THREE.MeshStandardMaterial({ color: 0xa09a94, roughness: 1.0 }));
-                        line.position.set(0, -singleH * (pl + 1), 0);
-                        plinthGrp.add(line);
-                    }
-                }
-                plinthGrp.position.set(offX + pW / 2, gOff, 0);
-                scene.add(plinthGrp);
-            }
-
-            // === POST (SHS 65x65mm) ===
-            const postGrp = new THREE.Group();
-            const postHt = fH + retH + 0.08;
-            postGrp.userData = { fence: true, componentType: 'post', componentInfo: `Post ${pi+1}: ${getPostHeight(p, run, pi)}mm SHS` };
-            const pMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.7, roughness: 0.25, emissive: new THREE.Color(0x000000) });
-            // Front face
-            const pFront = new THREE.Mesh(new THREE.BoxGeometry(postSize, postHt, 0.003), pMat);
-            pFront.position.z = postSize / 2;
-            // Back face
-            const pBack = new THREE.Mesh(new THREE.BoxGeometry(postSize, postHt, 0.003), pMat.clone());
-            pBack.position.z = -postSize / 2;
-            // Left face
-            const pLeft = new THREE.Mesh(new THREE.BoxGeometry(0.003, postHt, postSize), pMat.clone());
-            pLeft.position.x = -postSize / 2;
-            // Right face
-            const pRight = new THREE.Mesh(new THREE.BoxGeometry(0.003, postHt, postSize), pMat.clone());
-            pRight.position.x = postSize / 2;
-            postGrp.add(pFront, pBack, pLeft, pRight);
-            postGrp.position.set(offX, postHt / 2 - retH + gOff, 0);
-            postGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-            scene.add(postGrp);
-
-            // === POST CAP ===
-            const capGrp = new THREE.Group();
-            capGrp.userData = { fence: true, componentType: 'cap', componentInfo: 'Post Cap' };
-            const capBase = new THREE.Mesh(new THREE.BoxGeometry(postSize + 0.012, 0.006, postSize + 0.012), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
-            const capTop = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.04, 4), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
-            capTop.position.y = 0.023; capTop.rotation.y = Math.PI / 4;
-            capGrp.add(capBase, capTop);
-            capGrp.position.set(offX, fH + 0.025 + gOff, 0);
-            scene.add(capGrp);
-
-            offX += pW;
-        });
-
-        // === FINAL POST (end of run) ===
-        const last = run.panels[run.panels.length - 1];
-        const lastFH = (last.height / 1000) * sc;
-        const lastRH = (last.retaining / 1000) * sc;
-        const finalPostHt = lastFH + lastRH + 0.08;
-        const fpGrp = new THREE.Group();
-        fpGrp.userData = { fence: true, componentType: 'post', componentInfo: `Post ${run.panels.length + 1}: ${getPostHeight(last, run, run.panels.length - 1)}mm SHS` };
-        const fpMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.7, roughness: 0.25, emissive: new THREE.Color(0x000000) });
-        [{ x: 0, z: postSize/2 }, { x: 0, z: -postSize/2 }].forEach(p => {
-            const m = new THREE.Mesh(new THREE.BoxGeometry(postSize, finalPostHt, 0.003), fpMat.clone());
-            m.position.set(p.x, 0, p.z); fpGrp.add(m);
-        });
-        [{ x: -postSize/2, z: 0 }, { x: postSize/2, z: 0 }].forEach(p => {
-            const m = new THREE.Mesh(new THREE.BoxGeometry(0.003, finalPostHt, postSize), fpMat.clone());
-            m.position.set(p.x, 0, p.z); fpGrp.add(m);
-        });
-        fpGrp.position.set(offX, finalPostHt / 2 - lastRH, 0);
-        fpGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; } });
-        scene.add(fpGrp);
-
-        const fcGrp = new THREE.Group();
-        fcGrp.userData = { fence: true, componentType: 'cap', componentInfo: 'Post Cap' };
-        const fcBase = new THREE.Mesh(new THREE.BoxGeometry(postSize + 0.012, 0.006, postSize + 0.012), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
-        const fcTop = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.04, 4), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
-        fcTop.position.y = 0.023; fcTop.rotation.y = Math.PI / 4;
-        fcGrp.add(fcBase, fcTop);
-        fcGrp.position.set(offX, lastFH + 0.025, 0);
-        scene.add(fcGrp);
-
-        offX += 0.15;
-    });
-
-    const centerX = (offX - 0.15) / 2;
-    camTarget.set(centerX, maxH * 0.45, 0);
-    const dist = Math.max(1.5, totalW * 0.55);
-    camera.position.set(centerX + dist * 0.35, maxH * 0.6 + 0.5, dist * 0.9);
-    camera.lookAt(camTarget);
-}
-
-function setup3DHover() {
-    const el = renderer.domElement;
-    el.addEventListener('mousemove', on3DMouseMove);
-    el.addEventListener('mouseleave', () => { resetHover(); document.getElementById('tooltip3d').style.display = 'none'; });
-}
-
-function on3DMouseMove(event) {
-    if (isDragging) { document.getElementById('tooltip3d').style.display = 'none'; return; }
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouseVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouseVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouseVec, camera);
-    const intersects = raycaster.intersectObjects(scene.children, true);
-    resetHover();
-    const tooltip = document.getElementById('tooltip3d');
-    for (const hit of intersects) {
-        let obj = hit.object;
-        while (obj && !obj.userData.componentType) obj = obj.parent;
-        if (obj && obj.userData.componentType) {
-            hoveredObj = obj;
-            obj.traverse(c => { if (c.isMesh && c.material && c.material.emissive) c.material.emissive.setHex(0x333333); });
-            tooltip.style.display = 'block';
-            const vizRect = document.getElementById('vizArea').getBoundingClientRect();
-            tooltip.style.left = (event.clientX - vizRect.left + 16) + 'px';
-            tooltip.style.top = (event.clientY - vizRect.top - 12) + 'px';
-            tooltip.innerHTML = `<b>${obj.userData.componentType.toUpperCase()}</b><br><span class="tt-sub">${obj.userData.componentInfo}</span>`;
-            renderer.domElement.style.cursor = 'pointer';
-            return;
-        }
-    }
-    tooltip.style.display = 'none';
-    renderer.domElement.style.cursor = 'grab';
-}
-
-function resetHover() {
-    if (hoveredObj) {
-        hoveredObj.traverse(c => { if (c.isMesh && c.material && c.material.emissive) c.material.emissive.setHex(0x000000); });
-        hoveredObj = null;
-    }
-}
-
-function showView(v) {
-    const area = document.getElementById('vizArea');
-    document.getElementById('tabProfile').classList.toggle('active', v === 'profile');
-    document.getElementById('tab3d').classList.toggle('active', v === '3d');
-    if (v === '3d') { area.classList.add('mode-3d'); if (!threeReady) setTimeout(init3D, 50); else render3D(); }
-    else { area.classList.remove('mode-3d'); renderProfile(); }
-}
-
-// ========== OUTPUTS ==========
-function showOutputs() { document.getElementById('modalBg').classList.add('open'); renderOutput(); }
-function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
-
-function switchTab(btn, tab) {
-    curTab = tab;
-    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    renderOutput();
-}
-
-function renderOutput() {
-    const spec = SUPPLIERS[job.supplier];
-    const pricePerM = parsePricePerM();
-    let totalPanels = 0, totalPlinths = 0, totalPosts = 0, totalPatio = 0;
-    let groups = {};
-
-    job.runs.forEach(run => {
-        totalPatio += getPatioForRun(run);
-        run.panels.forEach((p, i) => {
-            totalPanels++;
-            totalPlinths += getPlinths(p);
-            const postH = getPostHeight(p, run, i);
-            const key = `${p.height}-${postH}`;
-            if (!groups[key]) groups[key] = { sheetH: p.height, postH, count: 0 };
-            groups[key].count++;
-        });
-        totalPosts += run.panels.length + 1;
-    });
-    totalPosts += job.gates.length * 2;
-    const concrete = Math.ceil(totalPosts * 2);
-    const totalM = (totalPanels * spec.width) / 1000;
-
-    let out = '';
-
-    if (curTab === 'material') {
-        const deliveryDate = new Date(job.date || new Date());
-        deliveryDate.setDate(deliveryDate.getDate() - 1);
-        // Skip weekends: if Saturday go to Friday, if Sunday go to Friday
-        if (deliveryDate.getDay() === 0) deliveryDate.setDate(deliveryDate.getDate() - 2);
-        if (deliveryDate.getDay() === 6) deliveryDate.setDate(deliveryDate.getDate() - 1);
-        const deliveryStr = deliveryDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
-        let items = [], n = 1;
-        Object.values(groups).forEach(g => {
-            items.push(`${n}) ${g.count} x ${g.sheetH}mm panels with ${g.postH}mm posts\n   Profile: ${spec.profile}\n   Colour: ${job.colour}`);
-            n++;
-        });
-        if (totalPlinths > 0) { items.push(`${n}) ${totalPlinths} x 150mm Plinths - ${job.colour}`); n++; }
-        if (totalPatio > 0) { items.push(`${n}) ${totalPatio} x 76x38 RHS Patio Tube @ 3000mm`); n++; }
-        job.gates.forEach(g => {
-            const desc = g.type === 'pedestrian' ? 'Pedestrian' : g.type === 'single' ? 'Single Drive' : g.type === 'double' ? 'Double Drive' : 'Sliding';
-            const runName = job.runs[g.runIndex || 0]?.name || 'Run';
-            items.push(`${n}) 2 x 50x50 SHS gate posts @ 2100mm (${g.width}mm ${desc} in ${runName} after P${g.afterPanel})`);
-            n++;
-        });
-        items.push(`${n}) ${concrete} x Bags Quickset Concrete`);
-        items.push(`${n+1}) Fixings, Post Caps, Screws as required`);
-
-        out = `════════════════════════════════════════════════
-          MATERIAL ORDER - ${job.ref}
-════════════════════════════════════════════════
-
-To: ${spec.name} Sales
-
-Hi Team,
-
-Please order the following for delivery:
-
-Delivery: ${deliveryStr}
-Address:  ${job.address || '[Address]'}
-Contact:  ${job.client || '[Client]'}
-
-────────────────────────────────────────────────
-MATERIALS
-────────────────────────────────────────────────
-
-${items.join('\n\n')}
-
-────────────────────────────────────────────────
-
-Please confirm. Thanks!
-
-SecureWorks WA`;
-    } else if (curTab === 'work') {
-        const runsT = job.runs.map(run => {
-            const det = run.panels.map((p, i) => {
-                const patio = needsPatio(p) ? ' †' : '';
-                const total = getTotalHeight(p);
-                return `  P${i+1}: ${p.height}mm fence + ${p.retaining}mm ret = ${total}mm total${patio}`;
-            }).join('\n');
-            const runPatio = getPatioForRun(run);
-            const note = runPatio > 0 ? ` [${runPatio} patio tubes]` : '';
-            return `${run.name} (${run.panels.length} panels, ${(run.length/1000).toFixed(1)}m)${note}\n${det}`;
-        }).join('\n\n');
-
-        const gatesT = job.gates.length > 0 ? job.gates.map(g => {
-            const runName = job.runs[g.runIndex || 0]?.name || 'Run';
-            return `  ${g.type}: ${g.width}mm in ${runName} after P${g.afterPanel}`;
-        }).join('\n') : '  None';
-
-        out = `════════════════════════════════════════════════
-            WORK ORDER - ${job.ref}
-════════════════════════════════════════════════
-
-Client:   ${job.client || '[Client]'}
-Address:  ${job.address || '[Address]'}
-Date:     ${job.date || 'TBD'}
-
-────────────────────────────────────────────────
-FENCE RUNS
-────────────────────────────────────────────────
-
-${runsT}
-
-────────────────────────────────────────────────
-GATES
-────────────────────────────────────────────────
-
-${gatesT}
-
-────────────────────────────────────────────────
-SUMMARY
-────────────────────────────────────────────────
-
-  Total Length:  ${totalM.toFixed(1)}m
-  Panels:        ${totalPanels}
-  Posts:         ${totalPosts}
-  Plinths:       ${totalPlinths}
-  Patio Tubes:   ${totalPatio}
-  Concrete:      ${concrete} bags
-
-† = Patio tube required (3+ plinths / 450mm+ retaining)`;
-    } else {
-        const sub = totalM * pricePerM;
-        const gst = sub * GST_RATE;
-        const total = sub + gst;
-
-        out = `════════════════════════════════════════════════
-               QUOTE - ${job.ref}
-════════════════════════════════════════════════
-
-Client: ${job.client || '[Client]'}
-
-────────────────────────────────────────────────
-SCOPE OF WORKS
-────────────────────────────────────────────────
-
-${totalM.toFixed(1)}m Colorbond Fencing
-Colour: ${job.colour}
-
-Includes:
-• Supply of all materials
-• Professional installation
-• Posts set in concrete
-• Site clean up
-
-────────────────────────────────────────────────
-PRICING (@ $${pricePerM}/m)
-────────────────────────────────────────────────
-
-Subtotal:     $${sub.toFixed(2).padStart(10)}
-GST (10%):    $${gst.toFixed(2).padStart(10)}
-             ──────────────
-TOTAL:        $${total.toFixed(2).padStart(10)}
-
-────────────────────────────────────────────────
-
-Quote valid for 30 days.
-
-SecureWorks WA
-ABN: XX XXX XXX XXX`;
-    }
-
-    document.getElementById('outputPre').textContent = out;
-}
-
-function copyOutput(e) {
-    const txt = document.getElementById('outputPre').textContent;
-    const btn = e.target.closest('.m-btn-pri');
-    navigator.clipboard.writeText(txt).then(() => {
-        const orig = btn.innerHTML;
-        btn.innerHTML = '✓ Copied!';
-        setTimeout(() => btn.innerHTML = orig, 1500);
-    });
-}
-
-// ========== START ==========
-window.addEventListener('load', init);
-</script>
+      }
+    };
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', () => app.init());
+  </script>
 </body>
 </html>
