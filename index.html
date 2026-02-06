@@ -373,26 +373,26 @@
     }
 
     .panel-table .col-ht {
-      width: 50px;
+      width: 55px;
     }
 
     .panel-table .col-ret {
-      width: 60px;
+      width: 65px;
     }
 
     .panel-table .col-pl {
-      width: 30px;
+      width: 45px;
       font-weight: 700;
       color: #4C6A70;
     }
 
     .panel-table .col-step {
-      width: 30px;
+      width: 35px;
       color: #4C6A70;
     }
 
     .panel-table .col-total {
-      width: 45px;
+      width: 50px;
       font-weight: 700;
     }
 
@@ -951,7 +951,7 @@
             id: 'panel-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
             height: run.sheetHeight,
             retaining: 0,
-            ground: 'level'
+            step: 'level'
           });
         }
 
@@ -1064,6 +1064,8 @@
           panel.height = parseInt(value);
         } else if (field === 'retaining') {
           panel.retaining = parseInt(value);
+        } else if (field === 'step') {
+          panel.step = value;
         }
 
         this.save();
@@ -1261,13 +1263,11 @@
             ? `<span class="post-patio">${maxPost}†</span>`
             : `${maxPost}`;
 
-          // Step indicator (compare retaining with neighbors)
-          let step = '—';
-          if (idx > 0) {
-            const prev = run.panels[idx - 1];
-            if (panel.retaining > prev.retaining) step = '↑';
-            else if (panel.retaining < prev.retaining) step = '↓';
-          }
+          // Plinths display: append † when plinths >= 3 (patio tube required)
+          const plinthsDisplay = derived.plinths >= 3 ? `${derived.plinths}†` : `${derived.plinths}`;
+
+          // Step is user input stored on the panel, not auto-calculated
+          const stepValue = panel.step || 'level';
 
           return `<tr>
             <td class="col-pnum">P${idx + 1}</td>
@@ -1285,8 +1285,14 @@
                 ).join('')}
               </select>
             </td>
-            <td class="col-pl">${derived.plinths}</td>
-            <td class="col-step">${step}</td>
+            <td class="col-pl">${plinthsDisplay}</td>
+            <td class="col-step">
+              <select onchange="app.updatePanel('${run.id}', ${idx}, 'step', this.value)">
+                <option value="level" ${stepValue === 'level' ? 'selected' : ''}>—</option>
+                <option value="up" ${stepValue === 'up' ? 'selected' : ''}>↑</option>
+                <option value="down" ${stepValue === 'down' ? 'selected' : ''}>↓</option>
+              </select>
+            </td>
             <td class="col-total ${totalClass}">${derived.totalHeight}</td>
             <td class="col-post">${postDisplay}</td>
             <td class="col-del"><button class="delete-panel-btn" onclick="app.deletePanel('${run.id}', ${idx})" title="Delete panel">&times;</button></td>
@@ -1392,11 +1398,11 @@
                 <thead>
                   <tr>
                     <th>P#</th>
-                    <th>Ht</th>
-                    <th>Ret</th>
-                    <th>Pl</th>
-                    <th>Stp</th>
-                    <th>Tot</th>
+                    <th>Sheet Ht</th>
+                    <th>Ret (mm)</th>
+                    <th>Plinths</th>
+                    <th>Step</th>
+                    <th>Total</th>
                     <th>Post</th>
                     <th>&times;</th>
                   </tr>
