@@ -473,7 +473,9 @@ For post at position i (between panel i-1 and panel i):
 
 **Patio tubing (76×38mm RHS × 3000mm) is required when ANY panel has 3 or more plinths (i.e. ≥450mm retaining).**
 
-Patio tubes are installed vertically on BOTH SIDES of the retained section — one tube per post position in the retained zone.
+**How it works:** Each fence panel has two C-channel posts (left and right) and two rails (top and bottom). Where two panels meet, the right post of one panel and the left post of the next panel sit back-to-back. Normally these two C-channels just butt against each other. When a junction needs extra strength (3+ plinths on either side), a patio tube slides in between the two back-to-back C-channels, bracing both panels. Post count does NOT change — the tube is an insert between the existing posts.
+
+Every junction where at least one adjacent panel has 3+ plinths needs a tube.
 
 ```
 Quantity per run:
@@ -481,7 +483,9 @@ Quantity per run:
   patioTubes = panelsNeedingTube > 0 ? panelsNeedingTube + 1 : 0
 ```
 
-Why +1: You need a tube at every post position bounding the retained panels. So 3 consecutive panels needing tubes = 4 post positions = 4 tubes.
+Why +1: Each retained panel has a junction on each side. Adjacent retained panels share a junction. So 3 consecutive panels needing tubes = 4 junctions = 4 tubes.
+
+**Example:** Panels P3, P4, P5 all have 3+ plinths. Junctions P2|P3, P3|P4, P4|P5, P5|P6 all need tubes = 4 tubes.
 
 **ABSOLUTE MAXIMUM: 5 plinths (750mm retaining).** No panel can ever have more than 5 plinths. The retaining dropdown maxes out at 750mm. If a job needs more than 750mm of retaining, it's not a Colorbond fence job — it needs an engineered retaining wall.
 
