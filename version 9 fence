@@ -1,0 +1,2013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureWorks WA - Fence Designer Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root {
+            --primary: #16a34a;
+            --primary-dark: #15803d;
+            --accent: #f97316;
+            --bg: #ffffff;
+            --surface: #f8fafc;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        body {
+            min-height: 100vh;
+        }
+
+        /* ===== HEADER ===== */
+        .header {
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo-mark {
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            border-radius: 6px;
+            display: grid;
+            place-items: center;
+            color: white;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        .logo-text {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .logo-text span {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .job-info {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex: 1;
+            flex-wrap: wrap;
+        }
+
+        .job-field {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .job-field label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .job-field input, .job-field select {
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .job-field input:focus, .job-field select:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+        }
+
+        .divider {
+            width: 1px;
+            height: 28px;
+            background: var(--border);
+        }
+
+        .save-indicator {
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: var(--surface);
+        }
+
+        .save-indicator.unsaved {
+            color: var(--accent);
+            background: #fff7ed;
+        }
+
+        /* ===== MAIN LAYOUT ===== */
+        .main-container {
+            display: flex;
+            height: calc(100vh - 53px);
+        }
+
+        /* ===== LEFT PANEL - CONFIG ===== */
+        .config-panel {
+            width: 420px;
+            min-width: 420px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .config-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            background: white;
+        }
+
+        .runs-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .run-chip {
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .run-chip:hover { border-color: var(--primary); }
+
+        .run-chip.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .run-chip .count {
+            opacity: 0.7;
+            margin-left: 3px;
+            font-size: 11px;
+        }
+
+        .add-run-chip {
+            padding: 6px 10px;
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            border: 1px dashed var(--border);
+            background: transparent;
+            color: var(--text-muted);
+        }
+
+        .add-run-chip:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .run-config {
+            padding: 12px 16px;
+            background: white;
+            border-bottom: 1px solid var(--border);
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .config-field {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .config-field label {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .config-field input, .config-field select {
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 12px;
+            background: white;
+        }
+
+        .config-field input:focus, .config-field select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .length-input-group {
+            display: flex;
+            gap: 4px;
+        }
+
+        .length-input-group input {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .length-input-group select {
+            width: 55px;
+            padding: 6px 4px;
+        }
+
+        .config-actions {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .btn:hover { border-color: var(--text-secondary); }
+
+        .btn-danger {
+            border-color: #fecaca;
+            color: #dc2626;
+        }
+
+        .btn-danger:hover { background: #fef2f2; }
+
+        /* ===== PANEL TABLE ===== */
+        .panel-table-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        .panel-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .panel-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .panel-table th {
+            background: var(--surface);
+            padding: 8px 10px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+            background: white;
+        }
+
+        .panel-table tr:hover td { background: #f0fdf4; }
+
+        .panel-table tr.selected td { background: #dcfce7; }
+
+        .panel-table input, .panel-table select {
+            border: 1px solid transparent;
+            background: transparent;
+            padding: 4px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            color: var(--text);
+            width: 100%;
+        }
+
+        .panel-table input:hover, .panel-table select:hover {
+            background: var(--surface);
+            border-color: var(--border);
+        }
+
+        .panel-table input:focus, .panel-table select:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+        }
+
+        .panel-num {
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .panel-num:hover { color: var(--primary); }
+
+        .plinths-visual {
+            display: flex;
+            gap: 2px;
+        }
+
+        .plinth-block {
+            width: 10px;
+            height: 10px;
+            background: #64748b;
+            border-radius: 2px;
+        }
+
+        .plinth-block.empty {
+            background: var(--border);
+        }
+
+        .step-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
+        .step-badge.down { background: #fee2e2; color: #dc2626; }
+        .step-badge.up { background: #dcfce7; color: #16a34a; }
+        .step-badge.level { background: var(--surface); color: var(--text-muted); }
+
+        .post-badge {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .post-badge.patio { color: var(--accent); }
+        .post-badge.patio::after { content: ' †'; }
+
+        .remove-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px;
+            font-size: 14px;
+            line-height: 1;
+            border-radius: 3px;
+        }
+
+        .remove-btn:hover { background: #fee2e2; color: #dc2626; }
+
+        .add-panel-row td {
+            text-align: center;
+            padding: 10px;
+        }
+
+        .add-panel-btn {
+            background: none;
+            border: 1px dashed var(--border);
+            padding: 5px 14px;
+            border-radius: 4px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .add-panel-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* ===== GATES SECTION ===== */
+        .gates-section {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            background: white;
+        }
+
+        .gates-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .gates-header h4 {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .gate-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: var(--surface);
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .gate-item select, .gate-item input {
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 4px 6px;
+            font-size: 11px;
+            background: white;
+        }
+
+        /* ===== RIGHT PANEL - VISUALIZER ===== */
+        .visualizer-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .viz-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            background: white;
+        }
+
+        .viz-tabs {
+            display: flex;
+            gap: 2px;
+            background: var(--surface);
+            padding: 3px;
+            border-radius: 6px;
+        }
+
+        .viz-tab {
+            padding: 6px 14px;
+            border: none;
+            background: none;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .viz-tab.active {
+            background: white;
+            color: var(--text);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .viz-stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .stat-item { text-align: center; }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .generate-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .generate-btn:hover { background: var(--primary-dark); }
+
+        /* ===== CANVAS CONTAINER - FIXED SIZING ===== */
+        .viz-container {
+            flex: 1;
+            position: relative;
+            background: #f0f9ff;
+            overflow: hidden;
+        }
+
+        .canvas-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #profileCanvas {
+            display: block;
+        }
+
+        #threeDContainer {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+
+        .viz-container.show-3d #profileCanvas { display: none; }
+        .viz-container.show-3d #threeDContainer { display: block; }
+
+        .viz-legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 10px;
+            color: #64748b;
+            background: rgba(255,255,255,0.9);
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 4px;
+        }
+
+        .modal-tab {
+            padding: 6px 14px;
+            border: none;
+            background: none;
+            border-radius: 4px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .modal-tab.active {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px;
+        }
+
+        .output-text {
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            background: var(--surface);
+            padding: 14px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .modal-footer {
+            padding: 14px 18px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .modal-btn {
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .modal-btn-secondary {
+            background: white;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .modal-btn-primary {
+            background: var(--primary);
+            border: none;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="header">
+        <div class="logo">
+            <div class="logo-mark">SW</div>
+            <div class="logo-text">SecureWorks WA <span>Fence Designer</span></div>
+        </div>
+        <div class="divider"></div>
+        <div class="job-info">
+            <div class="job-field">
+                <label>Job Ref</label>
+                <input type="text" id="jobRef" value="" style="width: 70px;" onchange="saveJob()">
+            </div>
+            <div class="job-field">
+                <label>Client</label>
+                <input type="text" id="clientName" value="" style="width: 100px;" onchange="saveJob()">
+            </div>
+            <div class="job-field">
+                <label>Address</label>
+                <input type="text" id="address" value="" style="width: 200px;" onchange="saveJob()">
+            </div>
+            <div class="divider"></div>
+            <div class="job-field">
+                <label>Supplier</label>
+                <select id="supplier" onchange="onSupplierChange()">
+                    <option value="RNR">RNR (2380mm)</option>
+                    <option value="Metroll">Metroll (2365mm)</option>
+                    <option value="Lysaght">Lysaght (2360mm)</option>
+                </select>
+            </div>
+            <div class="job-field">
+                <label>Colour</label>
+                <select id="colour" onchange="onColourChange()">
+                    <option value="Shale Grey">Shale Grey</option>
+                    <option value="Monument">Monument</option>
+                    <option value="Woodland Grey">Woodland Grey</option>
+                    <option value="Basalt">Basalt</option>
+                    <option value="Surfmist">Surfmist</option>
+                    <option value="Dune">Dune</option>
+                    <option value="Paperbark">Paperbark</option>
+                </select>
+            </div>
+            <div class="job-field">
+                <label>Install Date</label>
+                <input type="date" id="jobDate" onchange="saveJob()">
+            </div>
+        </div>
+        <div class="divider"></div>
+        <span class="save-indicator" id="saveIndicator">Saved</span>
+        <button class="btn" onclick="newJob()">New Job</button>
+    </header>
+
+    <!-- MAIN -->
+    <div class="main-container">
+        <!-- LEFT: CONFIG PANEL -->
+        <div class="config-panel">
+            <div class="config-header">
+                <div class="runs-bar">
+                    <div id="runChips"></div>
+                    <button class="add-run-chip" onclick="addRun()">+ Run</button>
+                </div>
+            </div>
+
+            <div class="run-config">
+                <div class="config-field">
+                    <label>Run Name</label>
+                    <input type="text" id="runName" onchange="updateRunName()">
+                </div>
+                <div class="config-field">
+                    <label>Length</label>
+                    <div class="length-input-group">
+                        <input type="number" id="runLength" step="0.1" onchange="updateRunLength()">
+                        <select id="lengthUnit" onchange="updateRunLength()">
+                            <option value="m">m</option>
+                            <option value="mm">mm</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="config-field">
+                    <label>Default Height</label>
+                    <select id="defaultHeight" onchange="updateDefaultHeight()">
+                        <option value="1200">1200mm</option>
+                        <option value="1500">1500mm</option>
+                        <option value="1800">1800mm</option>
+                        <option value="2100">2100mm</option>
+                    </select>
+                </div>
+                <div class="config-field">
+                    <label>Extension</label>
+                    <select id="extension" onchange="updateExtension()">
+                        <option value="none">None</option>
+                        <option value="150">150mm Solid</option>
+                        <option value="300">300mm Lattice</option>
+                    </select>
+                </div>
+                <div class="config-actions">
+                    <button class="btn" onclick="applyHeightToAll()">Apply Height to All</button>
+                    <button class="btn btn-danger" onclick="deleteRun()">Delete Run</button>
+                </div>
+            </div>
+
+            <div class="panel-table-container">
+                <table class="panel-table">
+                    <thead>
+                        <tr>
+                            <th style="width:40px">P#</th>
+                            <th style="width:80px">Height</th>
+                            <th style="width:50px">Plinths</th>
+                            <th style="width:60px"></th>
+                            <th style="width:30px">Step</th>
+                            <th style="width:60px">Post</th>
+                            <th style="width:30px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="panelTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="gates-section">
+                <div class="gates-header">
+                    <h4>Gates</h4>
+                    <button class="btn" onclick="addGate()">+ Add Gate</button>
+                </div>
+                <div id="gatesList"></div>
+            </div>
+        </div>
+
+        <!-- RIGHT: VISUALIZER -->
+        <div class="visualizer-panel">
+            <div class="viz-header">
+                <div class="viz-tabs">
+                    <button class="viz-tab active" id="profileTab" onclick="showView('profile')">Profile</button>
+                    <button class="viz-tab" id="threeDTab" onclick="showView('3d')">3D View</button>
+                </div>
+                <div class="viz-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="statMetres">0</div>
+                        <div class="stat-label">Metres</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="statPanels">0</div>
+                        <div class="stat-label">Panels</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="statPosts">0</div>
+                        <div class="stat-label">Posts</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="statPlinths">0</div>
+                        <div class="stat-label">Plinths</div>
+                    </div>
+                </div>
+                <button class="generate-btn" onclick="showOutputs()">Generate Outputs</button>
+            </div>
+            <div class="viz-container" id="vizContainer">
+                <div class="canvas-wrapper">
+                    <canvas id="profileCanvas"></canvas>
+                    <div id="threeDContainer"></div>
+                </div>
+                <div class="viz-legend">
+                    Click panel number to highlight · † = patio tube required (3+ plinths)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- OUTPUT MODAL -->
+    <div class="modal-overlay" id="outputModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-tabs">
+                    <button class="modal-tab active" onclick="switchOutputTab(this, 'material')">Material Order</button>
+                    <button class="modal-tab" onclick="switchOutputTab(this, 'work')">Work Order</button>
+                    <button class="modal-tab" onclick="switchOutputTab(this, 'quote')">Quote</button>
+                </div>
+                <button class="modal-close" onclick="closeOutputs()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre class="output-text" id="outputText"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn modal-btn-secondary" onclick="closeOutputs()">Close</button>
+                <button class="modal-btn modal-btn-primary" onclick="copyOutput()">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========== CONFIGURATION ==========
+        const SUPPLIERS = {
+            'RNR': { width: 2380, name: 'RnR Fencing', profile: 'RnR Trimclad Equivalent' },
+            'Metroll': { width: 2365, name: 'Metroll', profile: 'Metroll Trimdek' },
+            'Lysaght': { width: 2360, name: 'Lysaght', profile: 'Lysaght Neetascreen' }
+        };
+
+        const COLOURS = {
+            'Shale Grey': '#8B8B83',
+            'Monument': '#3D3D3D',
+            'Woodland Grey': '#4A4F45',
+            'Basalt': '#4B4B4B',
+            'Surfmist': '#E8E5DC',
+            'Dune': '#B5A898',
+            'Paperbark': '#C4BAA8'
+        };
+
+        // FIXED: Added 3300 and 3600 for tall fences
+        const POST_SIZES = [2400, 2700, 3000, 3300, 3600];
+
+        // ========== STATE ==========
+        let job = {
+            ref: '',
+            client: '',
+            address: '',
+            supplier: 'RNR',
+            colour: 'Shale Grey',
+            date: new Date().toISOString().split('T')[0],
+            runs: [],
+            gates: []
+        };
+
+        let currentRunIndex = 0;
+        let selectedPanelIndex = -1;
+        let currentOutputTab = 'material';
+        let hasUnsavedChanges = false;
+
+        // Three.js
+        let scene, camera, renderer;
+        let threeInitialized = false;
+
+        // ========== INITIALIZATION ==========
+        function init() {
+            // Set today's date
+            document.getElementById('jobDate').value = job.date;
+
+            // Load saved job or create new
+            const saved = localStorage.getItem('fenceDesignerJob');
+            if (saved) {
+                try {
+                    job = JSON.parse(saved);
+                    currentRunIndex = 0;
+                } catch (e) {
+                    createDefaultJob();
+                }
+            } else {
+                createDefaultJob();
+            }
+
+            loadJobToUI();
+            renderAll();
+
+            // Setup canvas resize observer
+            setupCanvasResize();
+        }
+
+        function createDefaultJob() {
+            job = {
+                ref: generateJobRef(),
+                client: '',
+                address: '',
+                supplier: 'RNR',
+                colour: 'Shale Grey',
+                date: new Date().toISOString().split('T')[0],
+                runs: [],
+                gates: []
+            };
+            addRun('Rear', 19);
+        }
+
+        function generateJobRef() {
+            const num = Math.floor(1000 + Math.random() * 9000);
+            return 'SW' + num;
+        }
+
+        function loadJobToUI() {
+            document.getElementById('jobRef').value = job.ref;
+            document.getElementById('clientName').value = job.client;
+            document.getElementById('address').value = job.address;
+            document.getElementById('supplier').value = job.supplier;
+            document.getElementById('colour').value = job.colour;
+            document.getElementById('jobDate').value = job.date;
+        }
+
+        function newJob() {
+            if (hasUnsavedChanges && !confirm('Start new job? Unsaved changes will be lost.')) return;
+            localStorage.removeItem('fenceDesignerJob');
+            createDefaultJob();
+            loadJobToUI();
+            currentRunIndex = 0;
+            selectedPanelIndex = -1;
+            renderAll();
+            markSaved();
+        }
+
+        // ========== SAVE/LOAD ==========
+        function saveJob() {
+            job.ref = document.getElementById('jobRef').value;
+            job.client = document.getElementById('clientName').value;
+            job.address = document.getElementById('address').value;
+            job.date = document.getElementById('jobDate').value;
+
+            localStorage.setItem('fenceDesignerJob', JSON.stringify(job));
+            markSaved();
+        }
+
+        function markUnsaved() {
+            hasUnsavedChanges = true;
+            document.getElementById('saveIndicator').textContent = 'Unsaved';
+            document.getElementById('saveIndicator').classList.add('unsaved');
+        }
+
+        function markSaved() {
+            hasUnsavedChanges = false;
+            document.getElementById('saveIndicator').textContent = 'Saved';
+            document.getElementById('saveIndicator').classList.remove('unsaved');
+        }
+
+        function autoSave() {
+            localStorage.setItem('fenceDesignerJob', JSON.stringify(job));
+            markSaved();
+        }
+
+        // ========== RUNS ==========
+        function addRun(name, lengthM = 19) {
+            const names = ['Rear', 'LHS', 'RHS', 'Front'];
+            const usedNames = job.runs.map(r => r.name);
+            const defaultName = name || names.find(n => !usedNames.includes(n)) || `Run ${job.runs.length + 1}`;
+
+            const panelWidth = SUPPLIERS[job.supplier].width;
+            const lengthMM = lengthM * 1000;
+            const panelCount = Math.ceil(lengthMM / panelWidth);
+
+            const panels = [];
+            for (let i = 0; i < panelCount; i++) {
+                panels.push({ height: 1800, plinths: 0 });
+            }
+
+            job.runs.push({
+                name: defaultName,
+                length: panelCount * panelWidth,
+                defaultHeight: 1800,
+                extension: 0,
+                panels
+            });
+
+            currentRunIndex = job.runs.length - 1;
+            selectedPanelIndex = -1;
+            renderAll();
+            autoSave();
+        }
+
+        function deleteRun() {
+            if (job.runs.length <= 1) {
+                alert('Must have at least one run');
+                return;
+            }
+            job.runs.splice(currentRunIndex, 1);
+            currentRunIndex = Math.max(0, currentRunIndex - 1);
+            selectedPanelIndex = -1;
+            renderAll();
+            autoSave();
+        }
+
+        function selectRun(index) {
+            currentRunIndex = index;
+            selectedPanelIndex = -1;
+            renderAll();
+        }
+
+        function updateRunName() {
+            job.runs[currentRunIndex].name = document.getElementById('runName').value;
+            renderRunChips();
+            autoSave();
+        }
+
+        function updateRunLength() {
+            const input = parseFloat(document.getElementById('runLength').value) || 10;
+            const unit = document.getElementById('lengthUnit').value;
+            const lengthMM = unit === 'm' ? input * 1000 : input;
+
+            const panelWidth = SUPPLIERS[job.supplier].width;
+            const panelCount = Math.ceil(lengthMM / panelWidth);
+
+            const run = job.runs[currentRunIndex];
+            const newLength = panelCount * panelWidth;
+
+            // Adjust panels
+            while (run.panels.length < panelCount) {
+                run.panels.push({ height: run.defaultHeight, plinths: 0 });
+            }
+            while (run.panels.length > panelCount) {
+                run.panels.pop();
+            }
+
+            run.length = newLength;
+
+            // Update display
+            if (unit === 'm') {
+                document.getElementById('runLength').value = (newLength / 1000).toFixed(2);
+            } else {
+                document.getElementById('runLength').value = newLength;
+            }
+
+            renderAll();
+            autoSave();
+        }
+
+        function updateDefaultHeight() {
+            job.runs[currentRunIndex].defaultHeight = parseInt(document.getElementById('defaultHeight').value);
+            autoSave();
+        }
+
+        function updateExtension() {
+            job.runs[currentRunIndex].extension = parseInt(document.getElementById('extension').value) || 0;
+            renderAll();
+            autoSave();
+        }
+
+        function applyHeightToAll() {
+            const height = job.runs[currentRunIndex].defaultHeight;
+            job.runs[currentRunIndex].panels.forEach(p => p.height = height);
+            renderAll();
+            autoSave();
+        }
+
+        // ========== PANELS ==========
+        function updatePanel(index, field, value) {
+            const run = job.runs[currentRunIndex];
+            if (field === 'height') {
+                run.panels[index].height = parseInt(value);
+            } else if (field === 'plinths') {
+                run.panels[index].plinths = Math.max(0, Math.min(5, parseInt(value) || 0));
+            }
+            renderAll();
+            autoSave();
+        }
+
+        function selectPanel(index) {
+            selectedPanelIndex = index;
+            renderPanelTable();
+            renderProfile();
+        }
+
+        function addPanel() {
+            const run = job.runs[currentRunIndex];
+            const lastPanel = run.panels[run.panels.length - 1];
+            run.panels.push({
+                height: lastPanel?.height || run.defaultHeight,
+                plinths: lastPanel?.plinths || 0
+            });
+
+            run.length = run.panels.length * SUPPLIERS[job.supplier].width;
+            renderAll();
+            autoSave();
+        }
+
+        function removePanel(index) {
+            const run = job.runs[currentRunIndex];
+            if (run.panels.length <= 1) return;
+
+            run.panels.splice(index, 1);
+            run.length = run.panels.length * SUPPLIERS[job.supplier].width;
+
+            if (selectedPanelIndex >= run.panels.length) {
+                selectedPanelIndex = run.panels.length - 1;
+            }
+
+            renderAll();
+            autoSave();
+        }
+
+        // ========== GATES ==========
+        function addGate() {
+            job.gates.push({ type: 'pedestrian', width: 900 });
+            renderGates();
+            updateStats();
+            autoSave();
+        }
+
+        function updateGate(index, field, value) {
+            if (field === 'type') job.gates[index].type = value;
+            if (field === 'width') job.gates[index].width = parseInt(value) || 900;
+            renderGates();
+            updateStats();
+            autoSave();
+        }
+
+        function removeGate(index) {
+            job.gates.splice(index, 1);
+            renderGates();
+            updateStats();
+            autoSave();
+        }
+
+        // ========== CALCULATIONS ==========
+        function getStep(run, index) {
+            if (index === 0) return 'level';
+            const curr = run.panels[index].plinths;
+            const prev = run.panels[index - 1].plinths;
+            if (curr > prev) return 'down';
+            if (curr < prev) return 'up';
+            return 'level';
+        }
+
+        function getPostHeight(panel, run, index) {
+            const footing = 600;
+            const ext = run.extension || 0;
+
+            // Post must accommodate both adjacent panels
+            let maxH = panel.height + (panel.plinths * 150);
+            if (index > 0) {
+                const prev = run.panels[index - 1];
+                maxH = Math.max(maxH, prev.height + (prev.plinths * 150));
+            }
+
+            const required = maxH + footing + ext;
+            return POST_SIZES.find(s => s >= required) || POST_SIZES[POST_SIZES.length - 1];
+        }
+
+        function needsPatioTube(panel) {
+            return panel.plinths >= 3 && panel.plinths <= 5;
+        }
+
+        // FIXED: Calculate patio tubes per run, not global
+        function getPatioTubesForRun(run) {
+            const panelsNeedingTube = run.panels.filter(p => needsPatioTube(p)).length;
+            return panelsNeedingTube > 0 ? panelsNeedingTube + 1 : 0;
+        }
+
+        // ========== SUPPLIER/COLOUR CHANGE ==========
+        function onSupplierChange() {
+            job.supplier = document.getElementById('supplier').value;
+            // Recalculate all run lengths
+            job.runs.forEach(run => {
+                const panelWidth = SUPPLIERS[job.supplier].width;
+                run.length = run.panels.length * panelWidth;
+            });
+            renderAll();
+            autoSave();
+        }
+
+        function onColourChange() {
+            job.colour = document.getElementById('colour').value;
+            renderProfile();
+            if (threeInitialized) render3D();
+            autoSave();
+        }
+
+        // ========== RENDER ==========
+        function renderAll() {
+            renderRunChips();
+            renderRunConfig();
+            renderPanelTable();
+            renderGates();
+            updateStats();
+            renderProfile();
+            if (threeInitialized) render3D();
+        }
+
+        function renderRunChips() {
+            const container = document.getElementById('runChips');
+            container.innerHTML = job.runs.map((run, i) => `
+                <button class="run-chip ${i === currentRunIndex ? 'active' : ''}" onclick="selectRun(${i})">
+                    ${run.name}<span class="count">(${run.panels.length})</span>
+                </button>
+            `).join('');
+        }
+
+        function renderRunConfig() {
+            const run = job.runs[currentRunIndex];
+            if (!run) return;
+
+            document.getElementById('runName').value = run.name;
+            document.getElementById('defaultHeight').value = run.defaultHeight;
+            document.getElementById('extension').value = run.extension || 'none';
+
+            // Show length in current unit
+            const unit = document.getElementById('lengthUnit').value;
+            if (unit === 'm') {
+                document.getElementById('runLength').value = (run.length / 1000).toFixed(2);
+            } else {
+                document.getElementById('runLength').value = run.length;
+            }
+        }
+
+        function renderPanelTable() {
+            const run = job.runs[currentRunIndex];
+            if (!run) return;
+
+            const tbody = document.getElementById('panelTableBody');
+            let html = '';
+
+            run.panels.forEach((panel, i) => {
+                const step = getStep(run, i);
+                const postH = getPostHeight(panel, run, i);
+                const patio = needsPatioTube(panel);
+                const isSelected = i === selectedPanelIndex;
+
+                let plinthBlocks = '';
+                for (let p = 0; p < 5; p++) {
+                    plinthBlocks += `<div class="plinth-block ${p < panel.plinths ? '' : 'empty'}"></div>`;
+                }
+
+                html += `
+                    <tr class="${isSelected ? 'selected' : ''}">
+                        <td><span class="panel-num" onclick="selectPanel(${i})">P${i + 1}</span></td>
+                        <td>
+                            <select onchange="updatePanel(${i}, 'height', this.value)">
+                                <option value="1200" ${panel.height === 1200 ? 'selected' : ''}>1200</option>
+                                <option value="1500" ${panel.height === 1500 ? 'selected' : ''}>1500</option>
+                                <option value="1800" ${panel.height === 1800 ? 'selected' : ''}>1800</option>
+                                <option value="2100" ${panel.height === 2100 ? 'selected' : ''}>2100</option>
+                            </select>
+                        </td>
+                        <td>
+                            <input type="number" min="0" max="5" value="${panel.plinths}"
+                                   onchange="updatePanel(${i}, 'plinths', this.value)" style="width:45px">
+                        </td>
+                        <td><div class="plinths-visual">${plinthBlocks}</div></td>
+                        <td><span class="step-badge ${step}">${step === 'down' ? '↓' : step === 'up' ? '↑' : '—'}</span></td>
+                        <td><span class="post-badge ${patio ? 'patio' : ''}">${postH}</span></td>
+                        <td><button class="remove-btn" onclick="removePanel(${i})">×</button></td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                <tr class="add-panel-row">
+                    <td colspan="7"><button class="add-panel-btn" onclick="addPanel()">+ Add Panel</button></td>
+                </tr>
+            `;
+
+            tbody.innerHTML = html;
+        }
+
+        function renderGates() {
+            const container = document.getElementById('gatesList');
+            if (job.gates.length === 0) {
+                container.innerHTML = '<div style="font-size:11px;color:var(--text-muted)">No gates added</div>';
+                return;
+            }
+
+            container.innerHTML = job.gates.map((gate, i) => `
+                <div class="gate-item">
+                    <select onchange="updateGate(${i}, 'type', this.value)">
+                        <option value="pedestrian" ${gate.type === 'pedestrian' ? 'selected' : ''}>Pedestrian</option>
+                        <option value="single" ${gate.type === 'single' ? 'selected' : ''}>Single Drive</option>
+                        <option value="double" ${gate.type === 'double' ? 'selected' : ''}>Double Drive</option>
+                        <option value="sliding" ${gate.type === 'sliding' ? 'selected' : ''}>Sliding</option>
+                    </select>
+                    <input type="number" value="${gate.width}" onchange="updateGate(${i}, 'width', this.value)" style="width:60px">
+                    <span style="font-size:10px;color:var(--text-muted)">mm</span>
+                    <button class="remove-btn" onclick="removeGate(${i})">×</button>
+                </div>
+            `).join('');
+        }
+
+        function updateStats() {
+            const panelW = SUPPLIERS[job.supplier].width;
+
+            let totalPanels = 0;
+            let totalPlinths = 0;
+            let totalPosts = 0;
+
+            job.runs.forEach(run => {
+                totalPanels += run.panels.length;
+                totalPlinths += run.panels.reduce((s, p) => s + p.plinths, 0);
+                // FIXED: Posts = panels + 1 per run
+                totalPosts += run.panels.length + 1;
+            });
+
+            // Gate posts (2 per gate)
+            totalPosts += job.gates.length * 2;
+
+            const metres = (totalPanels * panelW) / 1000;
+
+            document.getElementById('statMetres').textContent = metres.toFixed(1);
+            document.getElementById('statPanels').textContent = totalPanels;
+            document.getElementById('statPosts').textContent = totalPosts;
+            document.getElementById('statPlinths').textContent = totalPlinths;
+        }
+
+        // ========== CANVAS RESIZE ==========
+        function setupCanvasResize() {
+            const container = document.querySelector('.canvas-wrapper');
+            const canvas = document.getElementById('profileCanvas');
+
+            const resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const { width, height } = entry.contentRect;
+                    if (width > 0 && height > 0) {
+                        renderProfile();
+                        if (threeInitialized) {
+                            renderer.setSize(width, height);
+                            camera.aspect = width / height;
+                            camera.updateProjectionMatrix();
+                        }
+                    }
+                }
+            });
+
+            resizeObserver.observe(container);
+        }
+
+        // ========== PROFILE VIEW ==========
+        function renderProfile() {
+            const canvas = document.getElementById('profileCanvas');
+            const container = canvas.parentElement;
+            const ctx = canvas.getContext('2d');
+
+            const rect = container.getBoundingClientRect();
+            const w = rect.width;
+            const h = rect.height;
+
+            if (w === 0 || h === 0) return;
+
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            ctx.scale(dpr, dpr);
+
+            const fenceColour = COLOURS[job.colour];
+
+            // Sky
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.7);
+            skyGrad.addColorStop(0, '#dbeafe');
+            skyGrad.addColorStop(1, '#93c5fd');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, w, h);
+
+            // Ground
+            const groundY = h * 0.6;
+            const groundGrad = ctx.createLinearGradient(0, groundY, 0, h);
+            groundGrad.addColorStop(0, '#a3a07a');
+            groundGrad.addColorStop(0.5, '#7a7560');
+            groundGrad.addColorStop(1, '#5c5545');
+            ctx.fillStyle = groundGrad;
+            ctx.fillRect(0, groundY, w, h - groundY);
+
+            // Ground line
+            ctx.strokeStyle = '#5c4d3a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(w, groundY);
+            ctx.stroke();
+
+            // Calculate layout
+            const padding = 50;
+            const runGap = 30;
+            let totalPanels = job.runs.reduce((s, r) => s + r.panels.length, 0);
+            if (totalPanels === 0) return;
+
+            const availableW = w - (padding * 2) - ((job.runs.length - 1) * runGap);
+            const panelW = Math.min(70, Math.max(25, availableW / totalPanels));
+
+            // Find max height for scaling
+            let maxTotalHeight = 0;
+            job.runs.forEach(run => {
+                run.panels.forEach(p => {
+                    const total = p.height + (p.plinths * 150) + (run.extension || 0);
+                    if (total > maxTotalHeight) maxTotalHeight = total;
+                });
+            });
+
+            const heightScale = (groundY - padding - 60) / Math.max(maxTotalHeight, 1800);
+            let currentX = padding;
+
+            job.runs.forEach((run, runIdx) => {
+                const runW = run.panels.length * panelW;
+
+                // Run label
+                ctx.font = 'bold 12px Inter, sans-serif';
+                ctx.fillStyle = '#1e293b';
+                ctx.textAlign = 'center';
+                ctx.fillText(run.name, currentX + runW / 2, 18);
+
+                ctx.font = '10px Inter, sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.fillText(`${run.panels.length} panels · ${(run.length / 1000).toFixed(1)}m`, currentX + runW / 2, 32);
+
+                run.panels.forEach((panel, idx) => {
+                    const isSelected = (runIdx === currentRunIndex && idx === selectedPanelIndex);
+                    const panelX = currentX + (idx * panelW);
+                    const fenceH = panel.height * heightScale;
+                    const panelY = groundY - fenceH;
+
+                    // Plinths below ground
+                    const plinthH = 150 * heightScale;
+                    for (let p = 0; p < panel.plinths; p++) {
+                        const py = groundY + (p * plinthH);
+                        ctx.fillStyle = p % 2 === 0 ? '#64748b' : '#525c68';
+                        ctx.fillRect(panelX + 2, py, panelW - 4, plinthH - 1);
+                        ctx.strokeStyle = '#3f4752';
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(panelX + 2, py, panelW - 4, plinthH - 1);
+                    }
+
+                    // Fence panel with trimdek-style corrugation
+                    drawCorrugatedPanel(ctx, panelX + 2, panelY, panelW - 4, fenceH, fenceColour, isSelected);
+
+                    // Extension if any
+                    if (run.extension > 0) {
+                        const extH = run.extension * heightScale;
+                        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                        ctx.fillRect(panelX + 2, panelY - extH, panelW - 4, extH);
+                        ctx.strokeStyle = '#666';
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(panelX + 2, panelY - extH, panelW - 4, extH);
+                    }
+
+                    // Post
+                    const totalPlinthH = panel.plinths * plinthH;
+                    const postHeight = fenceH + totalPlinthH + 15;
+                    ctx.fillStyle = '#374151';
+                    ctx.fillRect(panelX - 1, groundY - fenceH - 8, 5, postHeight);
+
+                    // Post cap
+                    ctx.fillStyle = '#1f2937';
+                    ctx.beginPath();
+                    ctx.moveTo(panelX - 3, groundY - fenceH - 8);
+                    ctx.lineTo(panelX + 1.5, groundY - fenceH - 15);
+                    ctx.lineTo(panelX + 6, groundY - fenceH - 8);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Panel number
+                    ctx.font = isSelected ? 'bold 10px Inter' : '9px Inter';
+                    ctx.fillStyle = isSelected ? '#fff' : 'rgba(255,255,255,0.8)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(idx + 1, panelX + panelW / 2, panelY + fenceH / 2 + 3);
+
+                    // Selection highlight
+                    if (isSelected) {
+                        ctx.strokeStyle = '#16a34a';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(panelX + 1, panelY - 1, panelW - 2, fenceH + 2);
+                    }
+                });
+
+                // Final post
+                const lastPanel = run.panels[run.panels.length - 1];
+                const lastX = currentX + (run.panels.length * panelW);
+                const lastFenceH = lastPanel.height * heightScale;
+                const lastPlinthH = lastPanel.plinths * 150 * heightScale;
+                const postH = lastFenceH + lastPlinthH + 15;
+
+                ctx.fillStyle = '#374151';
+                ctx.fillRect(lastX - 4, groundY - lastFenceH - 8, 5, postH);
+
+                ctx.fillStyle = '#1f2937';
+                ctx.beginPath();
+                ctx.moveTo(lastX - 6, groundY - lastFenceH - 8);
+                ctx.lineTo(lastX - 1.5, groundY - lastFenceH - 15);
+                ctx.lineTo(lastX + 3, groundY - lastFenceH - 8);
+                ctx.closePath();
+                ctx.fill();
+
+                currentX += runW + runGap;
+            });
+        }
+
+        function drawCorrugatedPanel(ctx, x, y, w, h, colour, highlight) {
+            // Parse colour
+            const rgb = hexToRgb(colour);
+
+            // Draw trimdek-style profile (trapezoid ribs)
+            const ribCount = Math.max(3, Math.floor(w / 12));
+            const ribW = w / ribCount;
+
+            for (let i = 0; i < ribCount; i++) {
+                const rx = x + (i * ribW);
+
+                // Base colour
+                const isRaised = i % 2 === 0;
+                const shade = isRaised ? 1.0 : 0.85;
+
+                ctx.fillStyle = `rgb(${Math.round(rgb.r * shade)}, ${Math.round(rgb.g * shade)}, ${Math.round(rgb.b * shade)})`;
+                ctx.fillRect(rx, y, ribW - 0.5, h);
+
+                // Highlight edge for raised sections
+                if (isRaised && ribW > 8) {
+                    ctx.fillStyle = `rgba(255,255,255,0.15)`;
+                    ctx.fillRect(rx, y, 2, h);
+                }
+            }
+
+            // Top cap rail
+            ctx.fillStyle = '#4b5563';
+            ctx.fillRect(x - 1, y - 3, w + 2, 3);
+
+            // Panel outline
+            ctx.strokeStyle = highlight ? '#16a34a' : '#374151';
+            ctx.lineWidth = highlight ? 2 : 0.5;
+            ctx.strokeRect(x, y, w, h);
+        }
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : { r: 128, g: 128, b: 128 };
+        }
+
+        // ========== 3D VIEW ==========
+        function init3D() {
+            if (threeInitialized) return;
+
+            const container = document.getElementById('threeDContainer');
+            const rect = container.getBoundingClientRect();
+
+            if (rect.width === 0 || rect.height === 0) {
+                setTimeout(init3D, 100);
+                return;
+            }
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+
+            camera = new THREE.PerspectiveCamera(50, rect.width / rect.height, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(rect.width, rect.height);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+            sun.position.set(10, 20, 10);
+            sun.castShadow = true;
+            scene.add(sun);
+
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(50, 50);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x8b866a });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Controls
+            setupCameraControls();
+
+            threeInitialized = true;
+            render3D();
+            animate3D();
+        }
+
+        function setupCameraControls() {
+            let isDragging = false;
+            let prevX = 0, prevY = 0;
+
+            renderer.domElement.addEventListener('mousedown', e => {
+                isDragging = true;
+                prevX = e.clientX;
+                prevY = e.clientY;
+            });
+
+            window.addEventListener('mouseup', () => isDragging = false);
+
+            renderer.domElement.addEventListener('mousemove', e => {
+                if (!isDragging) return;
+                const dx = e.clientX - prevX;
+                const dy = e.clientY - prevY;
+
+                const sph = new THREE.Spherical();
+                sph.setFromVector3(camera.position.clone().sub(cameraTarget));
+                sph.theta -= dx * 0.01;
+                sph.phi -= dy * 0.01;
+                sph.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, sph.phi));
+
+                camera.position.setFromSpherical(sph).add(cameraTarget);
+                camera.lookAt(cameraTarget);
+
+                prevX = e.clientX;
+                prevY = e.clientY;
+            });
+
+            renderer.domElement.addEventListener('wheel', e => {
+                e.preventDefault();
+                const factor = e.deltaY > 0 ? 1.1 : 0.9;
+                const dir = camera.position.clone().sub(cameraTarget);
+                dir.multiplyScalar(factor);
+                if (dir.length() > 3 && dir.length() < 50) {
+                    camera.position.copy(cameraTarget).add(dir);
+                }
+            }, { passive: false });
+        }
+
+        let cameraTarget = new THREE.Vector3(0, 0.5, 0);
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            if (renderer) renderer.render(scene, camera);
+        }
+
+        function render3D() {
+            if (!scene) return;
+
+            // Clear fence objects
+            const toRemove = [];
+            scene.traverse(obj => { if (obj.userData.fence) toRemove.push(obj); });
+            toRemove.forEach(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+                scene.remove(obj);
+            });
+
+            const colour = new THREE.Color(COLOURS[job.colour]);
+            const panelWidthM = SUPPLIERS[job.supplier].width / 1000;
+            const scale = 0.35;
+
+            let offsetX = 0;
+            let totalWidth = 0;
+
+            // First pass - calculate total width for camera
+            job.runs.forEach(run => {
+                totalWidth += run.panels.length * panelWidthM * scale + 0.2;
+            });
+
+            job.runs.forEach(run => {
+                run.panels.forEach((panel, idx) => {
+                    const fH = (panel.height / 1000) * scale;
+                    const pW = panelWidthM * scale;
+
+                    // Corrugated panel
+                    const fenceGroup = new THREE.Group();
+                    const ribCount = 10;
+                    const ribW = pW / ribCount;
+
+                    for (let r = 0; r < ribCount; r++) {
+                        const ribGeo = new THREE.BoxGeometry(ribW * 0.9, fH, 0.012);
+                        const shade = r % 2 === 0 ? 1 : 0.8;
+                        const ribMat = new THREE.MeshStandardMaterial({
+                            color: colour.clone().multiplyScalar(shade),
+                            metalness: 0.3,
+                            roughness: 0.7
+                        });
+                        const rib = new THREE.Mesh(ribGeo, ribMat);
+                        rib.position.set(ribW * (r + 0.5) - pW / 2, 0, r % 2 === 0 ? 0.006 : -0.006);
+                        rib.castShadow = true;
+                        fenceGroup.add(rib);
+                    }
+
+                    fenceGroup.position.set(offsetX + pW / 2, fH / 2, 0);
+                    fenceGroup.userData.fence = true;
+                    scene.add(fenceGroup);
+
+                    // Plinths
+                    const singlePlinthH = 0.15 * scale;
+                    for (let p = 0; p < panel.plinths; p++) {
+                        const plinthGeo = new THREE.BoxGeometry(pW * 0.95, singlePlinthH * 0.9, 0.025);
+                        const plinthMat = new THREE.MeshStandardMaterial({
+                            color: p % 2 === 0 ? 0x64748b : 0x525c68,
+                            metalness: 0.1,
+                            roughness: 0.9
+                        });
+                        const plinth = new THREE.Mesh(plinthGeo, plinthMat);
+                        plinth.position.set(offsetX + pW / 2, -singlePlinthH * (p + 0.5), 0);
+                        plinth.userData.fence = true;
+                        scene.add(plinth);
+                    }
+
+                    // Post
+                    const plH = panel.plinths * singlePlinthH;
+                    const postH = fH + plH + 0.08;
+                    const postGeo = new THREE.BoxGeometry(0.035, postH, 0.035);
+                    const postMat = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.4 });
+                    const post = new THREE.Mesh(postGeo, postMat);
+                    post.position.set(offsetX, postH / 2 - plH, 0);
+                    post.castShadow = true;
+                    post.userData.fence = true;
+                    scene.add(post);
+
+                    // Post cap
+                    const capGeo = new THREE.ConeGeometry(0.03, 0.05, 4);
+                    const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0x1f2937 }));
+                    cap.position.set(offsetX, fH + 0.1, 0);
+                    cap.rotation.y = Math.PI / 4;
+                    cap.userData.fence = true;
+                    scene.add(cap);
+
+                    offsetX += pW;
+                });
+
+                // Final post for run
+                const lastP = run.panels[run.panels.length - 1];
+                const lastFH = (lastP.height / 1000) * scale;
+                const lastPlH = lastP.plinths * 0.15 * scale;
+                const postH = lastFH + lastPlH + 0.08;
+
+                const postGeo = new THREE.BoxGeometry(0.035, postH, 0.035);
+                const postMat = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.4 });
+                const post = new THREE.Mesh(postGeo, postMat);
+                post.position.set(offsetX, postH / 2 - lastPlH, 0);
+                post.castShadow = true;
+                post.userData.fence = true;
+                scene.add(post);
+
+                const capGeo = new THREE.ConeGeometry(0.03, 0.05, 4);
+                const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0x1f2937 }));
+                cap.position.set(offsetX, lastFH + 0.1, 0);
+                cap.rotation.y = Math.PI / 4;
+                cap.userData.fence = true;
+                scene.add(cap);
+
+                offsetX += 0.2;
+            });
+
+            // FIXED: Auto-frame camera to show fence
+            const centerX = (offsetX - 0.2) / 2;
+            cameraTarget.set(centerX, 0.4, 0);
+
+            const dist = Math.max(5, totalWidth * 1.5);
+            camera.position.set(centerX + dist * 0.7, dist * 0.4, dist * 0.8);
+            camera.lookAt(cameraTarget);
+        }
+
+        function showView(view) {
+            const container = document.getElementById('vizContainer');
+            document.getElementById('profileTab').classList.toggle('active', view === 'profile');
+            document.getElementById('threeDTab').classList.toggle('active', view === '3d');
+
+            if (view === '3d') {
+                container.classList.add('show-3d');
+                if (!threeInitialized) {
+                    setTimeout(init3D, 50);
+                } else {
+                    render3D();
+                }
+            } else {
+                container.classList.remove('show-3d');
+                renderProfile();
+            }
+        }
+
+        // ========== OUTPUTS ==========
+        function showOutputs() {
+            document.getElementById('outputModal').classList.add('active');
+            renderOutput();
+        }
+
+        function closeOutputs() {
+            document.getElementById('outputModal').classList.remove('active');
+        }
+
+        function switchOutputTab(btn, tab) {
+            currentOutputTab = tab;
+            document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            renderOutput();
+        }
+
+        function renderOutput() {
+            const spec = SUPPLIERS[job.supplier];
+
+            let totalPanels = 0;
+            let totalPlinths = 0;
+            let totalPosts = 0;
+            let totalPatioTubes = 0;
+
+            // Group panels by sheet height for material order
+            let sheetGroups = {};
+
+            job.runs.forEach(run => {
+                // FIXED: Patio tubes calculated per run
+                totalPatioTubes += getPatioTubesForRun(run);
+
+                run.panels.forEach((p, i) => {
+                    totalPanels++;
+                    totalPlinths += p.plinths;
+
+                    const postH = getPostHeight(p, run, i);
+                    const key = `${p.height}-${postH}`;
+
+                    if (!sheetGroups[key]) {
+                        sheetGroups[key] = { sheetHeight: p.height, postHeight: postH, count: 0 };
+                    }
+                    sheetGroups[key].count++;
+                });
+
+                // FIXED: Posts = panels + 1 per run
+                totalPosts += run.panels.length + 1;
+            });
+
+            totalPosts += job.gates.length * 2;
+            const concrete = Math.ceil(totalPosts * 2);
+            const totalM = (totalPanels * spec.width) / 1000;
+
+            let output = '';
+
+            if (currentOutputTab === 'material') {
+                const delivery = new Date(job.date);
+                delivery.setDate(delivery.getDate() - 1);
+                const deliveryStr = delivery.toLocaleDateString('en-AU', {
+                    weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'
+                });
+
+                let items = [];
+                let n = 1;
+
+                // Group by sheet height (what suppliers want)
+                Object.values(sheetGroups).forEach(g => {
+                    items.push(`${n}) ${g.count} x ${g.sheetHeight}mm panels with ${g.postHeight}mm posts\n   Profile: ${spec.profile}\n   Colour: ${job.colour}`);
+                    n++;
+                });
+
+                if (totalPlinths > 0) {
+                    items.push(`${n}) ${totalPlinths} x 150mm Plinths\n   Colour: ${job.colour}`);
+                    n++;
+                }
+
+                if (totalPatioTubes > 0) {
+                    items.push(`${n}) ${totalPatioTubes} x 76x38 RHS Patio Tube @ 3000mm`);
+                    n++;
+                }
+
+                job.gates.forEach((g, i) => {
+                    const gateDesc = g.type === 'pedestrian' ? 'Pedestrian' :
+                                    g.type === 'single' ? 'Single Drive' :
+                                    g.type === 'double' ? 'Double Drive' : 'Sliding';
+                    items.push(`${n}) 2 x 50x50 SHS gate posts @ 2100mm (${g.width}mm ${gateDesc} gate)`);
+                    n++;
+                });
+
+                items.push(`${n}) ${concrete} x Bags Quickset Concrete`);
+                items.push(`${n + 1}) Fixings, Post Caps and Screws as necessary`);
+
+                output = `MATERIAL ORDER
+Job: ${job.ref}
+To: ${spec.name} Sales
+
+Hi Team, could we please order the following for delivery:
+
+Delivery: ${deliveryStr}
+Address: ${job.address}
+Contact: ${job.client}
+
+MATERIALS:
+
+${items.join('\n\n')}
+
+Please confirm availability. Thanks!
+
+SecureWorks WA`;
+
+            } else if (currentOutputTab === 'work') {
+                const runsText = job.runs.map(run => {
+                    const details = run.panels.map((p, i) => {
+                        const patio = needsPatioTube(p) ? ' †' : '';
+                        return `  P${i + 1}: ${p.height}mm, ${p.plinths} plinths${patio}`;
+                    }).join('\n');
+                    const runPatio = getPatioTubesForRun(run);
+                    const patioNote = runPatio > 0 ? ` [${runPatio} patio tubes]` : '';
+                    return `${run.name} (${run.panels.length} panels, ${(run.length / 1000).toFixed(1)}m)${patioNote}\n${details}`;
+                }).join('\n\n');
+
+                const gatesText = job.gates.length > 0 ?
+                    job.gates.map(g => `  ${g.type}: ${g.width}mm`).join('\n') : '  None';
+
+                output = `WORK ORDER
+Job: ${job.ref}
+Client: ${job.client}
+Address: ${job.address}
+Date: ${job.date}
+
+FENCE RUNS:
+${runsText}
+
+GATES:
+${gatesText}
+
+SUMMARY:
+  Total Length: ${totalM.toFixed(1)}m
+  Panels: ${totalPanels}
+  Posts: ${totalPosts}
+  Plinths: ${totalPlinths}
+  Patio Tubes: ${totalPatioTubes}
+  Concrete: ${concrete} bags
+
+† = Patio tube required (3+ plinths)`;
+
+            } else {
+                const rate = 115;
+                const sub = totalM * rate;
+                const gst = sub * 0.1;
+                const total = sub + gst;
+
+                output = `QUOTE
+Job: ${job.ref}
+Client: ${job.client}
+
+${totalM.toFixed(1)}m Colorbond Fencing
+Colour: ${job.colour}
+Includes: Supply, Installation, Posts, Concrete
+
+Subtotal: $${sub.toFixed(2)}
+GST (10%): $${gst.toFixed(2)}
+─────────────────────
+TOTAL: $${total.toFixed(2)}
+
+Valid for 30 days.
+SecureWorks WA`;
+            }
+
+            document.getElementById('outputText').textContent = output;
+        }
+
+        function copyOutput() {
+            const text = document.getElementById('outputText').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied';
+                setTimeout(() => btn.textContent = orig, 1500);
+            });
+        }
+
+        // ========== INIT ==========
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
