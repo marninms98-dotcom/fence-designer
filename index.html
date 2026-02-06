@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fence Designer</title>
+  <title>Fence Designer Pro — SecureWorks WA</title>
   <style>
     * {
       box-sizing: border-box;
@@ -12,66 +12,107 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: #f5f5f5;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 400;
+      background: #f8fafc;
     }
 
-    /* Header Bar - Section 4.1 */
+    /* Section 0: Branding */
     .header {
-      background: #1a3a2a;
-      color: white;
-      padding: 16px 20px;
+      background: #293C46;
+      color: #FFFFFF;
+      padding: 12px 20px;
       display: flex;
-      gap: 16px;
+      gap: 12px;
       flex-wrap: wrap;
       align-items: center;
+    }
+
+    .header-brand {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      margin-right: 8px;
+      white-space: nowrap;
     }
 
     .header-group {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
     }
 
     .header-group label {
-      font-size: 11px;
-      opacity: 0.9;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      opacity: 0.85;
     }
 
     .header-group input,
     .header-group select {
-      padding: 6px 10px;
-      border: 1px solid #ccc;
+      padding: 5px 8px;
+      border: 1px solid #4C6A70;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 13px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
 
     .header-group input {
-      min-width: 120px;
+      min-width: 100px;
     }
 
     .header-group select {
-      min-width: 140px;
+      min-width: 120px;
     }
 
-    /* Main Layout - Section 4 */
+    .header-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .header-actions .saved-indicator {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .btn-header {
+      padding: 6px 14px;
+      background: #F15A29;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .btn-header:hover {
+      background: #d94e22;
+    }
+
+    /* Main Layout */
     .main {
       display: flex;
-      height: calc(100vh - 80px);
+      height: calc(100vh - 72px);
     }
 
     .left-panel {
       width: 40%;
-      background: white;
+      min-width: 450px;
+      background: #FFFFFF;
       overflow-y: auto;
-      border-right: 1px solid #ddd;
+      border-right: 1px solid #4C6A70;
     }
 
     .right-panel {
       width: 60%;
-      background: #fafafa;
+      background: #f8fafc;
       display: flex;
       flex-direction: column;
     }
@@ -79,307 +120,491 @@
     /* Run Tabs */
     .run-tabs {
       display: flex;
-      background: #e9ecef;
-      border-bottom: 2px solid #dee2e6;
+      background: #F5F5F5;
+      border-bottom: 2px solid #4C6A70;
       padding: 8px 8px 0 8px;
       gap: 4px;
+      flex-wrap: wrap;
     }
 
     .run-tab {
       padding: 8px 16px;
-      background: white;
-      border: 1px solid #dee2e6;
+      background: #e5e7eb;
+      border: 1px solid #4C6A70;
       border-bottom: none;
       border-radius: 4px 4px 0 0;
       cursor: pointer;
-      font-size: 14px;
-      position: relative;
+      font-size: 13px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 400;
+      color: #4C6A70;
     }
 
     .run-tab.active {
-      background: white;
-      font-weight: 600;
-      border-bottom: 2px solid white;
+      background: #FFFFFF;
+      font-weight: 700;
+      color: #293C46;
+      border-bottom: 2px solid #FFFFFF;
       margin-bottom: -2px;
-    }
-
-    .run-tab:not(.active) {
-      background: #f8f9fa;
-      color: #6c757d;
+      border-left-color: #F15A29;
+      border-top: 2px solid #F15A29;
+      border-right-color: #F15A29;
     }
 
     .run-tab:not(.active):hover {
-      background: #e9ecef;
+      background: #d1d5db;
     }
 
     .add-run-btn {
       padding: 8px 16px;
-      background: #28a745;
-      color: white;
-      border: none;
+      background: transparent;
+      color: #F15A29;
+      border: 2px dashed #F15A29;
+      border-bottom: none;
       border-radius: 4px 4px 0 0;
       cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
 
     .add-run-btn:hover {
-      background: #218838;
+      background: rgba(241, 90, 41, 0.08);
     }
 
     /* Run Content */
     .run-content {
-      padding: 20px;
+      padding: 16px;
     }
 
     .run-settings {
-      background: #f8f9fa;
-      padding: 16px;
+      background: #F5F5F5;
+      padding: 14px;
       border-radius: 4px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
+      border: 1px solid #4C6A70;
     }
 
     .run-settings h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #495057;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     .run-settings-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .run-settings-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
     }
 
     .form-group {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
     .form-group label {
-      font-size: 12px;
-      font-weight: 500;
-      color: #495057;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      color: #4C6A70;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
 
     .form-group input,
     .form-group select {
-      padding: 6px 10px;
-      border: 1px solid #ced4da;
+      padding: 5px 8px;
+      border: 1px solid #4C6A70;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 13px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #F15A29;
+      box-shadow: 0 0 0 2px rgba(241, 90, 41, 0.15);
+    }
+
+    .btn-orange {
+      padding: 6px 14px;
+      background: #F15A29;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .btn-orange:hover {
+      background: #d94e22;
+    }
+
+    .btn-delete {
+      padding: 6px 14px;
+      background: transparent;
+      color: #dc2626;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .btn-delete:hover {
+      text-decoration: underline;
     }
 
     /* Quick Retaining Tool */
     .quick-retaining {
-      background: #e7f3ff;
-      border: 1px solid #b3d9ff;
-      padding: 16px;
+      background: #fef3c7;
+      border: 1px solid #4C6A70;
+      padding: 14px;
       border-radius: 4px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .quick-retaining h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #004085;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 10px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
-    .quick-retaining-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr auto;
-      gap: 12px;
+    .quick-retaining-row {
+      display: flex;
+      gap: 10px;
       align-items: end;
     }
 
-    .quick-retaining button {
-      padding: 6px 16px;
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
+    /* Panel Table */
+    .panel-table-section {
+      margin-bottom: 16px;
     }
 
-    .quick-retaining button:hover {
-      background: #0056b3;
-    }
-
-    /* Panel Table - Section 4.2 */
     .panel-table-section h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #495057;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .panel-table-wrap {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid #4C6A70;
+      border-radius: 4px;
     }
 
     .panel-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
-      margin-bottom: 12px;
+      font-size: 12px;
+    }
+
+    .panel-table thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
 
     .panel-table th {
-      background: #e9ecef;
-      padding: 8px;
-      text-align: left;
-      font-weight: 600;
-      border: 1px solid #dee2e6;
-      font-size: 12px;
+      background: #F5F5F5;
+      padding: 6px 6px;
+      text-align: center;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      color: #293C46;
+      border-bottom: 2px solid #4C6A70;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
     }
 
     .panel-table td {
-      padding: 6px 8px;
-      border: 1px solid #dee2e6;
-    }
-
-    .panel-table input[type="number"] {
-      width: 80px;
-      padding: 4px 6px;
-      border: 1px solid #ced4da;
-      border-radius: 3px;
-    }
-
-    .panel-table select {
-      padding: 4px 6px;
-      border: 1px solid #ced4da;
-      border-radius: 3px;
-    }
-
-    .panel-table .calc-value {
-      font-weight: 600;
-      color: #495057;
-    }
-
-    .delete-panel-btn {
-      padding: 4px 12px;
-      background: #dc3545;
-      color: white;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
+      padding: 4px 4px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: center;
       font-size: 12px;
     }
 
-    .delete-panel-btn:hover {
-      background: #c82333;
+    .panel-table tbody tr:nth-child(even) {
+      background: #F5F5F5;
     }
 
-    .add-panel-btn {
-      padding: 8px 16px;
-      background: #28a745;
-      color: white;
+    .panel-table tbody tr:hover {
+      background: #e0f2fe;
+    }
+
+    .panel-table select {
+      padding: 2px 4px;
+      border: 1px solid #4C6A70;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      text-align: center;
+    }
+
+    .panel-table .col-pnum {
+      width: 30px;
+      font-weight: 700;
+      color: #293C46;
+    }
+
+    .panel-table .col-ht {
+      width: 50px;
+    }
+
+    .panel-table .col-ret {
+      width: 60px;
+    }
+
+    .panel-table .col-pl {
+      width: 30px;
+      font-weight: 700;
+      color: #4C6A70;
+    }
+
+    .panel-table .col-step {
+      width: 30px;
+      color: #4C6A70;
+    }
+
+    .panel-table .col-total {
+      width: 45px;
+      font-weight: 700;
+    }
+
+    .panel-table .col-post {
+      width: 55px;
+      font-weight: 700;
+    }
+
+    .panel-table .col-del {
+      width: 20px;
+    }
+
+    .total-standard {
+      color: #16a34a;
+    }
+
+    .total-elevated {
+      color: #F15A29;
+    }
+
+    .post-patio {
+      color: #F15A29;
+    }
+
+    .delete-panel-btn {
+      background: none;
       border: none;
-      border-radius: 4px;
+      color: #dc2626;
       cursor: pointer;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 700;
+      padding: 2px 4px;
     }
 
-    .add-panel-btn:hover {
-      background: #218838;
+    .delete-panel-btn:hover {
+      background: #fee2e2;
+      border-radius: 3px;
+    }
+
+    /* Gates */
+    .gates-section {
+      margin-bottom: 16px;
+    }
+
+    .gates-section h3 {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .gate-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .gate-row select,
+    .gate-row input {
+      padding: 4px 6px;
+      border: 1px solid #4C6A70;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
 
     /* Right Panel */
+    .view-tabs {
+      display: flex;
+      background: #F5F5F5;
+      border-bottom: 1px solid #4C6A70;
+      padding: 0 16px;
+    }
+
+    .view-tab {
+      padding: 10px 20px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: #4C6A70;
+      border-bottom: 3px solid transparent;
+    }
+
+    .view-tab.active {
+      color: #F15A29;
+      border-bottom-color: #F15A29;
+    }
+
     .visualiser-placeholder {
       flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
-      color: #adb5bd;
-      font-weight: 300;
+      font-size: 18px;
+      color: #4C6A70;
+      font-weight: 400;
     }
 
     .stats-bar {
-      background: white;
-      border-top: 1px solid #dee2e6;
-      padding: 16px 20px;
+      background: #FFFFFF;
+      border-top: 1px solid #4C6A70;
+      padding: 14px 20px;
     }
 
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 16px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
     }
 
     .stat-item {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
     }
 
     .stat-item label {
-      font-size: 11px;
-      color: #6c757d;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 10px;
+      color: #4C6A70;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .stat-item .value {
-      font-size: 18px;
-      font-weight: 600;
-      color: #212529;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: #293C46;
+    }
+
+    .stat-item .value.price-badge {
+      color: #16a34a;
     }
 
     .generate-btn {
       width: 100%;
       padding: 12px;
-      background: #007bff;
-      color: white;
+      background: #F15A29;
+      color: #FFFFFF;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 15px;
+      font-weight: 700;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     }
 
     .generate-btn:hover {
-      background: #0056b3;
+      background: #d94e22;
     }
 
-    /* Compliance Warning - Section 11 */
+    /* Compliance Warnings */
     .compliance-warning {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-left: 4px solid #ffc107;
-      padding: 12px 16px;
-      margin-bottom: 16px;
+      border: 1px solid #dc2626;
+      border-left: 4px solid #dc2626;
+      padding: 10px 14px;
+      margin-bottom: 12px;
       border-radius: 4px;
-      display: none;
+      background: #fef2f2;
     }
 
-    .compliance-warning.show {
-      display: block;
+    .compliance-warning.warn {
+      border-color: #f59e0b;
+      background: #fffbeb;
     }
 
     .compliance-warning h4 {
-      font-size: 14px;
-      font-weight: 600;
-      color: #856404;
-      margin-bottom: 6px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 4px;
     }
 
-    .compliance-warning ul {
-      margin-left: 20px;
-      color: #856404;
-      font-size: 13px;
+    .compliance-warning p {
+      font-size: 12px;
+    }
+
+    /* Colour swatch in dropdown */
+    .colour-option-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid #ccc;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    /* No shadows heavier than spec */
+    * {
+      box-shadow: none;
     }
   </style>
 </head>
 <body>
   <!-- Header Bar -->
   <div class="header">
+    <div class="header-brand">SW</div>
     <div class="header-group">
       <label>Job Ref</label>
-      <input type="text" id="jobRef" placeholder="e.g. 2024-001">
+      <input type="text" id="jobRef" placeholder="SW9248">
     </div>
     <div class="header-group">
       <label>Client</label>
@@ -387,7 +612,7 @@
     </div>
     <div class="header-group">
       <label>Address</label>
-      <input type="text" id="address" placeholder="Site address">
+      <input type="text" id="address" placeholder="Site address" style="min-width:160px;">
     </div>
     <div class="header-group">
       <label>Supplier</label>
@@ -400,20 +625,19 @@
     </div>
     <div class="header-group">
       <label>Profile</label>
-      <select id="profile">
-        <option value="Trimclad">Trimclad</option>
-        <option value="Harmony">Harmony</option>
-        <option value="Spandek">Spandek</option>
-        <option value="Corrugated">Corrugated</option>
-      </select>
+      <select id="profile"></select>
     </div>
     <div class="header-group">
       <label>Colour</label>
       <select id="colour"></select>
     </div>
     <div class="header-group">
-      <label>$/metre</label>
-      <input type="number" id="pricePerMetre" placeholder="0.00" step="0.01" min="0">
+      <label>$/Metre</label>
+      <input type="number" id="pricePerMetre" value="115" step="0.01" min="0" style="min-width:70px;">
+    </div>
+    <div class="header-actions">
+      <span class="saved-indicator" id="savedIndicator">Saved</span>
+      <button class="btn-header" onclick="app.newJob()">New</button>
     </div>
   </div>
 
@@ -421,42 +645,42 @@
   <div class="main">
     <!-- Left Panel -->
     <div class="left-panel">
-      <!-- Run Tabs -->
-      <div class="run-tabs" id="runTabs">
-        <button class="add-run-btn" onclick="app.addRun()">+ Add Run</button>
-      </div>
-
-      <!-- Run Content -->
-      <div class="run-content" id="runContent">
-        <!-- Dynamically populated -->
-      </div>
+      <div class="run-tabs" id="runTabs"></div>
+      <div class="run-content" id="runContent"></div>
     </div>
 
     <!-- Right Panel -->
     <div class="right-panel">
-      <!-- Visualiser Placeholder -->
+      <div class="view-tabs">
+        <button class="view-tab active">Profile View</button>
+        <button class="view-tab">3D View</button>
+      </div>
       <div class="visualiser-placeholder">
-        Profile View
+        Profile View — coming soon
       </div>
 
       <!-- Stats Bar -->
       <div class="stats-bar">
         <div class="stats-grid">
           <div class="stat-item">
-            <label>Total Panels</label>
+            <label>Metres</label>
+            <div class="value" id="statMetres">0.0m</div>
+          </div>
+          <div class="stat-item">
+            <label>Panels</label>
             <div class="value" id="statPanels">0</div>
           </div>
           <div class="stat-item">
-            <label>Total Posts</label>
+            <label>Posts</label>
             <div class="value" id="statPosts">0</div>
           </div>
           <div class="stat-item">
-            <label>Total Metres</label>
-            <div class="value" id="statMetres">0.0</div>
+            <label>Plinths</label>
+            <div class="value" id="statPlinths">0</div>
           </div>
           <div class="stat-item">
-            <label>Total Cost</label>
-            <div class="value" id="statCost">$0.00</div>
+            <label>Est. Total</label>
+            <div class="value price-badge" id="statCost">$0</div>
           </div>
         </div>
         <button class="generate-btn" onclick="app.generateOutputs()">Generate Outputs</button>
@@ -465,32 +689,101 @@
   </div>
 
   <script>
-    // Section 9: Colour data with hex codes
-    const COLOURS = [
-      { name: 'Classic Cream™', hex: '#E8D7B8' },
-      { name: 'Cottage Green™', hex: '#404F3A' },
-      { name: 'Cove™', hex: '#B8BCBC' },
-      { name: 'Dune®', hex: '#C9BCA1' },
-      { name: 'Evening Haze®', hex: '#626466' },
-      { name: 'Gully™', hex: '#565A5C' },
-      { name: 'Ironstone®', hex: '#3F3834' },
-      { name: 'Jasper®', hex: '#8B7F77' },
-      { name: 'Mangrove™', hex: '#5D5852' },
-      { name: 'Manor Red®', hex: '#6F413A' },
-      { name: 'Monument®', hex: '#3A3A3A' },
-      { name: 'Night Sky®', hex: '#1F1F27' },
-      { name: 'Pale Eucalypt®', hex: '#BDC7B8' },
-      { name: 'Paperbark®', hex: '#B5AA9C' },
-      { name: 'Shale Grey™', hex: '#898D8D' },
-      { name: 'Surfmist®', hex: '#DCDBD9' },
-      { name: 'Terrain®', hex: '#9A8C7C' },
-      { name: 'Wallaby®', hex: '#8C8675' },
-      { name: 'Wilderness®', hex: '#464C43' },
-      { name: 'Windspray®', hex: '#ACAFB0' },
-      { name: 'Woodland Grey®', hex: '#494B48' }
+    // ── Section 4B: Supplier profiles ──
+    const SUPPLIER_PROFILES = {
+      RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380 },
+      Metroll:{ profiles: ['Trimclad', 'Harmony'],   panelWidth: 2365 },
+      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen'], panelWidth: 2360 },
+      Stratco:{ profiles: ['Superdek', 'Good Neighbour'],  panelWidth: 2350 }
+    };
+
+    // ── Section 9: Colorbond fencing colour palette ──
+    const COLOURS_STOCK = [
+      { name: 'Surfmist',       hex: '#E4E2D5' },
+      { name: 'Domain',         hex: '#E8DBAE' },
+      { name: 'Evening Haze',   hex: '#C5C2AA' },
+      { name: 'Paperbark',      hex: '#CABFA4' },
+      { name: 'Dune',           hex: '#B1ADA3' },
+      { name: 'Shale Grey',     hex: '#BDBFBA' },
+      { name: 'Riversand',      hex: '#9D8D76' },
+      { name: 'Bluegum',        hex: '#969799' },
+      { name: 'Pale Eucalypt',  hex: '#7C846A' },
+      { name: 'Wilderness',     hex: '#64715E' },
+      { name: 'Basalt',         hex: '#6D6C6E' },
+      { name: 'Woodland Grey',  hex: '#4B4C46' },
+      { name: 'Ironstone',      hex: '#3E434C' },
+      { name: 'Monument',       hex: '#323233' },
+      { name: 'Wollemi',        hex: '#0A1C0D' }
     ];
 
-    // Application State
+    const COLOURS_SPECIAL = [
+      { name: 'Deep Ocean',   hex: '#364152' },
+      { name: 'Cottage Green',hex: '#304C3C' },
+      { name: 'Night Sky',    hex: '#2E2E2F' },
+      { name: 'Manor Red',    hex: '#5E1D0E' },
+      { name: 'Jasper',       hex: '#6C6153' },
+      { name: 'Windspray',    hex: '#888B8A' }
+    ];
+
+    // ── Section 6.3: Post height lookup tables ──
+    // Key: sheetHeight, Value: array of { maxRetaining, postSize, patioTube }
+    const POST_LOOKUP = {
+      1200: [
+        { ret: 0,   post: 2400, patio: false },
+        { ret: 150, post: 2400, patio: false },
+        { ret: 300, post: 2400, patio: false },
+        { ret: 450, post: 2400, patio: false },
+        { ret: 600, post: 2400, patio: false },
+        { ret: 750, post: 2700, patio: false }
+      ],
+      1500: [
+        { ret: 0,   post: 2400, patio: false },
+        { ret: 150, post: 2400, patio: false },
+        { ret: 300, post: 2400, patio: false },
+        { ret: 450, post: 2700, patio: true },
+        { ret: 600, post: 2700, patio: true },
+        { ret: 750, post: 3000, patio: true }
+      ],
+      1800: [
+        { ret: 0,   post: 2400, patio: false },
+        { ret: 150, post: 2700, patio: false },
+        { ret: 300, post: 2700, patio: false },
+        { ret: 450, post: 3000, patio: true },
+        { ret: 600, post: 3000, patio: true },
+        { ret: 750, post: 3000, patio: true }
+      ],
+      2100: [
+        { ret: 0,   post: 2700, patio: false },
+        { ret: 150, post: 3000, patio: false },
+        { ret: 300, post: 3000, patio: false },
+        { ret: 450, post: 3000, patio: true },
+        { ret: 600, post: 3000, patio: true },
+        { ret: 750, post: 3000, patio: true }
+      ]
+    };
+
+    const RETAINING_OPTIONS = [0, 150, 300, 450, 600, 750];
+    const SHEET_HEIGHTS = [1200, 1500, 1800, 2100];
+    const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
+
+    // ── Lookup helper ──
+    function lookupPost(sheetHeight, retaining) {
+      const table = POST_LOOKUP[sheetHeight] || POST_LOOKUP[1800];
+      const entry = table.find(e => e.ret === retaining);
+      if (entry) return entry;
+      // Fallback: use the formula from Section 6.3
+      const totalFence = sheetHeight + retaining;
+      const required = totalFence + 600;
+      let postSize;
+      if (required <= 2400) postSize = 2400;
+      else if (required <= 2700) postSize = 2700;
+      else if (required <= 3000) postSize = 3000;
+      else postSize = 3000;
+      const plinths = retaining / 150;
+      return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 5 };
+    }
+
+    // ── Application ──
     const app = {
       job: null,
       currentRunId: null,
@@ -502,38 +795,61 @@
 
         if (!this.job) {
           this.job = {
-            jobRef: '',
+            ref: '',
             client: '',
             address: '',
             supplier: 'RNR',
-            profile: 'Trimclad',
-            colour: COLOURS[0].name,
-            pricePerMetre: 0,
-            runs: []
+            profile: 'Ridgeside',
+            colour: 'Shale Grey',
+            pricePerMetre: 115,
+            runs: [],
+            gates: [],
+            date: new Date().toISOString().slice(0, 10)
           };
           this.addRun();
         } else {
           this.syncHeaderFromJob();
-          if (this.job.runs.length > 0) {
+          if (this.job.runs.length > 0 && !this.currentRunId) {
             this.currentRunId = this.job.runs[0].id;
           }
         }
 
+        this.updateProfileDropdown();
         this.render();
       },
 
+      // ── Colour dropdown (Section 9.3) ──
       populateColourDropdown() {
         const select = document.getElementById('colour');
-        select.innerHTML = COLOURS.map(c =>
-          `<option value="${c.name}" data-hex="${c.hex}">
-            ${c.name}
-          </option>`
+        let html = '<optgroup label="── Stock ──">';
+        COLOURS_STOCK.forEach(c => {
+          html += `<option value="${c.name}" data-hex="${c.hex}">${c.name}</option>`;
+        });
+        html += '</optgroup><optgroup label="── Special Order ──">';
+        COLOURS_SPECIAL.forEach(c => {
+          html += `<option value="${c.name}" data-hex="${c.hex}">${c.name} (SO)</option>`;
+        });
+        html += '</optgroup>';
+        select.innerHTML = html;
+      },
+
+      // ── Profile dropdown (Section 4B) ──
+      updateProfileDropdown() {
+        const select = document.getElementById('profile');
+        const supplierData = SUPPLIER_PROFILES[this.job.supplier];
+        select.innerHTML = supplierData.profiles.map(p =>
+          `<option value="${p}" ${p === this.job.profile ? 'selected' : ''}>${p}</option>`
         ).join('');
+        // If current profile is not valid for new supplier, reset to default
+        if (!supplierData.profiles.includes(this.job.profile)) {
+          this.job.profile = supplierData.profiles[0];
+          select.value = this.job.profile;
+        }
       },
 
       bindHeaderInputs() {
         document.getElementById('jobRef').addEventListener('input', (e) => {
-          this.job.jobRef = e.target.value;
+          this.job.ref = e.target.value;
           this.save();
         });
         document.getElementById('client').addEventListener('input', (e) => {
@@ -546,11 +862,12 @@
         });
         document.getElementById('supplier').addEventListener('change', (e) => {
           this.job.supplier = e.target.value;
+          this.updateProfileDropdown();
+          this.recalculateAll();
           this.save();
         });
         document.getElementById('profile').addEventListener('change', (e) => {
           this.job.profile = e.target.value;
-          this.recalculateAll();
           this.save();
         });
         document.getElementById('colour').addEventListener('change', (e) => {
@@ -565,151 +882,149 @@
       },
 
       syncHeaderFromJob() {
-        document.getElementById('jobRef').value = this.job.jobRef;
-        document.getElementById('client').value = this.job.client;
-        document.getElementById('address').value = this.job.address;
-        document.getElementById('supplier').value = this.job.supplier;
-        document.getElementById('profile').value = this.job.profile;
-        document.getElementById('colour').value = this.job.colour;
-        document.getElementById('pricePerMetre').value = this.job.pricePerMetre;
+        document.getElementById('jobRef').value = this.job.ref || '';
+        document.getElementById('client').value = this.job.client || '';
+        document.getElementById('address').value = this.job.address || '';
+        document.getElementById('supplier').value = this.job.supplier || 'RNR';
+        document.getElementById('colour').value = this.job.colour || 'Shale Grey';
+        document.getElementById('pricePerMetre').value = this.job.pricePerMetre || 115;
       },
 
-      // Section 6.1: Panel Width Calculation
-      getPanelWidth() {
-        return this.job.profile === 'Spandek' ? 2.5 : 2.4;
+      // ── Section 3.5: Panel width by supplier ──
+      getPanelWidthMm() {
+        return SUPPLIER_PROFILES[this.job.supplier].panelWidth;
       },
 
-      // Section 6.2: Plinth Calculation
-      calculatePlinth(retaining) {
-        if (retaining === 0) return 0;
-        return Math.floor(retaining / 150) * 150 + 150;
+      getPanelWidthM() {
+        return this.getPanelWidthMm() / 1000;
       },
 
-      // Section 6.3: Post Height Calculation
-      calculatePostHeights(panel, index, panels) {
-        const allowedPostHeights = [2400, 2700, 3000];
+      // ── Section 6.1: Auto-calculate panel count from run length ──
+      calcPanelCount(lengthM) {
+        if (!lengthM || lengthM <= 0) return 0;
+        const lengthMm = lengthM * 1000;
+        return Math.ceil(lengthMm / this.getPanelWidthMm());
+      },
 
-        // Left Post
-        let leftBase;
-        if (index === 0) {
-          leftBase = 0;
-        } else {
-          leftBase = Math.max(panels[index - 1].retaining, panel.retaining);
+      // ── Section 6.3: Post height per-post (between two panels) ──
+      getPostHeight(leftPanel, rightPanel) {
+        let leftTotal = 0, rightTotal = 0;
+        let leftLookup = null, rightLookup = null;
+
+        if (leftPanel) {
+          leftTotal = leftPanel.height + leftPanel.retaining;
+          leftLookup = lookupPost(leftPanel.height, leftPanel.retaining);
+        }
+        if (rightPanel) {
+          rightTotal = rightPanel.height + rightPanel.retaining;
+          rightLookup = lookupPost(rightPanel.height, rightPanel.retaining);
         }
 
-        let leftNeeded = leftBase + panel.height;
-        if (panel.extension === 'Patio Tube') leftNeeded += 300;
-        else if (panel.extension === 'Flat Top') leftNeeded += 150;
+        // Use whichever side demands the taller post
+        let postSize = 2400;
+        let patio = false;
 
-        const postLeft = allowedPostHeights.find(h => h >= leftNeeded) || 3000;
-
-        // Right Post
-        let rightBase;
-        if (index === panels.length - 1) {
-          rightBase = panel.retaining;
-        } else {
-          rightBase = Math.max(panel.retaining, panels[index + 1].retaining);
+        if (leftLookup && rightLookup) {
+          postSize = Math.max(leftLookup.post, rightLookup.post);
+          patio = leftLookup.patio || rightLookup.patio;
+        } else if (leftLookup) {
+          postSize = leftLookup.post;
+          patio = leftLookup.patio;
+        } else if (rightLookup) {
+          postSize = rightLookup.post;
+          patio = rightLookup.patio;
         }
 
-        let rightNeeded = rightBase + panel.height;
-        if (panel.extension === 'Patio Tube') rightNeeded += 300;
-        else if (panel.extension === 'Flat Top') rightNeeded += 150;
-
-        const postRight = allowedPostHeights.find(h => h >= rightNeeded) || 3000;
-
-        return { postLeft, postRight };
+        return { postSize, patio };
       },
 
-      recalculateRun(runId) {
-        const run = this.job.runs.find(r => r.id === runId);
-        if (!run) return;
+      // ── Sync panels to match calculated panel count ──
+      syncPanels(run) {
+        const targetCount = this.calcPanelCount(run.length);
+        if (targetCount === 0) {
+          run.panels = [];
+          return;
+        }
 
-        run.panels.forEach((panel, index) => {
-          panel.plinth = this.calculatePlinth(panel.retaining);
-          const posts = this.calculatePostHeights(panel, index, run.panels);
-          panel.postLeft = posts.postLeft;
-          panel.postRight = posts.postRight;
-        });
+        while (run.panels.length < targetCount) {
+          run.panels.push({
+            id: 'panel-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            height: run.sheetHeight,
+            retaining: 0,
+            ground: 'level'
+          });
+        }
+
+        // If decreased, remove from end (but only excess)
+        if (run.panels.length > targetCount) {
+          run.panels = run.panels.slice(0, targetCount);
+        }
+      },
+
+      // ── Compute derived values per panel (not stored, used for display) ──
+      getPanelDerived(panel) {
+        const plinths = panel.retaining / 150;
+        const totalHeight = panel.height + panel.retaining;
+        const lookup = lookupPost(panel.height, panel.retaining);
+        return {
+          plinths,
+          totalHeight,
+          postSize: lookup.post,
+          patio: lookup.patio,
+          needsPatioTube: plinths >= 3 && plinths <= 5
+        };
+      },
+
+      // ── Compute post array for a run (posts = panels + 1) ──
+      getRunPosts(run) {
+        const posts = [];
+        for (let i = 0; i <= run.panels.length; i++) {
+          const leftPanel = i > 0 ? run.panels[i - 1] : null;
+          const rightPanel = i < run.panels.length ? run.panels[i] : null;
+          posts.push(this.getPostHeight(leftPanel, rightPanel));
+        }
+        return posts;
       },
 
       recalculateAll() {
-        this.job.runs.forEach(run => this.recalculateRun(run.id));
+        this.job.runs.forEach(run => this.syncPanels(run));
         this.render();
       },
 
+      // ── Runs ──
       addRun() {
-        const runNumber = this.job.runs.length + 1;
+        const idx = this.job.runs.length;
+        const name = idx < RUN_NAME_CYCLE.length ? RUN_NAME_CYCLE[idx] : 'Custom';
         const run = {
           id: 'run-' + Date.now(),
-          name: `Run ${runNumber}`,
-          length: 10,
-          defaultHeight: 1800,
-          extension: null,
+          name: name,
+          length: 0,
+          sheetHeight: 1800,
+          extension: 'none',
           panels: []
         };
-
         this.job.runs.push(run);
         this.currentRunId = run.id;
-        this.addPanel(run.id);
+        this.save();
+        this.render();
+      },
+
+      deleteRun(runId) {
+        if (this.job.runs.length <= 1) {
+          alert('Must have at least one run.');
+          return;
+        }
+        if (!confirm('Delete this run?')) return;
+        this.job.runs = this.job.runs.filter(r => r.id !== runId);
+        if (this.currentRunId === runId) {
+          this.currentRunId = this.job.runs[0].id;
+        }
         this.save();
         this.render();
       },
 
       switchRun(runId) {
         this.currentRunId = runId;
-        this.render();
-      },
-
-      addPanel(runId) {
-        const run = this.job.runs.find(r => r.id === runId);
-        if (!run) return;
-
-        const panel = {
-          id: 'panel-' + Date.now(),
-          retaining: 0,
-          height: run.defaultHeight,
-          extension: run.extension,
-          plinth: 0,
-          postLeft: 0,
-          postRight: 0
-        };
-
-        run.panels.push(panel);
-        this.recalculateRun(runId);
-        this.save();
-        this.render();
-      },
-
-      deletePanel(runId, panelId) {
-        const run = this.job.runs.find(r => r.id === runId);
-        if (!run || run.panels.length <= 1) {
-          alert('Each run must have at least 1 panel.');
-          return;
-        }
-
-        run.panels = run.panels.filter(p => p.id !== panelId);
-        this.recalculateRun(runId);
-        this.save();
-        this.render();
-      },
-
-      updatePanel(runId, panelId, field, value) {
-        const run = this.job.runs.find(r => r.id === runId);
-        if (!run) return;
-
-        const panel = run.panels.find(p => p.id === panelId);
-        if (!panel) return;
-
-        if (field === 'retaining') {
-          panel.retaining = parseInt(value) || 0;
-        } else if (field === 'height') {
-          panel.height = parseInt(value);
-        } else if (field === 'extension') {
-          panel.extension = value === 'null' ? null : value;
-        }
-
-        this.recalculateRun(runId);
-        this.save();
         this.render();
       },
 
@@ -721,12 +1036,44 @@
           run.name = value;
         } else if (field === 'length') {
           run.length = parseFloat(value) || 0;
-        } else if (field === 'defaultHeight') {
-          run.defaultHeight = parseInt(value);
+          this.syncPanels(run);
+        } else if (field === 'sheetHeight') {
+          run.sheetHeight = parseInt(value);
         } else if (field === 'extension') {
-          run.extension = value === 'null' ? null : value;
+          run.extension = value;
         }
 
+        this.save();
+        this.render();
+      },
+
+      applyHeightToAll(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+        run.panels.forEach(p => { p.height = run.sheetHeight; });
+        this.save();
+        this.render();
+      },
+
+      updatePanel(runId, panelIdx, field, value) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run || !run.panels[panelIdx]) return;
+
+        const panel = run.panels[panelIdx];
+        if (field === 'height') {
+          panel.height = parseInt(value);
+        } else if (field === 'retaining') {
+          panel.retaining = parseInt(value);
+        }
+
+        this.save();
+        this.render();
+      },
+
+      deletePanel(runId, panelIdx) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run || run.panels.length <= 1) return;
+        run.panels.splice(panelIdx, 1);
         this.save();
         this.render();
       },
@@ -735,68 +1082,125 @@
         const run = this.job.runs.find(r => r.id === runId);
         if (!run) return;
 
-        const startPanel = parseInt(document.getElementById(`qr-start-${runId}`).value) - 1;
-        const endPanel = parseInt(document.getElementById(`qr-end-${runId}`).value) - 1;
-        const retaining = parseInt(document.getElementById(`qr-retaining-${runId}`).value) || 0;
+        const startPanel = parseInt(document.getElementById(`qr-start-${runId}`).value);
+        const endPanel = parseInt(document.getElementById(`qr-end-${runId}`).value);
+        const retaining = parseInt(document.getElementById(`qr-retaining-${runId}`).value);
 
-        if (startPanel < 0 || endPanel >= run.panels.length || startPanel > endPanel) {
+        if (startPanel < 1 || endPanel > run.panels.length || startPanel > endPanel) {
           alert('Invalid panel range.');
           return;
         }
 
-        for (let i = startPanel; i <= endPanel; i++) {
+        for (let i = startPanel - 1; i < endPanel; i++) {
           run.panels[i].retaining = retaining;
         }
 
-        this.recalculateRun(runId);
         this.save();
         this.render();
       },
 
-      // Section 11: Compliance Warnings
+      // ── Gates ──
+      addGate() {
+        if (!this.job.runs.length) return;
+        this.job.gates.push({
+          id: 'gate-' + Date.now(),
+          type: 'pedestrian',
+          width: 900,
+          runIndex: 0,
+          afterPanel: 1
+        });
+        this.save();
+        this.render();
+      },
+
+      updateGate(gateId, field, value) {
+        const gate = this.job.gates.find(g => g.id === gateId);
+        if (!gate) return;
+        if (field === 'type') gate.type = value;
+        else if (field === 'width') gate.width = parseInt(value) || 900;
+        else if (field === 'runIndex') gate.runIndex = parseInt(value);
+        else if (field === 'afterPanel') gate.afterPanel = parseInt(value);
+        this.save();
+        this.render();
+      },
+
+      deleteGate(gateId) {
+        this.job.gates = this.job.gates.filter(g => g.id !== gateId);
+        this.save();
+        this.render();
+      },
+
+      // ── Section 11: Compliance warnings ──
       getComplianceWarnings() {
         const warnings = [];
-
         this.job.runs.forEach(run => {
-          // Patio Tube only if <= 5 panels
-          const hasPatioTube = run.panels.some(p => p.extension === 'Patio Tube');
-          if (hasPatioTube && run.panels.length > 5) {
-            warnings.push(`${run.name}: Patio Tube extension is only allowed for runs with 5 or fewer panels.`);
-          }
-
-          // Check post heights
           run.panels.forEach((panel, idx) => {
-            if (![2400, 2700, 3000].includes(panel.postLeft)) {
-              warnings.push(`${run.name} Panel ${idx + 1}: Left post height ${panel.postLeft}mm is not standard (2400/2700/3000).`);
+            const plinths = panel.retaining / 150;
+            if (plinths >= 6) {
+              warnings.push({
+                type: 'stop',
+                msg: `${run.name} P${idx + 1}: ${panel.retaining}mm retaining (${plinths} plinths) — STOP: Exceeds Colorbond plinth capacity. Requires post & panel retaining system.`
+              });
             }
-            if (![2400, 2700, 3000].includes(panel.postRight)) {
-              warnings.push(`${run.name} Panel ${idx + 1}: Right post height ${panel.postRight}mm is not standard (2400/2700/3000).`);
+            if (panel.retaining > 500) {
+              warnings.push({
+                type: 'warn',
+                msg: `${run.name} P${idx + 1}: Retaining >${500}mm requires Building Permit + Engineer Cert in WA.`
+              });
             }
           });
         });
-
         return warnings;
       },
 
+      // ── Stats ──
       updateStats() {
         let totalPanels = 0;
         let totalPosts = 0;
         let totalMetres = 0;
+        let totalPlinths = 0;
+        let plinthPanelCount = 0;
+        const panelWidthM = this.getPanelWidthM();
+        const panelWidthMm = this.getPanelWidthMm();
 
         this.job.runs.forEach(run => {
-          totalPanels += run.panels.length;
-          totalPosts += run.panels.length + 1; // n panels need n+1 posts
-          totalMetres += run.panels.length * this.getPanelWidth();
+          const panelCount = run.panels.length;
+          totalPanels += panelCount;
+          totalPosts += panelCount + 1;
+          totalMetres += run.length || 0;
+          run.panels.forEach(p => {
+            const pl = p.retaining / 150;
+            totalPlinths += pl;
+            if (pl > 0) plinthPanelCount++;
+          });
         });
 
-        const totalCost = totalMetres * this.job.pricePerMetre;
+        // Corner post sharing: if >1 run, subtract shared corners
+        // Simple approximation: subtract (runs - 1) for connected runs
+        // TODO: proper corner handling needs run-connection data
 
+        const estimate = totalMetres * this.job.pricePerMetre * 1.1;
+
+        document.getElementById('statMetres').textContent =
+          totalMetres > 0 ? `${totalMetres.toFixed(1)}m / ${totalPanels} × ${panelWidthMm}mm` : '0.0m';
         document.getElementById('statPanels').textContent = totalPanels;
         document.getElementById('statPosts').textContent = totalPosts;
-        document.getElementById('statMetres').textContent = totalMetres.toFixed(1);
-        document.getElementById('statCost').textContent = `$${totalCost.toFixed(2)}`;
+        document.getElementById('statPlinths').textContent =
+          totalPlinths > 0 ? `${totalPlinths} (across ${plinthPanelCount} panels)` : '0';
+        document.getElementById('statCost').textContent =
+          estimate > 0 ? `$${Math.round(estimate).toLocaleString()} EST.` : '$0';
       },
 
+      // ── New Job ──
+      newJob() {
+        if (!confirm('Start a new job? This will clear all current data.')) return;
+        localStorage.removeItem('fenceJob');
+        this.job = null;
+        this.currentRunId = null;
+        this.init();
+      },
+
+      // ── Render ──
       render() {
         this.renderRunTabs();
         this.renderRunContent();
@@ -804,12 +1208,13 @@
       },
 
       renderRunTabs() {
-        const tabsHtml = this.job.runs.map(run => `
-          <div class="run-tab ${run.id === this.currentRunId ? 'active' : ''}"
-               onclick="app.switchRun('${run.id}')">
-            ${run.name}
-          </div>
-        `).join('');
+        const tabsHtml = this.job.runs.map(run => {
+          const panelCount = run.panels.length;
+          return `<div class="run-tab ${run.id === this.currentRunId ? 'active' : ''}"
+                       onclick="app.switchRun('${run.id}')">
+                    ${run.name}${panelCount > 0 ? ` (${panelCount})` : ''}
+                  </div>`;
+        }).join('');
 
         document.getElementById('runTabs').innerHTML = `
           ${tabsHtml}
@@ -820,47 +1225,102 @@
       renderRunContent() {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run) {
-          document.getElementById('runContent').innerHTML = '<p style="padding: 20px;">No run selected.</p>';
+          document.getElementById('runContent').innerHTML =
+            '<p style="padding: 20px; color: #4C6A70;">No run selected. Click "+ Add Run" to begin.</p>';
           return;
         }
 
+        // Warnings
         const warnings = this.getComplianceWarnings();
-        const warningsHtml = warnings.length > 0 ? `
-          <div class="compliance-warning show">
-            <h4>Compliance Warnings</h4>
-            <ul>
-              ${warnings.map(w => `<li>${w}</li>`).join('')}
-            </ul>
-          </div>
-        ` : '';
+        let warningsHtml = '';
+        warnings.forEach(w => {
+          const cls = w.type === 'stop' ? '' : 'warn';
+          warningsHtml += `<div class="compliance-warning ${cls}">
+            <h4>${w.type === 'stop' ? '🔴 STOP' : '⚠️ Warning'}</h4>
+            <p>${w.msg}</p>
+          </div>`;
+        });
 
-        const panelsHtml = run.panels.map((panel, idx) => `
-          <tr>
-            <td>${idx + 1}</td>
-            <td>
-              <input type="number" value="${panel.retaining}" min="0" step="50"
-                     onchange="app.updatePanel('${run.id}', '${panel.id}', 'retaining', this.value)">
-            </td>
-            <td>
-              <select onchange="app.updatePanel('${run.id}', '${panel.id}', 'height', this.value)">
-                <option value="1800" ${panel.height === 1800 ? 'selected' : ''}>1800</option>
-                <option value="2100" ${panel.height === 2100 ? 'selected' : ''}>2100</option>
+        // Compute posts for this run
+        const posts = this.getRunPosts(run);
+
+        // Panel table rows
+        const panelRows = run.panels.map((panel, idx) => {
+          const derived = this.getPanelDerived(panel);
+          // Post for this panel = the post to the RIGHT of the panel (post index idx+1)
+          // But per spec, "Post" column shows the calculated post height.
+          // Post at position idx sits between panel idx-1 and panel idx.
+          // We'll show the max post relevant to this panel (max of left and right post).
+          const leftPost = posts[idx];
+          const rightPost = posts[idx + 1];
+          const maxPost = Math.max(leftPost.postSize, rightPost.postSize);
+          const anyPatio = leftPost.patio || rightPost.patio;
+
+          const totalClass = derived.totalHeight > 1800 ? 'total-elevated' : 'total-standard';
+          const postDisplay = anyPatio
+            ? `<span class="post-patio">${maxPost}†</span>`
+            : `${maxPost}`;
+
+          // Step indicator (compare retaining with neighbors)
+          let step = '—';
+          if (idx > 0) {
+            const prev = run.panels[idx - 1];
+            if (panel.retaining > prev.retaining) step = '↑';
+            else if (panel.retaining < prev.retaining) step = '↓';
+          }
+
+          return `<tr>
+            <td class="col-pnum">P${idx + 1}</td>
+            <td class="col-ht">
+              <select onchange="app.updatePanel('${run.id}', ${idx}, 'height', this.value)">
+                ${SHEET_HEIGHTS.map(h =>
+                  `<option value="${h}" ${panel.height === h ? 'selected' : ''}>${h / 100}</option>`
+                ).join('')}
               </select>
             </td>
-            <td>
-              <select onchange="app.updatePanel('${run.id}', '${panel.id}', 'extension', this.value)">
-                <option value="null" ${panel.extension === null ? 'selected' : ''}>-</option>
-                <option value="Patio Tube" ${panel.extension === 'Patio Tube' ? 'selected' : ''}>Patio</option>
-                <option value="Flat Top" ${panel.extension === 'Flat Top' ? 'selected' : ''}>Flat</option>
+            <td class="col-ret">
+              <select onchange="app.updatePanel('${run.id}', ${idx}, 'retaining', this.value)">
+                ${RETAINING_OPTIONS.map(r =>
+                  `<option value="${r}" ${panel.retaining === r ? 'selected' : ''}>${r}</option>`
+                ).join('')}
               </select>
             </td>
-            <td class="calc-value">${panel.plinth}</td>
-            <td class="calc-value">${panel.postLeft}</td>
-            <td class="calc-value">${panel.postRight}</td>
-            <td>
-              <button class="delete-panel-btn" onclick="app.deletePanel('${run.id}', '${panel.id}')">Delete</button>
-            </td>
-          </tr>
+            <td class="col-pl">${derived.plinths}</td>
+            <td class="col-step">${step}</td>
+            <td class="col-total ${totalClass}">${derived.totalHeight}</td>
+            <td class="col-post">${postDisplay}</td>
+            <td class="col-del"><button class="delete-panel-btn" onclick="app.deletePanel('${run.id}', ${idx})" title="Delete panel">&times;</button></td>
+          </tr>`;
+        }).join('');
+
+        // Extension dropdown value mapping
+        const extOptions = [
+          { value: 'none', label: 'None' },
+          { value: 'slat', label: 'Slat' },
+          { value: 'solid_fill', label: 'Solid Fill' },
+          { value: 'lattice', label: 'Lattice' }
+        ];
+
+        // Gates section
+        const gatesHtml = (this.job.gates || []).map(gate => `
+          <div class="gate-row">
+            <select onchange="app.updateGate('${gate.id}', 'type', this.value)">
+              <option value="pedestrian" ${gate.type === 'pedestrian' ? 'selected' : ''}>Pedestrian</option>
+              <option value="double" ${gate.type === 'double' ? 'selected' : ''}>Double</option>
+              <option value="sliding" ${gate.type === 'sliding' ? 'selected' : ''}>Sliding</option>
+            </select>
+            <input type="number" value="${gate.width}" min="600" step="100" style="width:70px;"
+                   onchange="app.updateGate('${gate.id}', 'width', this.value)" placeholder="mm">
+            <select onchange="app.updateGate('${gate.id}', 'runIndex', this.value)">
+              ${this.job.runs.map((r, ri) =>
+                `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${r.name}</option>`
+              ).join('')}
+            </select>
+            <label style="font-size:11px;">After P</label>
+            <input type="number" value="${gate.afterPanel}" min="1" max="${run.panels.length}" style="width:50px;"
+                   onchange="app.updateGate('${gate.id}', 'afterPanel', this.value)">
+            <button class="delete-panel-btn" onclick="app.deleteGate('${gate.id}')" title="Delete gate">&times;</button>
+          </div>
         `).join('');
 
         document.getElementById('runContent').innerHTML = `
@@ -876,66 +1336,82 @@
               </div>
               <div class="form-group">
                 <label>Length (m)</label>
-                <input type="number" value="${run.length}" min="0" step="0.1"
+                <input type="number" value="${run.length || ''}" min="0" step="0.5" placeholder="0.0"
                        onchange="app.updateRunSettings('${run.id}', 'length', this.value)">
               </div>
               <div class="form-group">
-                <label>Default Height</label>
-                <select onchange="app.updateRunSettings('${run.id}', 'defaultHeight', this.value)">
-                  <option value="1800" ${run.defaultHeight === 1800 ? 'selected' : ''}>1800</option>
-                  <option value="2100" ${run.defaultHeight === 2100 ? 'selected' : ''}>2100</option>
+                <label>Sheet Height</label>
+                <select onchange="app.updateRunSettings('${run.id}', 'sheetHeight', this.value)">
+                  ${SHEET_HEIGHTS.map(h =>
+                    `<option value="${h}" ${run.sheetHeight === h ? 'selected' : ''}>${h}mm</option>`
+                  ).join('')}
                 </select>
               </div>
               <div class="form-group">
                 <label>Extension</label>
                 <select onchange="app.updateRunSettings('${run.id}', 'extension', this.value)">
-                  <option value="null" ${run.extension === null ? 'selected' : ''}>None</option>
-                  <option value="Patio Tube" ${run.extension === 'Patio Tube' ? 'selected' : ''}>Patio Tube</option>
-                  <option value="Flat Top" ${run.extension === 'Flat Top' ? 'selected' : ''}>Flat Top</option>
+                  ${extOptions.map(o =>
+                    `<option value="${o.value}" ${run.extension === o.value ? 'selected' : ''}>${o.label}</option>`
+                  ).join('')}
                 </select>
               </div>
+            </div>
+            <div class="run-settings-actions">
+              <button class="btn-orange" onclick="app.applyHeightToAll('${run.id}')">Apply Height to All</button>
+              <button class="btn-delete" onclick="app.deleteRun('${run.id}')">Delete Run</button>
             </div>
           </div>
 
           <div class="quick-retaining">
             <h3>Quick Retaining Tool</h3>
-            <div class="quick-retaining-grid">
+            <div class="quick-retaining-row">
               <div class="form-group">
                 <label>From Panel</label>
-                <input type="number" id="qr-start-${run.id}" min="1" max="${run.panels.length}" value="1">
+                <input type="number" id="qr-start-${run.id}" min="1" max="${run.panels.length}" value="1" style="width:60px;">
               </div>
               <div class="form-group">
                 <label>To Panel</label>
-                <input type="number" id="qr-end-${run.id}" min="1" max="${run.panels.length}" value="${run.panels.length}">
+                <input type="number" id="qr-end-${run.id}" min="1" max="${run.panels.length}" value="${run.panels.length}" style="width:60px;">
               </div>
               <div class="form-group">
                 <label>Retaining (mm)</label>
-                <input type="number" id="qr-retaining-${run.id}" min="0" step="50" value="0">
+                <select id="qr-retaining-${run.id}">
+                  ${RETAINING_OPTIONS.map(r =>
+                    `<option value="${r}">${r}</option>`
+                  ).join('')}
+                </select>
               </div>
-              <button onclick="app.applyQuickRetaining('${run.id}')">Apply</button>
+              <button class="btn-orange" onclick="app.applyQuickRetaining('${run.id}')">Apply</button>
             </div>
           </div>
 
           <div class="panel-table-section">
             <h3>Panel Table</h3>
-            <table class="panel-table">
-              <thead>
-                <tr>
-                  <th>Panel #</th>
-                  <th>Retaining (mm)</th>
-                  <th>Height</th>
-                  <th>Ext</th>
-                  <th>Plinths (Pl)</th>
-                  <th>Post L</th>
-                  <th>Post R</th>
-                  <th>Delete</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${panelsHtml}
-              </tbody>
-            </table>
-            <button class="add-panel-btn" onclick="app.addPanel('${run.id}')">+ Add Panel</button>
+            <div class="panel-table-wrap">
+              <table class="panel-table">
+                <thead>
+                  <tr>
+                    <th>P#</th>
+                    <th>Ht</th>
+                    <th>Ret</th>
+                    <th>Pl</th>
+                    <th>Stp</th>
+                    <th>Tot</th>
+                    <th>Post</th>
+                    <th>&times;</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${panelRows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="gates-section">
+            <h3>Gates</h3>
+            ${gatesHtml || '<p style="font-size:12px; color:#4C6A70;">No gates added.</p>'}
+            <button class="btn-orange" style="margin-top:8px;" onclick="app.addGate()">+ Add Gate</button>
           </div>
         `;
       },
@@ -944,24 +1420,41 @@
         alert('Output generation not yet implemented.');
       },
 
-      // Section 10.5: Auto-save to localStorage
+      // ── LocalStorage ──
       save() {
         localStorage.setItem('fenceJob', JSON.stringify(this.job));
+        const ind = document.getElementById('savedIndicator');
+        if (ind) {
+          ind.textContent = 'Saved';
+          ind.style.opacity = '1';
+          setTimeout(() => { ind.style.opacity = '0.7'; }, 1000);
+        }
       },
 
       loadFromStorage() {
         const saved = localStorage.getItem('fenceJob');
         if (saved) {
-          this.job = JSON.parse(saved);
-          // Ensure currentRunId is set
-          if (this.job.runs.length > 0 && !this.currentRunId) {
-            this.currentRunId = this.job.runs[0].id;
+          try {
+            this.job = JSON.parse(saved);
+            // Migration: ensure new fields exist
+            if (!this.job.gates) this.job.gates = [];
+            this.job.runs.forEach(run => {
+              if (run.sheetHeight === undefined) run.sheetHeight = run.defaultHeight || 1800;
+              if (run.extension === undefined || run.extension === null) run.extension = 'none';
+              run.panels.forEach(p => {
+                if (p.ground === undefined) p.ground = 'level';
+              });
+            });
+            if (this.job.runs.length > 0 && !this.currentRunId) {
+              this.currentRunId = this.job.runs[0].id;
+            }
+          } catch (e) {
+            this.job = null;
           }
         }
       }
     };
 
-    // Initialize on page load
     window.addEventListener('DOMContentLoaded', () => app.init());
   </script>
 </body>
