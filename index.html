@@ -68,723 +68,149 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
 
-        .logo-text {
-            color: white;
-        }
+        .logo-text { color: white; }
+        .logo-text .brand { font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
+        .logo-text .sub { font-size: 11px; opacity: 0.85; font-weight: 500; }
 
-        .logo-text .brand {
-            font-weight: 700;
-            font-size: 17px;
-            letter-spacing: -0.3px;
-        }
+        .header-sep { width: 1px; height: 32px; background: rgba(255,255,255,0.25); }
 
-        .logo-text .sub {
-            font-size: 11px;
-            opacity: 0.85;
-            font-weight: 500;
-        }
+        .job-fields { display: flex; gap: 12px; align-items: center; flex: 1; }
 
-        .header-sep {
-            width: 1px;
-            height: 32px;
-            background: rgba(255,255,255,0.25);
-        }
+        .field { display: flex; flex-direction: column; gap: 2px; }
+        .field label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.75); font-weight: 600; }
+        .field input, .field select { border: none; border-radius: 6px; padding: 7px 10px; font-size: 13px; background: rgba(255,255,255,0.95); color: var(--text); font-weight: 500; }
 
-        .job-fields {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex: 1;
-        }
-
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .field label {
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: rgba(255,255,255,0.75);
-            font-weight: 600;
-        }
-
-        .field input, .field select {
-            border: none;
-            border-radius: 6px;
-            padding: 7px 10px;
-            font-size: 13px;
-            background: rgba(255,255,255,0.95);
-            color: var(--text);
-            font-weight: 500;
-        }
-
-        .field input:focus, .field select:focus {
-            outline: 2px solid rgba(255,255,255,0.5);
-            outline-offset: 1px;
-        }
-
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-        }
-
-        .save-status {
-            font-size: 12px;
-            color: rgba(255,255,255,0.9);
-            background: rgba(255,255,255,0.15);
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-weight: 500;
-        }
-
-        .save-status.unsaved {
-            background: rgba(251,191,36,0.3);
-            color: #fef3c7;
-        }
-
-        .btn-new {
-            background: rgba(255,255,255,0.15);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-
-        .btn-new:hover {
-            background: rgba(255,255,255,0.25);
-        }
+        .header-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .save-status { font-size: 12px; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.15); padding: 6px 14px; border-radius: 20px; font-weight: 500; }
+        .btn-new { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
 
         /* ===== MAIN LAYOUT ===== */
-        .main {
-            display: flex;
-            height: calc(100vh - 64px);
-        }
+        .main { display: flex; height: calc(100vh - 64px); }
 
         /* ===== LEFT PANEL ===== */
-        .panel-left {
-            width: 400px;
-            background: white;
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-        }
+        .panel-left { width: 420px; background: white; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 
-        .runs-header {
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-            background: var(--surface);
-        }
+        .runs-header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+        .runs-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .run-tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 2px solid var(--border); background: white; color: var(--text-secondary); }
+        .run-tab.active { background: var(--primary); border-color: var(--primary); color: white; }
+        .run-tab .num { opacity: 0.7; margin-left: 4px; font-weight: 500; }
+        .btn-add-run { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 2px dashed var(--primary); background: var(--primary-light); color: var(--primary); }
 
-        .runs-tabs {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
+        .run-settings { padding: 16px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: white; }
+        .setting { display: flex; flex-direction: column; gap: 4px; }
+        .setting label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+        .setting input, .setting select { padding: 10px 12px; border: 2px solid var(--border); border-radius: 8px; font-size: 14px; background: white; color: var(--text); font-weight: 500; }
+        .setting input:focus, .setting select:focus { outline: none; border-color: var(--primary); }
+        .length-group { display: flex; gap: 6px; }
+        .length-group input { flex: 1; min-width: 0; }
+        .length-group select { width: 58px; padding: 10px 6px; }
 
-        .run-tab {
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            border: 2px solid var(--border);
-            background: white;
-            color: var(--text-secondary);
-            transition: all 0.15s;
-        }
+        .run-actions { grid-column: 1 / -1; display: flex; gap: 10px; padding-top: 4px; flex-wrap: wrap; }
+        .btn { padding: 9px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: 2px solid var(--border); background: white; color: var(--text-secondary); }
+        .btn:hover { border-color: var(--text-secondary); }
+        .btn-danger { color: var(--danger); border-color: #fecaca; }
+        .btn-danger:hover { background: #fee2e2; border-color: var(--danger); }
+        .btn-accent { color: var(--accent); border-color: var(--accent-light); background: var(--accent-light); }
+        .btn-accent:hover { background: var(--accent); color: white; }
 
-        .run-tab:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-        }
-
-        .run-tab.active {
-            background: var(--primary);
-            border-color: var(--primary);
-            color: white;
-        }
-
-        .run-tab .num {
-            opacity: 0.7;
-            margin-left: 4px;
-            font-weight: 500;
-        }
-
-        .btn-add-run {
-            padding: 8px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            border: 2px dashed var(--primary);
-            background: var(--primary-light);
-            color: var(--primary);
-        }
-
-        .btn-add-run:hover {
-            background: var(--primary);
-            color: white;
-            border-style: solid;
-        }
-
-        .run-settings {
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            background: white;
-        }
-
-        .setting {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .setting label {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .setting input, .setting select {
-            padding: 10px 12px;
-            border: 2px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            background: white;
-            color: var(--text);
-            font-weight: 500;
-        }
-
-        .setting input:focus, .setting select:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-
-        .length-group {
-            display: flex;
-            gap: 6px;
-        }
-
-        .length-group input {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .length-group select {
-            width: 58px;
-            padding: 10px 6px;
-        }
-
-        .run-actions {
-            grid-column: 1 / -1;
-            display: flex;
-            gap: 10px;
-            padding-top: 4px;
-        }
-
-        .btn {
-            padding: 9px 14px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            border: 2px solid var(--border);
-            background: white;
-            color: var(--text-secondary);
-            transition: all 0.15s;
-        }
-
-        .btn:hover {
-            border-color: var(--text-secondary);
-        }
-
-        .btn-danger {
-            color: var(--danger);
-            border-color: #fecaca;
-        }
-
-        .btn-danger:hover {
-            background: #fee2e2;
-            border-color: var(--danger);
-        }
+        /* ===== QUICK RETAINING TOOL ===== */
+        .quick-ret { grid-column: 1 / -1; background: var(--accent-light); border-radius: 8px; padding: 12px; margin-top: 4px; }
+        .quick-ret-title { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; margin-bottom: 8px; }
+        .quick-ret-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .quick-ret-row span { font-size: 12px; color: var(--text-secondary); }
+        .quick-ret-row select, .quick-ret-row input { padding: 6px 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 13px; background: white; }
+        .quick-ret-row input { width: 50px; }
+        .quick-ret-row button { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; background: var(--accent); color: white; }
 
         /* ===== PANEL TABLE ===== */
-        .table-wrap {
-            flex: 1;
-            overflow-y: auto;
-        }
+        .table-wrap { flex: 1; overflow-y: auto; }
+        .panel-table { width: 100%; border-collapse: collapse; }
+        .panel-table th { position: sticky; top: 0; background: var(--surface-2); padding: 10px 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; }
+        .panel-table td { padding: 6px; border-bottom: 1px solid var(--border); background: white; vertical-align: middle; }
+        .panel-table tr:hover td { background: var(--primary-light); }
+        .panel-table tr.selected td { background: #a7f3d0; }
 
-        .panel-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        .p-num { font-weight: 700; color: var(--primary); cursor: pointer; font-size: 13px; }
+        .p-num:hover { text-decoration: underline; }
 
-        .panel-table th {
-            position: sticky;
-            top: 0;
-            background: var(--surface-2);
-            padding: 10px 8px;
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-            text-align: left;
-            border-bottom: 2px solid var(--border);
-            white-space: nowrap;
-        }
+        .panel-table select { padding: 4px 6px; border: 2px solid transparent; border-radius: 4px; font-size: 12px; background: transparent; color: var(--text); font-weight: 500; width: 100%; }
+        .panel-table select:hover { background: var(--surface); border-color: var(--border); }
+        .panel-table select:focus { outline: none; border-color: var(--primary); background: white; }
 
-        .panel-table td {
-            padding: 8px;
-            border-bottom: 1px solid var(--border);
-            background: white;
-            vertical-align: middle;
-        }
+        .ret-visual { display: flex; gap: 2px; }
+        .ret-block { width: 8px; height: 8px; background: var(--text-secondary); border-radius: 2px; }
+        .ret-block.empty { background: var(--border); }
 
-        .panel-table tr:hover td {
-            background: var(--primary-light);
-        }
-
-        .panel-table tr.selected td {
-            background: #a7f3d0;
-        }
-
-        .p-num {
-            font-weight: 700;
-            color: var(--primary);
-            cursor: pointer;
-            font-size: 13px;
-        }
-
-        .p-num:hover {
-            text-decoration: underline;
-        }
-
-        .panel-table select, .panel-table input {
-            padding: 6px 8px;
-            border: 2px solid transparent;
-            border-radius: 6px;
-            font-size: 13px;
-            background: transparent;
-            color: var(--text);
-            font-weight: 500;
-            width: 100%;
-        }
-
-        .panel-table select:hover, .panel-table input:hover {
-            background: var(--surface);
-            border-color: var(--border);
-        }
-
-        .panel-table select:focus, .panel-table input:focus {
-            outline: none;
-            border-color: var(--primary);
-            background: white;
-        }
-
-        .ret-visual {
-            display: flex;
-            gap: 2px;
-        }
-
-        .ret-block {
-            width: 10px;
-            height: 10px;
-            background: var(--text-secondary);
-            border-radius: 2px;
-        }
-
-        .ret-block.empty {
-            background: var(--border);
-        }
-
-        .step-icon {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
+        .step-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; font-size: 11px; font-weight: 700; }
         .step-icon.down { background: #fee2e2; color: var(--danger); }
         .step-icon.up { background: var(--primary-light); color: var(--primary); }
         .step-icon.level { background: var(--surface-2); color: var(--text-muted); }
 
-        .total-ht {
-            font-weight: 700;
-            color: var(--info);
-            font-size: 12px;
-        }
+        .total-ht { font-weight: 700; color: var(--info); font-size: 11px; }
+        .post-ht { font-weight: 700; color: var(--primary); font-size: 11px; }
+        .post-ht.patio { color: var(--accent); }
+        .post-ht.patio::after { content: '†'; font-size: 9px; margin-left: 1px; }
 
-        .post-ht {
-            font-weight: 700;
-            color: var(--primary);
-            font-size: 12px;
-        }
+        .btn-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 14px; border-radius: 4px; }
+        .btn-remove:hover { background: #fee2e2; color: var(--danger); }
 
-        .post-ht.patio {
-            color: var(--accent);
-        }
-
-        .post-ht.patio::after {
-            content: '†';
-            font-size: 10px;
-            margin-left: 2px;
-        }
-
-        .btn-remove {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 4px 8px;
-            font-size: 16px;
-            border-radius: 4px;
-        }
-
-        .btn-remove:hover {
-            background: #fee2e2;
-            color: var(--danger);
-        }
-
-        .add-row td {
-            padding: 12px;
-            text-align: center;
-        }
-
-        .btn-add-panel {
-            padding: 8px 18px;
-            border: 2px solid var(--primary);
-            border-radius: 6px;
-            background: var(--primary-light);
-            color: var(--primary);
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .btn-add-panel:hover {
-            background: var(--primary);
-            color: white;
-        }
+        .add-row td { padding: 10px; text-align: center; }
+        .btn-add-panel { padding: 6px 14px; border: 2px solid var(--primary); border-radius: 6px; background: var(--primary-light); color: var(--primary); font-size: 11px; font-weight: 600; cursor: pointer; }
 
         /* ===== GATES ===== */
-        .gates-section {
-            padding: 16px;
-            border-top: 2px solid var(--border);
-            background: var(--surface);
-        }
-
-        .gates-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .gates-header h4 {
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .gate-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            border: 1px solid var(--border);
-        }
-
-        .gate-row select, .gate-row input {
-            padding: 6px 10px;
-            border: 2px solid var(--border);
-            border-radius: 6px;
-            font-size: 13px;
-            background: white;
-        }
-
-        .gate-row input {
-            width: 65px;
-        }
-
-        .gate-row span {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
+        .gates-section { padding: 16px; border-top: 2px solid var(--border); background: var(--surface); }
+        .gates-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .gates-header h4 { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+        .gate-row { display: flex; align-items: center; gap: 6px; padding: 10px; background: white; border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border); flex-wrap: wrap; }
+        .gate-row select, .gate-row input { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; background: white; }
+        .gate-row input { width: 60px; }
+        .gate-row span { font-size: 11px; color: var(--text-muted); }
 
         /* ===== RIGHT PANEL ===== */
-        .panel-right {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: var(--surface-2);
-        }
+        .panel-right { flex: 1; display: flex; flex-direction: column; background: var(--surface-2); }
 
-        .viz-toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 20px;
-            background: white;
-            border-bottom: 1px solid var(--border);
-        }
+        .viz-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: white; border-bottom: 1px solid var(--border); gap: 16px; flex-wrap: wrap; }
+        .view-tabs { display: flex; background: var(--surface-2); padding: 4px; border-radius: 10px; gap: 4px; }
+        .view-tab { padding: 10px 18px; border: none; background: transparent; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+        .view-tab.active { background: white; color: var(--text); box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
 
-        .view-tabs {
-            display: flex;
-            background: var(--surface-2);
-            padding: 4px;
-            border-radius: 10px;
-            gap: 4px;
-        }
+        .stats { display: flex; gap: 20px; align-items: center; }
+        .stat { text-align: center; }
+        .stat-val { font-size: 20px; font-weight: 800; color: var(--primary); line-height: 1.1; }
+        .stat-lbl { font-size: 9px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+        .stat-price { background: var(--accent-light); padding: 8px 16px; border-radius: 8px; }
+        .stat-price .stat-val { color: var(--accent); }
+        .stat-calc { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 
-        .view-tab {
-            padding: 10px 18px;
-            border: none;
-            background: transparent;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-
-        .view-tab.active {
-            background: white;
-            color: var(--text);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-        }
-
-        .stats {
-            display: flex;
-            gap: 28px;
-        }
-
-        .stat {
-            text-align: center;
-        }
-
-        .stat-val {
-            font-size: 22px;
-            font-weight: 800;
-            color: var(--primary);
-            line-height: 1.1;
-        }
-
-        .stat-lbl {
-            font-size: 9px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .btn-generate {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(5,150,105,0.35);
-            transition: all 0.2s;
-        }
-
-        .btn-generate:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(5,150,105,0.4);
-        }
+        .btn-generate { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: white; border: none; padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(5,150,105,0.35); }
 
         /* ===== CANVAS ===== */
-        .viz-area {
-            flex: 1;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .canvas-box {
-            position: absolute;
-            inset: 0;
-        }
-
-        #profileCanvas {
-            display: block;
-        }
-
-        #threeBox {
-            display: none;
-            width: 100%;
-            height: 100%;
-        }
-
+        .viz-area { flex: 1; position: relative; overflow: hidden; }
+        .canvas-box { position: absolute; inset: 0; }
+        #profileCanvas { display: block; }
+        #threeBox { display: none; width: 100%; height: 100%; }
         .viz-area.mode-3d #profileCanvas { display: none; }
         .viz-area.mode-3d #threeBox { display: block; }
-
-        .legend {
-            position: absolute;
-            bottom: 12px;
-            left: 12px;
-            background: rgba(255,255,255,0.95);
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: var(--text-secondary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .hint-3d {
-            position: absolute;
-            bottom: 12px;
-            right: 12px;
-            background: rgba(255,255,255,0.95);
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: var(--text-secondary);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            display: none;
-        }
-
+        .legend { position: absolute; bottom: 12px; left: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .hint-3d { position: absolute; bottom: 12px; right: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: none; }
         .viz-area.mode-3d .hint-3d { display: block; }
 
         /* ===== MODAL ===== */
-        .modal-bg {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s;
-            z-index: 1000;
-        }
-
-        .modal-bg.open {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .modal {
-            background: white;
-            border-radius: 16px;
-            width: 90%;
-            max-width: 620px;
-            max-height: 85vh;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-        }
-
-        .modal-top {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-tabs {
-            display: flex;
-            gap: 4px;
-        }
-
-        .modal-tab {
-            padding: 8px 16px;
-            border: none;
-            background: transparent;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted);
-            cursor: pointer;
-        }
-
-        .modal-tab.active {
-            background: var(--primary-light);
-            color: var(--primary);
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 22px;
-            color: var(--text-muted);
-            cursor: pointer;
-            line-height: 1;
-        }
-
-        .modal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-
-        .output-pre {
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: 11px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            background: var(--surface-2);
-            padding: 16px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-        }
-
-        .modal-bottom {
-            padding: 16px 20px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
-
-        .m-btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .m-btn-sec {
-            background: white;
-            border: 2px solid var(--border);
-            color: var(--text);
-        }
-
-        .m-btn-pri {
-            background: var(--primary);
-            border: none;
-            color: white;
-        }
+        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; }
+        .modal-bg.open { opacity: 1; visibility: visible; }
+        .modal { background: white; border-radius: 16px; width: 90%; max-width: 620px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+        .modal-top { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-tabs { display: flex; gap: 4px; }
+        .modal-tab { padding: 8px 16px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+        .modal-tab.active { background: var(--primary-light); color: var(--primary); }
+        .modal-close { background: none; border: none; font-size: 22px; color: var(--text-muted); cursor: pointer; }
+        .modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+        .output-pre { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; background: var(--surface-2); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
+        .modal-bottom { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+        .m-btn { padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .m-btn-sec { background: white; border: 2px solid var(--border); color: var(--text); }
+        .m-btn-pri { background: var(--primary); border: none; color: white; }
     </style>
 </head>
 <body>
@@ -833,8 +259,8 @@
             </select>
         </div>
         <div class="field">
-            <label>Install Date</label>
-            <input type="date" id="jobDate" onchange="saveJob()">
+            <label>$/Metre</label>
+            <input type="number" id="pricePerM" value="115" style="width:70px" onchange="updateStats()">
         </div>
     </div>
     <div class="header-actions">
@@ -872,7 +298,7 @@
                 <select id="defaultHeight" onchange="updateDefaultHeight()">
                     <option value="1200">1200mm</option>
                     <option value="1500">1500mm</option>
-                    <option value="1800">1800mm</option>
+                    <option value="1800" selected>1800mm</option>
                     <option value="2100">2100mm</option>
                 </select>
             </div>
@@ -888,20 +314,41 @@
                 <button class="btn" onclick="applyHeightToAll()">Apply Height to All</button>
                 <button class="btn btn-danger" onclick="deleteRun()">Delete Run</button>
             </div>
+
+            <!-- Quick Retaining Tool -->
+            <div class="quick-ret">
+                <div class="quick-ret-title">⚡ Quick Retaining</div>
+                <div class="quick-ret-row">
+                    <span>Panels</span>
+                    <input type="number" id="retFromPanel" value="1" min="1">
+                    <span>to</span>
+                    <input type="number" id="retToPanel" value="3" min="1">
+                    <span>→</span>
+                    <select id="retValue">
+                        <option value="0">0mm</option>
+                        <option value="150">150mm</option>
+                        <option value="300">300mm</option>
+                        <option value="450">450mm</option>
+                        <option value="600">600mm</option>
+                        <option value="750">750mm</option>
+                    </select>
+                    <button onclick="applyQuickRetaining()">Apply</button>
+                </div>
+            </div>
         </div>
 
         <div class="table-wrap">
             <table class="panel-table">
                 <thead>
                     <tr>
-                        <th style="width:42px">Panel</th>
-                        <th style="width:70px">Height</th>
-                        <th style="width:65px">Retaining</th>
-                        <th style="width:55px"></th>
-                        <th style="width:35px">Step</th>
-                        <th style="width:55px">Total</th>
-                        <th style="width:55px">Post</th>
-                        <th style="width:30px"></th>
+                        <th style="width:36px">P#</th>
+                        <th style="width:55px">Height</th>
+                        <th style="width:55px">Ret</th>
+                        <th style="width:40px"></th>
+                        <th style="width:28px">Stp</th>
+                        <th style="width:45px">Tot</th>
+                        <th style="width:45px">Post</th>
+                        <th style="width:24px"></th>
                     </tr>
                 </thead>
                 <tbody id="tableBody"></tbody>
@@ -927,6 +374,7 @@
                 <div class="stat">
                     <div class="stat-val" id="sMetres">0</div>
                     <div class="stat-lbl">Metres</div>
+                    <div class="stat-calc" id="sCalc">0 × 2380mm</div>
                 </div>
                 <div class="stat">
                     <div class="stat-val" id="sPanels">0</div>
@@ -939,6 +387,10 @@
                 <div class="stat">
                     <div class="stat-val" id="sRet">0</div>
                     <div class="stat-lbl">Plinths</div>
+                </div>
+                <div class="stat stat-price">
+                    <div class="stat-val" id="sPrice">$0</div>
+                    <div class="stat-lbl">Est. Total</div>
                 </div>
             </div>
             <button class="btn-generate" onclick="showOutputs()">Generate Outputs</button>
@@ -984,48 +436,30 @@ const SUPPLIERS = {
 };
 
 const COLOURS = {
-    'Shale Grey': '#B2ADA3',
-    'Monument': '#54504A',
-    'Woodland Grey': '#5D5E50',
-    'Basalt': '#6E6E68',
-    'Surfmist': '#E8E4DA',
-    'Dune': '#B5A78C',
-    'Paperbark': '#C6BDAC'
+    'Shale Grey': '#B2ADA3', 'Monument': '#54504A', 'Woodland Grey': '#5D5E50',
+    'Basalt': '#6E6E68', 'Surfmist': '#E8E4DA', 'Dune': '#B5A78C', 'Paperbark': '#C6BDAC'
 };
 
 const POST_SIZES = [2400, 2700, 3000, 3300, 3600];
 
 // ========== STATE ==========
-let job = {
-    ref: '', client: '', address: '',
-    supplier: 'RNR', colour: 'Shale Grey',
-    date: new Date().toISOString().split('T')[0],
-    runs: [], gates: []
-};
-
+let job = { ref: '', client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
 let curRun = 0, selPanel = -1, curTab = 'material', dirty = false;
 let scene, camera, renderer, threeReady = false;
 
 // ========== INIT ==========
 function init() {
-    document.getElementById('jobDate').value = job.date;
-    const saved = localStorage.getItem('fenceJob_v11');
-    if (saved) {
-        try { job = JSON.parse(saved); curRun = 0; } catch(e) { createDefault(); }
-    } else { createDefault(); }
+    document.getElementById('jobDate')?.setAttribute('value', job.date);
+    const saved = localStorage.getItem('fenceJob_v12');
+    if (saved) { try { job = JSON.parse(saved); curRun = 0; } catch(e) { createDefault(); } }
+    else { createDefault(); }
     loadUI();
     renderAll();
     setupResize();
 }
 
 function createDefault() {
-    job = {
-        ref: 'SW' + Math.floor(1000 + Math.random() * 9000),
-        client: '', address: '',
-        supplier: 'RNR', colour: 'Shale Grey',
-        date: new Date().toISOString().split('T')[0],
-        runs: [], gates: []
-    };
+    job = { ref: 'SW' + Math.floor(1000 + Math.random() * 9000), client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
     addRun('Rear', 19);
 }
 
@@ -1035,17 +469,12 @@ function loadUI() {
     document.getElementById('address').value = job.address;
     document.getElementById('supplier').value = job.supplier;
     document.getElementById('colour').value = job.colour;
-    document.getElementById('jobDate').value = job.date;
 }
 
 function newJob() {
     if (dirty && !confirm('Discard changes?')) return;
-    localStorage.removeItem('fenceJob_v11');
-    createDefault();
-    loadUI();
-    curRun = 0; selPanel = -1;
-    renderAll();
-    markSaved();
+    localStorage.removeItem('fenceJob_v12');
+    createDefault(); loadUI(); curRun = 0; selPanel = -1; renderAll(); markSaved();
 }
 
 // ========== SAVE ==========
@@ -1053,27 +482,13 @@ function saveJob() {
     job.ref = document.getElementById('jobRef').value;
     job.client = document.getElementById('clientName').value;
     job.address = document.getElementById('address').value;
-    job.date = document.getElementById('jobDate').value;
-    localStorage.setItem('fenceJob_v11', JSON.stringify(job));
+    localStorage.setItem('fenceJob_v12', JSON.stringify(job));
     markSaved();
 }
 
-function autoSave() {
-    localStorage.setItem('fenceJob_v11', JSON.stringify(job));
-    markSaved();
-}
-
-function markSaved() {
-    dirty = false;
-    document.getElementById('saveStatus').textContent = 'Saved';
-    document.getElementById('saveStatus').classList.remove('unsaved');
-}
-
-function markDirty() {
-    dirty = true;
-    document.getElementById('saveStatus').textContent = 'Unsaved';
-    document.getElementById('saveStatus').classList.add('unsaved');
-}
+function autoSave() { localStorage.setItem('fenceJob_v12', JSON.stringify(job)); markSaved(); }
+function markSaved() { dirty = false; document.getElementById('saveStatus').textContent = 'Saved'; }
+function markDirty() { dirty = true; document.getElementById('saveStatus').textContent = 'Unsaved'; }
 
 // ========== RUNS ==========
 function addRun(name, len = 19) {
@@ -1084,13 +499,7 @@ function addRun(name, len = 19) {
     const cnt = Math.ceil(len * 1000 / pw);
     const panels = [];
     for (let i = 0; i < cnt; i++) panels.push({ height: 1800, retaining: 0 });
-    job.runs.push({
-        name: defName,
-        length: cnt * pw,
-        defaultHeight: 1800,
-        extension: 0,
-        panels
-    });
+    job.runs.push({ name: defName, length: cnt * pw, defaultHeight: 1800, extension: 0, panels });
     curRun = job.runs.length - 1;
     selPanel = -1;
     renderAll();
@@ -1107,16 +516,9 @@ function deleteRun() {
     autoSave();
 }
 
-function selectRun(i) {
-    curRun = i; selPanel = -1;
-    renderAll();
-}
+function selectRun(i) { curRun = i; selPanel = -1; renderAll(); }
 
-function updateRunName() {
-    job.runs[curRun].name = document.getElementById('runName').value;
-    renderTabs();
-    autoSave();
-}
+function updateRunName() { job.runs[curRun].name = document.getElementById('runName').value; renderTabs(); autoSave(); }
 
 function updateRunLength() {
     const val = parseFloat(document.getElementById('runLength').value) || 10;
@@ -1129,24 +531,32 @@ function updateRunLength() {
     while (run.panels.length > cnt) run.panels.pop();
     run.length = cnt * pw;
     document.getElementById('runLength').value = unit === 'm' ? (run.length/1000).toFixed(2) : run.length;
+    // Update quick retaining max
+    document.getElementById('retToPanel').max = run.panels.length;
+    document.getElementById('retFromPanel').max = run.panels.length;
     renderAll();
     autoSave();
 }
 
-function updateDefaultHeight() {
-    job.runs[curRun].defaultHeight = parseInt(document.getElementById('defaultHeight').value);
-    autoSave();
-}
+function updateDefaultHeight() { job.runs[curRun].defaultHeight = parseInt(document.getElementById('defaultHeight').value); autoSave(); }
 
-function updateExtension() {
-    job.runs[curRun].extension = parseInt(document.getElementById('extension').value) || 0;
-    renderAll();
-    autoSave();
-}
+function updateExtension() { job.runs[curRun].extension = parseInt(document.getElementById('extension').value) || 0; renderAll(); autoSave(); }
 
 function applyHeightToAll() {
     const h = job.runs[curRun].defaultHeight;
     job.runs[curRun].panels.forEach(p => p.height = h);
+    renderAll(); autoSave();
+}
+
+// ========== QUICK RETAINING ==========
+function applyQuickRetaining() {
+    const from = parseInt(document.getElementById('retFromPanel').value) - 1;
+    const to = parseInt(document.getElementById('retToPanel').value) - 1;
+    const val = parseInt(document.getElementById('retValue').value);
+    const run = job.runs[curRun];
+    for (let i = Math.max(0, from); i <= Math.min(run.panels.length - 1, to); i++) {
+        run.panels[i].retaining = val;
+    }
     renderAll();
     autoSave();
 }
@@ -1156,23 +566,17 @@ function updatePanel(i, field, val) {
     const p = job.runs[curRun].panels[i];
     if (field === 'height') p.height = parseInt(val);
     if (field === 'retaining') p.retaining = Math.max(0, Math.min(750, parseInt(val) || 0));
-    renderAll();
-    autoSave();
+    renderAll(); autoSave();
 }
 
-function selectPanel(i) {
-    selPanel = i;
-    renderTable();
-    renderProfile();
-}
+function selectPanel(i) { selPanel = i; renderTable(); renderProfile(); }
 
 function addPanel() {
     const run = job.runs[curRun];
     const last = run.panels[run.panels.length - 1];
     run.panels.push({ height: last?.height || run.defaultHeight, retaining: last?.retaining || 0 });
     run.length = run.panels.length * SUPPLIERS[job.supplier].width;
-    renderAll();
-    autoSave();
+    renderAll(); autoSave();
 }
 
 function removePanel(i) {
@@ -1181,32 +585,25 @@ function removePanel(i) {
     run.panels.splice(i, 1);
     run.length = run.panels.length * SUPPLIERS[job.supplier].width;
     if (selPanel >= run.panels.length) selPanel = run.panels.length - 1;
-    renderAll();
-    autoSave();
+    renderAll(); autoSave();
 }
 
 // ========== GATES ==========
 function addGate() {
-    job.gates.push({ type: 'pedestrian', width: 900 });
-    renderGates();
-    updateStats();
-    autoSave();
+    const run = job.runs[curRun];
+    job.gates.push({ type: 'pedestrian', width: 900, afterPanel: run.panels.length, runIndex: curRun });
+    renderGates(); updateStats(); autoSave();
 }
 
 function updateGate(i, field, val) {
     if (field === 'type') job.gates[i].type = val;
     if (field === 'width') job.gates[i].width = parseInt(val) || 900;
-    renderGates();
-    updateStats();
-    autoSave();
+    if (field === 'afterPanel') job.gates[i].afterPanel = parseInt(val);
+    if (field === 'run') job.gates[i].runIndex = parseInt(val);
+    renderGates(); updateStats(); autoSave();
 }
 
-function removeGate(i) {
-    job.gates.splice(i, 1);
-    renderGates();
-    updateStats();
-    autoSave();
-}
+function removeGate(i) { job.gates.splice(i, 1); renderGates(); updateStats(); autoSave(); }
 
 // ========== CALCULATIONS ==========
 function getPlinths(p) { return Math.ceil(p.retaining / 150); }
@@ -1225,48 +622,25 @@ function getTotalHeight(p) { return p.height + p.retaining; }
 function getPostHeight(p, run, i) {
     const footing = 600, ext = run.extension || 0;
     let maxH = p.height + p.retaining;
-    if (i > 0) {
-        const prev = run.panels[i-1];
-        maxH = Math.max(maxH, prev.height + prev.retaining);
-    }
+    if (i > 0) { const prev = run.panels[i-1]; maxH = Math.max(maxH, prev.height + prev.retaining); }
     const req = maxH + footing + ext;
     return POST_SIZES.find(s => s >= req) || POST_SIZES[POST_SIZES.length - 1];
 }
 
 function needsPatio(p) { return getPlinths(p) >= 3; }
-
-function getPatioForRun(run) {
-    const cnt = run.panels.filter(p => needsPatio(p)).length;
-    return cnt > 0 ? cnt + 1 : 0;
-}
+function getPatioForRun(run) { const cnt = run.panels.filter(p => needsPatio(p)).length; return cnt > 0 ? cnt + 1 : 0; }
 
 // ========== SUPPLIER/COLOUR ==========
 function onSupplierChange() {
     job.supplier = document.getElementById('supplier').value;
-    job.runs.forEach(run => {
-        run.length = run.panels.length * SUPPLIERS[job.supplier].width;
-    });
-    renderAll();
-    autoSave();
+    job.runs.forEach(run => { run.length = run.panels.length * SUPPLIERS[job.supplier].width; });
+    renderAll(); autoSave();
 }
 
-function onColourChange() {
-    job.colour = document.getElementById('colour').value;
-    renderProfile();
-    if (threeReady) render3D();
-    autoSave();
-}
+function onColourChange() { job.colour = document.getElementById('colour').value; renderProfile(); if (threeReady) render3D(); autoSave(); }
 
 // ========== RENDER ==========
-function renderAll() {
-    renderTabs();
-    renderSettings();
-    renderTable();
-    renderGates();
-    updateStats();
-    renderProfile();
-    if (threeReady) render3D();
-}
+function renderAll() { renderTabs(); renderSettings(); renderTable(); renderGates(); updateStats(); renderProfile(); if (threeReady) render3D(); }
 
 function renderTabs() {
     document.getElementById('runTabs').innerHTML = job.runs.map((r, i) => `
@@ -1284,6 +658,10 @@ function renderSettings() {
     document.getElementById('extension').value = run.extension;
     const unit = document.getElementById('lengthUnit').value;
     document.getElementById('runLength').value = unit === 'm' ? (run.length/1000).toFixed(2) : run.length;
+    // Update quick retaining defaults
+    document.getElementById('retToPanel').value = Math.min(3, run.panels.length);
+    document.getElementById('retToPanel').max = run.panels.length;
+    document.getElementById('retFromPanel').max = run.panels.length;
 }
 
 function renderTable() {
@@ -1333,7 +711,10 @@ function renderGates() {
         box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No gates added</div>';
         return;
     }
-    box.innerHTML = job.gates.map((g, i) => `
+    box.innerHTML = job.gates.map((g, i) => {
+        const runOpts = job.runs.map((r, ri) => `<option value="${ri}" ${g.runIndex===ri?'selected':''}>${r.name}</option>`).join('');
+        const maxP = job.runs[g.runIndex || 0]?.panels.length || 8;
+        return `
         <div class="gate-row">
             <select onchange="updateGate(${i},'type',this.value)">
                 <option value="pedestrian" ${g.type==='pedestrian'?'selected':''}>Pedestrian</option>
@@ -1343,9 +724,13 @@ function renderGates() {
             </select>
             <input type="number" value="${g.width}" onchange="updateGate(${i},'width',this.value)">
             <span>mm</span>
+            <span>in</span>
+            <select onchange="updateGate(${i},'run',this.value)">${runOpts}</select>
+            <span>after P</span>
+            <input type="number" value="${g.afterPanel || maxP}" min="1" max="${maxP}" style="width:45px" onchange="updateGate(${i},'afterPanel',this.value)">
             <button class="btn-remove" onclick="removeGate(${i})">×</button>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function updateStats() {
@@ -1358,10 +743,15 @@ function updateStats() {
     });
     posts += job.gates.length * 2;
     const metres = (panels * pw) / 1000;
+    const pricePerM = parseFloat(document.getElementById('pricePerM')?.value) || 115;
+    const estimate = metres * pricePerM * 1.1; // +10% GST
+
     document.getElementById('sMetres').textContent = metres.toFixed(1);
     document.getElementById('sPanels').textContent = panels;
     document.getElementById('sPosts').textContent = posts;
     document.getElementById('sRet').textContent = plinths;
+    document.getElementById('sCalc').textContent = `${panels} × ${pw}mm`;
+    document.getElementById('sPrice').textContent = '$' + Math.round(estimate).toLocaleString();
 }
 
 // ========== CANVAS RESIZE ==========
@@ -1372,11 +762,7 @@ function setupResize() {
             const { width, height } = e.contentRect;
             if (width > 0 && height > 0) {
                 renderProfile();
-                if (threeReady) {
-                    renderer.setSize(width, height);
-                    camera.aspect = width / height;
-                    camera.updateProjectionMatrix();
-                }
+                if (threeReady) { renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); }
             }
         }
     }).observe(box);
@@ -1392,46 +778,27 @@ function renderProfile() {
     if (w === 0 || h === 0) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
     ctx.scale(dpr, dpr);
 
     const col = COLOURS[job.colour];
 
     // Sky
     const sky = ctx.createLinearGradient(0, 0, 0, h * 0.6);
-    sky.addColorStop(0, '#7dd3fc');
-    sky.addColorStop(0.6, '#bae6fd');
-    sky.addColorStop(1, '#e0f2fe');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
+    sky.addColorStop(0, '#7dd3fc'); sky.addColorStop(0.6, '#bae6fd'); sky.addColorStop(1, '#e0f2fe');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
 
-    // Ground base Y (customer's side - HIGH ground)
     const groundY = h * 0.55;
+    ctx.fillStyle = '#4ade80'; ctx.fillRect(0, groundY, w, 30);
 
-    // Grass strip
-    ctx.fillStyle = '#4ade80';
-    ctx.fillRect(0, groundY, w, 30);
-
-    // Soil
     const soil = ctx.createLinearGradient(0, groundY + 30, 0, h);
-    soil.addColorStop(0, '#a3724a');
-    soil.addColorStop(0.4, '#8b5d3a');
-    soil.addColorStop(1, '#6b4530');
-    ctx.fillStyle = soil;
-    ctx.fillRect(0, groundY + 30, w, h - groundY - 30);
+    soil.addColorStop(0, '#a3724a'); soil.addColorStop(0.4, '#8b5d3a'); soil.addColorStop(1, '#6b4530');
+    ctx.fillStyle = soil; ctx.fillRect(0, groundY + 30, w, h - groundY - 30);
 
-    // Ground line
-    ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, groundY);
-    ctx.lineTo(w, groundY);
-    ctx.stroke();
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(w, groundY); ctx.stroke();
 
-    // Layout
     const pad = 60, gap = 50;
     let totalP = job.runs.reduce((s, r) => s + r.panels.length, 0);
     if (totalP === 0) return;
@@ -1439,14 +806,8 @@ function renderProfile() {
     const availW = w - pad * 2 - (job.runs.length - 1) * gap;
     const panelW = Math.min(85, Math.max(35, availW / totalP));
 
-    // Max height for scaling
     let maxH = 0;
-    job.runs.forEach(run => {
-        run.panels.forEach(p => {
-            const tot = p.height + p.retaining + (run.extension || 0);
-            if (tot > maxH) maxH = tot;
-        });
-    });
+    job.runs.forEach(run => { run.panels.forEach(p => { const tot = p.height + p.retaining + (run.extension || 0); if (tot > maxH) maxH = tot; }); });
 
     const hScale = (groundY - pad - 80) / Math.max(maxH, 1800);
     let curX = pad;
@@ -1454,90 +815,52 @@ function renderProfile() {
     job.runs.forEach((run, ri) => {
         const runW = run.panels.length * panelW;
 
-        // Run label
-        ctx.font = 'bold 14px -apple-system, sans-serif';
-        ctx.fillStyle = '#1e293b';
-        ctx.textAlign = 'center';
+        ctx.font = 'bold 14px -apple-system, sans-serif'; ctx.fillStyle = '#1e293b'; ctx.textAlign = 'center';
         ctx.fillText(run.name, curX + runW / 2, 26);
-
-        ctx.font = '12px -apple-system, sans-serif';
-        ctx.fillStyle = '#64748b';
+        ctx.font = '12px -apple-system, sans-serif'; ctx.fillStyle = '#64748b';
         ctx.fillText(`${run.panels.length} panels · ${(run.length / 1000).toFixed(1)}m`, curX + runW / 2, 44);
 
         run.panels.forEach((p, pi) => {
             const sel = ri === curRun && pi === selPanel;
             const px = curX + pi * panelW;
             const fenceH = p.height * hScale;
-            const retH = p.retaining * hScale;
             const panelTop = groundY - fenceH;
 
-            // Retaining (below grass, in soil)
             const plinths = getPlinths(p);
             const singlePlinthH = 150 * hScale;
             for (let pl = 0; pl < plinths; pl++) {
                 const py = groundY + 30 + pl * singlePlinthH;
                 const plGrad = ctx.createLinearGradient(px, py, px + panelW, py);
-                plGrad.addColorStop(0, '#9ca3af');
-                plGrad.addColorStop(0.5, '#d1d5db');
-                plGrad.addColorStop(1, '#9ca3af');
-                ctx.fillStyle = plGrad;
-                ctx.fillRect(px + 3, py, panelW - 6, singlePlinthH - 2);
-                ctx.strokeStyle = '#6b7280';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(px + 3, py, panelW - 6, singlePlinthH - 2);
+                plGrad.addColorStop(0, '#9ca3af'); plGrad.addColorStop(0.5, '#d1d5db'); plGrad.addColorStop(1, '#9ca3af');
+                ctx.fillStyle = plGrad; ctx.fillRect(px + 3, py, panelW - 6, singlePlinthH - 2);
+                ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1; ctx.strokeRect(px + 3, py, panelW - 6, singlePlinthH - 2);
             }
 
-            // Fence panel
             drawPanel(ctx, px + 3, panelTop, panelW - 6, fenceH, col, sel);
 
-            // Extension
             if (run.extension > 0) {
                 const extH = run.extension * hScale;
-                ctx.fillStyle = 'rgba(255,255,255,0.4)';
-                ctx.fillRect(px + 3, panelTop - extH, panelW - 6, extH);
-                ctx.strokeStyle = '#94a3b8';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(px + 3, panelTop - extH, panelW - 6, extH);
+                ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(px + 3, panelTop - extH, panelW - 6, extH);
+                ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.strokeRect(px + 3, panelTop - extH, panelW - 6, extH);
             }
 
-            // Post
+            const retH = p.retaining * hScale;
             const postH = fenceH + retH + 25;
             const postGrad = ctx.createLinearGradient(px - 2, 0, px + 6, 0);
-            postGrad.addColorStop(0, '#4b5563');
-            postGrad.addColorStop(0.5, '#6b7280');
-            postGrad.addColorStop(1, '#4b5563');
-            ctx.fillStyle = postGrad;
-            ctx.fillRect(px - 2, groundY - fenceH - 12, 7, postH + 42);
+            postGrad.addColorStop(0, '#4b5563'); postGrad.addColorStop(0.5, '#6b7280'); postGrad.addColorStop(1, '#4b5563');
+            ctx.fillStyle = postGrad; ctx.fillRect(px - 2, groundY - fenceH - 12, 7, postH + 42);
 
-            // Cap
-            ctx.fillStyle = '#374151';
-            ctx.beginPath();
-            ctx.moveTo(px - 4, panelTop - 12);
-            ctx.lineTo(px + 1.5, panelTop - 22);
-            ctx.lineTo(px + 7, panelTop - 12);
-            ctx.fill();
+            ctx.fillStyle = '#374151'; ctx.beginPath();
+            ctx.moveTo(px - 4, panelTop - 12); ctx.lineTo(px + 1.5, panelTop - 22); ctx.lineTo(px + 7, panelTop - 12); ctx.fill();
 
-            // Panel number
-            const numX = px + panelW / 2;
-            const numY = panelTop + fenceH / 2;
-            ctx.fillStyle = 'rgba(0,0,0,0.35)';
-            ctx.beginPath();
-            ctx.arc(numX, numY, 13, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.font = sel ? 'bold 14px -apple-system' : '13px -apple-system';
-            ctx.fillStyle = '#fff';
-            ctx.textAlign = 'center';
+            const numX = px + panelW / 2, numY = panelTop + fenceH / 2;
+            ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.arc(numX, numY, 13, 0, Math.PI * 2); ctx.fill();
+            ctx.font = sel ? 'bold 14px -apple-system' : '13px -apple-system'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
             ctx.fillText(pi + 1, numX, numY + 4);
 
-            // Selection
-            if (sel) {
-                ctx.strokeStyle = '#059669';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(px + 1, panelTop - 2, panelW - 2, fenceH + 4);
-            }
+            if (sel) { ctx.strokeStyle = '#059669'; ctx.lineWidth = 3; ctx.strokeRect(px + 1, panelTop - 2, panelW - 2, fenceH + 4); }
         });
 
-        // Final post
         const last = run.panels[run.panels.length - 1];
         const lastX = curX + run.panels.length * panelW;
         const lastFH = last.height * hScale;
@@ -1545,18 +868,11 @@ function renderProfile() {
         const finalPostH = lastFH + lastRH + 25;
 
         const pGrad = ctx.createLinearGradient(lastX - 5, 0, lastX + 3, 0);
-        pGrad.addColorStop(0, '#4b5563');
-        pGrad.addColorStop(0.5, '#6b7280');
-        pGrad.addColorStop(1, '#4b5563');
-        ctx.fillStyle = pGrad;
-        ctx.fillRect(lastX - 5, groundY - lastFH - 12, 7, finalPostH + 42);
+        pGrad.addColorStop(0, '#4b5563'); pGrad.addColorStop(0.5, '#6b7280'); pGrad.addColorStop(1, '#4b5563');
+        ctx.fillStyle = pGrad; ctx.fillRect(lastX - 5, groundY - lastFH - 12, 7, finalPostH + 42);
 
-        ctx.fillStyle = '#374151';
-        ctx.beginPath();
-        ctx.moveTo(lastX - 7, groundY - lastFH - 12);
-        ctx.lineTo(lastX - 1.5, groundY - lastFH - 22);
-        ctx.lineTo(lastX + 4, groundY - lastFH - 12);
-        ctx.fill();
+        ctx.fillStyle = '#374151'; ctx.beginPath();
+        ctx.moveTo(lastX - 7, groundY - lastFH - 12); ctx.lineTo(lastX - 1.5, groundY - lastFH - 22); ctx.lineTo(lastX + 4, groundY - lastFH - 12); ctx.fill();
 
         curX += runW + gap;
     });
@@ -1573,17 +889,11 @@ function drawPanel(ctx, x, y, w, h, col, sel) {
         const shade = raised ? 1.0 : 0.8;
         ctx.fillStyle = `rgb(${Math.round(rgb.r*shade)},${Math.round(rgb.g*shade)},${Math.round(rgb.b*shade)})`;
         ctx.fillRect(rx, y, ribW - 0.5, h);
-        if (raised && ribW > 5) {
-            ctx.fillStyle = 'rgba(255,255,255,0.18)';
-            ctx.fillRect(rx + 1, y, 2, h);
-        }
+        if (raised && ribW > 5) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(rx + 1, y, 2, h); }
     }
 
-    // Rail
-    ctx.fillStyle = '#52525b';
-    ctx.fillRect(x - 1, y - 4, w + 2, 5);
-    ctx.fillStyle = '#71717a';
-    ctx.fillRect(x - 1, y - 4, w + 2, 2);
+    ctx.fillStyle = '#52525b'; ctx.fillRect(x - 1, y - 4, w + 2, 5);
+    ctx.fillStyle = '#71717a'; ctx.fillRect(x - 1, y - 4, w + 2, 2);
 
     ctx.strokeStyle = sel ? '#059669' : '#374151';
     ctx.lineWidth = sel ? 3 : 1;
@@ -1604,9 +914,7 @@ function init3D() {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-
     camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 100);
-
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(rect.width, rect.height);
     renderer.shadowMap.enabled = true;
@@ -1614,16 +922,12 @@ function init3D() {
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(5, 10, 7);
-    sun.castShadow = true;
-    scene.add(sun);
+    sun.position.set(5, 10, 7); sun.castShadow = true; scene.add(sun);
 
     const groundGeo = new THREE.PlaneGeometry(15, 15);
     const groundMat = new THREE.MeshStandardMaterial({ color: 0x7cb342, roughness: 0.9 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
     setupControls();
     threeReady = true;
@@ -1643,8 +947,7 @@ function setupControls() {
         const dx = e.clientX - prevMX, dy = e.clientY - prevMY;
         const sph = new THREE.Spherical();
         sph.setFromVector3(camera.position.clone().sub(camTarget));
-        sph.theta -= dx * 0.01;
-        sph.phi -= dy * 0.01;
+        sph.theta -= dx * 0.01; sph.phi -= dy * 0.01;
         sph.phi = Math.max(0.1, Math.min(Math.PI/2 - 0.1, sph.phi));
         camera.position.setFromSpherical(sph).add(camTarget);
         camera.lookAt(camTarget);
@@ -1658,15 +961,11 @@ function setupControls() {
     }, { passive: false });
 }
 
-function animate3D() {
-    requestAnimationFrame(animate3D);
-    if (renderer) renderer.render(scene, camera);
-}
+function animate3D() { requestAnimationFrame(animate3D); if (renderer) renderer.render(scene, camera); }
 
 function render3D() {
     if (!scene) return;
 
-    // Clear
     const rem = [];
     scene.traverse(o => { if (o.userData.fence) rem.push(o); });
     rem.forEach(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); scene.remove(o); });
@@ -1676,14 +975,7 @@ function render3D() {
     const sc = 0.55;
 
     let offX = 0, totalW = 0, maxH = 0;
-
-    job.runs.forEach(run => {
-        totalW += run.panels.length * pwM * sc;
-        run.panels.forEach(p => {
-            const h = (p.height / 1000) * sc;
-            if (h > maxH) maxH = h;
-        });
-    });
+    job.runs.forEach(run => { totalW += run.panels.length * pwM * sc; run.panels.forEach(p => { const h = (p.height / 1000) * sc; if (h > maxH) maxH = h; }); });
     totalW += (job.runs.length - 1) * 0.12;
 
     job.runs.forEach(run => {
@@ -1692,7 +984,6 @@ function render3D() {
             const pW = pwM * sc;
             const retH = (p.retaining / 1000) * sc;
 
-            // Panel
             const grp = new THREE.Group();
             const ribs = 12;
             const ribW = pW / ribs;
@@ -1709,7 +1000,6 @@ function render3D() {
             grp.userData.fence = true;
             scene.add(grp);
 
-            // Plinths
             const plinths = getPlinths(p);
             const singleH = 0.15 * sc;
             for (let pl = 0; pl < plinths; pl++) {
@@ -1721,17 +1011,14 @@ function render3D() {
                 scene.add(mesh);
             }
 
-            // Post
             const postH = fH + retH + 0.1;
             const postGeo = new THREE.BoxGeometry(0.045, postH, 0.045);
             const postMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.5 });
             const post = new THREE.Mesh(postGeo, postMat);
             post.position.set(offX, postH / 2 - retH, 0);
-            post.castShadow = true;
-            post.userData.fence = true;
+            post.castShadow = true; post.userData.fence = true;
             scene.add(post);
 
-            // Cap
             const capGeo = new THREE.ConeGeometry(0.035, 0.055, 4);
             const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0x374151 }));
             cap.position.set(offX, fH + 0.11, 0);
@@ -1742,7 +1029,6 @@ function render3D() {
             offX += pW;
         });
 
-        // Final post
         const last = run.panels[run.panels.length - 1];
         const lastFH = (last.height / 1000) * sc;
         const lastRH = (last.retaining / 1000) * sc;
@@ -1752,8 +1038,7 @@ function render3D() {
         const postMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.5 });
         const post = new THREE.Mesh(postGeo, postMat);
         post.position.set(offX, finalPostH / 2 - lastRH, 0);
-        post.castShadow = true;
-        post.userData.fence = true;
+        post.castShadow = true; post.userData.fence = true;
         scene.add(post);
 
         const capGeo = new THREE.ConeGeometry(0.035, 0.055, 4);
@@ -1766,10 +1051,8 @@ function render3D() {
         offX += 0.12;
     });
 
-    // Camera position - fence should fill ~60-70% of viewport
     const centerX = (offX - 0.12) / 2;
     camTarget.set(centerX, maxH * 0.5, 0);
-
     const dist = Math.max(1.2, totalW * 0.6);
     camera.position.set(centerX + dist * 0.4, maxH * 0.7 + 0.4, dist * 0.85);
     camera.lookAt(camTarget);
@@ -1779,25 +1062,13 @@ function showView(v) {
     const area = document.getElementById('vizArea');
     document.getElementById('tabProfile').classList.toggle('active', v === 'profile');
     document.getElementById('tab3d').classList.toggle('active', v === '3d');
-    if (v === '3d') {
-        area.classList.add('mode-3d');
-        if (!threeReady) setTimeout(init3D, 50);
-        else render3D();
-    } else {
-        area.classList.remove('mode-3d');
-        renderProfile();
-    }
+    if (v === '3d') { area.classList.add('mode-3d'); if (!threeReady) setTimeout(init3D, 50); else render3D(); }
+    else { area.classList.remove('mode-3d'); renderProfile(); }
 }
 
 // ========== OUTPUTS ==========
-function showOutputs() {
-    document.getElementById('modalBg').classList.add('open');
-    renderOutput();
-}
-
-function closeModal() {
-    document.getElementById('modalBg').classList.remove('open');
-}
+function showOutputs() { document.getElementById('modalBg').classList.add('open'); renderOutput(); }
+function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
 
 function switchTab(btn, tab) {
     curTab = tab;
@@ -1808,6 +1079,7 @@ function switchTab(btn, tab) {
 
 function renderOutput() {
     const spec = SUPPLIERS[job.supplier];
+    const pricePerM = parseFloat(document.getElementById('pricePerM')?.value) || 115;
     let totalPanels = 0, totalPlinths = 0, totalPosts = 0, totalPatio = 0;
     let groups = {};
 
@@ -1830,7 +1102,7 @@ function renderOutput() {
     let out = '';
 
     if (curTab === 'material') {
-        const del = new Date(job.date);
+        const del = new Date(job.date || new Date());
         del.setDate(del.getDate() - 1);
         const delStr = del.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
         let items = [], n = 1;
@@ -1842,7 +1114,8 @@ function renderOutput() {
         if (totalPatio > 0) { items.push(`${n}) ${totalPatio} x 76x38 RHS Patio Tube @ 3000mm`); n++; }
         job.gates.forEach(g => {
             const desc = g.type === 'pedestrian' ? 'Pedestrian' : g.type === 'single' ? 'Single Drive' : g.type === 'double' ? 'Double Drive' : 'Sliding';
-            items.push(`${n}) 2 x 50x50 SHS gate posts @ 2100mm (${g.width}mm ${desc})`);
+            const runName = job.runs[g.runIndex || 0]?.name || 'Run';
+            items.push(`${n}) 2 x 50x50 SHS gate posts @ 2100mm (${g.width}mm ${desc} in ${runName} after P${g.afterPanel})`);
             n++;
         });
         items.push(`${n}) ${concrete} x Bags Quickset Concrete`);
@@ -1885,7 +1158,10 @@ SecureWorks WA`;
             return `${run.name} (${run.panels.length} panels, ${(run.length/1000).toFixed(1)}m)${note}\n${det}`;
         }).join('\n\n');
 
-        const gatesT = job.gates.length > 0 ? job.gates.map(g => `  ${g.type}: ${g.width}mm`).join('\n') : '  None';
+        const gatesT = job.gates.length > 0 ? job.gates.map(g => {
+            const runName = job.runs[g.runIndex || 0]?.name || 'Run';
+            return `  ${g.type}: ${g.width}mm in ${runName} after P${g.afterPanel}`;
+        }).join('\n') : '  None';
 
         out = `════════════════════════════════════════════════
             WORK ORDER - ${job.ref}
@@ -1893,7 +1169,7 @@ SecureWorks WA`;
 
 Client:   ${job.client || '[Client]'}
 Address:  ${job.address || '[Address]'}
-Date:     ${job.date}
+Date:     ${job.date || 'TBD'}
 
 ────────────────────────────────────────────────
 FENCE RUNS
@@ -1920,8 +1196,7 @@ SUMMARY
 
 † = Patio tube required (3+ plinths / 450mm+ retaining)`;
     } else {
-        const rate = 115;
-        const sub = totalM * rate;
+        const sub = totalM * pricePerM;
         const gst = sub * 0.1;
         const total = sub + gst;
 
@@ -1945,7 +1220,7 @@ Includes:
 • Site clean up
 
 ────────────────────────────────────────────────
-PRICING
+PRICING (@ $${pricePerM}/m)
 ────────────────────────────────────────────────
 
 Subtotal:     $${sub.toFixed(2).padStart(10)}
