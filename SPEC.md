@@ -118,7 +118,7 @@ run = {
 panel = {
   height: 1800,        // inherits from run's sheetHeight, can be overridden per-panel (1200|1500|1800|2100)
   retaining: 0,        // retaining height in mm: 0, 150, 300, 450, 600, 750 (DROPDOWN, not free text)
-  ground: "level"      // "level" | "up" | "down" — visual indicator only
+  step: "level"        // "level" | "up" | "down" — USER INPUT indicating ground direction change
 }
 ```
 
@@ -217,20 +217,30 @@ The left panel is the **workspace**. This is where all input happens.
 | Column | Header | Width | Content |
 |---|---|---|---|
 | # | P# | 30px | Panel number (P1, P2...). Click to select/highlight in viz. |
-| HEIGHT | Ht | 50px | Dropdown: 1200 / 1500 / 1800 / 2100. Shows "12", "15", "18", or "21" for space. |
-| RET | Ret | 60px | Dropdown: 0, 150, 300, 450, 600, 750 (mm). |
-| PLINTHS | Pl | 30px | Calculated display: 0, 1, 2, 3, 4, 5. Read-only. |
-| STEP | Stp | 30px | Arrow indicator: — (level), ↑ (up), ↓ (down). Read-only. |
-| TOTAL | Tot | 45px | fence height + retaining (mm). Highlighted if > 1800. |
-| POST | Post | 55px | Calculated post height. Orange with † if patio tube needed. |
+| SHEET HEIGHT | Sheet Ht | 55px | Dropdown: 12 / 15 / 18 / 21 (represents 1200/1500/1800/2100mm). Inherits from Run Settings sheetHeight. Can override per-panel. |
+| RETAINING | Ret (mm) | 65px | Dropdown: 0, 150, 300, 450, 600, 750. This is the retaining wall height below the sheet. |
+| PLINTHS | Plinths | 45px | Calculated: retaining ÷ 150. Read-only. Shows "0", "1", "2", "3†", "4†", "5†". The † means patio tube required (3+ plinths). |
+| STEP | Step | 35px | Dropdown: — (level), ↑ (step up), ↓ (step down). User selects this to indicate ground direction change between panels. Default: — (level). |
+| TOTAL HT | Total | 50px | Sheet height + retaining (mm). Green text if ≤1800. Orange `#F15A29` if >1800. |
+| POST | Post | 55px | Calculated post height from lookup tables. Orange with † if patio tube needed. |
 | × | | 20px | Delete panel button. |
+
+**Step column behaviour:**
+- The step indicator is a USER INPUT, not auto-calculated
+- It tells the installer which direction the ground changes between this panel and the next
+- ↑ = ground goes UP from this panel to the next (towards higher ground)
+- ↓ = ground goes DOWN from this panel to the next (towards lower ground)
+- — = level / no change
+- This drives the Profile View rendering (ground line steps up or down between panels)
 
 **Important table UX rules:**
 - The P# column must NOT be cut off on the left
-- All headers must be fully visible and legible
-- Dropdown text should show abbreviated values to save space (e.g., "450" not "450mm")
-- Total column: green text if standard (1800), orange if elevated (>1800)
+- All headers must be fully visible and legible — use full words not cryptic abbreviations
+- Dropdown text should show abbreviated values to save space (e.g., "18" for 1800mm, "450" not "450mm")
+- Plinths column: append † symbol for 3, 4, or 5 plinths (patio tube required)
+- Total column: green text if ≤1800, orange `#F15A29` if >1800
 - Post column: orange with † symbol if patio tube is required for that panel
+- Step column: dropdown with three options (—, ↑, ↓) — this is user input, not calculated
 
 **Gates Section:**
 - Below the panel table
@@ -461,7 +471,9 @@ For post at position i (between panel i-1 and panel i):
 
 ### 6.4 Patio Tube Calculation
 
-**Patio tubing (76×38mm RHS × 3000mm) is required when ANY panel has 3–5 plinths stacked underneath.**
+**Patio tubing (76×38mm RHS × 3000mm) is required when ANY panel has 3 or more plinths (i.e. ≥450mm retaining).**
+
+Patio tubes are installed vertically on BOTH SIDES of the retained section — one tube per post position in the retained zone.
 
 ```
 Quantity per run:
@@ -469,9 +481,11 @@ Quantity per run:
   patioTubes = panelsNeedingTube > 0 ? panelsNeedingTube + 1 : 0
 ```
 
-Why +1: Adjacent panels with 3+ plinths share a tube between them. So 3 consecutive panels needing tubes = 4 tubes (left + shared + shared + right).
+Why +1: You need a tube at every post position bounding the retained panels. So 3 consecutive panels needing tubes = 4 post positions = 4 tubes.
 
-**CRITICAL LIMIT:** If any panel has 6+ plinths (≥900mm retaining), STOP. Flag: "This job requires post & panel retaining, not Colorbond fencing with plinths."
+**ABSOLUTE MAXIMUM: 5 plinths (750mm retaining).** No panel can ever have more than 5 plinths. The retaining dropdown maxes out at 750mm. If a job needs more than 750mm of retaining, it's not a Colorbond fence job — it needs an engineered retaining wall.
+
+**CRITICAL LIMIT:** If the site requires >750mm retaining, STOP. Flag: "This job requires engineered retaining, not Colorbond fencing with plinths."
 
 ### 6.5 Concrete Calculation
 
