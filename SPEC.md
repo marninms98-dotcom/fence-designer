@@ -45,7 +45,7 @@ job = {
   client: "",              // client name
   address: "",             // property address
   supplier: "RNR",         // "RNR" | "Metroll" | "Lysaght" | "Stratco"
-  profile: "trimclad",    // "trimclad" | "harmony" | "spandek" | "corrugated" — see Section 4B
+  profile: "trimclad",    // "trimclad" | "harmony" | "corrugated" — see Section 4B
   colour: "Shale Grey",   // Colorbond colour name (with hex code — see Section 9)
   pricePerMetre: 115,      // $/metre for quick estimate
   runs: [],                // array of Run objects
@@ -61,21 +61,31 @@ A run is one continuous fence line (e.g., "Rear", "LHS", "RHS", "Front").
 ```
 run = {
   name: "Rear",                // user-editable
-  length: 19.04,               // in metres (entered by user)
-  fenceHeight: 1800,           // 1800 | 2100 (mm) — applies to whole run
-  extension: 0,                // 0 | 150 (mm) — solid fill extension
+  length: 19.0,                // in metres (entered by user, 0.5m increments)
+  sheetHeight: 1800,           // 1200 | 1500 | 1800 | 2100 (mm) — default sheet height for run
+  extension: "none",           // "none" | "slat" | "solid_fill" | "lattice"
   panels: []                   // array of Panel objects
 }
 ```
 
+**Length constraint:** Input must step in 0.5m increments (e.g., 10.0, 10.5, 11.0). Use `step="0.5"` on the input.
+
 **Panel count is auto-calculated:** `Math.ceil(run.length / panelWidth)` where panelWidth depends on supplier.
+
+**Sheet heights available:**
+| Height | Common Use |
+|---|---|
+| 1200mm | Pool fencing, front fences |
+| 1500mm | Front fences, low boundary |
+| 1800mm | Standard boundary fence (default) |
+| 2100mm | Privacy fence, commercial |
 
 ### 3.3 Panel
 
 ```
 panel = {
-  height: 1800,        // inherits from run, can be overridden per-panel
-  retaining: 0,        // retaining height in mm: 0, 150, 300, 450, 600, 750
+  height: 1800,        // inherits from run's sheetHeight, can be overridden per-panel (1200|1500|1800|2100)
+  retaining: 0,        // retaining height in mm: 0, 150, 300, 450, 600, 750 (DROPDOWN, not free text)
   ground: "level"      // "level" | "up" | "down" — visual indicator only
 }
 ```
@@ -85,6 +95,11 @@ panel = {
 - `totalHeight = height + retaining` (what neighbour sees on low side)
 - `postHeight = getPostHeight(panel, adjacentPanels)` (see Section 6)
 - `needsPatioTube = plinths >= 3 && plinths <= 5`
+
+**Example combinations:**
+- 1500mm sheet + 300mm retaining (2 plinths) = 1800mm total fence → 2400mm posts
+- 1800mm sheet + 450mm retaining (3 plinths) = 2250mm total fence → 2700mm posts + patio tube
+- 1800mm sheet + 0mm retaining = 1800mm total fence → 2400mm posts
 
 ### 3.4 Gate
 
@@ -104,7 +119,7 @@ gate = {
 | RnR Fencing | 2380 | `RNR` | Ridgeside (≈Trimclad), Sameside (≈Harmony) |
 | Metroll | 2365 | `Metroll` | Trimclad, Harmony, Corodek, MAC Atlas/Gemini/Polaris |
 | Lysaght | 2360 | `Lysaght` | Neetascreen (≈Trimclad), Smartascreen (≈Harmony), Miniscreen |
-| Stratco | 2350 | `Stratco` | Superdek (≈Trimclad), Wavelok (≈Harmony), Smartspan (≈Spandek), CGI |
+| Stratco | 2350 | `Stratco` | Superdek (≈Trimclad), Wavelok (≈Harmony), CGI |
 
 **NEVER mix suppliers on the same job.** Supplier is set at job level. Sheets, posts, and rails from different manufacturers CANNOT be mixed — different panel widths and proprietary locking mechanisms. Mixing voids BlueScope's 15-year fencing warranty.
 
@@ -151,15 +166,16 @@ The left panel is the **workspace**. This is where all input happens.
 
 **Run Settings Block:**
 - Run Name: text input (default: "Rear", "LHS", "RHS", "Front")
-- Total Length: number input in metres (e.g., 19.04)
-- Fence Height: dropdown — 1800mm | 2100mm (applies to entire run)
-- Extension: dropdown — None | 150mm Solid Fill
+- Total Length: number input in metres, step 0.5 (e.g., 19.0, 19.5, 20.0)
+- Sheet Height: dropdown — 1200 | 1500 | 1800 (default) | 2100 (mm) — default sheet height for all panels in run
+- Extension: dropdown — None | Slat | Solid Fill | Lattice
 - "Apply Height to All" button
 - "Delete Run" button (red text)
 
 **Quick Retaining Tool:**
 - Highlighted block (light green/yellow background)
-- "Panels [1] to [3] → [300mm] [Apply]"
+- "Panels [1] to [3] → [retaining dropdown: 0|150|300|450|600|750 mm] [Apply]"
+- Retaining MUST be a dropdown with fixed 150mm increments, NOT a free text number input
 - This is the #1 productivity feature. Lets user set retaining for a range of panels in one click instead of clicking 8 dropdowns individually.
 
 **Panel Table:**
@@ -169,7 +185,7 @@ The left panel is the **workspace**. This is where all input happens.
 | Column | Header | Width | Content |
 |---|---|---|---|
 | # | P# | 30px | Panel number (P1, P2...). Click to select/highlight in viz. |
-| HEIGHT | Ht | 50px | Dropdown: 1800 / 2100. Shows "18" or "21" for space. |
+| HEIGHT | Ht | 50px | Dropdown: 1200 / 1500 / 1800 / 2100. Shows "12", "15", "18", or "21" for space. |
 | RET | Ret | 60px | Dropdown: 0, 150, 300, 450, 600, 750 (mm). |
 | PLINTHS | Pl | 30px | Calculated display: 0, 1, 2, 3, 4, 5. Read-only. |
 | STEP | Stp | 30px | Arrow indicator: — (level), ↑ (up), ↓ (down). Read-only. |
@@ -294,36 +310,7 @@ Narrower trapezoid wave: `rib_pitch ≈ 100mm` (vs Trimclad's 152mm), `rib_heigh
 
 ---
 
-### Profile 3: Spandek / Smartspan — "spandek"
-
-**Bold square-corrugated profile. More industrial look.**
-
-Cross-section type: **9-rib square wave** (near-vertical sides, flat tops and bottoms)
-
-| Dimension | Value |
-|---|---|
-| Cover width | 700 mm |
-| Rib height | 24 mm |
-| Number of ribs | 9 |
-| Rib pitch (centre-to-centre) | ~78 mm (700 ÷ 9) |
-| Rib shape | Near-square — vertical sides, flat tops |
-| BMT (fencing) | 0.35 mm |
-| Panel width | 2170 mm (standard) |
-
-**How to render (2D):**
-Rectangular wave pattern — alternating flat crests and flat valleys with near-vertical transitions. The ribs and pans are roughly equal width. Much bolder/chunkier appearance than Trimclad.
-
-**How to render (3D):**
-Square wave displacement: `rib_width ≈ pan_width ≈ 39mm each`, `height=24mm`, vertical sides.
-
-**Brand equivalents:** Lysaght Spandek/Spanscreen, Stratco Smartspan
-
-**Reference images:**
-- Stratco Smartspan dimension diagram: https://steelselect.com.au/products/stratco/stratco-smartspan
-
----
-
-### Profile 4: Corrugated (CGI) — "corrugated"
+### Profile 3: Corrugated (CGI) — "corrugated"
 
 **Traditional Australian sinusoidal wave.**
 
@@ -349,15 +336,19 @@ Mathematical sine wave: `y = 8 × sin(2π × x / 76)` where amplitude = 8mm (hal
 
 ### Profile Selector in UI
 
-The profile dropdown should appear in the **Header bar** next to Supplier:
+The profile dropdown should appear in the **Header bar** next to Supplier.
 
-| Profile Code | Display Name | Description |
-|---|---|---|
-| `trimclad` | Trimclad | Standard trapezoidal (default) |
-| `harmony` | Harmony | Same-both-sides |
-| `spandek` | Spandek | Bold square rib |
-| `corrugated` | Corrugated | Traditional CGI |
+**Display names change based on selected supplier:**
 
+| Profile Code | RNR | Metroll | Lysaght | Stratco |
+|---|---|---|---|---|
+| `trimclad` | Ridgeside | Trimclad | Neetascreen | Superdek |
+| `harmony` | Sameside | Harmony | Smartascreen | Wavelok |
+| `corrugated` | Corrugated | Corodek | Customscreen | CGI Corrugated |
+
+Default profile: `trimclad`
+
+When supplier changes: update the profile dropdown labels to match that supplier's product names.
 When profile changes: re-render both Profile View and 3D View with the new corrugation pattern. All calculations stay the same (panel count, post heights etc are profile-independent).
 
 ---
@@ -385,7 +376,7 @@ For each panel in the active run:
 
 **The fence must look like actual Colorbond fencing, not a children's drawing.**
 
-- Corrugation pattern: Render according to the selected profile (see Section 4B). The default Trimclad pattern uses vertical lines with alternating widths — wide flat pans (~20px) separated by narrow raised ribs (~3px). The ribs should have a slight highlight (lighter shade) and the pans a slightly darker shade. Other profiles have different patterns — Harmony has more frequent narrower ribs, Spandek has bold square ribs, Corrugated is a smooth sine wave.
+- Corrugation pattern: Render according to the selected profile (see Section 4B). The default Trimclad pattern uses vertical lines with alternating widths — wide flat pans (~20px) separated by narrow raised ribs (~3px). The ribs should have a slight highlight (lighter shade) and the pans a slightly darker shade. Other profiles have different patterns — Harmony has more frequent narrower ribs, Corrugated is a smooth sine wave.
 - Posts: Darker shade than fence sheets. Narrower. Show the C-channel profile shape or at minimum a distinct rectangular post.
 - Post caps: Small triangular/pyramid shape on top.
 - Plinths: Grey rectangular blocks, each 150mm tall. Stack visually under the panel. Slightly different shade to fence sheets.
@@ -458,25 +449,47 @@ For post at position i (between panel i-1 and panel i):
 
 **Available post sizes:** 2400, 2700, 3000mm (from Metroll stock range)
 
-**Post height lookup table (1800mm fence height):**
+**Post height lookup table (1200mm sheet height):**
 
-| Max Plinths at Panel | Retaining (mm) | Required Height | Post Size |
-|---|---|---|---|
-| 0 | 0 | 2400 | 2400mm |
-| 1 | 150 | 2550 | 2700mm |
-| 2 | 300 | 2700 | 2700mm |
-| 3 | 450 | 2850 | 3000mm |
-| 4 | 600 | 3000 | 3000mm |
-| 5 | 750 | 3150 | 3000mm + patio tube |
+| Plinths | Retaining | Total Fence | Required (+ 600mm) | Post Size |
+|---|---|---|---|---|
+| 0 | 0 | 1200 | 1800 | 2400mm |
+| 1 | 150 | 1350 | 1950 | 2400mm |
+| 2 | 300 | 1500 | 2100 | 2400mm |
+| 3 | 450 | 1650 | 2250 | 2400mm |
+| 4 | 600 | 1800 | 2400 | 2400mm |
+| 5 | 750 | 1950 | 2550 | 2700mm |
 
-**Post height lookup table (2100mm fence height):**
+**Post height lookup table (1500mm sheet height):**
 
-| Max Plinths at Panel | Retaining (mm) | Required Height | Post Size |
-|---|---|---|---|
-| 0 | 0 | 2700 | 2700mm |
-| 1 | 150 | 2850 | 3000mm |
-| 2 | 300 | 3000 | 3000mm |
-| 3+ | 450+ | 3150+ | 3000mm + patio tube |
+| Plinths | Retaining | Total Fence | Required (+ 600mm) | Post Size |
+|---|---|---|---|---|
+| 0 | 0 | 1500 | 2100 | 2400mm |
+| 1 | 150 | 1650 | 2250 | 2400mm |
+| 2 | 300 | 1800 | 2400 | 2400mm |
+| 3 | 450 | 1950 | 2550 | 2700mm |
+| 4 | 600 | 2100 | 2700 | 2700mm |
+| 5 | 750 | 2250 | 2850 | 3000mm |
+
+**Post height lookup table (1800mm sheet height):**
+
+| Plinths | Retaining | Total Fence | Required (+ 600mm) | Post Size |
+|---|---|---|---|---|
+| 0 | 0 | 1800 | 2400 | 2400mm |
+| 1 | 150 | 1950 | 2550 | 2700mm |
+| 2 | 300 | 2100 | 2700 | 2700mm |
+| 3 | 450 | 2250 | 2850 | 3000mm |
+| 4 | 600 | 2400 | 3000 | 3000mm |
+| 5 | 750 | 2550 | 3150 | 3000mm + patio tube |
+
+**Post height lookup table (2100mm sheet height):**
+
+| Plinths | Retaining | Total Fence | Required (+ 600mm) | Post Size |
+|---|---|---|---|---|
+| 0 | 0 | 2100 | 2700 | 2700mm |
+| 1 | 150 | 2250 | 2850 | 3000mm |
+| 2 | 300 | 2400 | 3000 | 3000mm |
+| 3+ | 450+ | 2550+ | 3150+ | 3000mm + patio tube |
 
 ### 6.4 Patio Tube Calculation
 
@@ -533,7 +546,7 @@ Three.js loaded from CDN. Lazy initialization — only load/render when "3D View
 ### 7.3 Fence Geometry
 
 Each panel consists of:
-- **Fence sheet:** A box geometry with corrugated surface matching the selected profile (see Section 4B for exact geometry per profile). Use a displacement map or custom BufferGeometry to create the rib pattern on the face. Trimclad = trapezoidal ribs, Harmony = narrower symmetric ribs, Spandek = square wave, Corrugated = sine wave. If custom geometry is too complex, use a normal map texture to simulate the ribs.
+- **Fence sheet:** A box geometry with corrugated surface matching the selected profile (see Section 4B for exact geometry per profile). Use a displacement map or custom BufferGeometry to create the rib pattern on the face. Trimclad = trapezoidal ribs, Harmony = narrower symmetric ribs, Corrugated = sine wave. If custom geometry is too complex, use a normal map texture to simulate the ribs.
 - **Posts:** Box geometry, darker colour, positioned between panels. Height extends from below ground to top.
 - **Top rail / capping:** Thin box along the top of each panel.
 - **Post caps:** Small pyramid (ConeGeometry) on top of each post.
