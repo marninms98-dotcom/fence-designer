@@ -88,7 +88,10 @@
         .main { display: flex; height: calc(100vh - 64px); }
 
         /* ===== LEFT PANEL ===== */
-        .panel-left { width: 420px; background: white; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .panel-left { width: 340px; background: white; border-right: 1px solid var(--border); display: flex; flex-direction: column; transition: width 0.25s ease; flex-shrink: 0; }
+        .panel-left.collapsed { width: 0; overflow: hidden; border-right: none; }
+        .collapse-btn { position: absolute; top: 8px; left: 8px; z-index: 50; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: white; color: var(--text-secondary); font-size: 16px; cursor: pointer; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+        .collapse-btn:hover { background: var(--surface-2); }
 
         .runs-header { padding: 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
         .runs-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -195,6 +198,8 @@
         .legend { position: absolute; bottom: 12px; left: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .hint-3d { position: absolute; bottom: 12px; right: 12px; background: rgba(255,255,255,0.95); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: none; }
         .viz-area.mode-3d .hint-3d { display: block; }
+        .tooltip-3d { position: absolute; display: none; background: rgba(15,23,42,0.92); color: white; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; pointer-events: none; z-index: 10; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.3); backdrop-filter: blur(4px); }
+        .tooltip-3d .tt-sub { font-weight: 400; opacity: 0.75; font-size: 11px; }
 
         /* ===== MODAL ===== */
         .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; }
@@ -344,7 +349,7 @@
                         <th style="width:36px">P#</th>
                         <th style="width:55px">Height</th>
                         <th style="width:55px">Ret</th>
-                        <th style="width:40px"></th>
+                        <th style="width:50px">Grnd</th>
                         <th style="width:28px">Stp</th>
                         <th style="width:45px">Tot</th>
                         <th style="width:45px">Post</th>
@@ -397,12 +402,14 @@
         </div>
 
         <div class="viz-area" id="vizArea">
+            <button class="collapse-btn" id="collapseBtn" onclick="togglePanel()" title="Toggle panel">◀</button>
             <div class="canvas-box">
                 <canvas id="profileCanvas"></canvas>
                 <div id="threeBox"></div>
             </div>
+            <div class="tooltip-3d" id="tooltip3d"></div>
             <div class="legend">Click panel # to select · <span style="color:#d97706">†</span> = patio tube (3+ plinths)</div>
-            <div class="hint-3d">🖱 Drag to rotate · Scroll to zoom</div>
+            <div class="hint-3d">Drag to rotate · Scroll to zoom · Hover for details</div>
         </div>
     </div>
 </div>
@@ -461,6 +468,9 @@ function parsePricePerM() {
 let job = { ref: '', client: '', address: '', supplier: 'RNR', colour: 'Shale Grey', date: new Date().toISOString().split('T')[0], runs: [], gates: [] };
 let curRun = 0, selPanel = -1, curTab = 'material', dirty = false;
 let scene, camera, renderer, threeReady = false, resizeObserver = null;
+let hoveredObj = null;
+const raycaster = typeof THREE !== 'undefined' ? new THREE.Raycaster() : null;
+const mouseVec = typeof THREE !== 'undefined' ? new THREE.Vector2() : null;
 
 // ========== INIT ==========
 function init() {
@@ -491,6 +501,14 @@ function newJob() {
     createDefault(); loadUI(); curRun = 0; selPanel = -1; renderAll(); markSaved();
 }
 
+function togglePanel() {
+    const panel = document.querySelector('.panel-left');
+    const btn = document.getElementById('collapseBtn');
+    panel.classList.toggle('collapsed');
+    btn.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+    setTimeout(() => { renderProfile(); if (threeReady) { const box = document.getElementById('threeBox'); const r = box.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); } }, 300);
+}
+
 // ========== SAVE ==========
 function saveJob() {
     job.ref = document.getElementById('jobRef').value;
@@ -512,7 +530,7 @@ function addRun(name, len = 19) {
     const pw = SUPPLIERS[job.supplier].width;
     const cnt = Math.ceil(len * 1000 / pw);
     const panels = [];
-    for (let i = 0; i < cnt; i++) panels.push({ height: 1800, retaining: 0 });
+    for (let i = 0; i < cnt; i++) panels.push({ height: 1800, retaining: 0, groundOffset: 0 });
     job.runs.push({ name: defName, length: cnt * pw, defaultHeight: 1800, extension: 0, panels });
     curRun = job.runs.length - 1;
     selPanel = -1;
@@ -541,7 +559,7 @@ function updateRunLength() {
     const pw = SUPPLIERS[job.supplier].width;
     const cnt = Math.ceil(mm / pw);
     const run = job.runs[curRun];
-    while (run.panels.length < cnt) run.panels.push({ height: run.defaultHeight, retaining: 0 });
+    while (run.panels.length < cnt) run.panels.push({ height: run.defaultHeight, retaining: 0, groundOffset: 0 });
     while (run.panels.length > cnt) run.panels.pop();
     run.length = cnt * pw;
     document.getElementById('runLength').value = unit === 'm' ? (run.length/1000).toFixed(2) : run.length;
@@ -586,6 +604,7 @@ function updatePanel(i, field, val) {
     const p = job.runs[curRun].panels[i];
     if (field === 'height') p.height = parseInt(val);
     if (field === 'retaining') p.retaining = Math.max(0, Math.min(750, parseInt(val) || 0));
+    if (field === 'groundOffset') p.groundOffset = Math.max(-300, Math.min(300, parseInt(val) || 0));
     renderAll(); autoSave();
 }
 
@@ -594,7 +613,7 @@ function selectPanel(i) { selPanel = i; renderTable(); renderProfile(); }
 function addPanel() {
     const run = job.runs[curRun];
     const last = run.panels[run.panels.length - 1];
-    run.panels.push({ height: last?.height || run.defaultHeight, retaining: last?.retaining || 0 });
+    run.panels.push({ height: last?.height || run.defaultHeight, retaining: last?.retaining || 0, groundOffset: last?.groundOffset || 0 });
     run.length = run.panels.length * SUPPLIERS[job.supplier].width;
     renderAll(); autoSave();
 }
@@ -732,7 +751,13 @@ function renderTable() {
                 <option value="600" ${p.retaining===600?'selected':''}>600</option>
                 <option value="750" ${p.retaining===750?'selected':''}>750</option>
             </select></td>
-            <td><div class="ret-visual">${blocks}</div></td>
+            <td><select onchange="updatePanel(${i},'groundOffset',this.value)" style="font-size:11px">
+                <option value="-300" ${p.groundOffset===-300?'selected':''}>-300</option>
+                <option value="-150" ${p.groundOffset===-150?'selected':''}>-150</option>
+                <option value="0" ${(p.groundOffset||0)===0?'selected':''}>0</option>
+                <option value="150" ${p.groundOffset===150?'selected':''}>+150</option>
+                <option value="300" ${p.groundOffset===300?'selected':''}>+300</option>
+            </select></td>
             <td><span class="step-icon ${step}">${step==='down'?'↓':step==='up'?'↑':'—'}</span></td>
             <td><span class="total-ht">${total}</span></td>
             <td><span class="post-ht ${patio?'patio':''}">${postH}</span></td>
@@ -830,14 +855,16 @@ function renderProfile() {
     ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
 
     const groundY = h * 0.55;
-    ctx.fillStyle = '#4ade80'; ctx.fillRect(0, groundY, w, 30);
 
-    const soil = ctx.createLinearGradient(0, groundY + 30, 0, h);
-    soil.addColorStop(0, '#a3724a'); soil.addColorStop(0.4, '#8b5d3a'); soil.addColorStop(1, '#6b4530');
-    ctx.fillStyle = soil; ctx.fillRect(0, groundY + 30, w, h - groundY - 30);
+    // Draw base soil (fills everything below ground)
+    const soil = ctx.createLinearGradient(0, groundY, 0, h);
+    soil.addColorStop(0, '#a3724a'); soil.addColorStop(0.3, '#8b5d3a'); soil.addColorStop(1, '#6b4530');
+    ctx.fillStyle = soil; ctx.fillRect(0, groundY, w, h - groundY);
 
-    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(w, groundY); ctx.stroke();
+    // High-side grass strip
+    ctx.fillStyle = '#4ade80'; ctx.fillRect(0, groundY - 4, w, 18);
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, groundY - 4); ctx.lineTo(w, groundY - 4); ctx.stroke();
 
     const pad = 60, gap = 50;
     let totalP = job.runs.reduce((s, r) => s + r.panels.length, 0);
@@ -863,8 +890,9 @@ function renderProfile() {
         run.panels.forEach((p, pi) => {
             const sel = ri === curRun && pi === selPanel;
             const px = curX + pi * panelW;
+            const gOff = (p.groundOffset || 0) * hScale;
             const fenceH = p.height * hScale;
-            const panelTop = groundY - fenceH;
+            const panelTop = groundY - fenceH - gOff;
 
             const plinths = getPlinths(p);
             const singlePlinthH = 150 * hScale;
@@ -899,6 +927,27 @@ function renderProfile() {
             ctx.fillText(pi + 1, numX, numY + 4);
 
             if (sel) { ctx.strokeStyle = '#059669'; ctx.lineWidth = 3; ctx.strokeRect(px + 1, panelTop - 2, panelW - 2, fenceH + 4); }
+        });
+
+        // === TERRAIN STEPPING (low-side ground) ===
+        run.panels.forEach((p, pi) => {
+            if (p.retaining > 0) {
+                const px = curX + pi * panelW;
+                const retDrop = p.retaining * hScale;
+                const lowGroundY = groundY + 14 + retDrop;
+                // Soil exposed section
+                const soilGrad = ctx.createLinearGradient(0, groundY + 14, 0, lowGroundY + 12);
+                soilGrad.addColorStop(0, '#a3724a'); soilGrad.addColorStop(1, '#8b5d3a');
+                ctx.fillStyle = soilGrad;
+                ctx.fillRect(px + 2, groundY + 14, panelW - 4, retDrop);
+                // Low-side grass
+                ctx.fillStyle = '#66bb6a';
+                ctx.fillRect(px + 2, lowGroundY, panelW - 4, 10);
+                // Step edge line
+                ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(px + 2, groundY + 14); ctx.lineTo(px + 2, lowGroundY + 10); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(px + panelW - 2, groundY + 14); ctx.lineTo(px + panelW - 2, lowGroundY + 10); ctx.stroke();
+            }
         });
 
         const last = run.panels[run.panels.length - 1];
@@ -953,23 +1002,44 @@ function init3D() {
     if (rect.width === 0 || rect.height === 0) { setTimeout(init3D, 100); return; }
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 100);
+    scene.background = new THREE.Color(0xd4e8f0);
+    scene.fog = new THREE.Fog(0xd4e8f0, 8, 25);
+    camera = new THREE.PerspectiveCamera(35, rect.width / rect.height, 0.1, 100);
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(rect.width, rect.height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     box.appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(5, 10, 7); sun.castShadow = true; scene.add(sun);
+    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x556b2f, 0.5));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const sun = new THREE.DirectionalLight(0xfff5e6, 0.9);
+    sun.position.set(4, 8, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -8; sun.shadow.camera.right = 8;
+    sun.shadow.camera.top = 8; sun.shadow.camera.bottom = -8;
+    sun.shadow.bias = -0.001;
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xc4d8ff, 0.3);
+    fill.position.set(-3, 4, -2); scene.add(fill);
 
-    const groundGeo = new THREE.PlaneGeometry(15, 15);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x7cb342, roughness: 0.9 });
+    const groundGeo = new THREE.PlaneGeometry(20, 20);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x6b8c42, roughness: 0.95 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
+    // Concrete strip under fence
+    const conGeo = new THREE.PlaneGeometry(20, 0.25);
+    const conMat = new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.85 });
+    const concrete = new THREE.Mesh(conGeo, conMat);
+    concrete.rotation.x = -Math.PI / 2; concrete.position.y = 0.002; concrete.receiveShadow = true; scene.add(concrete);
+
     setupControls();
+    setup3DHover();
     threeReady = true;
     render3D();
     animate3D();
@@ -1005,102 +1075,216 @@ function animate3D() { requestAnimationFrame(animate3D); if (renderer) renderer.
 
 function render3D() {
     if (!scene) return;
-
     const rem = [];
     scene.traverse(o => { if (o.userData.fence) rem.push(o); });
     const disposedMats = new Set();
-    rem.forEach(o => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material && !disposedMats.has(o.material)) { o.material.dispose(); disposedMats.add(o.material); }
-        scene.remove(o);
-    });
+    rem.forEach(o => { if (o.geometry) o.geometry.dispose(); if (o.material && !disposedMats.has(o.material)) { o.material.dispose(); disposedMats.add(o.material); } scene.remove(o); });
+    hoveredObj = null;
 
-    const col = new THREE.Color(COLOURS[job.colour]);
+    const baseCol = new THREE.Color(COLOURS[job.colour]);
     const pwM = SUPPLIERS[job.supplier].width / 1000;
     const sc = SCALE_3D;
+    const postSize = 0.038;
+    const railH = 0.02;
+    const railD = 0.03;
+    const corrDepth = 0.009;
 
     let offX = 0, totalW = 0, maxH = 0;
     job.runs.forEach(run => { totalW += run.panels.length * pwM * sc; run.panels.forEach(p => { const h = (p.height / 1000) * sc; if (h > maxH) maxH = h; }); });
-    totalW += (job.runs.length - 1) * 0.12;
+    totalW += (job.runs.length - 1) * 0.15;
 
-    job.runs.forEach(run => {
+    job.runs.forEach((run, ri) => {
         run.panels.forEach((p, pi) => {
             const fH = (p.height / 1000) * sc;
             const pW = pwM * sc;
             const retH = (p.retaining / 1000) * sc;
+            const gOff = ((p.groundOffset || 0) / 1000) * sc;
+            const colName = job.colour;
 
-            const grp = new THREE.Group();
-            const ribs = 12;
-            const ribW = pW / ribs;
-            for (let r = 0; r < ribs; r++) {
-                const geo = new THREE.BoxGeometry(ribW * 0.9, fH, 0.014);
-                const shade = r % 2 === 0 ? 1 : 0.75;
-                const mat = new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(shade), metalness: 0.4, roughness: 0.6 });
+            // === CORRUGATED PANEL ===
+            const panelGrp = new THREE.Group();
+            panelGrp.userData = { fence: true, componentType: 'panel', componentInfo: `Panel ${pi+1}: ${p.height}mm ${colName}` };
+            const strips = Math.max(16, Math.round(pW / 0.06));
+            const stripW = pW / strips;
+            for (let s = 0; s < strips; s++) {
+                const raised = s % 2 === 0;
+                const z = raised ? corrDepth : -corrDepth;
+                const shade = raised ? 1.0 : 0.78;
+                const geo = new THREE.BoxGeometry(stripW * 0.92, fH - 0.005, 0.002);
+                const mat = new THREE.MeshStandardMaterial({ color: baseCol.clone().multiplyScalar(shade), metalness: 0.55, roughness: 0.38, emissive: new THREE.Color(0x000000) });
                 const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(ribW * (r + 0.5) - pW / 2, 0, r % 2 === 0 ? 0.007 : -0.007);
-                mesh.castShadow = true;
-                grp.add(mesh);
+                mesh.position.set(stripW * (s + 0.5) - pW / 2, 0, z);
+                mesh.castShadow = true; mesh.receiveShadow = true;
+                panelGrp.add(mesh);
             }
-            grp.position.set(offX + pW / 2, fH / 2, 0);
-            grp.userData.fence = true;
-            scene.add(grp);
+            // Connecting strips between corrugations
+            for (let s = 0; s < strips - 1; s++) {
+                const geo = new THREE.BoxGeometry(0.002, fH - 0.005, corrDepth * 2);
+                const mat = new THREE.MeshStandardMaterial({ color: baseCol.clone().multiplyScalar(0.85), metalness: 0.55, roughness: 0.4, emissive: new THREE.Color(0x000000) });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(stripW * (s + 1) - pW / 2, 0, 0);
+                panelGrp.add(mesh);
+            }
+            panelGrp.position.set(offX + pW / 2, fH / 2 + gOff, 0);
+            scene.add(panelGrp);
 
+            // === TOP RAIL (C-channel) ===
+            const topRailGrp = new THREE.Group();
+            topRailGrp.userData = { fence: true, componentType: 'rail', componentInfo: `Top Rail: ${run.name} P${pi+1}` };
+            const trMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.65, roughness: 0.3, emissive: new THREE.Color(0x000000) });
+            const trBack = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, railH, 0.002), trMat);
+            const trTop = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, 0.002, railD), trMat.clone());
+            trTop.position.set(0, railH / 2, -railD / 2);
+            const trBot = new THREE.Mesh(new THREE.BoxGeometry(pW + postSize, 0.002, railD * 0.6), trMat.clone());
+            trBot.position.set(0, -railH / 2, -railD * 0.3);
+            topRailGrp.add(trBack, trTop, trBot);
+            topRailGrp.position.set(offX + pW / 2, fH + railH / 2 + 0.002 + gOff, railD / 2);
+            topRailGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; } });
+            scene.add(topRailGrp);
+
+            // === BOTTOM RAIL ===
+            const botRailGrp = topRailGrp.clone(true);
+            botRailGrp.userData = { fence: true, componentType: 'rail', componentInfo: `Bottom Rail: ${run.name} P${pi+1}` };
+            botRailGrp.position.set(offX + pW / 2, -railH / 2 - 0.002 + gOff, railD / 2);
+            scene.add(botRailGrp);
+
+            // === PLINTHS (retaining wall) ===
             const plinths = getPlinths(p);
-            const singleH = 0.15 * sc;
-            for (let pl = 0; pl < plinths; pl++) {
-                const geo = new THREE.BoxGeometry(pW * 0.95, singleH * 0.9, 0.028);
-                const mat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.9 });
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(offX + pW / 2, -singleH * (pl + 0.5), 0);
-                mesh.userData.fence = true;
-                scene.add(mesh);
+            if (plinths > 0) {
+                const plinthGrp = new THREE.Group();
+                plinthGrp.userData = { fence: true, componentType: 'plinth', componentInfo: `Plinth: ${p.retaining}mm (${plinths} sleepers)` };
+                const singleH = 0.15 * sc;
+                for (let pl = 0; pl < plinths; pl++) {
+                    const geo = new THREE.BoxGeometry(pW * 0.96, singleH * 0.88, 0.025);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x8b8680, roughness: 0.9, metalness: 0.1, emissive: new THREE.Color(0x000000) });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(0, -singleH * (pl + 0.5), 0);
+                    mesh.castShadow = true; mesh.receiveShadow = true;
+                    plinthGrp.add(mesh);
+                    // Mortar line between sleepers
+                    if (pl < plinths - 1) {
+                        const line = new THREE.Mesh(new THREE.BoxGeometry(pW * 0.97, 0.003, 0.026), new THREE.MeshStandardMaterial({ color: 0xa09a94, roughness: 1.0 }));
+                        line.position.set(0, -singleH * (pl + 1), 0);
+                        plinthGrp.add(line);
+                    }
+                }
+                plinthGrp.position.set(offX + pW / 2, gOff, 0);
+                scene.add(plinthGrp);
             }
 
-            const postH = fH + retH + 0.1;
-            const postGeo = new THREE.BoxGeometry(0.045, postH, 0.045);
-            const postMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.5 });
-            const post = new THREE.Mesh(postGeo, postMat);
-            post.position.set(offX, postH / 2 - retH, 0);
-            post.castShadow = true; post.userData.fence = true;
-            scene.add(post);
+            // === POST (SHS 65x65mm) ===
+            const postGrp = new THREE.Group();
+            const postHt = fH + retH + 0.08;
+            postGrp.userData = { fence: true, componentType: 'post', componentInfo: `Post ${pi+1}: ${getPostHeight(p, run, pi)}mm SHS` };
+            const pMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.7, roughness: 0.25, emissive: new THREE.Color(0x000000) });
+            // Front face
+            const pFront = new THREE.Mesh(new THREE.BoxGeometry(postSize, postHt, 0.003), pMat);
+            pFront.position.z = postSize / 2;
+            // Back face
+            const pBack = new THREE.Mesh(new THREE.BoxGeometry(postSize, postHt, 0.003), pMat.clone());
+            pBack.position.z = -postSize / 2;
+            // Left face
+            const pLeft = new THREE.Mesh(new THREE.BoxGeometry(0.003, postHt, postSize), pMat.clone());
+            pLeft.position.x = -postSize / 2;
+            // Right face
+            const pRight = new THREE.Mesh(new THREE.BoxGeometry(0.003, postHt, postSize), pMat.clone());
+            pRight.position.x = postSize / 2;
+            postGrp.add(pFront, pBack, pLeft, pRight);
+            postGrp.position.set(offX, postHt / 2 - retH + gOff, 0);
+            postGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+            scene.add(postGrp);
 
-            const capGeo = new THREE.ConeGeometry(0.035, 0.055, 4);
-            const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0x374151 }));
-            cap.position.set(offX, fH + 0.11, 0);
-            cap.rotation.y = Math.PI / 4;
-            cap.userData.fence = true;
-            scene.add(cap);
+            // === POST CAP ===
+            const capGrp = new THREE.Group();
+            capGrp.userData = { fence: true, componentType: 'cap', componentInfo: 'Post Cap' };
+            const capBase = new THREE.Mesh(new THREE.BoxGeometry(postSize + 0.012, 0.006, postSize + 0.012), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
+            const capTop = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.04, 4), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
+            capTop.position.y = 0.023; capTop.rotation.y = Math.PI / 4;
+            capGrp.add(capBase, capTop);
+            capGrp.position.set(offX, fH + 0.025 + gOff, 0);
+            scene.add(capGrp);
 
             offX += pW;
         });
 
+        // === FINAL POST (end of run) ===
         const last = run.panels[run.panels.length - 1];
         const lastFH = (last.height / 1000) * sc;
         const lastRH = (last.retaining / 1000) * sc;
-        const finalPostH = lastFH + lastRH + 0.1;
+        const finalPostHt = lastFH + lastRH + 0.08;
+        const fpGrp = new THREE.Group();
+        fpGrp.userData = { fence: true, componentType: 'post', componentInfo: `Post ${run.panels.length + 1}: ${getPostHeight(last, run, run.panels.length - 1)}mm SHS` };
+        const fpMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.7, roughness: 0.25, emissive: new THREE.Color(0x000000) });
+        [{ x: 0, z: postSize/2 }, { x: 0, z: -postSize/2 }].forEach(p => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(postSize, finalPostHt, 0.003), fpMat.clone());
+            m.position.set(p.x, 0, p.z); fpGrp.add(m);
+        });
+        [{ x: -postSize/2, z: 0 }, { x: postSize/2, z: 0 }].forEach(p => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(0.003, finalPostHt, postSize), fpMat.clone());
+            m.position.set(p.x, 0, p.z); fpGrp.add(m);
+        });
+        fpGrp.position.set(offX, finalPostHt / 2 - lastRH, 0);
+        fpGrp.traverse(c => { if (c.isMesh) { c.castShadow = true; } });
+        scene.add(fpGrp);
 
-        const postGeo = new THREE.BoxGeometry(0.045, finalPostH, 0.045);
-        const postMat = new THREE.MeshStandardMaterial({ color: 0x52525b, metalness: 0.5 });
-        const post = new THREE.Mesh(postGeo, postMat);
-        post.position.set(offX, finalPostH / 2 - lastRH, 0);
-        post.castShadow = true; post.userData.fence = true;
-        scene.add(post);
+        const fcGrp = new THREE.Group();
+        fcGrp.userData = { fence: true, componentType: 'cap', componentInfo: 'Post Cap' };
+        const fcBase = new THREE.Mesh(new THREE.BoxGeometry(postSize + 0.012, 0.006, postSize + 0.012), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
+        const fcTop = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.04, 4), new THREE.MeshStandardMaterial({ color: 0x2d2d2d, metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(0x000000) }));
+        fcTop.position.y = 0.023; fcTop.rotation.y = Math.PI / 4;
+        fcGrp.add(fcBase, fcTop);
+        fcGrp.position.set(offX, lastFH + 0.025, 0);
+        scene.add(fcGrp);
 
-        const capGeo = new THREE.ConeGeometry(0.035, 0.055, 4);
-        const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0x374151 }));
-        cap.position.set(offX, lastFH + 0.11, 0);
-        cap.rotation.y = Math.PI / 4;
-        cap.userData.fence = true;
-        scene.add(cap);
-
-        offX += 0.12;
+        offX += 0.15;
     });
 
-    const centerX = (offX - 0.12) / 2;
-    camTarget.set(centerX, maxH * 0.5, 0);
-    const dist = Math.max(1.2, totalW * 0.6);
-    camera.position.set(centerX + dist * 0.4, maxH * 0.7 + 0.4, dist * 0.85);
+    const centerX = (offX - 0.15) / 2;
+    camTarget.set(centerX, maxH * 0.45, 0);
+    const dist = Math.max(1.5, totalW * 0.55);
+    camera.position.set(centerX + dist * 0.35, maxH * 0.6 + 0.5, dist * 0.9);
     camera.lookAt(camTarget);
+}
+
+function setup3DHover() {
+    const el = renderer.domElement;
+    el.addEventListener('mousemove', on3DMouseMove);
+    el.addEventListener('mouseleave', () => { resetHover(); document.getElementById('tooltip3d').style.display = 'none'; });
+}
+
+function on3DMouseMove(event) {
+    if (isDragging) { document.getElementById('tooltip3d').style.display = 'none'; return; }
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouseVec, camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    resetHover();
+    const tooltip = document.getElementById('tooltip3d');
+    for (const hit of intersects) {
+        let obj = hit.object;
+        while (obj && !obj.userData.componentType) obj = obj.parent;
+        if (obj && obj.userData.componentType) {
+            hoveredObj = obj;
+            obj.traverse(c => { if (c.isMesh && c.material && c.material.emissive) c.material.emissive.setHex(0x333333); });
+            tooltip.style.display = 'block';
+            const vizRect = document.getElementById('vizArea').getBoundingClientRect();
+            tooltip.style.left = (event.clientX - vizRect.left + 16) + 'px';
+            tooltip.style.top = (event.clientY - vizRect.top - 12) + 'px';
+            tooltip.innerHTML = `<b>${obj.userData.componentType.toUpperCase()}</b><br><span class="tt-sub">${obj.userData.componentInfo}</span>`;
+            renderer.domElement.style.cursor = 'pointer';
+            return;
+        }
+    }
+    tooltip.style.display = 'none';
+    renderer.domElement.style.cursor = 'grab';
+}
+
+function resetHover() {
+    if (hoveredObj) {
+        hoveredObj.traverse(c => { if (c.isMesh && c.material && c.material.emissive) c.material.emissive.setHex(0x000000); });
+        hoveredObj = null;
+    }
 }
 
 function showView(v) {
