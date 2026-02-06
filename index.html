@@ -515,6 +515,27 @@
       display: block;
     }
 
+    .pv-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(41,60,70,0.92);
+      color: #fff;
+      font-size: 11px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      z-index: 10;
+      transition: opacity 0.1s;
+    }
+
+    .panel-table tbody tr.panel-row-highlight {
+      background: rgba(241,90,41,0.12) !important;
+      outline: 2px solid #F15A29;
+      outline-offset: -2px;
+    }
+
     .stats-bar {
       background: #FFFFFF;
       border-top: 1px solid #4C6A70;
@@ -673,6 +694,7 @@
       </div>
       <div class="profile-view-container" id="profileViewContainer">
         <canvas id="profileCanvas"></canvas>
+        <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
       </div>
       <div class="visualiser-placeholder" id="threeDPlaceholder" style="display:none;">
         3D View — coming soon
@@ -894,6 +916,7 @@
         });
         document.getElementById('colour').addEventListener('change', (e) => {
           this.job.colour = e.target.value;
+          this.renderProfileView();
           this.save();
         });
         document.getElementById('pricePerMetre').addEventListener('input', (e) => {
@@ -1292,7 +1315,7 @@
           // Step is user input stored on the panel, not auto-calculated
           const stepValue = panel.step || 'level';
 
-          return `<tr>
+          return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
             <td class="col-ht">
               <select onchange="app.updatePanel('${run.id}', ${idx}, 'height', this.value)">
@@ -1461,6 +1484,53 @@
       profilePan: { x: 0, y: 0 },
       profileZoom: 1,
       _profileDrag: null,
+      _profileHitRegions: [],
+      _profileHover: null,
+      highlightedPanelIdx: null,
+
+      // Select a panel (from table click or canvas click)
+      selectPanel(idx) {
+        this.highlightedPanelIdx = (this.highlightedPanelIdx === idx) ? null : idx;
+        this.renderProfileView();
+        // Update table row highlights without full re-render
+        const rows = document.querySelectorAll('.panel-table tbody tr[data-panel-idx]');
+        rows.forEach(row => {
+          const ri = parseInt(row.getAttribute('data-panel-idx'));
+          row.classList.toggle('panel-row-highlight', ri === this.highlightedPanelIdx);
+        });
+        // Scroll the selected row into view
+        if (this.highlightedPanelIdx !== null) {
+          const sel = document.querySelector(`.panel-table tbody tr[data-panel-idx="${this.highlightedPanelIdx}"]`);
+          if (sel) sel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      },
+
+      // Convert screen mouse coords to canvas world coords (accounting for pan/zoom)
+      _screenToWorld(clientX, clientY) {
+        const container = document.getElementById('profileViewContainer');
+        if (!container) return { x: 0, y: 0 };
+        const rect = container.getBoundingClientRect();
+        const sx = clientX - rect.left;
+        const sy = clientY - rect.top;
+        const wx = (sx - this.profilePan.x) / this.profileZoom;
+        const wy = (sy - this.profilePan.y) / this.profileZoom;
+        return { x: wx, y: wy };
+      },
+
+      // Hit test: find which region the world coord falls in
+      _hitTest(wx, wy) {
+        // Test in reverse order so topmost drawn items match first
+        for (let i = this._profileHitRegions.length - 1; i >= 0; i--) {
+          const r = this._profileHitRegions[i];
+          if (r.shape === 'rect') {
+            if (wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return r;
+          } else if (r.shape === 'circle') {
+            const dx = wx - r.cx, dy = wy - r.cy;
+            if (dx * dx + dy * dy <= r.r * r.r) return r;
+          }
+        }
+        return null;
+      },
 
       initProfileViewControls() {
         const container = document.getElementById('profileViewContainer');
@@ -1468,15 +1538,51 @@
         container._pvBound = true;
 
         container.addEventListener('mousedown', (e) => {
-          this._profileDrag = { startX: e.clientX, startY: e.clientY, panX: this.profilePan.x, panY: this.profilePan.y };
+          this._profileDrag = { startX: e.clientX, startY: e.clientY, panX: this.profilePan.x, panY: this.profilePan.y, moved: false };
         });
         window.addEventListener('mousemove', (e) => {
-          if (!this._profileDrag) return;
-          this.profilePan.x = this._profileDrag.panX + (e.clientX - this._profileDrag.startX);
-          this.profilePan.y = this._profileDrag.panY + (e.clientY - this._profileDrag.startY);
-          this.renderProfileView();
+          if (this._profileDrag) {
+            const dx = e.clientX - this._profileDrag.startX;
+            const dy = e.clientY - this._profileDrag.startY;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this._profileDrag.moved = true;
+            this.profilePan.x = this._profileDrag.panX + dx;
+            this.profilePan.y = this._profileDrag.panY + dy;
+            this.renderProfileView();
+            return;
+          }
+          // Hover hit-testing
+          const w = this._screenToWorld(e.clientX, e.clientY);
+          const hit = this._hitTest(w.x, w.y);
+          const tooltip = document.getElementById('pvTooltip');
+          if (hit) {
+            this._profileHover = hit;
+            if (tooltip) {
+              const rect = container.getBoundingClientRect();
+              tooltip.textContent = hit.label;
+              tooltip.style.display = 'block';
+              tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+              tooltip.style.top = (e.clientY - rect.top - 28) + 'px';
+            }
+            container.style.cursor = 'pointer';
+            this.renderProfileView();
+          } else if (this._profileHover) {
+            this._profileHover = null;
+            if (tooltip) tooltip.style.display = 'none';
+            container.style.cursor = 'grab';
+            this.renderProfileView();
+          }
         });
-        window.addEventListener('mouseup', () => { this._profileDrag = null; });
+        window.addEventListener('mouseup', (e) => {
+          if (this._profileDrag && !this._profileDrag.moved) {
+            // Click — check for panel number circle hit
+            const w = this._screenToWorld(e.clientX, e.clientY);
+            const hit = this._hitTest(w.x, w.y);
+            if (hit && hit.type === 'circle') {
+              this.selectPanel(hit.panelIdx);
+            }
+          }
+          this._profileDrag = null;
+        });
 
         container.addEventListener('wheel', (e) => {
           e.preventDefault();
@@ -1484,7 +1590,6 @@
           const rect = container.getBoundingClientRect();
           const mx = e.clientX - rect.left;
           const my = e.clientY - rect.top;
-          // Zoom towards cursor
           this.profilePan.x = mx - (mx - this.profilePan.x) * delta;
           this.profilePan.y = my - (my - this.profilePan.y) * delta;
           this.profileZoom *= delta;
@@ -1513,8 +1618,12 @@
         ctx.fillStyle = '#f0f4f8';
         ctx.fillRect(0, 0, cw, ch);
 
+        // Reset hit regions
+        const hitRegions = [];
+
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run || run.panels.length === 0) {
+          this._profileHitRegions = hitRegions;
           ctx.fillStyle = '#4C6A70';
           ctx.font = '18px Helvetica Neue, Helvetica, Arial, sans-serif';
           ctx.textAlign = 'center';
@@ -1549,16 +1658,14 @@
         const postCount = panelCount + 1;
         const panelWidthMm = this.getPanelWidthMm();
         const sheetCoverMm = 762;
-        const sheetsPerPanel = Math.floor(panelWidthMm / sheetCoverMm); // typically 3
+        const sheetsPerPanel = Math.floor(panelWidthMm / sheetCoverMm);
         const postWidthMm = 90;
         const embedDepthMm = 600;
         const capHeightMm = 50;
         const railHeightMm = 25;
         const plinthHeightMm = 150;
 
-        // Max heights across all panels for scaling
         let maxTotalH = 0;
-        let maxStepOffset = 0;
         run.panels.forEach(p => {
           const th = p.height + p.retaining;
           if (th > maxTotalH) maxTotalH = th;
@@ -1576,10 +1683,8 @@
         for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGndOffset;
         const maxGndOffset = Math.max(...groundOffsets);
 
-        // Posts data
         const posts = this.getRunPosts(run);
 
-        // Find tallest post above ground
         let maxPostAbove = 0;
         posts.forEach(p => {
           const above = p.postSize - embedDepthMm;
@@ -1587,14 +1692,11 @@
         });
 
         // ── Scaling ──
-        // Total fence width in mm
         const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
-        // Total visual height: cap + tallest post above ground + max ground step + max retaining below ground + embed
         const totalAboveMm = capHeightMm + maxPostAbove;
-        const totalBelowMm = maxGndOffset + embedDepthMm + 200; // 200mm extra below
-        const totalVisualHeightMm = totalAboveMm + totalBelowMm + 100; // 100mm label space
+        const totalBelowMm = maxGndOffset + embedDepthMm + 200;
+        const totalVisualHeightMm = totalAboveMm + totalBelowMm + 100;
 
-        // Auto-fit: ~90% width, ~70% height
         const scaleX = (cw * 0.90) / totalFenceWidthMm;
         const scaleY = (ch * 0.70) / totalVisualHeightMm;
         const scale = Math.min(scaleX, scaleY);
@@ -1604,11 +1706,14 @@
         ctx.translate(this.profilePan.x, this.profilePan.y);
         ctx.scale(this.profileZoom, this.profileZoom);
 
-        // Coordinate system: originX = left edge of fence, groundY = base ground line (offset 0)
         const fencePixelW = totalFenceWidthMm * scale;
         const originX = (cw / this.profileZoom - fencePixelW) / 2;
-        // Place ground at ~65% of canvas height to leave room for label above and footing below
         const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.15;
+
+        // Hover state ref
+        const hover = this._profileHover;
+        const hlIdx = this.highlightedPanelIdx;
+        const ORANGE = '#F15A29';
 
         // ── Run label ──
         const labelFontSize = Math.max(11, Math.min(18, 14 * scale * 2.5));
@@ -1621,16 +1726,13 @@
         ctx.fillText(`${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`, labelX, labelY);
 
         // ── Continuous capping rail ──
-        // Find the top of the tallest sheet to set rail position
-        // We need to iterate panels to find the highest sheet top across all panels
-        // The rail runs as one bar from left edge of first panel to right edge of last panel
         let railTopY = Infinity;
         let railLeftX = 0;
         let railRightX = 0;
         {
           let cx = originX;
           for (let i = 0; i <= panelCount; i++) {
-            cx += postWidthMm * scale; // skip post
+            cx += postWidthMm * scale;
             if (i < panelCount) {
               const panel = run.panels[i];
               const panelW = panelWidthMm * scale;
@@ -1647,7 +1749,6 @@
         const railH = railHeightMm * scale;
         ctx.fillStyle = railColour;
         ctx.fillRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
-        // Rail border
         ctx.strokeStyle = darkenHex(fenceHex, 0.5);
         ctx.lineWidth = 0.5;
         ctx.strokeRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
@@ -1657,8 +1758,6 @@
 
         for (let i = 0; i <= panelCount; i++) {
           const panel = i < panelCount ? run.panels[i] : null;
-
-          // Ground elevation at this post
           const gndOff = groundOffsets[i] * scale;
           const postGndY = groundY + gndOff;
 
@@ -1669,7 +1768,7 @@
           const postAboveMm = postH - embedDepthMm;
           const postTopY = postGndY - postAboveMm * scale;
 
-          // Post body (full height: above + below ground)
+          // Post body
           ctx.fillStyle = postColour;
           ctx.fillRect(cursorX, postTopY, pw, postAboveMm * scale);
 
@@ -1682,7 +1781,7 @@
           ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedH);
           ctx.restore();
 
-          // Post border for definition
+          // Post border
           ctx.strokeStyle = darkenHex(fenceHex, 0.5);
           ctx.lineWidth = 0.5;
           ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
@@ -1700,6 +1799,25 @@
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
+          // Post hit region (associated with the panel to its right, or left for last post)
+          const postPanelIdx = i < panelCount ? i : i - 1;
+          hitRegions.push({
+            shape: 'rect', x: cursorX, y: postTopY, w: pw, h: postAboveMm * scale,
+            type: 'post', panelIdx: postPanelIdx,
+            label: `P${postPanelIdx + 1} Post (${postH}mm)`
+          });
+
+          // Hover glow on post
+          if (hover && hover.type === 'post' && hover.x === cursorX && hover.y === postTopY) {
+            ctx.save();
+            ctx.strokeStyle = ORANGE;
+            ctx.lineWidth = 2;
+            ctx.shadowColor = ORANGE;
+            ctx.shadowBlur = 6;
+            ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
+            ctx.restore();
+          }
+
           cursorX += pw;
 
           // ── PANEL ──
@@ -1709,14 +1827,15 @@
             const retH = panel.retaining * scale;
             const plinths = panel.retaining / plinthHeightMm;
 
-            // Ground for this panel (use higher side)
             const leftGndOff = groundOffsets[i];
             const rightGndOff = groundOffsets[i + 1];
             const panelGndOff = Math.min(leftGndOff, rightGndOff);
             const panelGndY = groundY + panelGndOff * scale;
             const sheetTopY = panelGndY - sheetH;
 
-            // ── Individual sheets (3 per panel with 1px gaps) ──
+            const isHighlighted = (hlIdx === i);
+
+            // ── Individual sheets ──
             const gapPx = 1;
             const totalGaps = (sheetsPerPanel - 1) * gapPx;
             const sheetW = (panelW - totalGaps) / sheetsPerPanel;
@@ -1724,11 +1843,10 @@
             for (let s = 0; s < sheetsPerPanel; s++) {
               const sx = cursorX + s * (sheetW + gapPx);
 
-              // Sheet fill
               ctx.fillStyle = fenceHex;
               ctx.fillRect(sx, sheetTopY, sheetW, sheetH);
 
-              // ── Corrugation ribs within each sheet ──
+              // Corrugation ribs
               if (isSameBothSides) {
                 const ribSpacing = Math.max(3, sheetW / 12);
                 for (let rx = ribSpacing; rx < sheetW; rx += ribSpacing) {
@@ -1756,9 +1874,38 @@
               ctx.strokeStyle = darkenHex(fenceHex, 0.78);
               ctx.lineWidth = 0.5;
               ctx.strokeRect(sx, sheetTopY, sheetW, sheetH);
+
+              // Sheet hit region
+              hitRegions.push({
+                shape: 'rect', x: sx, y: sheetTopY, w: sheetW, h: sheetH,
+                type: 'sheet', panelIdx: i, sheetIdx: s,
+                label: `P${i + 1} Sheet ${s + 1}`
+              });
+
+              // Hover glow on sheet
+              if (hover && hover.type === 'sheet' && hover.panelIdx === i && hover.sheetIdx === s) {
+                ctx.save();
+                ctx.strokeStyle = ORANGE;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = ORANGE;
+                ctx.shadowBlur = 6;
+                ctx.strokeRect(sx, sheetTopY, sheetW, sheetH);
+                ctx.restore();
+              }
             }
 
-            // ── Plinths (stacked blocks below sheet, with visible gaps) ──
+            // ── Highlighted panel (orange border around entire panel) ──
+            if (isHighlighted) {
+              ctx.save();
+              ctx.strokeStyle = ORANGE;
+              ctx.lineWidth = 3;
+              ctx.shadowColor = ORANGE;
+              ctx.shadowBlur = 8;
+              ctx.strokeRect(cursorX - 1, sheetTopY - 1, panelW + 2, sheetH + 2);
+              ctx.restore();
+            }
+
+            // ── Plinths ──
             if (plinths > 0) {
               const plinthH = plinthHeightMm * scale;
               const plinthGap = Math.max(1, 1.5 * scale);
@@ -1769,12 +1916,29 @@
                 ctx.strokeStyle = '#7b8290';
                 ctx.lineWidth = 0.7;
                 ctx.strokeRect(cursorX, py, panelW, plinthH);
+
+                // Plinth hit region
+                hitRegions.push({
+                  shape: 'rect', x: cursorX, y: py, w: panelW, h: plinthH,
+                  type: 'plinth', panelIdx: i, plinthIdx: pi,
+                  label: `P${i + 1} Plinth ${pi + 1} of ${plinths}`
+                });
+
+                // Hover glow on plinth
+                if (hover && hover.type === 'plinth' && hover.panelIdx === i && hover.plinthIdx === pi) {
+                  ctx.save();
+                  ctx.strokeStyle = ORANGE;
+                  ctx.lineWidth = 2;
+                  ctx.shadowColor = ORANGE;
+                  ctx.shadowBlur = 6;
+                  ctx.strokeRect(cursorX, py, panelW, plinthH);
+                  ctx.restore();
+                }
               }
             }
 
             // ── Ground lines ──
             const glw = 2;
-            // High side (green) at panel ground level
             ctx.strokeStyle = '#22c55e';
             ctx.lineWidth = glw;
             ctx.beginPath();
@@ -1782,7 +1946,6 @@
             ctx.lineTo(cursorX + panelW + pw, panelGndY);
             ctx.stroke();
 
-            // Low side (brown) at bottom of plinths
             if (plinths > 0) {
               const plinthGap = Math.max(1, 1.5 * scale);
               const lowSideY = panelGndY + plinths * (plinthHeightMm * scale + plinthGap);
@@ -1793,7 +1956,6 @@
               ctx.lineTo(cursorX + panelW + pw, lowSideY);
               ctx.stroke();
 
-              // Ground gradient fill between high and low side
               const grd = ctx.createLinearGradient(0, panelGndY, 0, lowSideY);
               grd.addColorStop(0, 'rgba(34,197,94,0.12)');
               grd.addColorStop(0.3, 'rgba(146,64,14,0.08)');
@@ -1806,25 +1968,48 @@
             const circleCX = cursorX + panelW / 2;
             const circleCY = sheetTopY + sheetH / 2;
             const circleR = Math.max(9, Math.min(18, 14 * scale));
-            ctx.fillStyle = 'rgba(255,255,255,0.88)';
+
+            // Circle highlight when this panel is selected
+            const circleIsHighlighted = isHighlighted;
+            ctx.fillStyle = circleIsHighlighted ? 'rgba(241,90,41,0.15)' : 'rgba(255,255,255,0.88)';
             ctx.beginPath();
             ctx.arc(circleCX, circleCY, circleR, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#293C46';
-            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = circleIsHighlighted ? ORANGE : '#293C46';
+            ctx.lineWidth = circleIsHighlighted ? 2.5 : 1.5;
             ctx.stroke();
-            ctx.fillStyle = '#293C46';
+            ctx.fillStyle = circleIsHighlighted ? ORANGE : '#293C46';
             const numFontSize = Math.max(8, Math.min(14, 11 * scale));
             ctx.font = `700 ${numFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
 
+            // Circle hit region (clickable)
+            hitRegions.push({
+              shape: 'circle', cx: circleCX, cy: circleCY, r: circleR + 4,
+              type: 'circle', panelIdx: i,
+              label: `P${i + 1} — click to select`
+            });
+
+            // Hover glow on circle
+            if (hover && hover.type === 'circle' && hover.panelIdx === i) {
+              ctx.save();
+              ctx.strokeStyle = ORANGE;
+              ctx.lineWidth = 2.5;
+              ctx.shadowColor = ORANGE;
+              ctx.shadowBlur = 8;
+              ctx.beginPath();
+              ctx.arc(circleCX, circleCY, circleR + 2, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+
             cursorX += panelW;
           }
         }
 
-        // ── Ground gradient fill across the full fence width ──
+        // ── Ground gradient fill ──
         const groundBandTop = groundY;
         const groundBandH = (ch / this.profileZoom) - groundBandTop + 100;
         if (groundBandH > 0) {
@@ -1838,6 +2023,7 @@
         }
 
         ctx.restore();
+        this._profileHitRegions = hitRegions;
       },
 
       generateOutputs() {
