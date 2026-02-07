@@ -793,6 +793,127 @@
     * {
       box-shadow: none;
     }
+
+    /* Job Settings Section */
+    .job-settings-section {
+      background: #F5F5F5;
+      border: 1px solid #4C6A70;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+
+    .job-settings-toggle {
+      width: 100%;
+      padding: 10px 14px;
+      background: #F5F5F5;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .job-settings-toggle:hover {
+      background: #eef0f2;
+    }
+
+    .job-settings-toggle .toggle-arrow {
+      font-size: 12px;
+      transition: transform 0.2s;
+    }
+
+    .job-settings-toggle .toggle-arrow.open {
+      transform: rotate(90deg);
+    }
+
+    .job-settings-body {
+      padding: 0 14px 14px 14px;
+    }
+
+    .job-settings-body.collapsed {
+      display: none;
+    }
+
+    .js-row {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .js-row .form-group {
+      flex: 1;
+      min-width: 100px;
+    }
+
+    .js-opt-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+
+    .js-opt-row input[type="checkbox"] {
+      margin: 0;
+    }
+
+    .js-opt-row input[type="number"],
+    .js-opt-row input[type="text"],
+    .js-opt-row select {
+      padding: 3px 6px;
+      border: 1px solid #4C6A70;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      width: 65px;
+    }
+
+    .js-opt-row .js-desc-input {
+      width: 120px;
+    }
+
+    .js-opt-row .js-price-input {
+      width: 70px;
+    }
+
+    .js-opt-row .js-unit-input {
+      width: 50px;
+    }
+
+    .js-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #4C6A70;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+
+    .js-notes {
+      width: 100%;
+      min-height: 50px;
+      padding: 6px 8px;
+      border: 1px solid #4C6A70;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      resize: vertical;
+    }
+
+    .js-notes:focus {
+      outline: none;
+      border-color: #F15A29;
+      box-shadow: 0 0 0 2px rgba(241, 90, 41, 0.15);
+    }
   </style>
 </head>
 <body>
@@ -964,6 +1085,47 @@
     const RETAINING_OPTIONS = [0, 150, 300, 450, 600];
     const SHEET_HEIGHTS = [1200, 1500, 1800, 2100];
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
+
+    // ── Business rules: cost prices (internal) ──
+    const COST_PRICES = {
+      panelKit1800_2400: 185,  // 1800H panel kit with 2400 posts, per panel
+      panelKit1800_2700: 210,  // 1800H panel kit with 2700 posts
+      panelKit1800_3000: 235,  // 1800H panel kit with 3000 posts
+      panelKit1500_2400: 165,
+      panelKit1200_2400: 145,
+      panelKit2100_2700: 230,
+      panelKit2100_3000: 255,
+      plinth: 28,              // per plinth (150mm)
+      patioTube: 45,           // 76x38 RHS 3000mm
+      gateKitPedestrian: 320,  // pedestrian gate kit
+      gateKitDouble: 580,      // double swing gate kit
+      gatePost90x90: 85,       // 90x90mm SHS gate post
+      concrete: 9.50,          // per bag
+      tekScrewBox: 18,         // per box
+      removeHardieSheet: 25,   // per sheet
+      removeTimberLap: 15,     // per metre
+      removeAsbestosSheet: 85, // per sheet (licenced disposal)
+      vegClear: 150,           // flat fee
+      groundMulch: 12,         // per lineal metre
+      groundStones: 18,        // per lineal metre
+      groundTurf: 22,          // per lineal metre
+      labourPerMetre: 35,      // base labour rate per metre
+      delivery: 250            // default delivery
+    };
+
+    const MARGIN = 0.30; // 30% margin: sell = cost / (1 - 0.30)
+
+    const ACCESS_SURCHARGE = { easy: 0, moderate: 0.10, difficult: 0.20 }; // % of labour
+    const URGENCY_SURCHARGE = { standard: 0, urgent: 0.10, rush: 0.20, emergency: 0.35 }; // % of subtotal
+
+    const DISCLAIMERS = [
+      'This quote is based on information provided and a standard site assessment. Actual costs may vary if unforeseen conditions are encountered (e.g., rock, tree roots, underground services).',
+      'Customer is responsible for confirming property boundaries before installation. SecureWorks WA accepts no liability for fencing installed on incorrect boundaries.',
+      'Retaining walls over 500mm in height may require a Building Permit and engineer certification under WA Building Regulations. Customer is responsible for obtaining all required approvals.',
+      'This quote does not include any electrical or plumbing relocation, tree removal requiring council approval, or asbestos removal unless specifically listed.',
+      'Payment terms: 50% deposit required to confirm booking. Balance due on completion. Overdue accounts incur 2% monthly interest.',
+      'All materials carry the manufacturer\'s standard warranty (BlueScope 10-year fencing warranty on COLORBOND steel). Workmanship warranty: 12 months from completion.'
+    ];
 
     // ── Lookup helper ──
     function lookupPost(sheetHeight, retaining) {
@@ -1626,6 +1788,7 @@
         this.job.runs.forEach(run => this.calcSlopeForRun(run));
         this.renderRunTabs();
         this.renderRunContent();
+        this._restoreJobSettings();
         this.updateStats();
         this.renderProfileView();
       },
@@ -1896,6 +2059,97 @@
             <h3>Gates</h3>
             ${gatesHtml || '<p style="font-size:12px; color:#4C6A70;">No gates added.</p>'}
             <button class="btn-orange" style="margin-top:8px;" onclick="app.addGate()">+ Add Gate</button>
+          </div>
+
+          <div class="job-settings-section">
+            <button class="job-settings-toggle" onclick="app.toggleJobSettings()">
+              <span>Job Settings &amp; Scope</span>
+              <span class="toggle-arrow ${this._jobSettingsOpen ? 'open' : ''}" id="jsToggleArrow">&#9654;</span>
+            </button>
+            <div class="job-settings-body ${this._jobSettingsOpen ? '' : 'collapsed'}" id="jsBody">
+              <div class="js-row">
+                <div class="form-group">
+                  <label>Access Difficulty</label>
+                  <select id="jsAccess" onchange="app.saveJobSettings()">
+                    <option value="easy">Easy</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="difficult">Difficult</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Urgency</label>
+                  <select id="jsUrgency" onchange="app.saveJobSettings()">
+                    <option value="standard">Standard</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="rush">Rush</option>
+                    <option value="emergency">Emergency</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Delivery Fee ($)</label>
+                  <input type="number" id="jsDelivery" value="250" min="0" step="10" onchange="app.saveJobSettings()">
+                </div>
+              </div>
+
+              <div class="js-label">Optional Items</div>
+
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsRemoveHardie" onchange="app.saveJobSettings()">
+                <label for="jsRemoveHardie">Remove Hardie sheets</label>
+                <input type="number" id="jsRemoveHardieQty" value="0" min="0" style="width:50px;" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;color:#666;">qty</span>
+              </div>
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsRemoveTimber" onchange="app.saveJobSettings()">
+                <label for="jsRemoveTimber">Remove timber lap</label>
+                <input type="number" id="jsRemoveTimberQty" value="0" min="0" step="0.5" style="width:50px;" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;color:#666;">metres</span>
+              </div>
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsRemoveAsbestos" onchange="app.saveJobSettings()">
+                <label for="jsRemoveAsbestos">Remove asbestos sheets</label>
+                <input type="number" id="jsRemoveAsbestosQty" value="0" min="0" style="width:50px;" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;color:#666;">qty</span>
+              </div>
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsVegClear" onchange="app.saveJobSettings()">
+                <label for="jsVegClear">Vegetation / site clear ($150 flat)</label>
+              </div>
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsPedGate" onchange="app.saveJobSettings()">
+                <label for="jsPedGate">Pedestrian gate</label>
+                <input type="number" id="jsPedGateQty" value="1" min="1" style="width:50px;" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;color:#666;">qty</span>
+              </div>
+              <div class="js-opt-row">
+                <input type="checkbox" id="jsDblGate" onchange="app.saveJobSettings()">
+                <label for="jsDblGate">Double swing gate</label>
+                <input type="number" id="jsDblGateQty" value="1" min="1" style="width:50px;" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;color:#666;">qty</span>
+              </div>
+              <div class="js-opt-row">
+                <label for="jsGroundFinish" style="margin-right:4px;">Ground finish:</label>
+                <select id="jsGroundFinish" onchange="app.saveJobSettings()">
+                  <option value="none">None</option>
+                  <option value="mulch">Mulch</option>
+                  <option value="stones">Stones</option>
+                  <option value="turf">Turf</option>
+                </select>
+              </div>
+
+              <div class="js-label">Custom Line Items</div>
+              ${[0,1,2].map(ci => `
+              <div class="js-opt-row">
+                <input type="text" class="js-desc-input" id="jsCustomDesc${ci}" placeholder="Description" onchange="app.saveJobSettings()">
+                <input type="number" id="jsCustomQty${ci}" value="0" min="0" style="width:50px;" placeholder="Qty" onchange="app.saveJobSettings()">
+                <input type="text" class="js-unit-input" id="jsCustomUnit${ci}" placeholder="unit" onchange="app.saveJobSettings()">
+                <span style="font-size:11px;">$</span>
+                <input type="number" class="js-price-input" id="jsCustomPrice${ci}" value="0" min="0" step="1" placeholder="Price" onchange="app.saveJobSettings()">
+              </div>`).join('')}
+
+              <div class="js-label">Special Notes</div>
+              <textarea class="js-notes" id="jsNotes" placeholder="Site access notes, special instructions..." onchange="app.saveJobSettings()"></textarea>
+            </div>
           </div>
         `;
       },
@@ -3110,8 +3364,690 @@
         ctx.restore();
       },
 
+      // ── Job Settings ──
+      _jobSettingsOpen: false,
+
+      toggleJobSettings() {
+        this._jobSettingsOpen = !this._jobSettingsOpen;
+        const body = document.getElementById('jsBody');
+        const arrow = document.getElementById('jsToggleArrow');
+        if (body) body.classList.toggle('collapsed', !this._jobSettingsOpen);
+        if (arrow) arrow.classList.toggle('open', this._jobSettingsOpen);
+      },
+
+      saveJobSettings() {
+        if (!this.job) return;
+        this.job.jobSettings = this._readJobSettings();
+        this.save();
+      },
+
+      _readJobSettings() {
+        return {
+          access: (document.getElementById('jsAccess') || {}).value || 'easy',
+          urgency: (document.getElementById('jsUrgency') || {}).value || 'standard',
+          delivery: parseFloat((document.getElementById('jsDelivery') || {}).value) || 250,
+          removeHardie: !!(document.getElementById('jsRemoveHardie') || {}).checked,
+          removeHardieQty: parseInt((document.getElementById('jsRemoveHardieQty') || {}).value) || 0,
+          removeTimber: !!(document.getElementById('jsRemoveTimber') || {}).checked,
+          removeTimberQty: parseFloat((document.getElementById('jsRemoveTimberQty') || {}).value) || 0,
+          removeAsbestos: !!(document.getElementById('jsRemoveAsbestos') || {}).checked,
+          removeAsbestosQty: parseInt((document.getElementById('jsRemoveAsbestosQty') || {}).value) || 0,
+          vegClear: !!(document.getElementById('jsVegClear') || {}).checked,
+          pedGate: !!(document.getElementById('jsPedGate') || {}).checked,
+          pedGateQty: parseInt((document.getElementById('jsPedGateQty') || {}).value) || 1,
+          dblGate: !!(document.getElementById('jsDblGate') || {}).checked,
+          dblGateQty: parseInt((document.getElementById('jsDblGateQty') || {}).value) || 1,
+          groundFinish: (document.getElementById('jsGroundFinish') || {}).value || 'none',
+          custom: [0,1,2].map(i => ({
+            desc: (document.getElementById('jsCustomDesc' + i) || {}).value || '',
+            qty: parseFloat((document.getElementById('jsCustomQty' + i) || {}).value) || 0,
+            unit: (document.getElementById('jsCustomUnit' + i) || {}).value || '',
+            price: parseFloat((document.getElementById('jsCustomPrice' + i) || {}).value) || 0
+          })),
+          notes: (document.getElementById('jsNotes') || {}).value || ''
+        };
+      },
+
+      _restoreJobSettings() {
+        const js = this.job && this.job.jobSettings;
+        if (!js) return;
+        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+        setVal('jsAccess', js.access || 'easy');
+        setVal('jsUrgency', js.urgency || 'standard');
+        setVal('jsDelivery', js.delivery || 250);
+        setChk('jsRemoveHardie', js.removeHardie);
+        setVal('jsRemoveHardieQty', js.removeHardieQty || 0);
+        setChk('jsRemoveTimber', js.removeTimber);
+        setVal('jsRemoveTimberQty', js.removeTimberQty || 0);
+        setChk('jsRemoveAsbestos', js.removeAsbestos);
+        setVal('jsRemoveAsbestosQty', js.removeAsbestosQty || 0);
+        setChk('jsVegClear', js.vegClear);
+        setChk('jsPedGate', js.pedGate);
+        setVal('jsPedGateQty', js.pedGateQty || 1);
+        setChk('jsDblGate', js.dblGate);
+        setVal('jsDblGateQty', js.dblGateQty || 1);
+        setVal('jsGroundFinish', js.groundFinish || 'none');
+        (js.custom || []).forEach((c, i) => {
+          setVal('jsCustomDesc' + i, c.desc || '');
+          setVal('jsCustomQty' + i, c.qty || 0);
+          setVal('jsCustomUnit' + i, c.unit || '');
+          setVal('jsCustomPrice' + i, c.price || 0);
+        });
+        setVal('jsNotes', js.notes || '');
+      },
+
+      // ── Compliance checks ──
+      _runComplianceChecks() {
+        const errors = []; // STOP errors
+        const warnings = [];
+        this.job.runs.forEach(run => {
+          run.panels.forEach((panel, idx) => {
+            const slopePl = panel.slopePlinths || 0;
+            const manualPl = panel.retaining / 150;
+            const totalPl = slopePl + manualPl;
+            if (totalPl > 4) {
+              errors.push(`${run.name} P${idx+1}: ${totalPl} plinths exceeds maximum 4. Requires engineered retaining solution.`);
+            }
+            const totalRet = Math.min(4, totalPl) * 150;
+            if (totalRet > 500) {
+              warnings.push(`${run.name} P${idx+1}: Retaining ${totalRet}mm > 500mm requires Building Permit + Engineer Cert in WA.`);
+            }
+          });
+        });
+        return { errors, warnings };
+      },
+
+      // ── Collect all data for outputs ──
+      _collectOutputData() {
+        const job = this.job;
+        const js = this._readJobSettings();
+        const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
+        const panelWidthMm = supplier.panelWidth;
+        const panelWidthM = panelWidthMm / 1000;
+
+        let totalMetres = 0;
+        let totalPanels = 0;
+        let totalPosts = 0;
+        let totalPlinths = 0;
+        let totalPatioTubes = 0;
+        const postGroups = {}; // { "1800_2400": { sheetH, postH, count } }
+        const runDetails = [];
+
+        job.runs.forEach(run => {
+          const panelCount = run.panels.length;
+          const postCount = panelCount + 1;
+          totalMetres += run.length || 0;
+          totalPanels += panelCount;
+          totalPosts += postCount;
+
+          let runPlinths = 0;
+          let panelsWithPatio = 0;
+          const panelDetails = [];
+
+          // For each panel, compute derived values
+          run.panels.forEach((panel, idx) => {
+            const slopePl = panel.slopePlinths || 0;
+            const manualPl = panel.retaining / 150;
+            const totalPl = Math.min(4, slopePl + manualPl);
+            const totalRet = totalPl * 150;
+            const plinths = totalPl;
+            runPlinths += plinths;
+
+            const lookup = lookupPost(panel.height, totalRet);
+            const postH = lookup.post;
+            const patio = plinths >= 3;
+            if (patio) panelsWithPatio++;
+
+            // Group panels by sheet height + post height for material order
+            const key = `${panel.height}_${postH}`;
+            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, count: 0 };
+            postGroups[key].count++;
+
+            panelDetails.push({
+              num: idx + 1,
+              height: panel.height,
+              retaining: totalRet,
+              plinths,
+              totalH: panel.height + totalRet,
+              postH,
+              patio,
+              stepMm: panel.stepMm || 0
+            });
+          });
+
+          const patioTubes = panelsWithPatio > 0 ? panelsWithPatio + 1 : 0;
+          totalPlinths += runPlinths;
+          totalPatioTubes += patioTubes;
+
+          // Check if run has any retaining at all
+          const hasRetaining = run.panels.some(p => {
+            const sp = p.slopePlinths || 0;
+            const mp = p.retaining / 150;
+            return (sp + mp) > 0;
+          });
+
+          runDetails.push({
+            name: run.name,
+            length: run.length || 0,
+            panelCount,
+            postCount,
+            plinths: runPlinths,
+            patioTubes,
+            panelsWithPatio,
+            hasRetaining,
+            panels: panelDetails
+          });
+        });
+
+        // Corner post sharing: subtract (runs - 1) for connected runs
+        if (job.runs.length > 1) totalPosts -= (job.runs.length - 1);
+
+        // Gate posts
+        let gatePosts = 0;
+        const gateDetails = [];
+        (job.gates || []).forEach(g => {
+          const gp = g.type === 'double' ? 4 : 2;
+          gatePosts += gp;
+          gateDetails.push({ type: g.type, width: g.width, posts: gp });
+        });
+        // Also count job-settings gates
+        let jsPedGatePosts = 0, jsDblGatePosts = 0;
+        if (js.pedGate && js.pedGateQty > 0) {
+          jsPedGatePosts = js.pedGateQty * 2;
+          gatePosts += jsPedGatePosts;
+        }
+        if (js.dblGate && js.dblGateQty > 0) {
+          jsDblGatePosts = js.dblGateQty * 4;
+          gatePosts += jsDblGatePosts;
+        }
+
+        // Concrete: (totalPosts + gatePosts) * 2 * 1.1, round up to even
+        const allPosts = totalPosts + gatePosts;
+        const rawBags = allPosts * 2 * 1.1;
+        const concreteBags = Math.ceil(rawBags / 2) * 2;
+
+        // Tek screw boxes: 1 per 4 panels, min 1
+        const tekBoxes = totalPanels > 0 ? Math.max(1, Math.ceil(totalPanels / 4)) : 0;
+
+        // ── Pricing ──
+        const pricePerMetre = job.pricePerMetre || 115;
+
+        // Fencing line item
+        const fencingTotal = totalMetres * pricePerMetre;
+
+        // Plinths: sell price using margin formula
+        const plinthSell = COST_PRICES.plinth / (1 - MARGIN);
+        const plinthsTotal = totalPlinths * plinthSell;
+
+        // Patio tubes
+        const patioSell = COST_PRICES.patioTube / (1 - MARGIN);
+        const patioTotal = totalPatioTubes * patioSell;
+
+        // Gates from job settings
+        let gatesTotal = 0;
+        const gateLineItems = [];
+        if (js.pedGate && js.pedGateQty > 0) {
+          const sell = COST_PRICES.gateKitPedestrian / (1 - MARGIN);
+          const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
+          const lineTotal = js.pedGateQty * (sell + 2 * postSell);
+          gatesTotal += lineTotal;
+          gateLineItems.push({ desc: 'Pedestrian gate (supply + install)', qty: js.pedGateQty, total: lineTotal });
+        }
+        if (js.dblGate && js.dblGateQty > 0) {
+          const sell = COST_PRICES.gateKitDouble / (1 - MARGIN);
+          const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
+          const lineTotal = js.dblGateQty * (sell + 4 * postSell);
+          gatesTotal += lineTotal;
+          gateLineItems.push({ desc: 'Double swing gate (supply + install)', qty: js.dblGateQty, total: lineTotal });
+        }
+        // Also gates from the panel section
+        (job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') {
+            const sell = COST_PRICES.gateKitPedestrian / (1 - MARGIN);
+            const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
+            gatesTotal += sell + 2 * postSell;
+            gateLineItems.push({ desc: `Pedestrian gate ${g.width}mm`, qty: 1, total: sell + 2 * postSell });
+          } else if (g.type === 'double') {
+            const sell = COST_PRICES.gateKitDouble / (1 - MARGIN);
+            const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
+            gatesTotal += sell + 4 * postSell;
+            gateLineItems.push({ desc: `Double swing gate ${g.width}mm`, qty: 1, total: sell + 4 * postSell });
+          }
+        });
+
+        // Removal items
+        let removalTotal = 0;
+        const removalItems = [];
+        if (js.removeHardie && js.removeHardieQty > 0) {
+          const t = js.removeHardieQty * (COST_PRICES.removeHardieSheet / (1 - MARGIN));
+          removalTotal += t;
+          removalItems.push({ desc: 'Remove Hardie sheets', qty: js.removeHardieQty, unit: 'sheets', total: t });
+        }
+        if (js.removeTimber && js.removeTimberQty > 0) {
+          const t = js.removeTimberQty * (COST_PRICES.removeTimberLap / (1 - MARGIN));
+          removalTotal += t;
+          removalItems.push({ desc: 'Remove timber lap fence', qty: js.removeTimberQty, unit: 'm', total: t });
+        }
+        if (js.removeAsbestos && js.removeAsbestosQty > 0) {
+          const t = js.removeAsbestosQty * (COST_PRICES.removeAsbestosSheet / (1 - MARGIN));
+          removalTotal += t;
+          removalItems.push({ desc: 'Remove asbestos sheets (licenced)', qty: js.removeAsbestosQty, unit: 'sheets', total: t });
+        }
+        if (js.vegClear) {
+          const t = COST_PRICES.vegClear / (1 - MARGIN);
+          removalTotal += t;
+          removalItems.push({ desc: 'Vegetation / site clear', qty: 1, unit: 'lot', total: t });
+        }
+
+        // Ground finish
+        let groundFinishTotal = 0;
+        let groundFinishDesc = '';
+        if (js.groundFinish && js.groundFinish !== 'none') {
+          const rates = { mulch: COST_PRICES.groundMulch, stones: COST_PRICES.groundStones, turf: COST_PRICES.groundTurf };
+          const costPerM = rates[js.groundFinish] || 0;
+          const sellPerM = costPerM / (1 - MARGIN);
+          groundFinishTotal = totalMetres * sellPerM;
+          groundFinishDesc = js.groundFinish.charAt(0).toUpperCase() + js.groundFinish.slice(1) + ' ground finish';
+        }
+
+        // Custom items
+        let customTotal = 0;
+        const customItems = [];
+        (js.custom || []).forEach(c => {
+          if (c.desc && c.qty > 0 && c.price > 0) {
+            const t = c.qty * c.price;
+            customTotal += t;
+            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price, total: t });
+          }
+        });
+
+        // Access surcharge (on labour only)
+        const labourBase = totalMetres * COST_PRICES.labourPerMetre;
+        const accessRate = ACCESS_SURCHARGE[js.access] || 0;
+        const accessSurcharge = labourBase * accessRate;
+
+        // Delivery
+        const deliveryFee = js.delivery || 250;
+
+        // Subtotal before urgency
+        const subtotalBeforeUrgency = fencingTotal + plinthsTotal + patioTotal + gatesTotal + removalTotal + groundFinishTotal + customTotal + accessSurcharge + deliveryFee;
+
+        // Urgency surcharge (on subtotal)
+        const urgencyRate = URGENCY_SURCHARGE[js.urgency] || 0;
+        const urgencySurcharge = subtotalBeforeUrgency * urgencyRate;
+
+        const subtotal = subtotalBeforeUrgency + urgencySurcharge;
+        const gst = subtotal * 0.10;
+        const grandTotal = subtotal + gst;
+
+        // ── Internal cost breakdown ──
+        let internalCost = 0;
+        // Panel costs
+        Object.values(postGroups).forEach(g => {
+          let unitCost = COST_PRICES.panelKit1800_2400; // default
+          if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
+          else if (g.sheetH === 1500) unitCost = COST_PRICES.panelKit1500_2400;
+          else if (g.sheetH === 1800) {
+            if (g.postH <= 2400) unitCost = COST_PRICES.panelKit1800_2400;
+            else if (g.postH <= 2700) unitCost = COST_PRICES.panelKit1800_2700;
+            else unitCost = COST_PRICES.panelKit1800_3000;
+          } else if (g.sheetH === 2100) {
+            if (g.postH <= 2700) unitCost = COST_PRICES.panelKit2100_2700;
+            else unitCost = COST_PRICES.panelKit2100_3000;
+          }
+          internalCost += g.count * unitCost;
+        });
+        internalCost += totalPlinths * COST_PRICES.plinth;
+        internalCost += totalPatioTubes * COST_PRICES.patioTube;
+        internalCost += concreteBags * COST_PRICES.concrete;
+        internalCost += tekBoxes * COST_PRICES.tekScrewBox;
+        if (js.pedGate) internalCost += js.pedGateQty * (COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90);
+        if (js.dblGate) internalCost += js.dblGateQty * (COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90);
+        (job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') internalCost += COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90;
+          else if (g.type === 'double') internalCost += COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90;
+        });
+        const labourCost = labourBase;
+        const internalLabour = labourCost * (1 + accessRate);
+        const materialMargin = subtotal - gst - internalCost - internalLabour;
+
+        return {
+          job, js, supplier: job.supplier, profile: job.profile, colour: job.colour,
+          panelWidthMm, panelWidthM, pricePerMetre,
+          totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
+          postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
+          concreteBags, tekBoxes, allPosts,
+          fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
+          gatesTotal, removalTotal, removalItems,
+          groundFinishTotal, groundFinishDesc, customTotal, customItems,
+          accessSurcharge, accessRate, deliveryFee,
+          urgencySurcharge, urgencyRate,
+          subtotal, gst, grandTotal,
+          internalCost, internalLabour, materialMargin,
+          jsPedGatePosts, jsDblGatePosts
+        };
+      },
+
+      // ── Generate output HTML documents ──
       generateOutputs() {
-        alert('Output generation not yet implemented.');
+        // Run compliance checks
+        const { errors, warnings } = this._runComplianceChecks();
+
+        if (errors.length > 0) {
+          alert('STOP — Cannot generate outputs:\n\n' + errors.join('\n\n'));
+          return;
+        }
+
+        if (warnings.length > 0) {
+          if (!confirm('Warnings detected:\n\n' + warnings.join('\n\n') + '\n\nProceed anyway?')) return;
+        }
+
+        // Restore settings from DOM
+        const data = this._collectOutputData();
+
+        // Generate 3 HTML documents in new tabs
+        this._openOutputTab('Client Quote', this._generateQuoteHTML(data));
+        this._openOutputTab('Material Order', this._generateMaterialOrderHTML(data));
+        this._openOutputTab('Work Order', this._generateWorkOrderHTML(data));
+      },
+
+      _openOutputTab(title, html) {
+        const w = window.open('', '_blank');
+        if (!w) { alert('Popup blocked — please allow popups for this site.'); return; }
+        w.document.write(html);
+        w.document.close();
+        w.document.title = title;
+      },
+
+      _fmt(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+
+      _outputCSS() {
+        return `
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #293C46; margin: 0; padding: 30px 40px; font-size: 13px; line-height: 1.5; }
+          .header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #293C46; padding-bottom: 16px; }
+          .header h1 { font-size: 20px; margin: 0 0 4px 0; color: #293C46; }
+          .header .company { font-size: 14px; font-weight: 700; color: #F15A29; margin-bottom: 2px; }
+          .header .details { font-size: 11px; color: #4C6A70; }
+          .section { margin-bottom: 20px; }
+          .section h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #4C6A70; padding-bottom: 4px; margin-bottom: 8px; color: #293C46; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; margin-bottom: 12px; }
+          .info-grid .label { font-weight: 700; font-size: 11px; text-transform: uppercase; color: #4C6A70; }
+          .info-grid .value { font-size: 13px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 12px; }
+          th { background: #F5F5F5; padding: 6px 8px; text-align: left; font-size: 11px; text-transform: uppercase; border-bottom: 2px solid #4C6A70; }
+          td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; }
+          .text-right { text-align: right; }
+          .total-row td { font-weight: 700; border-top: 2px solid #293C46; }
+          .grand-total td { font-size: 16px; color: #F15A29; }
+          .disclaimer { font-size: 10px; color: #666; line-height: 1.4; margin-bottom: 6px; }
+          .disclaimer-num { font-weight: 700; }
+          .flag { background: #fffbeb; border: 1px solid #f59e0b; padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; font-size: 12px; }
+          .flag.stop { background: #fef2f2; border-color: #dc2626; }
+          pre { background: #f8fafc; padding: 16px; border: 1px solid #e5e7eb; border-radius: 4px; white-space: pre-wrap; font-size: 12px; font-family: 'Courier New', monospace; }
+          .checklist li { margin-bottom: 4px; }
+          .patio-flag { color: #F15A29; font-weight: 700; }
+          @media print { body { padding: 15px 20px; } .no-print { display: none; } }
+          .print-btn { position: fixed; top: 10px; right: 10px; padding: 8px 16px; background: #F15A29; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 13px; }
+          .print-btn:hover { background: #d94e22; }
+        `;
+      },
+
+      _generateQuoteHTML(d) {
+        const date = d.job.date || new Date().toISOString().slice(0, 10);
+        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+
+        // Auto-generate description
+        let scopeDesc = `Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour}`;
+        if (d.totalPlinths > 0) scopeDesc += `, including ${d.totalPlinths} retaining plinths`;
+        if (d.totalPatioTubes > 0) scopeDesc += ` with patio tube bracing`;
+        scopeDesc += '. All posts set in concrete. Site clean-up included.';
+        if (d.removalItems.length > 0) scopeDesc += ' Removal and disposal of existing fencing included.';
+
+        let lineItemsHtml = '';
+        lineItemsHtml += `<tr><td>COLORBOND\u00AE ${d.profile} fencing — ${d.colour} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="text-right">$${this._fmt(d.fencingTotal)}</td></tr>`;
+        if (d.totalPlinths > 0) lineItemsHtml += `<tr><td>Retaining plinths (${d.totalPlinths} × 150mm)</td><td class="text-right">$${this._fmt(d.plinthsTotal)}</td></tr>`;
+        if (d.totalPatioTubes > 0) lineItemsHtml += `<tr><td>Patio tube bracing (${d.totalPatioTubes} tubes)</td><td class="text-right">$${this._fmt(d.patioTotal)}</td></tr>`;
+        d.gateLineItems.forEach(g => { lineItemsHtml += `<tr><td>${g.desc}${g.qty > 1 ? ' × ' + g.qty : ''}</td><td class="text-right">$${this._fmt(g.total)}</td></tr>`; });
+        d.removalItems.forEach(r => { lineItemsHtml += `<tr><td>${r.desc} (${r.qty} ${r.unit})</td><td class="text-right">$${this._fmt(r.total)}</td></tr>`; });
+        if (d.groundFinishTotal > 0) lineItemsHtml += `<tr><td>${d.groundFinishDesc} (${d.totalMetres.toFixed(1)}m)</td><td class="text-right">$${this._fmt(d.groundFinishTotal)}</td></tr>`;
+        d.customItems.forEach(c => { lineItemsHtml += `<tr><td>${c.desc} (${c.qty} ${c.unit} @ $${this._fmt(c.unitPrice)})</td><td class="text-right">$${this._fmt(c.total)}</td></tr>`; });
+        if (d.accessSurcharge > 0) lineItemsHtml += `<tr><td>Access difficulty surcharge (${d.js.access})</td><td class="text-right">$${this._fmt(d.accessSurcharge)}</td></tr>`;
+        lineItemsHtml += `<tr><td>Delivery</td><td class="text-right">$${this._fmt(d.deliveryFee)}</td></tr>`;
+        if (d.urgencySurcharge > 0) lineItemsHtml += `<tr><td>Urgency surcharge (${d.js.urgency})</td><td class="text-right">$${this._fmt(d.urgencySurcharge)}</td></tr>`;
+
+        const disclaimersHtml = DISCLAIMERS.map((d, i) => `<p class="disclaimer"><span class="disclaimer-num">${i+1}.</span> ${d}</p>`).join('');
+
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
+          <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
+          <div class="header">
+            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <div class="details">ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772</div>
+            <h1>CLIENT QUOTE</h1>
+          </div>
+          <div class="section">
+            <div class="info-grid">
+              <div><span class="label">Client:</span> <span class="value">${d.job.client || '—'}</span></div>
+              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '—'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${d.job.address || '—'}</span></div>
+              <div><span class="label">Date:</span> <span class="value">${date}</span></div>
+              <div></div>
+              <div><span class="label">Valid until:</span> <span class="value">${validUntil}</span></div>
+            </div>
+          </div>
+          <div class="section">
+            <h2>Scope of Works</h2>
+            <p>${scopeDesc}</p>
+          </div>
+          <div class="section">
+            <h2>Pricing</h2>
+            <table>
+              <thead><tr><th>Item</th><th class="text-right">Amount</th></tr></thead>
+              <tbody>
+                ${lineItemsHtml}
+              </tbody>
+              <tfoot>
+                <tr class="total-row"><td>Subtotal (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>
+                <tr><td>GST (10%)</td><td class="text-right">$${this._fmt(d.gst)}</td></tr>
+                <tr class="total-row grand-total"><td>TOTAL (incl. GST)</td><td class="text-right">$${this._fmt(d.grandTotal)}</td></tr>
+              </tfoot>
+            </table>
+          </div>
+          <div class="section">
+            <h2>Payment Terms</h2>
+            <p>50% deposit required to confirm booking. Balance due on completion.</p>
+          </div>
+          <div class="section">
+            <h2>Terms &amp; Conditions</h2>
+            ${disclaimersHtml}
+          </div>
+          ${d.js.notes ? `<div class="section"><h2>Notes</h2><p>${d.js.notes.replace(/\n/g, '<br>')}</p></div>` : ''}
+          <div style="text-align:center;margin-top:30px;font-size:11px;color:#4C6A70;">
+            SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772
+          </div>
+        </body></html>`;
+      },
+
+      _generateMaterialOrderHTML(d) {
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+        let panelLines = '';
+        Object.values(d.postGroups).forEach(g => {
+          panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n    Colour: ${d.colour}\n\n`;
+        });
+
+        let order = '';
+        order += `SECUREWORKS WA PTY LTD\nMaterial Order\n\n`;
+        order += `Job Ref: ${d.job.ref || '\u2014'}\n`;
+        order += `Customer: ${d.job.client || '\u2014'}\n`;
+        order += `Delivery Address: ${d.job.address || '\u2014'}\n`;
+        order += `Site Contact: 0489 267 772\n`;
+        order += `Delivery Date: ${tomorrow} | Time: 8-10am\n`;
+        order += `Supplier: ${d.supplier}\n\n`;
+        order += `${'─'.repeat(50)}\nORDER DETAILS:\n${'─'.repeat(50)}\n\n`;
+        order += `PANELS & POSTS:\n${panelLines}`;
+        if (d.totalPlinths > 0) order += `PLINTHS:\n${d.totalPlinths} \u00D7 150mm Plinths \u2014 ${d.colour}\n\n`;
+        if (d.totalPatioTubes > 0) {
+          const panelsW = d.runDetails.reduce((s, r) => s + r.panelsWithPatio, 0);
+          order += `PATIO TUBING:\n${d.totalPatioTubes} \u00D7 76x38 RHS Patio Tube @ 3000mm\n    (Calculation: ${panelsW} panels with 3+ plinths + 1 = ${d.totalPatioTubes} tubes)\n\n`;
+        }
+        if (d.gatePosts > 0) {
+          order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
+          // Gate kits
+          const allGates = [];
+          if (d.js.pedGate && d.js.pedGateQty > 0) allGates.push(`${d.js.pedGateQty} \u00D7 Pedestrian gate kit | 900mm W | 1750mm H | ${d.colour}`);
+          if (d.js.dblGate && d.js.dblGateQty > 0) allGates.push(`${d.js.dblGateQty} \u00D7 Double swing gate kit | ${d.colour}`);
+          (d.job.gates || []).forEach(g => {
+            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${d.colour}`);
+            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${d.colour}`);
+          });
+          if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
+        }
+        order += `CONCRETE:\n${d.concreteBags} \u00D7 Bags Quickset Concrete\n\n`;
+        order += `FIXINGS:\n${d.tekBoxes} \u00D7 Boxes Tek Screws\nPost Caps, Fixings as required\n\n`;
+        order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks WA\nfencing@secureworkswa.com.au | 0489 267 772`;
+
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
+          <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
+          <div class="header">
+            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <div class="details">fencing@secureworkswa.com.au | 0489 267 772</div>
+            <h1>MATERIAL ORDER</h1>
+          </div>
+          <div class="section">
+            <pre>${order}</pre>
+            <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
+              onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
+              Copy to Clipboard
+            </button>
+          </div>
+        </body></html>`;
+      },
+
+      _generateWorkOrderHTML(d) {
+        const date = d.job.date || new Date().toISOString().slice(0, 10);
+
+        // Run breakdown
+        let runsHtml = '';
+        d.runDetails.forEach(r => {
+          runsHtml += `<div class="section"><h2>${r.name} (${r.panelCount} panels, ${r.length}m)${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
+          if (r.hasRetaining) {
+            runsHtml += '<table><thead><tr><th>Panel</th><th>Fence</th><th>Ret.</th><th>Total</th><th>Post</th><th>Notes</th></tr></thead><tbody>';
+            r.panels.forEach(p => {
+              runsHtml += `<tr><td>P${p.num}</td><td>${p.height}mm</td><td>${p.retaining}mm</td><td>${p.totalH}mm</td><td>${p.postH}mm</td><td>${p.patio ? '<span class="patio-flag">PATIO TUBE</span>' : ''} ${p.stepMm !== 0 ? (p.stepMm < 0 ? '\u2193' + Math.abs(p.stepMm) + 'mm' : '\u2191' + p.stepMm + 'mm') : ''}</td></tr>`;
+            });
+            runsHtml += '</tbody></table>';
+          } else {
+            const postH = r.panels.length > 0 ? r.panels[0].postH : 2400;
+            const sheetH = r.panels.length > 0 ? r.panels[0].height : 1800;
+            runsHtml += `<p>P1\u2013P${r.panelCount}: ${sheetH}mm fence, 0mm retaining | Post height: ${postH}mm</p>`;
+          }
+          runsHtml += '</div>';
+        });
+
+        // Post breakdown by height
+        const postByHeight = {};
+        d.runDetails.forEach(r => {
+          r.panels.forEach(p => {
+            postByHeight[p.postH] = (postByHeight[p.postH] || 0) + 1;
+          });
+        });
+        const postBreakdown = Object.entries(postByHeight).map(([h, c]) => `${c} @ ${h}mm`).join(', ');
+
+        // Scope checklist
+        let scopeChecklist = '<ul class="checklist">';
+        scopeChecklist += '<li>Install COLORBOND\u00AE fencing per specification</li>';
+        scopeChecklist += '<li>Set all posts in concrete (2 bags/post)</li>';
+        if (d.totalPlinths > 0) scopeChecklist += `<li>Install ${d.totalPlinths} retaining plinths</li>`;
+        if (d.totalPatioTubes > 0) scopeChecklist += `<li>Install ${d.totalPatioTubes} patio tubes at retained sections</li>`;
+        d.removalItems.forEach(r => { scopeChecklist += `<li>${r.desc} (${r.qty} ${r.unit})</li>`; });
+        d.gateLineItems.forEach(g => { scopeChecklist += `<li>${g.desc}</li>`; });
+        if (d.groundFinishDesc) scopeChecklist += `<li>${d.groundFinishDesc}</li>`;
+        scopeChecklist += '<li>Site clean-up and rubbish removal</li>';
+        scopeChecklist += '</ul>';
+
+        // Internal cost breakdown
+        let costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
+        costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost)}</td></tr>`;
+        costHtml += `<tr><td>Labour (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
+        costHtml += `<tr><td>Delivery</td><td class="text-right">$${this._fmt(d.deliveryFee)}</td></tr>`;
+        costHtml += `<tr class="total-row"><td>Total cost</td><td class="text-right">$${this._fmt(d.internalCost + d.internalLabour + d.deliveryFee)}</td></tr>`;
+        costHtml += `<tr><td>Quote total (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>`;
+        costHtml += `<tr><td>Margin</td><td class="text-right">$${this._fmt(d.materialMargin)}</td></tr>`;
+        costHtml += '</tbody></table>';
+
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
+          <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
+          <div class="header">
+            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <h1>WORK ORDER \u2014 ${d.job.ref || '\u2014'}</h1>
+          </div>
+          <div class="section">
+            <div class="info-grid">
+              <div><span class="label">Client:</span> <span class="value">${d.job.client || '\u2014'}</span></div>
+              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${d.job.address || '\u2014'}</span></div>
+              <div><span class="label">Date:</span> <span class="value">${date}</span></div>
+              <div><span class="label">Access:</span> <span class="value">${d.js.access}</span></div>
+              <div><span class="label">Urgency:</span> <span class="value">${d.js.urgency}</span></div>
+            </div>
+          </div>
+          <div class="section">
+            <h2>Fence Specification</h2>
+            <div class="info-grid">
+              <div><span class="label">Supplier:</span> <span class="value">${d.supplier}</span></div>
+              <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
+              <div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>
+              <div><span class="label">Panel width:</span> <span class="value">${d.panelWidthMm}mm</span></div>
+            </div>
+          </div>
+          ${runsHtml}
+          <div class="section">
+            <h2>Gates</h2>
+            ${d.gateLineItems.length > 0 || (d.job.gates && d.job.gates.length > 0) ? d.gateLineItems.map(g => `<p>${g.desc}${g.qty > 1 ? ' \u00D7 ' + g.qty : ''} \u2014 90x90mm SHS gate posts</p>`).join('') : '<p>None</p>'}
+          </div>
+          <div class="section">
+            <h2>Summary</h2>
+            <div class="info-grid">
+              <div><span class="label">Total length:</span> <span class="value">${d.totalMetres.toFixed(1)}m</span></div>
+              <div><span class="label">Panels:</span> <span class="value">${d.totalPanels}</span></div>
+              <div><span class="label">Posts:</span> <span class="value">${d.totalPosts} (${postBreakdown})</span></div>
+              <div><span class="label">Gate posts:</span> <span class="value">${d.gatePosts} \u00D7 90x90mm SHS</span></div>
+              <div><span class="label">Plinths:</span> <span class="value">${d.totalPlinths}</span></div>
+              <div><span class="label">Patio tubes:</span> <span class="value">${d.totalPatioTubes}</span></div>
+              <div><span class="label">Concrete:</span> <span class="value">${d.concreteBags} bags</span></div>
+              <div><span class="label">Tek screws:</span> <span class="value">${d.tekBoxes} boxes</span></div>
+            </div>
+          </div>
+          <div class="section">
+            <h2>Scope of Work</h2>
+            ${scopeChecklist}
+          </div>
+          <div class="section">
+            <h2>Safety &amp; Compliance</h2>
+            <ul class="checklist">
+              <li>Dial Before You Dig check completed: <strong>___</strong></li>
+              <li>PPE: steel-cap boots, gloves, safety glasses, ear protection</li>
+              <li>First aid kit on site</li>
+              ${d.js.removeAsbestos ? '<li style="color:#dc2626;font-weight:700;">ASBESTOS: Licensed removal required. Do NOT break sheets.</li>' : ''}
+              <li>No overhead power lines within 3m of work area confirmed: <strong>___</strong></li>
+            </ul>
+          </div>
+          <div class="section">
+            <h2>Completion Requirements</h2>
+            <ul class="checklist">
+              <li>QC photos of every post alignment and panel fit</li>
+              <li>Client walkthrough and sign-off</li>
+              <li>Tradify job completion sign-off</li>
+              <li>All rubbish removed from site</li>
+            </ul>
+          </div>
+          ${d.js.notes ? `<div class="section"><h2>Site Notes</h2><p>${d.js.notes.replace(/\n/g, '<br>')}</p></div>` : ''}
+          <div class="section" style="border-top:2px solid #293C46;padding-top:16px;">
+            <h2>Internal Cost Breakdown (CONFIDENTIAL)</h2>
+            ${costHtml}
+          </div>
+        </body></html>`;
       },
 
       // ── LocalStorage ──
