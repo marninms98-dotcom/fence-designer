@@ -1705,8 +1705,16 @@
         });
 
         // ── Scaling: 90% width, 70% height ──
+        // Compute max visible extent above groundY (accounting for plinths raising sheets)
+        let maxAboveGndYMm = 0;
+        run.panels.forEach((p, idx) => {
+          const lowOffset = Math.max(groundOffsets[idx], groundOffsets[idx + 1]);
+          const panelTopMm = p.retaining + railHeightMm + p.height + railHeightMm;
+          const above = panelTopMm - lowOffset;
+          if (above > maxAboveGndYMm) maxAboveGndYMm = above;
+        });
         const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
-        const totalAboveMm = capHeightMm + maxPostAbove;
+        const totalAboveMm = capHeightMm + maxAboveGndYMm;
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
         const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
 
@@ -1723,6 +1731,10 @@
         const originX = (cw / this.profileZoom - fencePixelW) / 2;
         const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.1;
 
+        const railH = railHeightMm * scale;
+        const footingWMm = 300;
+        const footingHMm = 450;
+
         // ── Run label ──
         const labelFontSize = Math.max(11, Math.min(18, 14 * scale * 2.5));
         ctx.fillStyle = '#293C46';
@@ -1732,66 +1744,38 @@
         ctx.fillText(
           `${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`,
           originX + fencePixelW / 2,
-          groundY - (maxPostAbove + capHeightMm) * scale - 10
+          groundY - maxAboveGndYMm * scale - 10
         );
-
-        // ── Pre-calculate panel positions for capping rail ──
-        let railTopY = Infinity;
-        let railLeftX = 0;
-        let railRightX = 0;
-        {
-          let cx = originX;
-          for (let i = 0; i <= panelCount; i++) {
-            cx += postWidthMm * scale;
-            if (i < panelCount) {
-              const panelW = panelWidthMm * scale;
-              const gndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
-              const panelGndY = groundY + gndOff * scale;
-              const sheetTopY = panelGndY - run.panels[i].height * scale;
-              if (sheetTopY < railTopY) railTopY = sheetTopY;
-              if (i === 0) railLeftX = cx;
-              railRightX = cx + panelW;
-              cx += panelW;
-            }
-          }
-        }
-
-        // ── Continuous capping rail across ALL panels (from image) ──
-        const railH = railHeightMm * scale;
-        const capRailW = railRightX - railLeftX;
-        const capRailY = railTopY - railH;
-        if (this._panelTextureLoaded) {
-          const s = this.SRC_CAP;
-          ctx.drawImage(this._panelTextureImg, s.sx, s.sy, s.sw, s.sh, railLeftX, capRailY, capRailW, railH);
-          ctx.save();
-          ctx.globalCompositeOperation = 'multiply';
-          ctx.fillStyle = fenceHex;
-          ctx.fillRect(railLeftX, capRailY, capRailW, railH);
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.restore();
-        } else {
-          ctx.fillStyle = fenceHex;
-          ctx.fillRect(railLeftX, capRailY, capRailW, railH);
-        }
-        ctx.strokeStyle = darkenHex(fenceHex, 0.7);
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(railLeftX, capRailY, capRailW, railH);
 
         // ── Draw posts and panels ──
         let cursorX = originX;
+        const pw = postWidthMm * scale;
 
         for (let i = 0; i <= panelCount; i++) {
           const panel = i < panelCount ? run.panels[i] : null;
           const gndOff = groundOffsets[i] * scale;
           const postGndY = groundY + gndOff;
 
-          // ── POST (Colorbond colour-matched steel) ──
+          // ── POST — height clamped to adjacent panel tops ──
           const postInfo = posts[i];
-          const postH = postInfo.postSize;
-          const postAboveMm = postH - embedDepthMm;
-          const postTopY = postGndY - postAboveMm * scale;
-          const postAboveH = postAboveMm * scale;
-          const pw = postWidthMm * scale;
+
+          // Find post top Y from adjacent panels' cap rail tops
+          let postTopY = postGndY; // default
+          const leftPanel = i > 0 ? run.panels[i - 1] : null;
+          const rightPanel = i < panelCount ? run.panels[i] : null;
+          if (leftPanel) {
+            const lpLowOff = Math.max(groundOffsets[i - 1], groundOffsets[i]);
+            const lpLowGndY = groundY + lpLowOff * scale;
+            const lpCapTopY = lpLowGndY - (leftPanel.retaining + railHeightMm + leftPanel.height + railHeightMm) * scale;
+            postTopY = Math.min(postTopY, lpCapTopY);
+          }
+          if (rightPanel) {
+            const rpLowOff = Math.max(groundOffsets[i], groundOffsets[i + 1]);
+            const rpLowGndY = groundY + rpLowOff * scale;
+            const rpCapTopY = rpLowGndY - (rightPanel.retaining + railHeightMm + rightPanel.height + railHeightMm) * scale;
+            postTopY = Math.min(postTopY, rpCapTopY);
+          }
+          const postAboveH = postGndY - postTopY;
 
           // Patio tube RHS behind the post (wider backing, same height)
           if (postInfo.patio) {
@@ -1804,25 +1788,21 @@
             ctx.strokeRect(patioX, postTopY, patioW, postAboveH);
           }
 
-          // Post body — fence colour (drawn on top of patio backing)
+          // Post body — fence colour
           ctx.fillStyle = fenceHex;
           ctx.fillRect(cursorX, postTopY, pw, postAboveH);
-          // Edge shading (C-channel profile)
           ctx.fillStyle = 'rgba(0,0,0,0.2)';
           ctx.fillRect(cursorX, postTopY, 1, postAboveH);
           ctx.fillRect(cursorX + pw - 1, postTopY, 1, postAboveH);
-          // Centre line
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
           ctx.fillRect(cursorX + (pw - 1) / 2, postTopY, 1, postAboveH);
-          // Border
           ctx.strokeStyle = darkenHex(fenceHex, 0.7);
           ctx.lineWidth = 0.5;
           ctx.strokeRect(cursorX, postTopY, pw, postAboveH);
 
-          // Underground: post extension + concrete footing
+          // Underground: faded post extension + concrete footing
           const embedH = embedDepthMm * scale;
           const postCentreX = cursorX + pw / 2;
-          // Faded post extension below ground
           ctx.save();
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = fenceHex;
@@ -1831,9 +1811,6 @@
           ctx.lineWidth = 0.5;
           ctx.strokeRect(cursorX, postGndY, pw, embedH);
           ctx.restore();
-          // Concrete footing at bottom of embed
-          const footingWMm = 300;
-          const footingHMm = 450;
           const footingW = footingWMm * scale;
           const footingH = footingHMm * scale;
           const footingX = postCentreX - footingW / 2;
@@ -1858,17 +1835,92 @@
 
           cursorX += pw;
 
-          // ── PANEL (assembled from image component crops) ──
+          // ── PANEL (correct construction stacking: plinths → bottom rail → sheets → cap rail) ──
           if (panel) {
             const panelW = panelWidthMm * scale;
             const sheetH = panel.height * scale;
             const plinths = panel.retaining / plinthHeightMm;
+            const plinthStackH = panel.retaining * scale;
+            const btmRailH = railH;
+            const capRailH = railH;
 
-            const panelGndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
-            const panelGndY = groundY + panelGndOff * scale;
-            const sheetTopY = panelGndY - sheetH;
+            // Low-side ground (bottom of plinths)
+            const lowSideOff = Math.max(groundOffsets[i], groundOffsets[i + 1]);
+            const lowSideGndY = groundY + lowSideOff * scale;
+            // High-side ground (top of plinths)
+            const highSideGndY = lowSideGndY - plinthStackH;
 
-            // Draw tiled sheets from image crop, clipped to panel bounds
+            // Stacking from bottom to top:
+            const plinthBottomY = lowSideGndY;
+            const btmRailBottomY = highSideGndY;
+            const btmRailTopY = btmRailBottomY - btmRailH;
+            const sheetBottomY = btmRailTopY;
+            const sheetTopY = sheetBottomY - sheetH;
+            const capRailTopY = sheetTopY - capRailH;
+
+            // ── Plinths (Colorbond steel plinth panels with horizontal ribs) ──
+            if (plinths > 0) {
+              const plinthH = plinthHeightMm * scale;
+              for (let pi = 0; pi < plinths; pi++) {
+                const py = plinthBottomY - (pi + 1) * plinthH; // stack upward from low-side ground
+                ctx.fillStyle = fenceHex;
+                ctx.fillRect(cursorX, py, panelW, plinthH);
+                const ribCount = 5;
+                const ribSpacing = plinthH / (ribCount + 1);
+                ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                for (let ri = 1; ri <= ribCount; ri++) {
+                  ctx.fillRect(cursorX, py + ri * ribSpacing, panelW, 1);
+                }
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(cursorX, py + plinthH - 1, panelW, 1);
+                if (pi < plinths - 1) {
+                  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                  ctx.fillRect(cursorX, py, panelW, 1);
+                }
+              }
+              ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(cursorX, highSideGndY, panelW, plinthStackH);
+
+              // High-side ground indicator (dashed line at top of plinths)
+              ctx.save();
+              ctx.setLineDash([4, 3]);
+              ctx.strokeStyle = 'rgba(100, 80, 60, 0.5)';
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(cursorX, highSideGndY);
+              ctx.lineTo(cursorX + panelW, highSideGndY);
+              ctx.stroke();
+              ctx.restore();
+              // Label
+              const glFontSize = Math.max(7, Math.min(10, 8 * scale));
+              ctx.fillStyle = 'rgba(100, 80, 60, 0.6)';
+              ctx.font = `${glFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
+              ctx.textAlign = 'right';
+              ctx.textBaseline = 'bottom';
+              ctx.fillText('GL (high)', cursorX + panelW - 2, highSideGndY - 2);
+            }
+
+            // ── Bottom rail (from image crop) on top of plinths ──
+            if (this._panelTextureLoaded) {
+              const sr = this.SRC_RAIL;
+              ctx.drawImage(this._panelTextureImg, sr.sx, sr.sy, sr.sw, sr.sh,
+                cursorX, btmRailTopY, panelW, btmRailH);
+              ctx.save();
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, btmRailTopY, panelW, btmRailH);
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.restore();
+            } else {
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, btmRailTopY, panelW, btmRailH);
+            }
+            ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(cursorX, btmRailTopY, panelW, btmRailH);
+
+            // ── Sheets (tiled from image crop) on top of bottom rail ──
             ctx.save();
             ctx.beginPath();
             ctx.rect(cursorX, sheetTopY, panelW, sheetH);
@@ -1883,7 +1935,6 @@
                 ctx.drawImage(this._panelTextureImg, ss.sx, ss.sy, ss.sw, ss.sh,
                   cursorX + si * tileW, sheetTopY, tileW, sheetH);
               }
-              // Multiply-blend the selected Colorbond colour
               ctx.globalCompositeOperation = 'multiply';
               ctx.fillStyle = fenceHex;
               ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
@@ -1894,60 +1945,28 @@
             }
             ctx.restore();
 
-            // Sheet border
             ctx.strokeStyle = darkenHex(fenceHex, 0.7);
             ctx.lineWidth = 0.5;
             ctx.strokeRect(cursorX, sheetTopY, panelW, sheetH);
 
-            // Bottom rail (from image crop) at base of sheets
-            const btmRailH = railHeightMm * scale;
+            // ── Per-panel capping rail (from image crop) on top of sheets ──
             if (this._panelTextureLoaded) {
-              const sr = this.SRC_RAIL;
-              ctx.drawImage(this._panelTextureImg, sr.sx, sr.sy, sr.sw, sr.sh,
-                cursorX, panelGndY - btmRailH, panelW, btmRailH);
+              const sc = this.SRC_CAP;
+              ctx.drawImage(this._panelTextureImg, sc.sx, sc.sy, sc.sw, sc.sh,
+                cursorX, capRailTopY, panelW, capRailH);
               ctx.save();
               ctx.globalCompositeOperation = 'multiply';
               ctx.fillStyle = fenceHex;
-              ctx.fillRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
+              ctx.fillRect(cursorX, capRailTopY, panelW, capRailH);
               ctx.globalCompositeOperation = 'source-over';
               ctx.restore();
             } else {
               ctx.fillStyle = fenceHex;
-              ctx.fillRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
+              ctx.fillRect(cursorX, capRailTopY, panelW, capRailH);
             }
             ctx.strokeStyle = darkenHex(fenceHex, 0.7);
             ctx.lineWidth = 0.5;
-            ctx.strokeRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
-
-            // ── Plinths (Colorbond steel plinth panels with horizontal ribs) ──
-            if (plinths > 0) {
-              const plinthH = plinthHeightMm * scale;
-              for (let pi = 0; pi < plinths; pi++) {
-                const py = panelGndY + pi * plinthH;
-                // Plinth body — fence colour
-                ctx.fillStyle = fenceHex;
-                ctx.fillRect(cursorX, py, panelW, plinthH);
-                // Horizontal ribs (5 lines across plinth)
-                const ribCount = 5;
-                const ribSpacing = plinthH / (ribCount + 1);
-                ctx.fillStyle = 'rgba(0,0,0,0.15)';
-                for (let ri = 1; ri <= ribCount; ri++) {
-                  ctx.fillRect(cursorX, py + ri * ribSpacing, panelW, 1);
-                }
-                // Darker bottom edge for depth
-                ctx.fillStyle = 'rgba(0,0,0,0.2)';
-                ctx.fillRect(cursorX, py + plinthH - 1, panelW, 1);
-                // 1px join line between stacked plinths (except last)
-                if (pi < plinths - 1) {
-                  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-                  ctx.fillRect(cursorX, py + plinthH, panelW, 1);
-                }
-              }
-              // Outer border around entire plinth stack
-              ctx.strokeStyle = darkenHex(fenceHex, 0.7);
-              ctx.lineWidth = 0.5;
-              ctx.strokeRect(cursorX, panelGndY, panelW, plinths * plinthH);
-            }
+            ctx.strokeRect(cursorX, capRailTopY, panelW, capRailH);
 
             // ── Panel number (circled) ──
             const circleCX = cursorX + panelW / 2;
