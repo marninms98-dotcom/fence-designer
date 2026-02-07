@@ -530,6 +530,27 @@
       transition: opacity 0.1s;
     }
 
+    .pv-reset-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 10;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid #c0c8cc;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      color: #293C46;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .pv-reset-btn:hover {
+      background: rgba(255,255,255,1);
+      border-color: #8899a4;
+    }
+
     .panel-table tbody tr.panel-row-highlight {
       background: rgba(241,90,41,0.12) !important;
       outline: 2px solid #F15A29;
@@ -695,6 +716,7 @@
       <div class="profile-view-container" id="profileViewContainer">
         <canvas id="profileCanvas"></canvas>
         <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
+        <button class="pv-reset-btn" onclick="app.resetProfileView()">Reset View</button>
       </div>
       <div class="visualiser-placeholder" id="threeDPlaceholder" style="display:none;">
         3D View — coming soon
@@ -1546,8 +1568,8 @@
             const dx = e.clientX - this._profileDrag.startX;
             const dy = e.clientY - this._profileDrag.startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this._profileDrag.moved = true;
-            this.profilePan.x = this._profileDrag.panX + dx;
-            this.profilePan.y = this._profileDrag.panY + dy;
+            this.profilePan.x = this._profileDrag.panX + dx * 0.6;
+            this.profilePan.y = this._profileDrag.panY + dy * 0.6;
             this.renderProfileView();
             return;
           }
@@ -1587,14 +1609,14 @@
 
         container.addEventListener('wheel', (e) => {
           e.preventDefault();
-          const delta = e.deltaY > 0 ? 0.9 : 1.1;
+          const delta = e.deltaY > 0 ? 0.95 : 1.05;
           const rect = container.getBoundingClientRect();
           const mx = e.clientX - rect.left;
           const my = e.clientY - rect.top;
           this.profilePan.x = mx - (mx - this.profilePan.x) * delta;
           this.profilePan.y = my - (my - this.profilePan.y) * delta;
           this.profileZoom *= delta;
-          this.profileZoom = Math.max(0.2, Math.min(5, this.profileZoom));
+          this.profileZoom = Math.max(0.5, Math.min(5, this.profileZoom));
           this.renderProfileView();
         }, { passive: false });
       },
@@ -1625,6 +1647,16 @@
           console.error('Panel texture FAILED to load:', e);
         };
         img.src = 'textures/panel_harmony_surfmist.png';
+      },
+
+      // Track the last run ID we auto-fitted, so we re-fit when switching runs
+      _lastFittedRunId: null,
+
+      resetProfileView() {
+        this.profilePan = { x: 0, y: 0 };
+        this.profileZoom = 1;
+        this._lastFittedRunId = null; // force re-fit
+        this.renderProfileView();
       },
 
       renderProfileView() {
@@ -1674,7 +1706,6 @@
         const postWidthMm = 50;
         const patioWidthMm = 120;  // visual only, does not affect layout spacing
         const embedDepthMm = 600;
-        const capHeightMm = 50;
         const railHeightMm = 25;
         const plinthHeightMm = 150;
 
@@ -1714,13 +1745,20 @@
           if (above > maxAboveGndYMm) maxAboveGndYMm = above;
         });
         const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
-        const totalAboveMm = capHeightMm + maxAboveGndYMm;
+        const totalAboveMm = maxAboveGndYMm + 50; // small padding above fence top
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
         const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
 
         const scaleX = (cw * 0.90) / totalFenceWidthMm;
         const scaleY = (ch * 0.70) / totalVisualHeightMm;
         const scale = Math.min(scaleX, scaleY);
+
+        // Auto-fit on first render or when switching runs
+        if (this._lastFittedRunId !== run.id) {
+          this.profilePan = { x: 0, y: 0 };
+          this.profileZoom = 1;
+          this._lastFittedRunId = run.id;
+        }
 
         // Pan/zoom transform
         ctx.save();
@@ -1746,6 +1784,124 @@
           originX + fencePixelW / 2,
           groundY - maxAboveGndYMm * scale - 10
         );
+
+        // ── Soil profile (retained earth behind plinths, viewed from LOW side) ──
+        // Build the high-side ground profile as a path across the full run
+        {
+          let sx = originX;
+          const earthBottomY = groundY + maxGndOffset * scale + embedDepthMm * scale + 50;
+
+          ctx.save();
+          ctx.beginPath();
+          // Start at bottom-left
+          ctx.moveTo(sx, earthBottomY);
+
+          for (let ei = 0; ei <= panelCount; ei++) {
+            const postGnd = groundY + groundOffsets[ei] * scale;
+            const epanel = ei < panelCount ? run.panels[ei] : null;
+            const epw = postWidthMm * scale;
+            const epanelW = panelWidthMm * scale;
+
+            // High-side ground at this post = low-side ground of adjacent panel - plinth stack
+            // For a post, we use the highest adjacent panel's high-side level
+            let highSideAtPost = postGnd; // default: no retaining = ground level
+            if (ei > 0) {
+              const lp = run.panels[ei - 1];
+              const lpLowOff = Math.max(groundOffsets[ei - 1], groundOffsets[ei]);
+              const lpLowGndY = groundY + lpLowOff * scale;
+              const lpHighSide = lpLowGndY - lp.retaining * scale;
+              highSideAtPost = Math.min(highSideAtPost, lpHighSide);
+            }
+            if (ei < panelCount) {
+              const rp = run.panels[ei];
+              const rpLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
+              const rpLowGndY = groundY + rpLowOff * scale;
+              const rpHighSide = rpLowGndY - rp.retaining * scale;
+              highSideAtPost = Math.min(highSideAtPost, rpHighSide);
+            }
+
+            if (ei === 0) {
+              // First post: line up from bottom to high-side level
+              ctx.lineTo(sx, highSideAtPost);
+            } else {
+              // Step vertically at post junction then across
+              ctx.lineTo(sx, highSideAtPost);
+            }
+
+            sx += epw; // past post
+
+            if (epanel) {
+              // Across the panel at its high-side level
+              const pLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
+              const pLowGndY = groundY + pLowOff * scale;
+              const pHighSide = pLowGndY - epanel.retaining * scale;
+              ctx.lineTo(sx, pHighSide); // left edge of panel at high-side
+              sx += epanelW;
+              ctx.lineTo(sx, pHighSide); // right edge of panel at high-side
+            }
+          }
+
+          // Close path down to bottom-right and back
+          ctx.lineTo(sx, earthBottomY);
+          ctx.closePath();
+
+          // Earth fill gradient
+          const earthTopY = groundY - maxGndOffset * scale - 200;
+          const grdEarth = ctx.createLinearGradient(0, earthTopY, 0, earthBottomY);
+          grdEarth.addColorStop(0, '#C4A882');
+          grdEarth.addColorStop(1, '#8B7355');
+          ctx.fillStyle = grdEarth;
+          ctx.fill();
+          ctx.restore();
+
+          // Grass strip along the top edge of the earth profile (4px green line)
+          ctx.save();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#5B8C3E';
+          ctx.beginPath();
+          let gx = originX;
+          let firstPoint = true;
+          for (let ei = 0; ei <= panelCount; ei++) {
+            const postGnd = groundY + groundOffsets[ei] * scale;
+            const epw = postWidthMm * scale;
+            const epanelW = panelWidthMm * scale;
+            const epanel = ei < panelCount ? run.panels[ei] : null;
+
+            let highSideAtPost = postGnd;
+            if (ei > 0) {
+              const lp = run.panels[ei - 1];
+              const lpLowOff = Math.max(groundOffsets[ei - 1], groundOffsets[ei]);
+              const lpLowGndY = groundY + lpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - lp.retaining * scale);
+            }
+            if (ei < panelCount) {
+              const rp = run.panels[ei];
+              const rpLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
+              const rpLowGndY = groundY + rpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - rp.retaining * scale);
+            }
+
+            if (firstPoint) {
+              ctx.moveTo(gx, highSideAtPost);
+              firstPoint = false;
+            } else {
+              ctx.lineTo(gx, highSideAtPost);
+            }
+
+            gx += epw;
+
+            if (epanel) {
+              const pLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
+              const pLowGndY = groundY + pLowOff * scale;
+              const pHighSide = pLowGndY - epanel.retaining * scale;
+              ctx.lineTo(gx, pHighSide);
+              gx += epanelW;
+              ctx.lineTo(gx, pHighSide);
+            }
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
 
         // ── Draw posts and panels ──
         let cursorX = originX;
@@ -1824,15 +1980,6 @@
           ctx.strokeRect(footingX, footingY, footingW, footingH);
           ctx.restore();
 
-          // Post cap (flat pressed-metal, fence colour, slightly wider)
-          const capH = Math.max(4, 8 * scale);
-          const capOverhang = Math.max(1, 2 * scale);
-          ctx.fillStyle = fenceHex;
-          ctx.fillRect(cursorX - capOverhang, postTopY - capH, pw + capOverhang * 2, capH);
-          ctx.strokeStyle = darkenHex(fenceHex, 0.7);
-          ctx.lineWidth = 0.5;
-          ctx.strokeRect(cursorX - capOverhang, postTopY - capH, pw + capOverhang * 2, capH);
-
           cursorX += pw;
 
           // ── PANEL (correct construction stacking: plinths → bottom rail → sheets → cap rail) ──
@@ -1881,24 +2028,6 @@
               ctx.strokeStyle = darkenHex(fenceHex, 0.7);
               ctx.lineWidth = 0.5;
               ctx.strokeRect(cursorX, highSideGndY, panelW, plinthStackH);
-
-              // High-side ground indicator (dashed line at top of plinths)
-              ctx.save();
-              ctx.setLineDash([4, 3]);
-              ctx.strokeStyle = 'rgba(100, 80, 60, 0.5)';
-              ctx.lineWidth = 1;
-              ctx.beginPath();
-              ctx.moveTo(cursorX, highSideGndY);
-              ctx.lineTo(cursorX + panelW, highSideGndY);
-              ctx.stroke();
-              ctx.restore();
-              // Label
-              const glFontSize = Math.max(7, Math.min(10, 8 * scale));
-              ctx.fillStyle = 'rgba(100, 80, 60, 0.6)';
-              ctx.font = `${glFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
-              ctx.textAlign = 'right';
-              ctx.textBaseline = 'bottom';
-              ctx.fillText('GL (high)', cursorX + panelW - 2, highSideGndY - 2);
             }
 
             // ── Bottom rail (from image crop) on top of plinths ──
