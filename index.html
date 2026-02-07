@@ -1776,6 +1776,7 @@
         const rect = container.getBoundingClientRect();
         tooltip.textContent = text;
         tooltip.style.display = 'block';
+        tooltip.style.background = 'rgba(139,115,85,0.95)';
         tooltip.style.left = (clientX - rect.left + 14) + 'px';
         tooltip.style.top = (clientY - rect.top - 34) + 'px';
       },
@@ -1845,6 +1846,7 @@
         const rect = container.getBoundingClientRect();
         tooltip.textContent = text;
         tooltip.style.display = 'block';
+        tooltip.style.background = 'rgba(241,90,41,0.92)';
         tooltip.style.left = (clientX - rect.left + 14) + 'px';
         tooltip.style.top = (clientY - rect.top - 34) + 'px';
       },
@@ -2715,9 +2717,9 @@
               // Panel i is adjacent to handles at post i and post i+1
               if (dragIdx === i || dragIdx === i + 1) {
                 ctx.save();
-                ctx.fillStyle = 'rgba(139,115,85,0.12)';
+                ctx.fillStyle = 'rgba(241,90,41,0.10)';
                 ctx.fillRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
-                ctx.strokeStyle = 'rgba(139,115,85,0.35)';
+                ctx.strokeStyle = 'rgba(241,90,41,0.30)';
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
                 ctx.restore();
@@ -2862,7 +2864,7 @@
 
               ctx.beginPath();
               ctx.arc(handleX, handleY, handleR / this.profileZoom, 0, Math.PI * 2);
-              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+              ctx.fillStyle = isDragged ? '#C44520' : (isHovered ? '#F47A52' : '#F15A29');
               ctx.fill();
               ctx.strokeStyle = '#FFFFFF';
               ctx.lineWidth = 2 / this.profileZoom;
@@ -2872,7 +2874,7 @@
               if (isDragged) {
                 ctx.save();
                 ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
-                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+                ctx.strokeStyle = 'rgba(241,90,41,0.4)';
                 ctx.lineWidth = 1 / this.profileZoom;
                 ctx.beginPath();
                 ctx.moveTo(originX - 20, handleY);
