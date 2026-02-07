@@ -812,36 +812,32 @@
         { ret: 150, post: 2400, patio: false },
         { ret: 300, post: 2400, patio: false },
         { ret: 450, post: 2400, patio: false },
-        { ret: 600, post: 2400, patio: false },
-        { ret: 750, post: 2700, patio: false }
+        { ret: 600, post: 2400, patio: false }
       ],
       1500: [
         { ret: 0,   post: 2400, patio: false },
         { ret: 150, post: 2400, patio: false },
         { ret: 300, post: 2400, patio: false },
         { ret: 450, post: 2700, patio: true },
-        { ret: 600, post: 2700, patio: true },
-        { ret: 750, post: 3000, patio: true }
+        { ret: 600, post: 2700, patio: true }
       ],
       1800: [
         { ret: 0,   post: 2400, patio: false },
         { ret: 150, post: 2700, patio: false },
         { ret: 300, post: 2700, patio: false },
         { ret: 450, post: 3000, patio: true },
-        { ret: 600, post: 3000, patio: true },
-        { ret: 750, post: 3000, patio: true }
+        { ret: 600, post: 3000, patio: true }
       ],
       2100: [
         { ret: 0,   post: 2700, patio: false },
         { ret: 150, post: 3000, patio: false },
         { ret: 300, post: 3000, patio: false },
         { ret: 450, post: 3000, patio: true },
-        { ret: 600, post: 3000, patio: true },
-        { ret: 750, post: 3000, patio: true }
+        { ret: 600, post: 3000, patio: true }
       ]
     };
 
-    const RETAINING_OPTIONS = [0, 150, 300, 450, 600, 750];
+    const RETAINING_OPTIONS = [0, 150, 300, 450, 600];
     const SHEET_HEIGHTS = [1200, 1500, 1800, 2100];
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
 
@@ -1035,7 +1031,8 @@
             id: 'panel-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
             height: run.sheetHeight,
             retaining: 0,
-            step: 'level'
+            step: 'level',
+            slopePlinths: 0
           });
         }
 
@@ -1047,15 +1044,21 @@
 
       // ── Compute derived values per panel (not stored, used for display) ──
       getPanelDerived(panel) {
-        const plinths = panel.retaining / 150;
-        const totalHeight = panel.height + panel.retaining;
-        const lookup = lookupPost(panel.height, panel.retaining);
+        const slopePlinths = panel.slopePlinths || 0;
+        const manualPlinths = panel.retaining / 150;
+        const plinths = slopePlinths + manualPlinths;
+        const totalRetaining = plinths * 150;
+        const totalHeight = panel.height + totalRetaining;
+        const lookup = lookupPost(panel.height, Math.min(600, totalRetaining));
         return {
           plinths,
+          slopePlinths,
+          manualPlinths,
+          totalRetaining,
           totalHeight,
           postSize: lookup.post,
           patio: lookup.patio,
-          needsPatioTube: plinths >= 3 && plinths <= 5
+          needsPatioTube: plinths >= 3 && plinths <= 4
         };
       },
 
@@ -1085,7 +1088,8 @@
           length: 0,
           sheetHeight: 1800,
           extension: 'none',
-          panels: []
+          panels: [],
+          slopePoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }]
         };
         this.job.runs.push(run);
         this.currentRunId = run.id;
@@ -1221,14 +1225,15 @@
         const warnings = [];
         this.job.runs.forEach(run => {
           run.panels.forEach((panel, idx) => {
-            const plinths = panel.retaining / 150;
-            if (plinths >= 6) {
+            const totalRetaining = panel.retaining + (panel.slopePlinths || 0) * 150;
+            const totalPlinths = totalRetaining / 150;
+            if (totalPlinths >= 4) {
               warnings.push({
-                type: 'stop',
-                msg: `${run.name} P${idx + 1}: ${panel.retaining}mm retaining (${plinths} plinths) — STOP: Exceeds Colorbond plinth capacity. Requires post & panel retaining system.`
+                type: 'warn',
+                msg: `${run.name} P${idx + 1}: Panel at maximum plinth capacity (${totalRetaining}mm). Additional retaining requires engineered solution.`
               });
             }
-            if (panel.retaining > 500) {
+            if (totalRetaining > 500) {
               warnings.push({
                 type: 'warn',
                 msg: `${run.name} P${idx + 1}: Retaining >${500}mm requires Building Permit + Engineer Cert in WA.`
@@ -1629,7 +1634,7 @@
           const lpLowGndY = layout.groundY + lpLowOff * layout.scale;
           const rawRetMm = (lpLowGndY - worldY) / layout.scale;
           const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
-          run.panels[lpIdx].retaining = Math.max(0, Math.min(750, snapped));
+          run.panels[lpIdx].retaining = Math.max(0, Math.min(600, snapped));
         }
         if (postIdx >= 0 && postIdx < panelCount) {
           // Right panel
@@ -1638,7 +1643,7 @@
           const rpLowGndY = layout.groundY + rpLowOff * layout.scale;
           const rawRetMm = (rpLowGndY - worldY) / layout.scale;
           const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
-          run.panels[rpIdx].retaining = Math.max(0, Math.min(750, snapped));
+          run.panels[rpIdx].retaining = Math.max(0, Math.min(600, snapped));
         }
       },
 
@@ -2527,8 +2532,12 @@
             this.job.runs.forEach(run => {
               if (run.sheetHeight === undefined) run.sheetHeight = run.defaultHeight || 1800;
               if (run.extension === undefined || run.extension === null) run.extension = 'none';
+              if (!run.slopePoints) run.slopePoints = [{ x: 0, y: 0 }, { x: 1, y: 0 }];
               run.panels.forEach(p => {
                 if (p.step === undefined) p.step = p.ground || 'level';
+                if (p.slopePlinths === undefined) p.slopePlinths = 0;
+                // Clamp any legacy 750mm retaining to 600mm max
+                if (p.retaining > 600) p.retaining = 600;
               });
             });
             if (this.job.runs.length > 0 && !this.currentRunId) {
