@@ -1446,11 +1446,18 @@
             ? `<span class="post-patio">${maxPost}†</span>`
             : `${maxPost}`;
 
-          // Plinths display: append † when plinths >= 3 (patio tube required)
+          // Plinths display: total plinths (slope + manual), append † when >= 3 (patio tube)
           const plinthsDisplay = derived.plinths >= 3 ? `${derived.plinths}†` : `${derived.plinths}`;
 
-          // Step is user input stored on the panel, not auto-calculated
+          // Slope plinths display (read-only, greyed out)
+          const slopePlinthsDisplay = derived.slopePlinths > 0 ? `${derived.slopePlinths}` : '—';
+
+          // Step auto-calculated from slope
           const stepValue = panel.step || 'level';
+          const stepDisplay = stepValue === 'down' ? '↓' : (stepValue === 'up' ? '↑' : '—');
+
+          // Warning badge for max capacity
+          const maxWarning = derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#e65100;font-weight:700;">⚠</span>' : '';
 
           return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
@@ -1461,6 +1468,7 @@
                 ).join('')}
               </select>
             </td>
+            <td class="col-slope" style="color:#8B7355;text-align:center;">${slopePlinthsDisplay}</td>
             <td class="col-ret">
               <select onchange="app.updatePanel('${run.id}', ${idx}, 'retaining', this.value)">
                 ${RETAINING_OPTIONS.map(r =>
@@ -1468,14 +1476,8 @@
                 ).join('')}
               </select>
             </td>
-            <td class="col-pl">${plinthsDisplay}</td>
-            <td class="col-step">
-              <select onchange="app.updatePanel('${run.id}', ${idx}, 'step', this.value)">
-                <option value="level" ${stepValue === 'level' ? 'selected' : ''}>—</option>
-                <option value="up" ${stepValue === 'up' ? 'selected' : ''}>↑</option>
-                <option value="down" ${stepValue === 'down' ? 'selected' : ''}>↓</option>
-              </select>
-            </td>
+            <td class="col-pl">${plinthsDisplay}${maxWarning}</td>
+            <td class="col-step" style="text-align:center;color:#666;">${stepDisplay}</td>
             <td class="col-total ${totalClass}">${derived.totalHeight}</td>
             <td class="col-post">${postDisplay}</td>
             <td class="col-del"><button class="delete-panel-btn" onclick="app.deletePanel('${run.id}', ${idx})" title="Delete panel">&times;</button></td>
@@ -1582,7 +1584,8 @@
                   <tr>
                     <th>P#</th>
                     <th>Sheet Ht</th>
-                    <th>Ret (mm)</th>
+                    <th title="Slope-generated plinths (auto)">Slope</th>
+                    <th title="Manual retaining (mm)">Ret (mm)</th>
                     <th>Plinths</th>
                     <th>Step</th>
                     <th>Total</th>
@@ -2171,20 +2174,38 @@
         rows.forEach(row => {
           const idx = parseInt(row.getAttribute('data-panel-idx'));
           if (idx >= 0 && idx < run.panels.length) {
-            const sel = row.querySelector('.col-ret select');
-            if (sel && parseInt(sel.value) !== run.panels[idx].retaining) {
-              sel.value = run.panels[idx].retaining;
+            const panel = run.panels[idx];
+            const derived = this.getPanelDerived(panel);
+
+            // Update slope plinths display
+            const slopeTd = row.querySelector('.col-slope');
+            if (slopeTd) {
+              slopeTd.textContent = derived.slopePlinths > 0 ? `${derived.slopePlinths}` : '—';
             }
-            // Update plinths display
+
+            const sel = row.querySelector('.col-ret select');
+            if (sel && parseInt(sel.value) !== panel.retaining) {
+              sel.value = panel.retaining;
+            }
+
+            // Update plinths display (total)
             const plTd = row.querySelector('.col-pl');
             if (plTd) {
-              const plinths = run.panels[idx].retaining / 150;
-              plTd.textContent = plinths >= 3 ? `${plinths}†` : `${plinths}`;
+              const maxW = derived.plinths >= 4 ? ' <span title="Max retaining" style="color:#e65100;font-weight:700;">⚠</span>' : '';
+              plTd.innerHTML = (derived.plinths >= 3 ? `${derived.plinths}†` : `${derived.plinths}`) + maxW;
             }
+
+            // Update step display
+            const stepTd = row.querySelector('.col-step');
+            if (stepTd) {
+              const step = panel.step || 'level';
+              stepTd.textContent = step === 'down' ? '↓' : (step === 'up' ? '↑' : '—');
+            }
+
             // Update total display
             const totTd = row.querySelector('.col-total');
             if (totTd) {
-              const total = run.panels[idx].height + run.panels[idx].retaining;
+              const total = derived.totalHeight;
               totTd.textContent = total;
               totTd.className = 'col-total ' + (total > 1800 ? 'total-elevated' : 'total-standard');
             }
