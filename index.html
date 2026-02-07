@@ -1085,32 +1085,23 @@
       },
 
       // ── Slope interpolation: get ground height (mm) at fractional position along run ──
-      // slopePoints sorted by x (0..1), y in mm (0 = start height, negative = lower)
-      interpolateSlope(slopePoints, fraction) {
-        if (!slopePoints || slopePoints.length === 0) return 0;
-        if (slopePoints.length === 1) return slopePoints[0].y;
-        // Clamp fraction
-        if (fraction <= slopePoints[0].x) return slopePoints[0].y;
-        if (fraction >= slopePoints[slopePoints.length - 1].x) return slopePoints[slopePoints.length - 1].y;
-        // Find the two points that bracket this fraction
-        for (let i = 0; i < slopePoints.length - 1; i++) {
-          const p0 = slopePoints[i];
-          const p1 = slopePoints[i + 1];
-          if (fraction >= p0.x && fraction <= p1.x) {
-            const t = (fraction - p0.x) / (p1.x - p0.x);
-            return p0.y + t * (p1.y - p0.y);
-          }
-        }
-        return 0;
+      // slopeProfile is [h0, h1, h2, h3, h4] at 0%, 25%, 50%, 75%, 100%
+      interpolateSlope(slopeProfile, fraction) {
+        if (!slopeProfile || slopeProfile.length !== 5) return 0;
+        // Map fraction (0..1) to segment index (0..3) between the 5 control points
+        const t = Math.max(0, Math.min(1, fraction)) * 4; // 0..4
+        const seg = Math.min(3, Math.floor(t));
+        const local = t - seg; // 0..1 within segment
+        return slopeProfile[seg] + local * (slopeProfile[seg + 1] - slopeProfile[seg]);
       },
 
       // ── Calculate slope-derived steps and plinths for all panels in a run ──
       // This sets panel.slopePlinths and panel.step based on the slope line.
-      // Called whenever slopePoints change or panels are synced.
+      // Called whenever slopeProfile changes or panels are synced.
       calcSlopeForRun(run) {
         if (!run || !run.panels.length) return;
         const panelCount = run.panels.length;
-        const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+        const profile = run.slopeProfile || [0, 0, 0, 0, 0];
         const plinthH = 150;
         const maxStepsPerPanel = 4; // 600mm max step between adjacent panels
 
@@ -1119,7 +1110,7 @@
         const groundHeights = [];
         for (let i = 0; i <= panelCount; i++) {
           const frac = panelCount > 0 ? i / panelCount : 0;
-          groundHeights.push(this.interpolateSlope(slopePoints, frac));
+          groundHeights.push(this.interpolateSlope(profile, frac));
         }
 
         // Each panel spans from post i to post i+1.
@@ -1193,7 +1184,7 @@
           sheetHeight: 1800,
           extension: 'none',
           panels: [],
-          slopePoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }]
+          slopeProfile: [0, 0, 0, 0, 0]
         };
         this.job.runs.push(run);
         this.currentRunId = run.id;
@@ -1217,6 +1208,15 @@
 
       switchRun(runId) {
         this.currentRunId = runId;
+        this.render();
+      },
+
+      resetSlope(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run) return;
+        run.slopeProfile = [0, 0, 0, 0, 0];
+        this.calcSlopeForRun(run);
+        this.save();
         this.render();
       },
 
@@ -1567,6 +1567,7 @@
             </div>
             <div class="run-settings-actions">
               <button class="btn-orange" onclick="app.applyHeightToAll('${run.id}')">Apply Height to All</button>
+              <button class="btn-orange" onclick="app.resetSlope('${run.id}')" style="background:#8B7355;">Reset Slope</button>
               <button class="btn-delete" onclick="app.deleteRun('${run.id}')">Delete Run</button>
             </div>
           </div>
@@ -1653,11 +1654,10 @@
       _soilHandleProximity: false,  // true when mouse is near ground line
       _soilGroundOffsets: [],       // cached ground offsets in mm for handle drag calculations
 
-      // ── Slope line handle state (ground slope — earth brown, 2 endpoints + midpoints) ──
-      _slopeHandlePositions: [],   // [{x, y, slopeIdx}] world coords of slope handles
+      // ── Slope line handle state (5 fixed control points at 0%, 25%, 50%, 75%, 100%) ──
+      _slopeHandlePositions: [],   // [{x, y, slopeIdx}] world coords of 5 slope handles
       _slopeHandleDrag: null,      // {slopeIdx, startWorldY} when dragging
-      _slopeHandleHover: -1,       // index of hovered slope handle
-      _slopeHandleProximity: false, // true when mouse is near slope line
+      _slopeHandleHover: -1,       // index of hovered slope handle (0-4)
 
       // Select a panel (from table click or canvas click)
       selectPanel(idx) {
@@ -1740,40 +1740,21 @@
         return -1;
       },
 
-      // Check if world coords are near the slope line
-      _isNearSlopeLine(wx, wy) {
-        if (this._slopeHandlePositions.length < 2) return false;
-        const proximityPx = 30 / this.profileZoom;
-        // Check proximity to the line segments between slope handles
-        for (let i = 0; i < this._slopeHandlePositions.length - 1; i++) {
-          const a = this._slopeHandlePositions[i];
-          const b = this._slopeHandlePositions[i + 1];
-          // Check if wx is between a.x and b.x
-          if (wx >= Math.min(a.x, b.x) - proximityPx && wx <= Math.max(a.x, b.x) + proximityPx) {
-            // Interpolate Y on the line at wx
-            const t = (b.x - a.x) !== 0 ? (wx - a.x) / (b.x - a.x) : 0;
-            const lineY = a.y + t * (b.y - a.y);
-            if (Math.abs(wy - lineY) < proximityPx) return true;
-          }
-        }
-        return false;
-      },
-
-      // Check if current slopePoints would cause a constraint violation:
+      // Check if current slopeProfile would cause a constraint violation:
       // Returns 'adjacent' if any adjacent panel step > 4 plinths (600mm),
       // Returns 'capacity' if any panel's slopePlinths + manualPlinths > 4,
       // Returns null if no violation.
       _checkSlopeViolation(run) {
         const panelCount = run.panels.length;
         if (panelCount === 0) return null;
-        const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+        const profile = run.slopeProfile || [0, 0, 0, 0, 0];
         const plinthH = 150;
         const maxSteps = 4;
 
         const groundHeights = [];
         for (let i = 0; i <= panelCount; i++) {
           const frac = panelCount > 0 ? i / panelCount : 0;
-          groundHeights.push(this.interpolateSlope(slopePoints, frac));
+          groundHeights.push(this.interpolateSlope(profile, frac));
         }
 
         // Simulate base level calculation and check adjacent step constraint
@@ -1813,53 +1794,46 @@
       // Track whether slope handle is currently clamped (for tooltip display)
       _slopeHandleClamped: null, // null | 'adjacent' | 'capacity'
 
-      // Apply slope handle drag: update slopePoints Y value
-      // Bidirectional (UP or DOWN), clamped by adjacent-panel 600mm cap and total plinth cap
+      // Apply slope handle drag: update slopeProfile[slopeIdx] value
+      // Bidirectional (UP or DOWN), snaps to 150mm, clamped by adjacent-panel cap
       _applySlopeHandleDrag(slopeIdx, worldY) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
-        if (!run || !run.slopePoints || slopeIdx >= run.slopePoints.length) return;
+        if (!run || !run.slopeProfile || slopeIdx < 0 || slopeIdx > 4) return;
         const layout = this._soilHandleLayout;
         if (!layout) return;
 
         const plinthH = 150;
         // Convert worldY to mm offset from groundY (start level)
         const rawMm = (layout.groundY - worldY) / layout.scale;
-        // Snap to 150mm increments
-        const snapped = Math.round(rawMm / plinthH) * plinthH;
+        // Snap to 150mm increments, clamp to ±1200mm range
+        const snapped = Math.max(-1200, Math.min(1200, Math.round(rawMm / plinthH) * plinthH));
 
-        // First point stays at 0 (the reference baseline)
-        if (slopeIdx === 0) {
-          run.slopePoints[slopeIdx].y = 0;
-          this._slopeHandleClamped = null;
-        } else {
-          // Bidirectional: sanity cap at ±6000mm
-          const targetY = Math.max(-6000, Math.min(6000, snapped));
-          const currentY = run.slopePoints[slopeIdx].y;
+        const currentY = run.slopeProfile[slopeIdx];
+        const targetY = snapped;
 
-          // Try the target value
-          run.slopePoints[slopeIdx].y = targetY;
-          const violation = this._checkSlopeViolation(run);
+        // Try the target value
+        run.slopeProfile[slopeIdx] = targetY;
+        const violation = this._checkSlopeViolation(run);
 
-          if (violation) {
-            // Search from currentY toward targetY in 150mm steps for the limit
-            const direction = targetY > currentY ? 1 : -1;
-            let validY = currentY;
-            let testY = currentY + direction * plinthH;
+        if (violation) {
+          // Search from currentY toward targetY in 150mm steps for the limit
+          const direction = targetY > currentY ? 1 : -1;
+          let validY = currentY;
+          let testY = currentY + direction * plinthH;
 
-            while (direction > 0 ? testY <= targetY : testY >= targetY) {
-              run.slopePoints[slopeIdx].y = testY;
-              if (this._checkSlopeViolation(run)) {
-                break; // testY is too far, validY is the last good value
-              }
-              validY = testY;
-              testY += direction * plinthH;
+          while (direction > 0 ? testY <= targetY : testY >= targetY) {
+            run.slopeProfile[slopeIdx] = testY;
+            if (this._checkSlopeViolation(run)) {
+              break;
             }
-
-            run.slopePoints[slopeIdx].y = validY;
-            this._slopeHandleClamped = violation;
-          } else {
-            this._slopeHandleClamped = null;
+            validY = testY;
+            testY += direction * plinthH;
           }
+
+          run.slopeProfile[slopeIdx] = validY;
+          this._slopeHandleClamped = violation;
+        } else {
+          this._slopeHandleClamped = null;
         }
         // Recalc slope for the run
         this.calcSlopeForRun(run);
@@ -1867,26 +1841,23 @@
 
       _showSlopeHandleTooltip(clientX, clientY, slopeIdx) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
-        if (!run || !run.slopePoints) return;
+        if (!run || !run.slopeProfile) return;
         const container = document.getElementById('profileViewContainer');
         const tooltip = document.getElementById('soilHandleTooltip');
         if (!tooltip || !container) return;
 
-        const pt = run.slopePoints[slopeIdx];
-        const mm = pt.y; // negative = lower, positive = higher
+        const mm = run.slopeProfile[slopeIdx] || 0;
         let text;
-        if (slopeIdx === 0) {
-          text = 'Start level (0mm)';
-        } else if (this._slopeHandleClamped === 'adjacent') {
+        if (this._slopeHandleClamped === 'adjacent') {
           text = 'Max 600mm step between panels';
         } else if (this._slopeHandleClamped === 'capacity') {
           text = '\u26A0 Max plinth capacity';
         } else if (mm === 0) {
-          text = 'Level (0mm)';
-        } else if (mm < 0) {
-          text = `Drop: ${Math.abs(mm)}mm`;
+          text = '0mm';
+        } else if (mm > 0) {
+          text = `+${mm}mm`;
         } else {
-          text = `Rise: ${mm}mm`;
+          text = `${mm}mm`;
         }
 
         const rect = container.getBoundingClientRect();
@@ -1955,7 +1926,7 @@
         container.addEventListener('mousedown', (e) => {
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check slope handles first (existing control points)
+          // Check slope handles (5 fixed control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -1965,33 +1936,6 @@
             container.style.cursor = 'ns-resize';
             this._showSlopeHandleTooltip(e.clientX, e.clientY, slopeIdx);
             return;
-          }
-
-          // Click on slope line but not on a handle — create new control point and drag it
-          if (this._isNearSlopeLine(w.x, w.y)) {
-            const run = this.job.runs.find(r => r.id === this.currentRunId);
-            const layout = this._soilHandleLayout;
-            if (run && run.slopePoints && layout) {
-              const maxPoints = run.panels.length + 1;
-              if (run.slopePoints.length < maxPoints) {
-                e.preventDefault();
-                e.stopPropagation();
-                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
-                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
-                const interpY = this.interpolateSlope(run.slopePoints, frac);
-                const newPoint = { x: frac, y: interpY };
-                run.slopePoints.push(newPoint);
-                run.slopePoints.sort((a, b) => a.x - b.x);
-                const newIdx = run.slopePoints.indexOf(newPoint);
-                this.calcSlopeForRun(run);
-                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true };
-                this._slopeHandleHover = newIdx;
-                container.style.cursor = 'ns-resize';
-                this._showSlopeHandleTooltip(e.clientX, e.clientY, newIdx);
-                this.renderProfileView();
-                return;
-              }
-            }
           }
 
           // Check retaining handles (per-panel)
@@ -2055,7 +1999,6 @@
           const slopeHoverIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeHoverIdx >= 0) {
             this._slopeHandleHover = slopeHoverIdx;
-            this._slopeHandleProximity = true;
             container.style.cursor = 'ns-resize';
             this._showSlopeHandleTooltip(e.clientX, e.clientY, slopeHoverIdx);
             if (this._soilHandleHover >= 0) { this._soilHandleHover = -1; }
@@ -2090,21 +2033,10 @@
             this.renderProfileView();
           }
 
-          // Track proximity to slope line and soil line (show/hide handles)
-          const nearSlope = this._isNearSlopeLine(w.x, w.y);
-          const wasNearSlope = this._slopeHandleProximity;
-          this._slopeHandleProximity = nearSlope;
-          if (wasNearSlope !== nearSlope) this.renderProfileView();
-
+          // Track proximity to soil line (show/hide retaining handles)
           const wasNear = this._soilHandleProximity;
           this._soilHandleProximity = nearSoil;
           if (wasNear !== nearSoil) this.renderProfileView();
-
-          // Slope line hover: show grab cursor to indicate draggable
-          if (nearSlope && handleIdx < 0) {
-            container.style.cursor = 'crosshair';
-            return;
-          }
 
           // Standard hover hit-testing
           const hit = this._hitTest(w.x, w.y);
@@ -2160,21 +2092,7 @@
           this._profileDrag = null;
         });
 
-        // Double-click: add/remove slope midpoints
-        container.addEventListener('dblclick', (e) => {
-          const run = this.job.runs.find(r => r.id === this.currentRunId);
-          if (!run || !run.slopePoints) return;
-          const w = this._screenToWorld(e.clientX, e.clientY);
-
-          // Double-click an existing midpoint (not endpoints) to remove it
-          const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
-          if (slopeIdx > 0 && slopeIdx < run.slopePoints.length - 1) {
-            run.slopePoints.splice(slopeIdx, 1);
-            this.calcSlopeForRun(run);
-            this.save();
-            this.render();
-          }
-        });
+        // (No dblclick handler needed — 5 fixed slope points, no midpoint add/remove)
 
         // Touch support for slope + retaining handles
         container.addEventListener('touchstart', (e) => {
@@ -2182,7 +2100,7 @@
           const touch = e.touches[0];
           const w = this._screenToWorld(touch.clientX, touch.clientY);
 
-          // Slope handles first (existing control points)
+          // Slope handles (5 fixed control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -2191,31 +2109,6 @@
             this._showSlopeHandleTooltip(touch.clientX, touch.clientY, slopeIdx);
             this.renderProfileView();
             return;
-          }
-
-          // Touch on slope line but not on a handle — create new control point and drag it
-          if (this._isNearSlopeLine(w.x, w.y)) {
-            const run = this.job.runs.find(r => r.id === this.currentRunId);
-            const layout = this._soilHandleLayout;
-            if (run && run.slopePoints && layout) {
-              const maxPoints = run.panels.length + 1;
-              if (run.slopePoints.length < maxPoints) {
-                e.preventDefault();
-                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
-                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
-                const interpY = this.interpolateSlope(run.slopePoints, frac);
-                const newPoint = { x: frac, y: interpY };
-                run.slopePoints.push(newPoint);
-                run.slopePoints.sort((a, b) => a.x - b.x);
-                const newIdx = run.slopePoints.indexOf(newPoint);
-                this.calcSlopeForRun(run);
-                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true, isTouch: true };
-                this._slopeHandleHover = newIdx;
-                this._showSlopeHandleTooltip(touch.clientX, touch.clientY, newIdx);
-                this.renderProfileView();
-                return;
-              }
-            }
           }
 
           // Retaining handles
@@ -2883,81 +2776,69 @@
           ctx.fillRect(originX - 30, groundBandTop, fencePixelW + 60, groundBandH);
         }
 
-        // ── Slope line (natural ground contour) ──
+        // ── Slope line (5 fixed control points at 0%, 25%, 50%, 75%, 100%) ──
         {
-          const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
-          const isTouchDevice = 'ontouchstart' in window;
-          const showSlopeHandles = isTouchDevice || this._slopeHandleProximity || (this._slopeHandleDrag && this._slopeHandleDrag.active);
+          const profile = run.slopeProfile || [0, 0, 0, 0, 0];
           const slopeHandleR = 12;
+          const slopeFractions = [0, 0.25, 0.50, 0.75, 1.0];
 
-          // Map slope points to world coordinates
+          // Map 5 profile points to world coordinates
           this._slopeHandlePositions = [];
-          const slopeWorldPoints = slopePoints.map(sp => {
-            const wx = originX + sp.x * fencePixelW;
-            const wy = groundY - sp.y * scale; // y is in mm, negative = lower, so subtract
-            return { x: wx, y: wy };
-          });
-
-          // Store handle positions for hit testing
-          for (let si = 0; si < slopePoints.length; si++) {
-            this._slopeHandlePositions.push({
-              x: slopeWorldPoints[si].x,
-              y: slopeWorldPoints[si].y,
-              slopeIdx: si
-            });
+          const slopeWorldPoints = [];
+          for (let si = 0; si < 5; si++) {
+            const wx = originX + slopeFractions[si] * fencePixelW;
+            const wy = groundY - profile[si] * scale; // positive mm = higher ground = lower wy
+            slopeWorldPoints.push({ x: wx, y: wy });
+            this._slopeHandlePositions.push({ x: wx, y: wy, slopeIdx: si });
           }
 
-          // Draw slope line (2px solid earth brown)
-          if (slopeWorldPoints.length >= 2) {
-            ctx.save();
-            ctx.strokeStyle = '#8B7355';
+          // Draw slope line (2px solid earth brown, 4 segments)
+          ctx.save();
+          ctx.strokeStyle = '#8B7355';
+          ctx.lineWidth = 2 / this.profileZoom;
+          ctx.beginPath();
+          ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
+          for (let si = 1; si < 5; si++) {
+            ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
+          }
+          ctx.stroke();
+
+          // 4px green grass strip on top of slope line
+          ctx.strokeStyle = '#5B8C3E';
+          ctx.lineWidth = 4 / this.profileZoom;
+          ctx.beginPath();
+          ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
+          for (let si = 1; si < 5; si++) {
+            ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
+          }
+          ctx.stroke();
+          ctx.restore();
+
+          // Draw 5 slope handles (always visible)
+          for (let si = 0; si < 5; si++) {
+            const sp = slopeWorldPoints[si];
+            const isHovered = this._slopeHandleHover === si;
+            const isDragged = this._slopeHandleDrag && this._slopeHandleDrag.active && this._slopeHandleDrag.slopeIdx === si;
+
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, slopeHandleR / this.profileZoom, 0, Math.PI * 2);
+            ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 2 / this.profileZoom;
-            ctx.beginPath();
-            ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
-            for (let si = 1; si < slopeWorldPoints.length; si++) {
-              ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
-            }
             ctx.stroke();
 
-            // 4px green grass strip on top of slope line
-            ctx.strokeStyle = '#5B8C3E';
-            ctx.lineWidth = 4 / this.profileZoom;
-            ctx.beginPath();
-            ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
-            for (let si = 1; si < slopeWorldPoints.length; si++) {
-              ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
-            }
-            ctx.stroke();
-            ctx.restore();
-          }
-
-          // Draw slope handles
-          if (showSlopeHandles) {
-            for (let si = 0; si < slopeWorldPoints.length; si++) {
-              const sp = slopeWorldPoints[si];
-              const isHovered = this._slopeHandleHover === si;
-              const isDragged = this._slopeHandleDrag && this._slopeHandleDrag.active && this._slopeHandleDrag.slopeIdx === si;
-
+            // Guide line when dragging
+            if (isDragged) {
+              ctx.save();
+              ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
+              ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+              ctx.lineWidth = 1 / this.profileZoom;
               ctx.beginPath();
-              ctx.arc(sp.x, sp.y, slopeHandleR / this.profileZoom, 0, Math.PI * 2);
-              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
-              ctx.fill();
-              ctx.strokeStyle = '#FFFFFF';
-              ctx.lineWidth = 2 / this.profileZoom;
+              ctx.moveTo(originX - 20, sp.y);
+              ctx.lineTo(originX + fencePixelW + 20, sp.y);
               ctx.stroke();
-
-              // Guide line when dragging
-              if (isDragged) {
-                ctx.save();
-                ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
-                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
-                ctx.lineWidth = 1 / this.profileZoom;
-                ctx.beginPath();
-                ctx.moveTo(originX - 20, sp.y);
-                ctx.lineTo(originX + fencePixelW + 20, sp.y);
-                ctx.stroke();
-                ctx.restore();
-              }
+              ctx.restore();
             }
           }
         }
@@ -3050,7 +2931,29 @@
             this.job.runs.forEach(run => {
               if (run.sheetHeight === undefined) run.sheetHeight = run.defaultHeight || 1800;
               if (run.extension === undefined || run.extension === null) run.extension = 'none';
-              if (!run.slopePoints) run.slopePoints = [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+              // Migrate old slopePoints to slopeProfile (5 fixed points)
+              if (!run.slopeProfile) {
+                if (run.slopePoints && run.slopePoints.length >= 2) {
+                  // Sample old slope at 0%, 25%, 50%, 75%, 100%
+                  const oldPts = run.slopePoints;
+                  const sampleAt = (frac) => {
+                    if (frac <= oldPts[0].x) return oldPts[0].y;
+                    if (frac >= oldPts[oldPts.length - 1].x) return oldPts[oldPts.length - 1].y;
+                    for (let j = 0; j < oldPts.length - 1; j++) {
+                      if (frac >= oldPts[j].x && frac <= oldPts[j + 1].x) {
+                        const t = (frac - oldPts[j].x) / (oldPts[j + 1].x - oldPts[j].x);
+                        return oldPts[j].y + t * (oldPts[j + 1].y - oldPts[j].y);
+                      }
+                    }
+                    return 0;
+                  };
+                  const snap = (v) => Math.round(v / 150) * 150;
+                  run.slopeProfile = [snap(sampleAt(0)), snap(sampleAt(0.25)), snap(sampleAt(0.5)), snap(sampleAt(0.75)), snap(sampleAt(1))];
+                } else {
+                  run.slopeProfile = [0, 0, 0, 0, 0];
+                }
+                delete run.slopePoints; // Remove old format
+              }
               run.panels.forEach(p => {
                 if (p.step === undefined) p.step = p.ground || 'level';
                 if (p.slopePlinths === undefined) p.slopePlinths = 0;
