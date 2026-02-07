@@ -1841,7 +1841,7 @@
         container.addEventListener('mousedown', (e) => {
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check slope handles first (ground slope)
+          // Check slope handles first (existing control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -1851,6 +1851,33 @@
             container.style.cursor = 'ns-resize';
             this._showSlopeHandleTooltip(e.clientX, e.clientY, slopeIdx);
             return;
+          }
+
+          // Click on slope line but not on a handle — create new control point and drag it
+          if (this._isNearSlopeLine(w.x, w.y)) {
+            const run = this.job.runs.find(r => r.id === this.currentRunId);
+            const layout = this._soilHandleLayout;
+            if (run && run.slopePoints && layout) {
+              const maxPoints = run.panels.length + 1;
+              if (run.slopePoints.length < maxPoints) {
+                e.preventDefault();
+                e.stopPropagation();
+                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
+                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
+                const interpY = this.interpolateSlope(run.slopePoints, frac);
+                const newPoint = { x: frac, y: interpY };
+                run.slopePoints.push(newPoint);
+                run.slopePoints.sort((a, b) => a.x - b.x);
+                const newIdx = run.slopePoints.indexOf(newPoint);
+                this.calcSlopeForRun(run);
+                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true };
+                this._slopeHandleHover = newIdx;
+                container.style.cursor = 'ns-resize';
+                this._showSlopeHandleTooltip(e.clientX, e.clientY, newIdx);
+                this.renderProfileView();
+                return;
+              }
+            }
           }
 
           // Check retaining handles (per-panel)
@@ -1959,6 +1986,12 @@
           this._soilHandleProximity = nearSoil;
           if (wasNear !== nearSoil) this.renderProfileView();
 
+          // Slope line hover: show grab cursor to indicate draggable
+          if (nearSlope && handleIdx < 0) {
+            container.style.cursor = 'crosshair';
+            return;
+          }
+
           // Standard hover hit-testing
           const hit = this._hitTest(w.x, w.y);
           const tooltip = document.getElementById('pvTooltip');
@@ -2019,38 +2052,10 @@
           if (!run || !run.slopePoints) return;
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check if double-clicking an existing midpoint (not endpoints)
+          // Double-click an existing midpoint (not endpoints) to remove it
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx > 0 && slopeIdx < run.slopePoints.length - 1) {
-            // Remove this midpoint
             run.slopePoints.splice(slopeIdx, 1);
-            this.calcSlopeForRun(run);
-            this.save();
-            this.render();
-            return;
-          }
-
-          // Check if double-clicking near the slope line (to add midpoint)
-          if (this._isNearSlopeLine(w.x, w.y)) {
-            // Max 3 midpoints (5 total points including endpoints)
-            if (run.slopePoints.length >= 5) return;
-
-            const layout = this._soilHandleLayout;
-            if (!layout) return;
-
-            // Convert world X to fraction along the run
-            const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
-            const frac = (w.x - layout.originX) / totalFenceW;
-            const clampedFrac = Math.max(0.05, Math.min(0.95, frac));
-
-            // Interpolate Y at this fraction from existing slope
-            const interpY = this.interpolateSlope(run.slopePoints, clampedFrac);
-
-            // Insert the new point in sorted order
-            const newPoint = { x: clampedFrac, y: interpY };
-            run.slopePoints.push(newPoint);
-            run.slopePoints.sort((a, b) => a.x - b.x);
-
             this.calcSlopeForRun(run);
             this.save();
             this.render();
@@ -2063,7 +2068,7 @@
           const touch = e.touches[0];
           const w = this._screenToWorld(touch.clientX, touch.clientY);
 
-          // Slope handles first
+          // Slope handles first (existing control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -2072,6 +2077,31 @@
             this._showSlopeHandleTooltip(touch.clientX, touch.clientY, slopeIdx);
             this.renderProfileView();
             return;
+          }
+
+          // Touch on slope line but not on a handle — create new control point and drag it
+          if (this._isNearSlopeLine(w.x, w.y)) {
+            const run = this.job.runs.find(r => r.id === this.currentRunId);
+            const layout = this._soilHandleLayout;
+            if (run && run.slopePoints && layout) {
+              const maxPoints = run.panels.length + 1;
+              if (run.slopePoints.length < maxPoints) {
+                e.preventDefault();
+                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
+                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
+                const interpY = this.interpolateSlope(run.slopePoints, frac);
+                const newPoint = { x: frac, y: interpY };
+                run.slopePoints.push(newPoint);
+                run.slopePoints.sort((a, b) => a.x - b.x);
+                const newIdx = run.slopePoints.indexOf(newPoint);
+                this.calcSlopeForRun(run);
+                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true, isTouch: true };
+                this._slopeHandleHover = newIdx;
+                this._showSlopeHandleTooltip(touch.clientX, touch.clientY, newIdx);
+                this.renderProfileView();
+                return;
+              }
+            }
           }
 
           // Retaining handles
