@@ -1073,6 +1073,97 @@
         return posts;
       },
 
+      // ── Slope interpolation: get ground height (mm) at fractional position along run ──
+      // slopePoints sorted by x (0..1), y in mm (0 = start height, negative = lower)
+      interpolateSlope(slopePoints, fraction) {
+        if (!slopePoints || slopePoints.length === 0) return 0;
+        if (slopePoints.length === 1) return slopePoints[0].y;
+        // Clamp fraction
+        if (fraction <= slopePoints[0].x) return slopePoints[0].y;
+        if (fraction >= slopePoints[slopePoints.length - 1].x) return slopePoints[slopePoints.length - 1].y;
+        // Find the two points that bracket this fraction
+        for (let i = 0; i < slopePoints.length - 1; i++) {
+          const p0 = slopePoints[i];
+          const p1 = slopePoints[i + 1];
+          if (fraction >= p0.x && fraction <= p1.x) {
+            const t = (fraction - p0.x) / (p1.x - p0.x);
+            return p0.y + t * (p1.y - p0.y);
+          }
+        }
+        return 0;
+      },
+
+      // ── Calculate slope-derived steps and plinths for all panels in a run ──
+      // This sets panel.slopePlinths and panel.step based on the slope line.
+      // Called whenever slopePoints change or panels are synced.
+      calcSlopeForRun(run) {
+        if (!run || !run.panels.length) return;
+        const panelCount = run.panels.length;
+        const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+        const plinthH = 150;
+
+        // Get the interpolated ground height at each post position (panelCount + 1 posts)
+        // Post i is at fraction i / panelCount along the run
+        const groundHeights = [];
+        for (let i = 0; i <= panelCount; i++) {
+          const frac = panelCount > 0 ? i / panelCount : 0;
+          groundHeights.push(this.interpolateSlope(slopePoints, frac));
+        }
+
+        // Each panel spans from post i to post i+1.
+        // The panel's "base level" snaps to the nearest plinthH step below the ground.
+        // We work left-to-right. Panel 0's base = 0 (reference).
+        // For each subsequent panel, the base steps down when the ground drops enough.
+
+        // Panel base levels (in mm, relative to start — 0 or negative)
+        const baseLevels = new Array(panelCount).fill(0);
+        baseLevels[0] = 0; // First panel is the reference
+
+        for (let i = 1; i < panelCount; i++) {
+          // Ground height at this panel's left post
+          const groundAtPost = groundHeights[i];
+          // How far has ground dropped from the previous panel's base?
+          // Step down when ground drops a full plinthH below current base
+          const prevBase = baseLevels[i - 1];
+          const dropFromPrevBase = prevBase - groundAtPost; // positive = ground is lower
+          if (dropFromPrevBase >= plinthH) {
+            // Step down by however many full plinths fit
+            const steps = Math.floor(dropFromPrevBase / plinthH);
+            baseLevels[i] = prevBase - steps * plinthH;
+          } else if (dropFromPrevBase <= -plinthH) {
+            // Ground has risen — step up
+            const steps = Math.floor(-dropFromPrevBase / plinthH);
+            baseLevels[i] = prevBase + steps * plinthH;
+          } else {
+            baseLevels[i] = prevBase;
+          }
+        }
+
+        // Now calculate slopePlinths and step for each panel
+        for (let i = 0; i < panelCount; i++) {
+          const panel = run.panels[i];
+
+          // Slope plinths = how far this panel's base is above the lowest ground
+          // at either end of the panel, measured in plinth units
+          const groundLeft = groundHeights[i];
+          const groundRight = groundHeights[i + 1];
+          const lowestGround = Math.min(groundLeft, groundRight);
+          const gapMm = baseLevels[i] - lowestGround; // how far base is above ground
+          const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
+          panel.slopePlinths = slopePlinths;
+
+          // Step direction: compare this panel's base to previous
+          if (i === 0) {
+            panel.step = 'level';
+          } else {
+            const diff = baseLevels[i] - baseLevels[i - 1];
+            if (diff < 0) panel.step = 'down';
+            else if (diff > 0) panel.step = 'up';
+            else panel.step = 'level';
+          }
+        }
+      },
+
       recalculateAll() {
         this.job.runs.forEach(run => this.syncPanels(run));
         this.render();
@@ -1260,7 +1351,7 @@
           totalPosts += panelCount + 1;
           totalMetres += run.length || 0;
           run.panels.forEach(p => {
-            const pl = p.retaining / 150;
+            const pl = (p.slopePlinths || 0) + p.retaining / 150;
             totalPlinths += pl;
             if (pl > 0) plinthPanelCount++;
           });
@@ -1293,6 +1384,8 @@
 
       // ── Render ──
       render() {
+        // Recalc slope-derived steps + plinths for all runs before rendering
+        this.job.runs.forEach(run => this.calcSlopeForRun(run));
         this.renderRunTabs();
         this.renderRunContent();
         this.updateStats();
@@ -1982,6 +2075,11 @@
           return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
+        // Total retaining per panel (slope plinths + manual retaining)
+        function panelTotalRetaining(p) {
+          return (p.slopePlinths || 0) * 150 + p.retaining;
+        }
+
         // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
@@ -1994,7 +2092,7 @@
 
         let maxTotalH = 0;
         run.panels.forEach(p => {
-          const th = p.height + p.retaining;
+          const th = p.height + panelTotalRetaining(p);
           if (th > maxTotalH) maxTotalH = th;
         });
 
@@ -2026,7 +2124,7 @@
         let maxAboveGndYMm = 0;
         run.panels.forEach((p, idx) => {
           const lowOffset = Math.max(groundOffsets[idx], groundOffsets[idx + 1]);
-          const panelTopMm = p.retaining + railHeightMm + p.height + railHeightMm;
+          const panelTopMm = panelTotalRetaining(p) + railHeightMm + p.height + railHeightMm;
           const above = panelTopMm - lowOffset;
           if (above > maxAboveGndYMm) maxAboveGndYMm = above;
         });
@@ -2098,14 +2196,14 @@
               const lp = run.panels[ei - 1];
               const lpLowOff = Math.max(groundOffsets[ei - 1], groundOffsets[ei]);
               const lpLowGndY = groundY + lpLowOff * scale;
-              const lpHighSide = lpLowGndY - lp.retaining * scale;
+              const lpHighSide = lpLowGndY - panelTotalRetaining(lp) * scale;
               highSideAtPost = Math.min(highSideAtPost, lpHighSide);
             }
             if (ei < panelCount) {
               const rp = run.panels[ei];
               const rpLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
               const rpLowGndY = groundY + rpLowOff * scale;
-              const rpHighSide = rpLowGndY - rp.retaining * scale;
+              const rpHighSide = rpLowGndY - panelTotalRetaining(rp) * scale;
               highSideAtPost = Math.min(highSideAtPost, rpHighSide);
             }
 
@@ -2123,7 +2221,7 @@
               // Across the panel at its high-side level
               const pLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
               const pLowGndY = groundY + pLowOff * scale;
-              const pHighSide = pLowGndY - epanel.retaining * scale;
+              const pHighSide = pLowGndY - panelTotalRetaining(epanel) * scale;
               ctx.lineTo(sx, pHighSide); // left edge of panel at high-side
               sx += epanelW;
               ctx.lineTo(sx, pHighSide); // right edge of panel at high-side
@@ -2161,13 +2259,13 @@
               const lp = run.panels[ei - 1];
               const lpLowOff = Math.max(groundOffsets[ei - 1], groundOffsets[ei]);
               const lpLowGndY = groundY + lpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - lp.retaining * scale);
+              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - panelTotalRetaining(lp) * scale);
             }
             if (ei < panelCount) {
               const rp = run.panels[ei];
               const rpLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
               const rpLowGndY = groundY + rpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - rp.retaining * scale);
+              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - panelTotalRetaining(rp) * scale);
             }
 
             if (firstPoint) {
@@ -2182,7 +2280,7 @@
             if (epanel) {
               const pLowOff = Math.max(groundOffsets[ei], groundOffsets[ei + 1]);
               const pLowGndY = groundY + pLowOff * scale;
-              const pHighSide = pLowGndY - epanel.retaining * scale;
+              const pHighSide = pLowGndY - panelTotalRetaining(epanel) * scale;
               ctx.lineTo(gx, pHighSide);
               gx += epanelW;
               ctx.lineTo(gx, pHighSide);
@@ -2211,13 +2309,13 @@
           if (leftPanel) {
             const lpLowOff = Math.max(groundOffsets[i - 1], groundOffsets[i]);
             const lpLowGndY = groundY + lpLowOff * scale;
-            const lpCapTopY = lpLowGndY - (leftPanel.retaining + railHeightMm + leftPanel.height + railHeightMm) * scale;
+            const lpCapTopY = lpLowGndY - (panelTotalRetaining(leftPanel) + railHeightMm + leftPanel.height + railHeightMm) * scale;
             postTopY = Math.min(postTopY, lpCapTopY);
           }
           if (rightPanel) {
             const rpLowOff = Math.max(groundOffsets[i], groundOffsets[i + 1]);
             const rpLowGndY = groundY + rpLowOff * scale;
-            const rpCapTopY = rpLowGndY - (rightPanel.retaining + railHeightMm + rightPanel.height + railHeightMm) * scale;
+            const rpCapTopY = rpLowGndY - (panelTotalRetaining(rightPanel) + railHeightMm + rightPanel.height + railHeightMm) * scale;
             postTopY = Math.min(postTopY, rpCapTopY);
           }
           const postAboveH = postGndY - postTopY;
@@ -2275,8 +2373,9 @@
           if (panel) {
             const panelW = panelWidthMm * scale;
             const sheetH = panel.height * scale;
-            const plinths = panel.retaining / plinthHeightMm;
-            const plinthStackH = panel.retaining * scale;
+            const totalRet = panelTotalRetaining(panel);
+            const plinths = totalRet / plinthHeightMm;
+            const plinthStackH = totalRet * scale;
             const btmRailH = railH;
             const capRailH = railH;
 
@@ -2456,13 +2555,13 @@
               const lp = run.panels[hi - 1];
               const lpLowOff = Math.max(groundOffsets[hi - 1], groundOffsets[hi]);
               const lpLowGndY = groundY + lpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - lp.retaining * scale);
+              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - panelTotalRetaining(lp) * scale);
             }
             if (hi < panelCount) {
               const rp = run.panels[hi];
               const rpLowOff = Math.max(groundOffsets[hi], groundOffsets[hi + 1]);
               const rpLowGndY = groundY + rpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - rp.retaining * scale);
+              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - panelTotalRetaining(rp) * scale);
             }
 
             // Handle X = centre of the post
