@@ -376,6 +376,12 @@
       width: 55px;
     }
 
+    .panel-table .col-slope {
+      width: 40px;
+      color: #8B7355;
+      text-align: center;
+    }
+
     .panel-table .col-ret {
       width: 65px;
     }
@@ -387,7 +393,7 @@
     }
 
     .panel-table .col-step {
-      width: 35px;
+      width: 48px;
       color: #4C6A70;
     }
 
@@ -1032,6 +1038,7 @@
             height: run.sheetHeight,
             retaining: 0,
             step: 'level',
+            stepMm: 0,
             slopePlinths: 0
           });
         }
@@ -1046,12 +1053,16 @@
       getPanelDerived(panel) {
         const slopePlinths = panel.slopePlinths || 0;
         const manualPlinths = panel.retaining / 150;
-        const plinths = slopePlinths + manualPlinths;
+        const rawPlinths = slopePlinths + manualPlinths;
+        const plinths = Math.min(4, rawPlinths); // Total capped at 4
+        const plinthsCapped = rawPlinths > 4;
         const totalRetaining = plinths * 150;
         const totalHeight = panel.height + totalRetaining;
         const lookup = lookupPost(panel.height, Math.min(600, totalRetaining));
         return {
           plinths,
+          rawPlinths,
+          plinthsCapped,
           slopePlinths,
           manualPlinths,
           totalRetaining,
@@ -1101,6 +1112,7 @@
         const panelCount = run.panels.length;
         const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
         const plinthH = 150;
+        const maxStepsPerPanel = 4; // 600mm max step between adjacent panels
 
         // Get the interpolated ground height at each post position (panelCount + 1 posts)
         // Post i is at fraction i / panelCount along the run
@@ -1113,9 +1125,9 @@
         // Each panel spans from post i to post i+1.
         // The panel's "base level" snaps to the nearest plinthH step below the ground.
         // We work left-to-right. Panel 0's base = 0 (reference).
-        // For each subsequent panel, the base steps down when the ground drops enough.
+        // For each subsequent panel, the base steps down/up when ground changes enough.
 
-        // Panel base levels (in mm, relative to start — 0 or negative)
+        // Panel base levels (in mm, relative to start — negative = lower, positive = higher)
         const baseLevels = new Array(panelCount).fill(0);
         baseLevels[0] = 0; // First panel is the reference
 
@@ -1123,23 +1135,22 @@
           // Ground height at this panel's left post
           const groundAtPost = groundHeights[i];
           // How far has ground dropped from the previous panel's base?
-          // Step down when ground drops a full plinthH below current base
           const prevBase = baseLevels[i - 1];
           const dropFromPrevBase = prevBase - groundAtPost; // positive = ground is lower
           if (dropFromPrevBase >= plinthH) {
-            // Step down by however many full plinths fit
-            const steps = Math.floor(dropFromPrevBase / plinthH);
+            // Step down by however many full plinths fit, capped at 4 (600mm)
+            const steps = Math.min(maxStepsPerPanel, Math.floor(dropFromPrevBase / plinthH));
             baseLevels[i] = prevBase - steps * plinthH;
           } else if (dropFromPrevBase <= -plinthH) {
-            // Ground has risen — step up
-            const steps = Math.floor(-dropFromPrevBase / plinthH);
+            // Ground has risen — step up, capped at 4 (600mm)
+            const steps = Math.min(maxStepsPerPanel, Math.floor(-dropFromPrevBase / plinthH));
             baseLevels[i] = prevBase + steps * plinthH;
           } else {
             baseLevels[i] = prevBase;
           }
         }
 
-        // Now calculate slopePlinths and step for each panel
+        // Now calculate slopePlinths, step direction, and stepMm for each panel
         for (let i = 0; i < panelCount; i++) {
           const panel = run.panels[i];
 
@@ -1152,14 +1163,16 @@
           const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
           panel.slopePlinths = slopePlinths;
 
-          // Step direction: compare this panel's base to previous
+          // Step direction and magnitude: compare this panel's base to previous
           if (i === 0) {
             panel.step = 'level';
+            panel.stepMm = 0;
           } else {
             const diff = baseLevels[i] - baseLevels[i - 1];
             if (diff < 0) panel.step = 'down';
             else if (diff > 0) panel.step = 'up';
             else panel.step = 'level';
+            panel.stepMm = diff; // negative = down, positive = up, 0 = level
           }
         }
       },
@@ -1351,7 +1364,7 @@
           totalPosts += panelCount + 1;
           totalMetres += run.length || 0;
           run.panels.forEach(p => {
-            const pl = (p.slopePlinths || 0) + p.retaining / 150;
+            const pl = Math.min(4, (p.slopePlinths || 0) + p.retaining / 150);
             totalPlinths += pl;
             if (pl > 0) plinthPanelCount++;
           });
@@ -1452,12 +1465,17 @@
           // Slope plinths display (read-only, greyed out)
           const slopePlinthsDisplay = derived.slopePlinths > 0 ? `${derived.slopePlinths}` : '—';
 
-          // Step auto-calculated from slope
-          const stepValue = panel.step || 'level';
-          const stepDisplay = stepValue === 'down' ? '↓' : (stepValue === 'up' ? '↑' : '—');
+          // Step auto-calculated from slope — shows direction + mm amount
+          const stepMm = panel.stepMm || 0;
+          let stepDisplay;
+          if (stepMm < 0) stepDisplay = '\u2193' + Math.abs(stepMm);
+          else if (stepMm > 0) stepDisplay = '\u2191' + stepMm;
+          else stepDisplay = '\u2014';
 
-          // Warning badge for max capacity
-          const maxWarning = derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#e65100;font-weight:700;">⚠</span>' : '';
+          // Warning badge for max capacity (capped or at limit)
+          const maxWarning = derived.plinthsCapped
+            ? ' <span title="Max plinth capacity — slope + retaining exceeds 4" style="color:#e65100;font-weight:700;">\u26A0</span>'
+            : (derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#e65100;font-weight:700;">\u26A0</span>' : '');
 
           return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
@@ -1741,7 +1759,62 @@
         return false;
       },
 
+      // Check if current slopePoints would cause a constraint violation:
+      // Returns 'adjacent' if any adjacent panel step > 4 plinths (600mm),
+      // Returns 'capacity' if any panel's slopePlinths + manualPlinths > 4,
+      // Returns null if no violation.
+      _checkSlopeViolation(run) {
+        const panelCount = run.panels.length;
+        if (panelCount === 0) return null;
+        const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+        const plinthH = 150;
+        const maxSteps = 4;
+
+        const groundHeights = [];
+        for (let i = 0; i <= panelCount; i++) {
+          const frac = panelCount > 0 ? i / panelCount : 0;
+          groundHeights.push(this.interpolateSlope(slopePoints, frac));
+        }
+
+        // Simulate base level calculation and check adjacent step constraint
+        const baseLevels = [0];
+        for (let i = 1; i < panelCount; i++) {
+          const prevBase = baseLevels[i - 1];
+          const groundAtPost = groundHeights[i];
+          const dropFromPrevBase = prevBase - groundAtPost;
+
+          if (dropFromPrevBase >= plinthH) {
+            const steps = Math.floor(dropFromPrevBase / plinthH);
+            if (steps > maxSteps) return 'adjacent';
+            baseLevels.push(prevBase - steps * plinthH);
+          } else if (dropFromPrevBase <= -plinthH) {
+            const steps = Math.floor(-dropFromPrevBase / plinthH);
+            if (steps > maxSteps) return 'adjacent';
+            baseLevels.push(prevBase + steps * plinthH);
+          } else {
+            baseLevels.push(prevBase);
+          }
+        }
+
+        // Check total plinth capacity for each panel (slopePlinths + manualPlinths ≤ 4)
+        for (let i = 0; i < panelCount; i++) {
+          const groundLeft = groundHeights[i];
+          const groundRight = groundHeights[i + 1];
+          const lowestGround = Math.min(groundLeft, groundRight);
+          const gapMm = baseLevels[i] - lowestGround;
+          const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
+          const manualPlinths = run.panels[i].retaining / plinthH;
+          if (slopePlinths + manualPlinths > maxSteps) return 'capacity';
+        }
+
+        return null;
+      },
+
+      // Track whether slope handle is currently clamped (for tooltip display)
+      _slopeHandleClamped: null, // null | 'adjacent' | 'capacity'
+
       // Apply slope handle drag: update slopePoints Y value
+      // Bidirectional (UP or DOWN), clamped by adjacent-panel 600mm cap and total plinth cap
       _applySlopeHandleDrag(slopeIdx, worldY) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run || !run.slopePoints || slopeIdx >= run.slopePoints.length) return;
@@ -1750,16 +1823,43 @@
 
         const plinthH = 150;
         // Convert worldY to mm offset from groundY (start level)
-        // groundY in world coords = the base ground level (y=0 in slope terms)
         const rawMm = (layout.groundY - worldY) / layout.scale;
         // Snap to 150mm increments
         const snapped = Math.round(rawMm / plinthH) * plinthH;
-        // First point stays at 0, others can go negative (lower)
+
+        // First point stays at 0 (the reference baseline)
         if (slopeIdx === 0) {
-          run.slopePoints[slopeIdx].y = 0; // Start point is always the reference
+          run.slopePoints[slopeIdx].y = 0;
+          this._slopeHandleClamped = null;
         } else {
-          // Range: 0 to -1500mm (can only slope down from start)
-          run.slopePoints[slopeIdx].y = Math.max(-1500, Math.min(0, snapped));
+          // Bidirectional: sanity cap at ±6000mm
+          const targetY = Math.max(-6000, Math.min(6000, snapped));
+          const currentY = run.slopePoints[slopeIdx].y;
+
+          // Try the target value
+          run.slopePoints[slopeIdx].y = targetY;
+          const violation = this._checkSlopeViolation(run);
+
+          if (violation) {
+            // Search from currentY toward targetY in 150mm steps for the limit
+            const direction = targetY > currentY ? 1 : -1;
+            let validY = currentY;
+            let testY = currentY + direction * plinthH;
+
+            while (direction > 0 ? testY <= targetY : testY >= targetY) {
+              run.slopePoints[slopeIdx].y = testY;
+              if (this._checkSlopeViolation(run)) {
+                break; // testY is too far, validY is the last good value
+              }
+              validY = testY;
+              testY += direction * plinthH;
+            }
+
+            run.slopePoints[slopeIdx].y = validY;
+            this._slopeHandleClamped = violation;
+          } else {
+            this._slopeHandleClamped = null;
+          }
         }
         // Recalc slope for the run
         this.calcSlopeForRun(run);
@@ -1773,18 +1873,32 @@
         if (!tooltip || !container) return;
 
         const pt = run.slopePoints[slopeIdx];
-        const dropMm = Math.abs(pt.y);
-        const text = dropMm === 0 ? 'Start level (0mm)' : `Drop: ${dropMm}mm`;
+        const mm = pt.y; // negative = lower, positive = higher
+        let text;
+        if (slopeIdx === 0) {
+          text = 'Start level (0mm)';
+        } else if (this._slopeHandleClamped === 'adjacent') {
+          text = 'Max 600mm step between panels';
+        } else if (this._slopeHandleClamped === 'capacity') {
+          text = '\u26A0 Max plinth capacity';
+        } else if (mm === 0) {
+          text = 'Level (0mm)';
+        } else if (mm < 0) {
+          text = `Drop: ${Math.abs(mm)}mm`;
+        } else {
+          text = `Rise: ${mm}mm`;
+        }
 
         const rect = container.getBoundingClientRect();
         tooltip.textContent = text;
         tooltip.style.display = 'block';
-        tooltip.style.background = 'rgba(139,115,85,0.95)';
+        tooltip.style.background = this._slopeHandleClamped ? 'rgba(230,81,0,0.95)' : 'rgba(139,115,85,0.95)';
         tooltip.style.left = (clientX - rect.left + 14) + 'px';
         tooltip.style.top = (clientY - rect.top - 34) + 'px';
       },
 
       // Apply retaining handle drag: update ONE panel's retaining from handle position
+      // Retaining is capped so that total plinths (slope + manual) ≤ 4
       _applySoilHandleDrag(panelIdx, worldY) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run || panelIdx < 0 || panelIdx >= run.panels.length) return;
@@ -2190,18 +2304,22 @@
               sel.value = panel.retaining;
             }
 
-            // Update plinths display (total)
+            // Update plinths display (total, capped at 4)
             const plTd = row.querySelector('.col-pl');
             if (plTd) {
-              const maxW = derived.plinths >= 4 ? ' <span title="Max retaining" style="color:#e65100;font-weight:700;">⚠</span>' : '';
-              plTd.innerHTML = (derived.plinths >= 3 ? `${derived.plinths}†` : `${derived.plinths}`) + maxW;
+              const maxW = derived.plinthsCapped
+                ? ' <span title="Max plinth capacity" style="color:#e65100;font-weight:700;">\u26A0</span>'
+                : (derived.plinths >= 4 ? ' <span title="Max retaining" style="color:#e65100;font-weight:700;">\u26A0</span>' : '');
+              plTd.innerHTML = (derived.plinths >= 3 ? `${derived.plinths}\u2020` : `${derived.plinths}`) + maxW;
             }
 
-            // Update step display
+            // Update step display with mm amount
             const stepTd = row.querySelector('.col-step');
             if (stepTd) {
-              const step = panel.step || 'level';
-              stepTd.textContent = step === 'down' ? '↓' : (step === 'up' ? '↑' : '—');
+              const stepMm = panel.stepMm || 0;
+              if (stepMm < 0) stepTd.textContent = '\u2193' + Math.abs(stepMm);
+              else if (stepMm > 0) stepTd.textContent = '\u2191' + stepMm;
+              else stepTd.textContent = '\u2014';
             }
 
             // Update total display
@@ -2305,9 +2423,10 @@
           return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
-        // Total retaining per panel (slope plinths + manual retaining)
+        // Total retaining per panel (slope plinths + manual retaining), capped at 4 plinths (600mm)
         function panelTotalRetaining(p) {
-          return (p.slopePlinths || 0) * 150 + p.retaining;
+          const raw = (p.slopePlinths || 0) * 150 + p.retaining;
+          return Math.min(600, raw); // cap at 4 plinths
         }
 
         // ── Dimensions in mm ──
@@ -2326,13 +2445,13 @@
           if (th > maxTotalH) maxTotalH = th;
         });
 
-        // ── Ground offsets from Step column ──
+        // ── Ground offsets from step amounts (variable per panel) ──
         const groundOffsets = new Array(postCount).fill(0);
         for (let i = 0; i < panelCount; i++) {
-          const step = run.panels[i].step || 'level';
-          if (step === 'down') groundOffsets[i + 1] = groundOffsets[i] + plinthHeightMm;
-          else if (step === 'up') groundOffsets[i + 1] = groundOffsets[i] - plinthHeightMm;
-          else groundOffsets[i + 1] = groundOffsets[i];
+          const stepMm = run.panels[i].stepMm || 0;
+          // stepMm negative = step down = ground lower → offset increases
+          // stepMm positive = step up = ground higher → offset decreases
+          groundOffsets[i + 1] = groundOffsets[i] - stepMm;
         }
         const minGndOffset = Math.min(...groundOffsets);
         for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGndOffset;
@@ -2935,6 +3054,7 @@
               run.panels.forEach(p => {
                 if (p.step === undefined) p.step = p.ground || 'level';
                 if (p.slopePlinths === undefined) p.slopePlinths = 0;
+                if (p.stepMm === undefined) p.stepMm = 0;
                 // Clamp any legacy 750mm retaining to 600mm max
                 if (p.retaining > 600) p.retaining = 600;
               });
