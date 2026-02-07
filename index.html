@@ -1625,12 +1625,18 @@
       _profileHover: null,
       highlightedPanelIdx: null,
 
-      // ── Soil profile handle dragging state ──
+      // ── Soil profile handle dragging state (retaining handles — per-panel, orange) ──
       _soilHandlePositions: [],    // [{x, y, postIdx}] world coords of each handle
       _soilHandleDrag: null,       // {postIdx, startY, startRetLeft, startRetRight} when dragging
       _soilHandleHover: -1,        // index of hovered handle, -1 if none
       _soilHandleProximity: false,  // true when mouse is near ground line
       _soilGroundOffsets: [],       // cached ground offsets in mm for handle drag calculations
+
+      // ── Slope line handle state (ground slope — earth brown, 2 endpoints + midpoints) ──
+      _slopeHandlePositions: [],   // [{x, y, slopeIdx}] world coords of slope handles
+      _slopeHandleDrag: null,      // {slopeIdx, startWorldY} when dragging
+      _slopeHandleHover: -1,       // index of hovered slope handle
+      _slopeHandleProximity: false, // true when mouse is near slope line
 
       // Select a panel (from table click or canvas click)
       selectPanel(idx) {
@@ -1698,6 +1704,80 @@
           if (Math.abs(wy - h.y) < proximityPx && Math.abs(wx - h.x) < proximityPx * 3) return true;
         }
         return false;
+      },
+
+      // Check if world coords are near a slope handle; returns index or -1
+      _hitTestSlopeHandle(wx, wy) {
+        const isTouchDevice = 'ontouchstart' in window;
+        const baseR = 12;
+        const worldR = (baseR + 4) / this.profileZoom;
+        for (let i = 0; i < this._slopeHandlePositions.length; i++) {
+          const h = this._slopeHandlePositions[i];
+          const dx = wx - h.x, dy = wy - h.y;
+          if (dx * dx + dy * dy <= worldR * worldR) return i;
+        }
+        return -1;
+      },
+
+      // Check if world coords are near the slope line
+      _isNearSlopeLine(wx, wy) {
+        if (this._slopeHandlePositions.length < 2) return false;
+        const proximityPx = 30 / this.profileZoom;
+        // Check proximity to the line segments between slope handles
+        for (let i = 0; i < this._slopeHandlePositions.length - 1; i++) {
+          const a = this._slopeHandlePositions[i];
+          const b = this._slopeHandlePositions[i + 1];
+          // Check if wx is between a.x and b.x
+          if (wx >= Math.min(a.x, b.x) - proximityPx && wx <= Math.max(a.x, b.x) + proximityPx) {
+            // Interpolate Y on the line at wx
+            const t = (b.x - a.x) !== 0 ? (wx - a.x) / (b.x - a.x) : 0;
+            const lineY = a.y + t * (b.y - a.y);
+            if (Math.abs(wy - lineY) < proximityPx) return true;
+          }
+        }
+        return false;
+      },
+
+      // Apply slope handle drag: update slopePoints Y value
+      _applySlopeHandleDrag(slopeIdx, worldY) {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run || !run.slopePoints || slopeIdx >= run.slopePoints.length) return;
+        const layout = this._soilHandleLayout;
+        if (!layout) return;
+
+        const plinthH = 150;
+        // Convert worldY to mm offset from groundY (start level)
+        // groundY in world coords = the base ground level (y=0 in slope terms)
+        const rawMm = (layout.groundY - worldY) / layout.scale;
+        // Snap to 150mm increments
+        const snapped = Math.round(rawMm / plinthH) * plinthH;
+        // First point stays at 0, others can go negative (lower)
+        if (slopeIdx === 0) {
+          run.slopePoints[slopeIdx].y = 0; // Start point is always the reference
+        } else {
+          // Range: 0 to -1500mm (can only slope down from start)
+          run.slopePoints[slopeIdx].y = Math.max(-1500, Math.min(0, snapped));
+        }
+        // Recalc slope for the run
+        this.calcSlopeForRun(run);
+      },
+
+      _showSlopeHandleTooltip(clientX, clientY, slopeIdx) {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run || !run.slopePoints) return;
+        const container = document.getElementById('profileViewContainer');
+        const tooltip = document.getElementById('soilHandleTooltip');
+        if (!tooltip || !container) return;
+
+        const pt = run.slopePoints[slopeIdx];
+        const dropMm = Math.abs(pt.y);
+        const text = dropMm === 0 ? 'Start level (0mm)' : `Drop: ${dropMm}mm`;
+
+        const rect = container.getBoundingClientRect();
+        tooltip.textContent = text;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (clientX - rect.left + 14) + 'px';
+        tooltip.style.top = (clientY - rect.top - 34) + 'px';
       },
 
       // Apply soil handle drag: calculate new retaining values from handle position
@@ -1782,8 +1862,21 @@
         const isTouchDevice = 'ontouchstart' in window;
 
         container.addEventListener('mousedown', (e) => {
-          // Check if clicking on a soil handle first
           const w = this._screenToWorld(e.clientX, e.clientY);
+
+          // Check slope handles first (ground slope)
+          const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
+          if (slopeIdx >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            this._slopeHandleDrag = { slopeIdx, startWorldY: w.y, active: true };
+            this._slopeHandleHover = slopeIdx;
+            container.style.cursor = 'ns-resize';
+            this._showSlopeHandleTooltip(e.clientX, e.clientY, slopeIdx);
+            return;
+          }
+
+          // Check retaining handles (per-panel)
           const handleIdx = this._hitTestSoilHandle(w.x, w.y);
           if (handleIdx >= 0) {
             e.preventDefault();
@@ -1800,11 +1893,22 @@
             this._showSoilHandleTooltip(e.clientX, e.clientY, handleIdx);
             return;
           }
+
           this._profileDrag = { startX: e.clientX, startY: e.clientY, panX: this.profilePan.x, panY: this.profilePan.y, moved: false };
         });
 
         window.addEventListener('mousemove', (e) => {
-          // Soil handle drag in progress
+          // Slope handle drag in progress
+          if (this._slopeHandleDrag && this._slopeHandleDrag.active) {
+            const w = this._screenToWorld(e.clientX, e.clientY);
+            this._applySlopeHandleDrag(this._slopeHandleDrag.slopeIdx, w.y);
+            this._showSlopeHandleTooltip(e.clientX, e.clientY, this._slopeHandleDrag.slopeIdx);
+            this.renderProfileView();
+            this._syncPanelTableRetaining();
+            return;
+          }
+
+          // Retaining handle drag in progress
           if (this._soilHandleDrag && this._soilHandleDrag.active) {
             const w = this._screenToWorld(e.clientX, e.clientY);
             this._applySoilHandleDrag(this._soilHandleDrag.postIdx, w.y);
@@ -1826,8 +1930,27 @@
             return;
           }
 
-          // Hover: check soil handles and hit regions
+          // Hover: check slope handles, retaining handles, and hit regions
           const w = this._screenToWorld(e.clientX, e.clientY);
+
+          // Slope handle hover
+          const slopeHoverIdx = this._hitTestSlopeHandle(w.x, w.y);
+          if (slopeHoverIdx >= 0) {
+            this._slopeHandleHover = slopeHoverIdx;
+            this._slopeHandleProximity = true;
+            container.style.cursor = 'ns-resize';
+            this._showSlopeHandleTooltip(e.clientX, e.clientY, slopeHoverIdx);
+            if (this._soilHandleHover >= 0) { this._soilHandleHover = -1; }
+            if (this._profileHover) { this._profileHover = null; const pvT = document.getElementById('pvTooltip'); if (pvT) pvT.style.display = 'none'; }
+            this.renderProfileView();
+            return;
+          } else if (this._slopeHandleHover >= 0) {
+            this._slopeHandleHover = -1;
+            this._hideSoilHandleTooltip();
+            this.renderProfileView();
+          }
+
+          // Retaining handle hover
           const handleIdx = this._hitTestSoilHandle(w.x, w.y);
           const nearSoil = this._isNearSoilProfile(w.x, w.y);
 
@@ -1849,7 +1972,12 @@
             this.renderProfileView();
           }
 
-          // Track proximity to soil line (show/hide handles)
+          // Track proximity to slope line and soil line (show/hide handles)
+          const nearSlope = this._isNearSlopeLine(w.x, w.y);
+          const wasNearSlope = this._slopeHandleProximity;
+          this._slopeHandleProximity = nearSlope;
+          if (wasNearSlope !== nearSlope) this.renderProfileView();
+
           const wasNear = this._soilHandleProximity;
           this._soilHandleProximity = nearSoil;
           if (wasNear !== nearSoil) this.renderProfileView();
@@ -1879,8 +2007,17 @@
         });
 
         window.addEventListener('mouseup', (e) => {
+          if (this._slopeHandleDrag && this._slopeHandleDrag.active) {
+            // Finish slope handle drag — save and do full re-render
+            this._slopeHandleDrag = null;
+            this._hideSoilHandleTooltip();
+            container.style.cursor = 'grab';
+            this.save();
+            this.render();
+            return;
+          }
           if (this._soilHandleDrag && this._soilHandleDrag.active) {
-            // Finish soil handle drag — save and do full re-render
+            // Finish retaining handle drag — save and do full re-render
             this._soilHandleDrag = null;
             this._hideSoilHandleTooltip();
             container.style.cursor = 'grab';
@@ -1899,20 +2036,28 @@
           this._profileDrag = null;
         });
 
-        // Touch support for soil handles
+        // Touch support for slope + retaining handles
         container.addEventListener('touchstart', (e) => {
           if (e.touches.length !== 1) return;
           const touch = e.touches[0];
           const w = this._screenToWorld(touch.clientX, touch.clientY);
+
+          // Slope handles first
+          const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
+          if (slopeIdx >= 0) {
+            e.preventDefault();
+            this._slopeHandleDrag = { slopeIdx, startWorldY: w.y, active: true, isTouch: true };
+            this._slopeHandleHover = slopeIdx;
+            this._showSlopeHandleTooltip(touch.clientX, touch.clientY, slopeIdx);
+            this.renderProfileView();
+            return;
+          }
+
+          // Retaining handles
           const handleIdx = this._hitTestSoilHandle(w.x, w.y);
           if (handleIdx >= 0) {
             e.preventDefault();
-            this._soilHandleDrag = {
-              postIdx: handleIdx,
-              startWorldY: w.y,
-              active: true,
-              isTouch: true
-            };
+            this._soilHandleDrag = { postIdx: handleIdx, startWorldY: w.y, active: true, isTouch: true };
             this._soilHandleHover = handleIdx;
             this._showSoilHandleTooltip(touch.clientX, touch.clientY, handleIdx);
             this.renderProfileView();
@@ -1920,6 +2065,16 @@
         }, { passive: false });
 
         container.addEventListener('touchmove', (e) => {
+          if (this._slopeHandleDrag && this._slopeHandleDrag.active && this._slopeHandleDrag.isTouch) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const w = this._screenToWorld(touch.clientX, touch.clientY);
+            this._applySlopeHandleDrag(this._slopeHandleDrag.slopeIdx, w.y);
+            this._showSlopeHandleTooltip(touch.clientX, touch.clientY, this._slopeHandleDrag.slopeIdx);
+            this.renderProfileView();
+            this._syncPanelTableRetaining();
+            return;
+          }
           if (this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.isTouch) {
             e.preventDefault();
             const touch = e.touches[0];
@@ -1932,6 +2087,13 @@
         }, { passive: false });
 
         container.addEventListener('touchend', (e) => {
+          if (this._slopeHandleDrag && this._slopeHandleDrag.active && this._slopeHandleDrag.isTouch) {
+            this._slopeHandleDrag = null;
+            this._hideSoilHandleTooltip();
+            this.save();
+            this.render();
+            return;
+          }
           if (this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.isTouch) {
             this._soilHandleDrag = null;
             this._hideSoilHandleTooltip();
@@ -2535,7 +2697,86 @@
           ctx.fillRect(originX - 30, groundBandTop, fencePixelW + 60, groundBandH);
         }
 
-        // ── Soil profile draggable handles ──
+        // ── Slope line (natural ground contour) ──
+        {
+          const slopePoints = run.slopePoints || [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+          const isTouchDevice = 'ontouchstart' in window;
+          const showSlopeHandles = isTouchDevice || this._slopeHandleProximity || (this._slopeHandleDrag && this._slopeHandleDrag.active);
+          const slopeHandleR = 12;
+
+          // Map slope points to world coordinates
+          this._slopeHandlePositions = [];
+          const slopeWorldPoints = slopePoints.map(sp => {
+            const wx = originX + sp.x * fencePixelW;
+            const wy = groundY - sp.y * scale; // y is in mm, negative = lower, so subtract
+            return { x: wx, y: wy };
+          });
+
+          // Store handle positions for hit testing
+          for (let si = 0; si < slopePoints.length; si++) {
+            this._slopeHandlePositions.push({
+              x: slopeWorldPoints[si].x,
+              y: slopeWorldPoints[si].y,
+              slopeIdx: si
+            });
+          }
+
+          // Draw slope line (2px solid earth brown)
+          if (slopeWorldPoints.length >= 2) {
+            ctx.save();
+            ctx.strokeStyle = '#8B7355';
+            ctx.lineWidth = 2 / this.profileZoom;
+            ctx.beginPath();
+            ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
+            for (let si = 1; si < slopeWorldPoints.length; si++) {
+              ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
+            }
+            ctx.stroke();
+
+            // 4px green grass strip on top of slope line
+            ctx.strokeStyle = '#5B8C3E';
+            ctx.lineWidth = 4 / this.profileZoom;
+            ctx.beginPath();
+            ctx.moveTo(slopeWorldPoints[0].x, slopeWorldPoints[0].y);
+            for (let si = 1; si < slopeWorldPoints.length; si++) {
+              ctx.lineTo(slopeWorldPoints[si].x, slopeWorldPoints[si].y);
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // Draw slope handles
+          if (showSlopeHandles) {
+            for (let si = 0; si < slopeWorldPoints.length; si++) {
+              const sp = slopeWorldPoints[si];
+              const isHovered = this._slopeHandleHover === si;
+              const isDragged = this._slopeHandleDrag && this._slopeHandleDrag.active && this._slopeHandleDrag.slopeIdx === si;
+
+              ctx.beginPath();
+              ctx.arc(sp.x, sp.y, slopeHandleR / this.profileZoom, 0, Math.PI * 2);
+              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2 / this.profileZoom;
+              ctx.stroke();
+
+              // Guide line when dragging
+              if (isDragged) {
+                ctx.save();
+                ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
+                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+                ctx.lineWidth = 1 / this.profileZoom;
+                ctx.beginPath();
+                ctx.moveTo(originX - 20, sp.y);
+                ctx.lineTo(originX + fencePixelW + 20, sp.y);
+                ctx.stroke();
+                ctx.restore();
+              }
+            }
+          }
+        }
+
+        // ── Retaining draggable handles (per-panel, orange) ──
         {
           const isTouchDevice = 'ontouchstart' in window;
           const showHandles = isTouchDevice || this._soilHandleProximity || (this._soilHandleDrag && this._soilHandleDrag.active);
