@@ -1604,12 +1604,25 @@
       _panelTextureImg: null,
       _panelTextureLoaded: false,
 
+      // Source crop rectangles from textures/panel_harmony_surfmist.png (2816x1536)
+      // Posts: left x=327..389 (63px), right x=2426..2489 (64px)
+      // Cap rail: y=51..92 (42px high)
+      // Sheet: x=390..2425, y=93..1436 (2036w x 1344h)
+      // Bottom rail: y=1437..1482 (46px high)
+      SRC_SHEET: { sx: 390, sy: 93, sw: 2036, sh: 1344 },
+      SRC_CAP:   { sx: 390, sy: 51, sw: 2036, sh: 42 },
+      SRC_RAIL:  { sx: 390, sy: 1437, sw: 2036, sh: 46 },
+
       _loadPanelTexture() {
         const img = new Image();
         img.onload = () => {
+          console.log('Panel texture loaded OK:', img.naturalWidth, 'x', img.naturalHeight);
           this._panelTextureImg = img;
           this._panelTextureLoaded = true;
           this.renderProfileView();
+        };
+        img.onerror = (e) => {
+          console.error('Panel texture FAILED to load:', e);
         };
         img.src = 'textures/panel_harmony_surfmist.png';
       },
@@ -1746,13 +1759,26 @@
           }
         }
 
-        // ── Continuous capping rail across ALL panels ──
+        // ── Continuous capping rail across ALL panels (from image) ──
         const railH = railHeightMm * scale;
-        ctx.fillStyle = railColour;
-        ctx.fillRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
-        ctx.strokeStyle = '#404040';
+        const capRailW = railRightX - railLeftX;
+        const capRailY = railTopY - railH;
+        if (this._panelTextureLoaded) {
+          const s = this.SRC_CAP;
+          ctx.drawImage(this._panelTextureImg, s.sx, s.sy, s.sw, s.sh, railLeftX, capRailY, capRailW, railH);
+          ctx.save();
+          ctx.globalCompositeOperation = 'multiply';
+          ctx.fillStyle = fenceHex;
+          ctx.fillRect(railLeftX, capRailY, capRailW, railH);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.restore();
+        } else {
+          ctx.fillStyle = railColour;
+          ctx.fillRect(railLeftX, capRailY, capRailW, railH);
+        }
+        ctx.strokeStyle = darkenHex(fenceHex, 0.7);
         ctx.lineWidth = 0.5;
-        ctx.strokeRect(railLeftX, railTopY - railH, railRightX - railLeftX, railH);
+        ctx.strokeRect(railLeftX, capRailY, capRailW, railH);
 
         // ── Draw posts and panels ──
         let cursorX = originX;
@@ -1769,12 +1795,23 @@
           const postAboveMm = postH - embedDepthMm;
           const postTopY = postGndY - postAboveMm * scale;
 
-          // Post above ground
+          // Post above ground (code-drawn, not from image)
+          const postAboveH = postAboveMm * scale;
           ctx.fillStyle = postColour;
-          ctx.fillRect(cursorX, postTopY, pw, postAboveMm * scale);
+          ctx.fillRect(cursorX, postTopY, pw, postAboveH);
           ctx.strokeStyle = '#404040';
           ctx.lineWidth = 0.5;
-          ctx.strokeRect(cursorX, postTopY, pw, postAboveMm * scale);
+          ctx.strokeRect(cursorX, postTopY, pw, postAboveH);
+
+          // Patio tube post overlay (when postInfo.patio is true)
+          if (postInfo.patio) {
+            const patioExtra = 2;
+            ctx.strokeStyle = '#e67e22';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cursorX - patioExtra, postTopY - patioExtra, pw + patioExtra * 2, postAboveH + patioExtra * 2);
+            ctx.fillStyle = 'rgba(230, 126, 34, 0.12)';
+            ctx.fillRect(cursorX, postTopY, pw, postAboveH);
+          }
 
           // Post below ground (dashed footing)
           ctx.save();
@@ -1799,7 +1836,7 @@
 
           cursorX += pw;
 
-          // ── PANEL (texture-mapped sheets) ──
+          // ── PANEL (assembled from image component crops) ──
           if (panel) {
             const panelW = panelWidthMm * scale;
             const sheetH = panel.height * scale;
@@ -1809,18 +1846,27 @@
             const panelGndY = groundY + panelGndOff * scale;
             const sheetTopY = panelGndY - sheetH;
 
-            // Draw the panel texture, then tint with multiply
+            // Draw tiled sheets from image crop, clipped to panel bounds
             ctx.save();
+            ctx.beginPath();
+            ctx.rect(cursorX, sheetTopY, panelW, sheetH);
+            ctx.clip();
+
             if (this._panelTextureLoaded) {
-              // Step 1: draw the photorealistic panel texture stretched to fit
-              ctx.drawImage(this._panelTextureImg, cursorX, sheetTopY, panelW, sheetH);
-              // Step 2: multiply-blend the selected Colorbond colour over it
+              const ss = this.SRC_SHEET;
+              const sheetWidthMm = 762;
+              const numSheets = Math.max(1, Math.floor(panelWidthMm / sheetWidthMm));
+              const tileW = panelW / numSheets;
+              for (let si = 0; si < numSheets; si++) {
+                ctx.drawImage(this._panelTextureImg, ss.sx, ss.sy, ss.sw, ss.sh,
+                  cursorX + si * tileW, sheetTopY, tileW, sheetH);
+              }
+              // Multiply-blend the selected Colorbond colour
               ctx.globalCompositeOperation = 'multiply';
               ctx.fillStyle = fenceHex;
               ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
               ctx.globalCompositeOperation = 'source-over';
             } else {
-              // Fallback: flat rectangle in selected colour while image loads
               ctx.fillStyle = fenceHex;
               ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
             }
@@ -1830,6 +1876,26 @@
             ctx.strokeStyle = darkenHex(fenceHex, 0.7);
             ctx.lineWidth = 0.5;
             ctx.strokeRect(cursorX, sheetTopY, panelW, sheetH);
+
+            // Bottom rail (from image crop) at base of sheets
+            const btmRailH = railHeightMm * scale;
+            if (this._panelTextureLoaded) {
+              const sr = this.SRC_RAIL;
+              ctx.drawImage(this._panelTextureImg, sr.sx, sr.sy, sr.sw, sr.sh,
+                cursorX, panelGndY - btmRailH, panelW, btmRailH);
+              ctx.save();
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.restore();
+            } else {
+              ctx.fillStyle = railColour;
+              ctx.fillRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
+            }
+            ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
 
             // ── Plinths (stacked blocks, 2px gaps, alternating grey) ──
             if (plinths > 0) {
