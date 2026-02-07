@@ -856,6 +856,7 @@
         }
 
         this.updateProfileDropdown();
+        this._loadPanelTexture();
         this.render();
 
         // Resize handler for profile view canvas
@@ -1599,48 +1600,18 @@
       },
 
       // ── Profile View: main render ──
-      // Panel texture — loaded from image file, with procedural fallback
-      _panelTexture: null,
-      _panelTextureLoading: false,
+      // Panel texture image (loaded from file, cached)
+      _panelTextureImg: null,
+      _panelTextureLoaded: false,
 
       _loadPanelTexture() {
-        if (this._panelTexture || this._panelTextureLoading) return;
-        this._panelTextureLoading = true;
         const img = new Image();
         img.onload = () => {
-          this._panelTexture = img;
-          this._panelTextureLoading = false;
-          this.renderProfileView();
-        };
-        img.onerror = () => {
-          // Fallback: generate procedural texture if image not found
-          this._panelTextureLoading = false;
-          this._generateProceduralTexture();
+          this._panelTextureImg = img;
+          this._panelTextureLoaded = true;
           this.renderProfileView();
         };
         img.src = 'textures/panel_harmony_surfmist.png';
-      },
-
-      _generateProceduralTexture() {
-        const tw = 200, th = 300;
-        const c = document.createElement('canvas');
-        c.width = tw; c.height = th;
-        const g = c.getContext('2d');
-        g.fillStyle = '#E4E2D5';
-        g.fillRect(0, 0, tw, th);
-        const ribCount = 14;
-        const panWidth = tw / ribCount;
-        for (let r = 0; r < ribCount; r++) {
-          const cx = (r + 0.5) * panWidth;
-          const ribW = panWidth * 0.35;
-          g.fillStyle = 'rgba(0,0,0,0.08)';
-          g.fillRect(cx - ribW / 2 - 1, 0, 2, th);
-          g.fillStyle = 'rgba(0,0,0,0.04)';
-          g.fillRect(cx - ribW / 2, 0, ribW, th);
-          g.fillStyle = 'rgba(255,255,255,0.12)';
-          g.fillRect(cx + ribW / 2 - 1, 0, 2, th);
-        }
-        this._panelTexture = c;
       },
 
       renderProfileView() {
@@ -1669,12 +1640,6 @@
           ctx.textAlign = 'center';
           ctx.fillText('No panels — add a run and set its length', cw / 2, ch / 2);
           return;
-        }
-
-        // Load texture (image file or procedural fallback)
-        if (!this._panelTexture) {
-          this._loadPanelTexture();
-          return; // will re-render when loaded
         }
 
         // ── Colour lookup ──
@@ -1844,15 +1809,21 @@
             const panelGndY = groundY + panelGndOff * scale;
             const sheetTopY = panelGndY - sheetH;
 
-            // Draw the texture stretched to fill the panel, then tint with multiply
+            // Draw the panel texture, then tint with multiply
             ctx.save();
-            // Step 1: draw the Surfmist base texture
-            ctx.drawImage(this._panelTexture, cursorX, sheetTopY, panelW, sheetH);
-            // Step 2: multiply-blend the selected Colorbond colour over it
-            ctx.globalCompositeOperation = 'multiply';
-            ctx.fillStyle = fenceHex;
-            ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
-            ctx.globalCompositeOperation = 'source-over';
+            if (this._panelTextureLoaded) {
+              // Step 1: draw the photorealistic panel texture stretched to fit
+              ctx.drawImage(this._panelTextureImg, cursorX, sheetTopY, panelW, sheetH);
+              // Step 2: multiply-blend the selected Colorbond colour over it
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+              ctx.globalCompositeOperation = 'source-over';
+            } else {
+              // Fallback: flat rectangle in selected colour while image loads
+              ctx.fillStyle = fenceHex;
+              ctx.fillRect(cursorX, sheetTopY, panelW, sheetH);
+            }
             ctx.restore();
 
             // Sheet border
