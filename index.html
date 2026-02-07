@@ -1784,60 +1784,32 @@
         tooltip.style.top = (clientY - rect.top - 34) + 'px';
       },
 
-      // Apply soil handle drag: calculate new retaining values from handle position
-      _applySoilHandleDrag(postIdx, worldY) {
+      // Apply retaining handle drag: update ONE panel's retaining from handle position
+      _applySoilHandleDrag(panelIdx, worldY) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
-        if (!run || run.panels.length === 0) return;
+        if (!run || panelIdx < 0 || panelIdx >= run.panels.length) return;
 
-        const panelCount = run.panels.length;
         const plinthHeightMm = 150;
-
-        // The handle's worldY maps to the high-side ground level at this post.
-        // We need the rendering parameters to convert worldY back to retaining mm.
-        // Use cached layout from last render.
         const layout = this._soilHandleLayout;
         if (!layout) return;
 
-        // Convert worldY displacement from the low-side ground to retaining mm
         // handle going UP (smaller worldY) = more retaining
-        // handle going DOWN (larger worldY) = less retaining
-
-        // For the left panel (postIdx - 1): retaining = lowSideGndY - worldY in mm
-        // For the right panel (postIdx): retaining = lowSideGndY - worldY in mm
-        if (postIdx > 0 && postIdx <= panelCount) {
-          // Left panel
-          const lpIdx = postIdx - 1;
-          const lpLowOff = Math.max(layout.groundOffsets[lpIdx], layout.groundOffsets[postIdx]);
-          const lpLowGndY = layout.groundY + lpLowOff * layout.scale;
-          const rawRetMm = (lpLowGndY - worldY) / layout.scale;
-          const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
-          run.panels[lpIdx].retaining = Math.max(0, Math.min(600, snapped));
-        }
-        if (postIdx >= 0 && postIdx < panelCount) {
-          // Right panel
-          const rpIdx = postIdx;
-          const rpLowOff = Math.max(layout.groundOffsets[rpIdx], layout.groundOffsets[rpIdx + 1]);
-          const rpLowGndY = layout.groundY + rpLowOff * layout.scale;
-          const rawRetMm = (rpLowGndY - worldY) / layout.scale;
-          const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
-          run.panels[rpIdx].retaining = Math.max(0, Math.min(600, snapped));
-        }
+        const lowOff = Math.max(layout.groundOffsets[panelIdx], layout.groundOffsets[panelIdx + 1]);
+        const lowGndY = layout.groundY + lowOff * layout.scale;
+        const rawRetMm = (lowGndY - worldY) / layout.scale;
+        const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
+        run.panels[panelIdx].retaining = Math.max(0, Math.min(600, snapped));
       },
 
-      // Show the soil handle drag tooltip
-      _showSoilHandleTooltip(clientX, clientY, postIdx) {
+      // Show the retaining handle drag tooltip
+      _showSoilHandleTooltip(clientX, clientY, panelIdx) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
-        if (!run) return;
+        if (!run || panelIdx < 0 || panelIdx >= run.panels.length) return;
         const container = document.getElementById('profileViewContainer');
         const tooltip = document.getElementById('soilHandleTooltip');
         if (!tooltip || !container) return;
 
-        // Find the max retaining of adjacent panels
-        const panelCount = run.panels.length;
-        let retMm = 0;
-        if (postIdx > 0) retMm = Math.max(retMm, run.panels[postIdx - 1].retaining);
-        if (postIdx < panelCount) retMm = Math.max(retMm, run.panels[postIdx].retaining);
-
+        const retMm = run.panels[panelIdx].retaining;
         const plinths = retMm / 150;
         let text;
         if (retMm === 0) {
@@ -1869,7 +1841,7 @@
         container.addEventListener('mousedown', (e) => {
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check slope handles first (ground slope)
+          // Check slope handles first (existing control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -1881,6 +1853,33 @@
             return;
           }
 
+          // Click on slope line but not on a handle — create new control point and drag it
+          if (this._isNearSlopeLine(w.x, w.y)) {
+            const run = this.job.runs.find(r => r.id === this.currentRunId);
+            const layout = this._soilHandleLayout;
+            if (run && run.slopePoints && layout) {
+              const maxPoints = run.panels.length + 1;
+              if (run.slopePoints.length < maxPoints) {
+                e.preventDefault();
+                e.stopPropagation();
+                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
+                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
+                const interpY = this.interpolateSlope(run.slopePoints, frac);
+                const newPoint = { x: frac, y: interpY };
+                run.slopePoints.push(newPoint);
+                run.slopePoints.sort((a, b) => a.x - b.x);
+                const newIdx = run.slopePoints.indexOf(newPoint);
+                this.calcSlopeForRun(run);
+                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true };
+                this._slopeHandleHover = newIdx;
+                container.style.cursor = 'ns-resize';
+                this._showSlopeHandleTooltip(e.clientX, e.clientY, newIdx);
+                this.renderProfileView();
+                return;
+              }
+            }
+          }
+
           // Check retaining handles (per-panel)
           const handleIdx = this._hitTestSoilHandle(w.x, w.y);
           if (handleIdx >= 0) {
@@ -1889,7 +1888,7 @@
             const run = this.job.runs.find(r => r.id === this.currentRunId);
             if (!run) return;
             this._soilHandleDrag = {
-              postIdx: handleIdx,
+              panelIdx: handleIdx,
               startWorldY: w.y,
               active: true
             };
@@ -1916,8 +1915,8 @@
           // Retaining handle drag in progress
           if (this._soilHandleDrag && this._soilHandleDrag.active) {
             const w = this._screenToWorld(e.clientX, e.clientY);
-            this._applySoilHandleDrag(this._soilHandleDrag.postIdx, w.y);
-            this._showSoilHandleTooltip(e.clientX, e.clientY, this._soilHandleDrag.postIdx);
+            this._applySoilHandleDrag(this._soilHandleDrag.panelIdx, w.y);
+            this._showSoilHandleTooltip(e.clientX, e.clientY, this._soilHandleDrag.panelIdx);
             this.renderProfileView();
             // Sync panel table retaining dropdowns without full re-render
             this._syncPanelTableRetaining();
@@ -1987,6 +1986,12 @@
           this._soilHandleProximity = nearSoil;
           if (wasNear !== nearSoil) this.renderProfileView();
 
+          // Slope line hover: show grab cursor to indicate draggable
+          if (nearSlope && handleIdx < 0) {
+            container.style.cursor = 'crosshair';
+            return;
+          }
+
           // Standard hover hit-testing
           const hit = this._hitTest(w.x, w.y);
           const tooltip = document.getElementById('pvTooltip');
@@ -2047,38 +2052,10 @@
           if (!run || !run.slopePoints) return;
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check if double-clicking an existing midpoint (not endpoints)
+          // Double-click an existing midpoint (not endpoints) to remove it
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx > 0 && slopeIdx < run.slopePoints.length - 1) {
-            // Remove this midpoint
             run.slopePoints.splice(slopeIdx, 1);
-            this.calcSlopeForRun(run);
-            this.save();
-            this.render();
-            return;
-          }
-
-          // Check if double-clicking near the slope line (to add midpoint)
-          if (this._isNearSlopeLine(w.x, w.y)) {
-            // Max 3 midpoints (5 total points including endpoints)
-            if (run.slopePoints.length >= 5) return;
-
-            const layout = this._soilHandleLayout;
-            if (!layout) return;
-
-            // Convert world X to fraction along the run
-            const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
-            const frac = (w.x - layout.originX) / totalFenceW;
-            const clampedFrac = Math.max(0.05, Math.min(0.95, frac));
-
-            // Interpolate Y at this fraction from existing slope
-            const interpY = this.interpolateSlope(run.slopePoints, clampedFrac);
-
-            // Insert the new point in sorted order
-            const newPoint = { x: clampedFrac, y: interpY };
-            run.slopePoints.push(newPoint);
-            run.slopePoints.sort((a, b) => a.x - b.x);
-
             this.calcSlopeForRun(run);
             this.save();
             this.render();
@@ -2091,7 +2068,7 @@
           const touch = e.touches[0];
           const w = this._screenToWorld(touch.clientX, touch.clientY);
 
-          // Slope handles first
+          // Slope handles first (existing control points)
           const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
           if (slopeIdx >= 0) {
             e.preventDefault();
@@ -2102,11 +2079,36 @@
             return;
           }
 
+          // Touch on slope line but not on a handle — create new control point and drag it
+          if (this._isNearSlopeLine(w.x, w.y)) {
+            const run = this.job.runs.find(r => r.id === this.currentRunId);
+            const layout = this._soilHandleLayout;
+            if (run && run.slopePoints && layout) {
+              const maxPoints = run.panels.length + 1;
+              if (run.slopePoints.length < maxPoints) {
+                e.preventDefault();
+                const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
+                const frac = Math.max(0.01, Math.min(0.99, (w.x - layout.originX) / totalFenceW));
+                const interpY = this.interpolateSlope(run.slopePoints, frac);
+                const newPoint = { x: frac, y: interpY };
+                run.slopePoints.push(newPoint);
+                run.slopePoints.sort((a, b) => a.x - b.x);
+                const newIdx = run.slopePoints.indexOf(newPoint);
+                this.calcSlopeForRun(run);
+                this._slopeHandleDrag = { slopeIdx: newIdx, startWorldY: w.y, active: true, isTouch: true };
+                this._slopeHandleHover = newIdx;
+                this._showSlopeHandleTooltip(touch.clientX, touch.clientY, newIdx);
+                this.renderProfileView();
+                return;
+              }
+            }
+          }
+
           // Retaining handles
           const handleIdx = this._hitTestSoilHandle(w.x, w.y);
           if (handleIdx >= 0) {
             e.preventDefault();
-            this._soilHandleDrag = { postIdx: handleIdx, startWorldY: w.y, active: true, isTouch: true };
+            this._soilHandleDrag = { panelIdx: handleIdx, startWorldY: w.y, active: true, isTouch: true };
             this._soilHandleHover = handleIdx;
             this._showSoilHandleTooltip(touch.clientX, touch.clientY, handleIdx);
             this.renderProfileView();
@@ -2128,8 +2130,8 @@
             e.preventDefault();
             const touch = e.touches[0];
             const w = this._screenToWorld(touch.clientX, touch.clientY);
-            this._applySoilHandleDrag(this._soilHandleDrag.postIdx, w.y);
-            this._showSoilHandleTooltip(touch.clientX, touch.clientY, this._soilHandleDrag.postIdx);
+            this._applySoilHandleDrag(this._soilHandleDrag.panelIdx, w.y);
+            this._showSoilHandleTooltip(touch.clientX, touch.clientY, this._soilHandleDrag.panelIdx);
             this.renderProfileView();
             this._syncPanelTableRetaining();
           }
@@ -2169,7 +2171,7 @@
       _syncPanelTableRetaining() {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run) return;
-        const dragIdx = this._soilHandleDrag ? this._soilHandleDrag.postIdx : -1;
+        const dragIdx = this._soilHandleDrag ? this._soilHandleDrag.panelIdx : -1;
         const rows = document.querySelectorAll('.panel-table tbody tr[data-panel-idx]');
         rows.forEach(row => {
           const idx = parseInt(row.getAttribute('data-panel-idx'));
@@ -2219,9 +2221,8 @@
               const anyPatio = leftPost.patio || rightPost.patio;
               postTd.innerHTML = anyPatio ? `<span class="post-patio">${maxPost}†</span>` : `${maxPost}`;
             }
-            // Highlight adjacent panels during handle drag
-            const isAdjacent = (dragIdx === idx || dragIdx === idx + 1);
-            row.style.background = isAdjacent ? 'rgba(139,115,85,0.10)' : '';
+            // Highlight dragged panel during handle drag
+            row.style.background = (dragIdx === idx) ? 'rgba(241,90,41,0.10)' : '';
           }
         });
       },
@@ -2732,11 +2733,10 @@
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
 
-            // ── Highlight panel during adjacent soil handle drag ──
+            // ── Highlight panel during retaining handle drag ──
             if (this._soilHandleDrag && this._soilHandleDrag.active) {
-              const dragIdx = this._soilHandleDrag.postIdx;
-              // Panel i is adjacent to handles at post i and post i+1
-              if (dragIdx === i || dragIdx === i + 1) {
+              const dragIdx = this._soilHandleDrag.panelIdx;
+              if (dragIdx === i) {
                 ctx.save();
                 ctx.fillStyle = 'rgba(241,90,41,0.10)';
                 ctx.fillRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
@@ -2851,40 +2851,33 @@
           const epw = postWidthMm * scale;
           const epanelW = panelWidthMm * scale;
 
-          // Calculate handle positions (world coords) at each post junction
+          // Calculate handle positions (world coords) at each panel centre
           this._soilHandlePositions = [];
           let hx = originX;
 
-          for (let hi = 0; hi <= panelCount; hi++) {
-            const postGnd = groundY + groundOffsets[hi] * scale;
-            // Compute high-side ground at this post (same logic as soil profile path)
-            let highSideAtPost = postGnd;
-            if (hi > 0) {
-              const lp = run.panels[hi - 1];
-              const lpLowOff = Math.max(groundOffsets[hi - 1], groundOffsets[hi]);
-              const lpLowGndY = groundY + lpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - panelTotalRetaining(lp) * scale);
-            }
-            if (hi < panelCount) {
-              const rp = run.panels[hi];
-              const rpLowOff = Math.max(groundOffsets[hi], groundOffsets[hi + 1]);
-              const rpLowGndY = groundY + rpLowOff * scale;
-              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - panelTotalRetaining(rp) * scale);
-            }
+          for (let hi = 0; hi < panelCount; hi++) {
+            const panel = run.panels[hi];
+            const totalRet = panelTotalRetaining(panel);
 
-            // Handle X = centre of the post
-            const handleX = hx + epw / 2;
-            const handleY = highSideAtPost;
+            // Panel X start = after post hi
+            const panelStartX = hx + epw;
+            const panelCentreX = panelStartX + epanelW / 2;
 
-            this._soilHandlePositions.push({ x: handleX, y: handleY, postIdx: hi });
+            // Handle Y = bottom rail position (top of plinths / high-side ground)
+            const lowSideOff = Math.max(groundOffsets[hi], groundOffsets[hi + 1]);
+            const lowSideGndY = groundY + lowSideOff * scale;
+            const highSideGndY = lowSideGndY - totalRet * scale;
+            const handleY = highSideGndY;
+
+            this._soilHandlePositions.push({ x: panelCentreX, y: handleY, panelIdx: hi });
 
             // Draw handle if visible
             if (showHandles) {
               const isHovered = this._soilHandleHover === hi;
-              const isDragged = this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.postIdx === hi;
+              const isDragged = this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.panelIdx === hi;
 
               ctx.beginPath();
-              ctx.arc(handleX, handleY, handleR / this.profileZoom, 0, Math.PI * 2);
+              ctx.arc(panelCentreX, handleY, handleR / this.profileZoom, 0, Math.PI * 2);
               ctx.fillStyle = isDragged ? '#C44520' : (isHovered ? '#F47A52' : '#F15A29');
               ctx.fill();
               ctx.strokeStyle = '#FFFFFF';
@@ -2905,9 +2898,8 @@
               }
             }
 
-            // Advance cursor: past this post + next panel
-            hx += epw;
-            if (hi < panelCount) hx += epanelW;
+            // Advance cursor: past this post + this panel
+            hx += epw + epanelW;
           }
         }
 
