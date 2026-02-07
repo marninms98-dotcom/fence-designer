@@ -1667,14 +1667,12 @@
           return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
-        const postColour = '#5a5a5a';       // flat dark grey
-        const railColour = '#505050';
-
         // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
         const panelWidthMm = this.getPanelWidthMm();
-        const postWidthMm = 90;
+        const postWidthMm = 50;
+        const patioPostWidthMm = 120;
         const embedDepthMm = 600;
         const capHeightMm = 50;
         const railHeightMm = 25;
@@ -1707,7 +1705,9 @@
         });
 
         // ── Scaling: 90% width, 70% height ──
-        const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
+        let totalPostWidthMm = 0;
+        posts.forEach(p => { totalPostWidthMm += p.patio ? patioPostWidthMm : postWidthMm; });
+        const totalFenceWidthMm = panelCount * panelWidthMm + totalPostWidthMm;
         const totalAboveMm = capHeightMm + maxPostAbove;
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
         const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
@@ -1744,7 +1744,8 @@
         {
           let cx = originX;
           for (let i = 0; i <= panelCount; i++) {
-            cx += postWidthMm * scale;
+            const thisPW = (posts[i].patio ? patioPostWidthMm : postWidthMm) * scale;
+            cx += thisPW;
             if (i < panelCount) {
               const panelW = panelWidthMm * scale;
               const gndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
@@ -1772,7 +1773,7 @@
           ctx.globalCompositeOperation = 'source-over';
           ctx.restore();
         } else {
-          ctx.fillStyle = railColour;
+          ctx.fillStyle = fenceHex;
           ctx.fillRect(railLeftX, capRailY, capRailW, railH);
         }
         ctx.strokeStyle = darkenHex(fenceHex, 0.7);
@@ -1781,38 +1782,36 @@
 
         // ── Draw posts and panels ──
         let cursorX = originX;
-        const pw = postWidthMm * scale;
 
         for (let i = 0; i <= panelCount; i++) {
           const panel = i < panelCount ? run.panels[i] : null;
           const gndOff = groundOffsets[i] * scale;
           const postGndY = groundY + gndOff;
 
-          // ── POST (dark grey rectangle, cap to footing) ──
+          // ── POST (Colorbond colour-matched steel) ──
           const postInfo = posts[i];
           const postH = postInfo.postSize;
           const postAboveMm = postH - embedDepthMm;
           const postTopY = postGndY - postAboveMm * scale;
-
-          // Post above ground (code-drawn, not from image)
           const postAboveH = postAboveMm * scale;
-          const patioWider = postInfo.patio ? pw * 0.15 : 0;
-          const postDrawX = cursorX - patioWider;
-          const postDrawW = pw + patioWider * 2;
-          ctx.fillStyle = postColour;
-          ctx.fillRect(postDrawX, postTopY, postDrawW, postAboveH);
-          ctx.strokeStyle = '#404040';
+          const pw = (postInfo.patio ? patioPostWidthMm : postWidthMm) * scale;
+
+          // Post body — fence colour
+          ctx.fillStyle = fenceHex;
+          ctx.fillRect(cursorX, postTopY, pw, postAboveH);
+          // Edge shading (C-channel profile)
+          ctx.fillStyle = 'rgba(0,0,0,0.2)';
+          ctx.fillRect(cursorX, postTopY, 1, postAboveH);
+          ctx.fillRect(cursorX + pw - 1, postTopY, 1, postAboveH);
+          // Centre line (RHS tube visible between C-channels)
+          ctx.fillStyle = 'rgba(0,0,0,0.15)';
+          ctx.fillRect(cursorX + (pw - 1) / 2, postTopY, 1, postAboveH);
+          // Border
+          ctx.strokeStyle = darkenHex(fenceHex, 0.7);
           ctx.lineWidth = 0.5;
-          ctx.strokeRect(postDrawX, postTopY, postDrawW, postAboveH);
+          ctx.strokeRect(cursorX, postTopY, pw, postAboveH);
 
-          // Patio tube centre stripe (76x38 RHS between back-to-back C-channels)
-          if (postInfo.patio) {
-            const stripeW = Math.max(2, postDrawW * 0.15);
-            ctx.fillStyle = '#e67e22';
-            ctx.fillRect(postDrawX + (postDrawW - stripeW) / 2, postTopY, stripeW, postAboveH);
-          }
-
-          // Post below ground (dashed footing)
+          // Post below ground (dashed footing — concrete grey)
           ctx.save();
           ctx.setLineDash([4, 3]);
           ctx.strokeStyle = '#888';
@@ -1820,13 +1819,14 @@
           ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedDepthMm * scale);
           ctx.restore();
 
-          // Post cap (flat pressed-metal cap)
+          // Post cap (flat pressed-metal, fence colour, slightly wider)
           const capH = Math.max(4, 8 * scale);
-          ctx.fillStyle = '#6a6a6a';
-          ctx.fillRect(cursorX, postTopY - capH, pw, capH);
-          ctx.strokeStyle = '#404040';
+          const capOverhang = Math.max(1, 2 * scale);
+          ctx.fillStyle = fenceHex;
+          ctx.fillRect(cursorX - capOverhang, postTopY - capH, pw + capOverhang * 2, capH);
+          ctx.strokeStyle = darkenHex(fenceHex, 0.7);
           ctx.lineWidth = 0.5;
-          ctx.strokeRect(cursorX, postTopY - capH, pw, capH);
+          ctx.strokeRect(cursorX - capOverhang, postTopY - capH, pw + capOverhang * 2, capH);
 
           cursorX += pw;
 
@@ -1884,35 +1884,36 @@
               ctx.globalCompositeOperation = 'source-over';
               ctx.restore();
             } else {
-              ctx.fillStyle = railColour;
+              ctx.fillStyle = fenceHex;
               ctx.fillRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
             }
             ctx.strokeStyle = darkenHex(fenceHex, 0.7);
             ctx.lineWidth = 0.5;
             ctx.strokeRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
 
-            // ── Plinths (tapered concrete retaining plinths) ──
+            // ── Plinths (Colorbond steel plinth panels with horizontal ribs) ──
             if (plinths > 0) {
               const plinthH = plinthHeightMm * scale;
               const plinthGap = 2;
-              const taper = Math.min(2, plinthH * 0.05);
               for (let pi = 0; pi < plinths; pi++) {
                 const py = panelGndY + pi * (plinthH + plinthGap);
-                // Tapered shape (wider at bottom)
-                ctx.beginPath();
-                ctx.moveTo(cursorX + taper, py);
-                ctx.lineTo(cursorX + panelW - taper, py);
-                ctx.lineTo(cursorX + panelW, py + plinthH);
-                ctx.lineTo(cursorX, py + plinthH);
-                ctx.closePath();
-                ctx.fillStyle = '#8B8B83';
-                ctx.fill();
-                ctx.strokeStyle = '#6B6B63';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-                // Shadow below plinth
+                // Plinth body — fence colour
+                ctx.fillStyle = fenceHex;
+                ctx.fillRect(cursorX, py, panelW, plinthH);
+                // Horizontal ribs (4-5 lines across plinth)
+                const ribCount = 5;
+                const ribSpacing = plinthH / (ribCount + 1);
                 ctx.fillStyle = 'rgba(0,0,0,0.15)';
-                ctx.fillRect(cursorX, py + plinthH, panelW, 1);
+                for (let ri = 1; ri <= ribCount; ri++) {
+                  ctx.fillRect(cursorX, py + ri * ribSpacing, panelW, 1);
+                }
+                // Darker bottom edge for depth
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(cursorX, py + plinthH - 1, panelW, 1);
+                // Border
+                ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(cursorX, py, panelW, plinthH);
               }
             }
 
