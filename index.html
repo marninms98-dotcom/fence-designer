@@ -1858,6 +1858,7 @@
       _syncPanelTableRetaining() {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
         if (!run) return;
+        const dragIdx = this._soilHandleDrag ? this._soilHandleDrag.postIdx : -1;
         const rows = document.querySelectorAll('.panel-table tbody tr[data-panel-idx]');
         rows.forEach(row => {
           const idx = parseInt(row.getAttribute('data-panel-idx'));
@@ -1889,6 +1890,9 @@
               const anyPatio = leftPost.patio || rightPost.patio;
               postTd.innerHTML = anyPatio ? `<span class="post-patio">${maxPost}†</span>` : `${maxPost}`;
             }
+            // Highlight adjacent panels during handle drag
+            const isAdjacent = (dragIdx === idx || dragIdx === idx + 1);
+            row.style.background = isAdjacent ? 'rgba(139,115,85,0.10)' : '';
           }
         });
       },
@@ -2392,6 +2396,21 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
+
+            // ── Highlight panel during adjacent soil handle drag ──
+            if (this._soilHandleDrag && this._soilHandleDrag.active) {
+              const dragIdx = this._soilHandleDrag.postIdx;
+              // Panel i is adjacent to handles at post i and post i+1
+              if (dragIdx === i || dragIdx === i + 1) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(139,115,85,0.12)';
+                ctx.fillRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
+                ctx.strokeStyle = 'rgba(139,115,85,0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
+                ctx.restore();
+              }
+            }
 
             cursorX += panelW;
           }
