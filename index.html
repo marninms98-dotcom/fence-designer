@@ -2036,6 +2036,50 @@
           this._profileDrag = null;
         });
 
+        // Double-click: add/remove slope midpoints
+        container.addEventListener('dblclick', (e) => {
+          const run = this.job.runs.find(r => r.id === this.currentRunId);
+          if (!run || !run.slopePoints) return;
+          const w = this._screenToWorld(e.clientX, e.clientY);
+
+          // Check if double-clicking an existing midpoint (not endpoints)
+          const slopeIdx = this._hitTestSlopeHandle(w.x, w.y);
+          if (slopeIdx > 0 && slopeIdx < run.slopePoints.length - 1) {
+            // Remove this midpoint
+            run.slopePoints.splice(slopeIdx, 1);
+            this.calcSlopeForRun(run);
+            this.save();
+            this.render();
+            return;
+          }
+
+          // Check if double-clicking near the slope line (to add midpoint)
+          if (this._isNearSlopeLine(w.x, w.y)) {
+            // Max 3 midpoints (5 total points including endpoints)
+            if (run.slopePoints.length >= 5) return;
+
+            const layout = this._soilHandleLayout;
+            if (!layout) return;
+
+            // Convert world X to fraction along the run
+            const totalFenceW = (layout.panelWidthMm * run.panels.length + layout.postWidthMm * (run.panels.length + 1)) * layout.scale;
+            const frac = (w.x - layout.originX) / totalFenceW;
+            const clampedFrac = Math.max(0.05, Math.min(0.95, frac));
+
+            // Interpolate Y at this fraction from existing slope
+            const interpY = this.interpolateSlope(run.slopePoints, clampedFrac);
+
+            // Insert the new point in sorted order
+            const newPoint = { x: clampedFrac, y: interpY };
+            run.slopePoints.push(newPoint);
+            run.slopePoints.sort((a, b) => a.x - b.x);
+
+            this.calcSlopeForRun(run);
+            this.save();
+            this.render();
+          }
+        });
+
         // Touch support for slope + retaining handles
         container.addEventListener('touchstart', (e) => {
           if (e.touches.length !== 1) return;
