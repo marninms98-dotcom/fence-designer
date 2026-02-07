@@ -1581,11 +1581,13 @@
       // Check if world coords are near a soil handle; returns index or -1
       _hitTestSoilHandle(wx, wy) {
         const isTouchDevice = 'ontouchstart' in window;
-        const hitR = isTouchDevice ? 18 : 12; // generous hit area in world px
+        // Handle is drawn at (handleR / zoom) world units; use a generous hit area
+        const baseR = isTouchDevice ? 12 : 8;
+        const worldR = (baseR + 4) / this.profileZoom; // slightly larger than visual for easy grabbing
         for (let i = 0; i < this._soilHandlePositions.length; i++) {
           const h = this._soilHandlePositions[i];
           const dx = wx - h.x, dy = wy - h.y;
-          if (dx * dx + dy * dy <= hitR * hitR / (this.profileZoom * this.profileZoom) + hitR * hitR) return i;
+          if (dx * dx + dy * dy <= worldR * worldR) return i;
         }
         return -1;
       },
