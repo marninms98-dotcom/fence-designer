@@ -1672,7 +1672,7 @@
         const postCount = panelCount + 1;
         const panelWidthMm = this.getPanelWidthMm();
         const postWidthMm = 50;
-        const patioPostWidthMm = 120;
+        const patioWidthMm = 120;  // visual only, does not affect layout spacing
         const embedDepthMm = 600;
         const capHeightMm = 50;
         const railHeightMm = 25;
@@ -1705,9 +1705,7 @@
         });
 
         // ── Scaling: 90% width, 70% height ──
-        let totalPostWidthMm = 0;
-        posts.forEach(p => { totalPostWidthMm += p.patio ? patioPostWidthMm : postWidthMm; });
-        const totalFenceWidthMm = panelCount * panelWidthMm + totalPostWidthMm;
+        const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
         const totalAboveMm = capHeightMm + maxPostAbove;
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
         const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
@@ -1744,8 +1742,7 @@
         {
           let cx = originX;
           for (let i = 0; i <= panelCount; i++) {
-            const thisPW = (posts[i].patio ? patioPostWidthMm : postWidthMm) * scale;
-            cx += thisPW;
+            cx += postWidthMm * scale;
             if (i < panelCount) {
               const panelW = panelWidthMm * scale;
               const gndOff = Math.min(groundOffsets[i], groundOffsets[i + 1]);
@@ -1794,16 +1791,27 @@
           const postAboveMm = postH - embedDepthMm;
           const postTopY = postGndY - postAboveMm * scale;
           const postAboveH = postAboveMm * scale;
-          const pw = (postInfo.patio ? patioPostWidthMm : postWidthMm) * scale;
+          const pw = postWidthMm * scale;
 
-          // Post body — fence colour
+          // Patio tube RHS behind the post (wider backing, same height)
+          if (postInfo.patio) {
+            const patioW = patioWidthMm * scale;
+            const patioX = cursorX - (patioW - pw) / 2;
+            ctx.fillStyle = fenceHex;
+            ctx.fillRect(patioX, postTopY, patioW, postAboveH);
+            ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(patioX, postTopY, patioW, postAboveH);
+          }
+
+          // Post body — fence colour (drawn on top of patio backing)
           ctx.fillStyle = fenceHex;
           ctx.fillRect(cursorX, postTopY, pw, postAboveH);
           // Edge shading (C-channel profile)
           ctx.fillStyle = 'rgba(0,0,0,0.2)';
           ctx.fillRect(cursorX, postTopY, 1, postAboveH);
           ctx.fillRect(cursorX + pw - 1, postTopY, 1, postAboveH);
-          // Centre line (RHS tube visible between C-channels)
+          // Centre line
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
           ctx.fillRect(cursorX + (pw - 1) / 2, postTopY, 1, postAboveH);
           // Border
@@ -1811,12 +1819,32 @@
           ctx.lineWidth = 0.5;
           ctx.strokeRect(cursorX, postTopY, pw, postAboveH);
 
-          // Post below ground (dashed footing — concrete grey)
+          // Underground: post extension + concrete footing
+          const embedH = embedDepthMm * scale;
+          const postCentreX = cursorX + pw / 2;
+          // Faded post extension below ground
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.fillStyle = fenceHex;
+          ctx.fillRect(cursorX, postGndY, pw, embedH);
+          ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(cursorX, postGndY, pw, embedH);
+          ctx.restore();
+          // Concrete footing at bottom of embed
+          const footingWMm = 300;
+          const footingHMm = 450;
+          const footingW = footingWMm * scale;
+          const footingH = footingHMm * scale;
+          const footingX = postCentreX - footingW / 2;
+          const footingY = postGndY + embedH - footingH;
+          ctx.fillStyle = '#A0A0A0';
+          ctx.fillRect(footingX, footingY, footingW, footingH);
           ctx.save();
           ctx.setLineDash([4, 3]);
-          ctx.strokeStyle = '#888';
+          ctx.strokeStyle = '#808080';
           ctx.lineWidth = 1;
-          ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedDepthMm * scale);
+          ctx.strokeRect(footingX, footingY, footingW, footingH);
           ctx.restore();
 
           // Post cap (flat pressed-metal, fence colour, slightly wider)
@@ -1894,13 +1922,12 @@
             // ── Plinths (Colorbond steel plinth panels with horizontal ribs) ──
             if (plinths > 0) {
               const plinthH = plinthHeightMm * scale;
-              const plinthGap = 2;
               for (let pi = 0; pi < plinths; pi++) {
-                const py = panelGndY + pi * (plinthH + plinthGap);
+                const py = panelGndY + pi * plinthH;
                 // Plinth body — fence colour
                 ctx.fillStyle = fenceHex;
                 ctx.fillRect(cursorX, py, panelW, plinthH);
-                // Horizontal ribs (4-5 lines across plinth)
+                // Horizontal ribs (5 lines across plinth)
                 const ribCount = 5;
                 const ribSpacing = plinthH / (ribCount + 1);
                 ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -1910,24 +1937,16 @@
                 // Darker bottom edge for depth
                 ctx.fillStyle = 'rgba(0,0,0,0.2)';
                 ctx.fillRect(cursorX, py + plinthH - 1, panelW, 1);
-                // Border
-                ctx.strokeStyle = darkenHex(fenceHex, 0.7);
-                ctx.lineWidth = 0.5;
-                ctx.strokeRect(cursorX, py, panelW, plinthH);
+                // 1px join line between stacked plinths (except last)
+                if (pi < plinths - 1) {
+                  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+                  ctx.fillRect(cursorX, py + plinthH, panelW, 1);
+                }
               }
-            }
-
-            // ── Ground indicator ──
-            // Low side (brown) at bottom of plinths
-            if (plinths > 0) {
-              const plinthGap = 2;
-              const lowSideY = panelGndY + plinths * (plinthHeightMm * scale + plinthGap);
-              ctx.strokeStyle = '#92400e';
-              ctx.lineWidth = 1;
-              ctx.beginPath();
-              ctx.moveTo(cursorX, lowSideY);
-              ctx.lineTo(cursorX + panelW, lowSideY);
-              ctx.stroke();
+              // Outer border around entire plinth stack
+              ctx.strokeStyle = darkenHex(fenceHex, 0.7);
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(cursorX, panelGndY, panelW, plinths * plinthH);
             }
 
             // ── Panel number (circled) ──
