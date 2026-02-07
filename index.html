@@ -1999,6 +1999,9 @@
         for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGndOffset;
         const maxGndOffset = Math.max(...groundOffsets);
 
+        // Cache ground offsets for soil handle drag calculations (stored as array in mm)
+        this._soilGroundOffsets = groundOffsets.slice();
+
         const posts = this.getRunPosts(run);
 
         let maxPostAbove = 0;
@@ -2040,6 +2043,9 @@
         const fencePixelW = totalFenceWidthMm * scale;
         const originX = (cw / this.profileZoom - fencePixelW) / 2;
         const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.1;
+
+        // Cache layout for soil handle drag math
+        this._soilHandleLayout = { groundY, scale, groundOffsets, originX, postWidthMm, panelWidthMm };
 
         const railH = railHeightMm * scale;
         const footingWMm = 300;
@@ -2402,6 +2408,74 @@
           grdGround.addColorStop(1, 'rgba(146,64,14,0.1)');
           ctx.fillStyle = grdGround;
           ctx.fillRect(originX - 30, groundBandTop, fencePixelW + 60, groundBandH);
+        }
+
+        // ── Soil profile draggable handles ──
+        {
+          const isTouchDevice = 'ontouchstart' in window;
+          const showHandles = isTouchDevice || this._soilHandleProximity || (this._soilHandleDrag && this._soilHandleDrag.active);
+          const handleR = isTouchDevice ? 12 : 8;
+          const epw = postWidthMm * scale;
+          const epanelW = panelWidthMm * scale;
+
+          // Calculate handle positions (world coords) at each post junction
+          this._soilHandlePositions = [];
+          let hx = originX;
+
+          for (let hi = 0; hi <= panelCount; hi++) {
+            const postGnd = groundY + groundOffsets[hi] * scale;
+            // Compute high-side ground at this post (same logic as soil profile path)
+            let highSideAtPost = postGnd;
+            if (hi > 0) {
+              const lp = run.panels[hi - 1];
+              const lpLowOff = Math.max(groundOffsets[hi - 1], groundOffsets[hi]);
+              const lpLowGndY = groundY + lpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - lp.retaining * scale);
+            }
+            if (hi < panelCount) {
+              const rp = run.panels[hi];
+              const rpLowOff = Math.max(groundOffsets[hi], groundOffsets[hi + 1]);
+              const rpLowGndY = groundY + rpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - rp.retaining * scale);
+            }
+
+            // Handle X = centre of the post
+            const handleX = hx + epw / 2;
+            const handleY = highSideAtPost;
+
+            this._soilHandlePositions.push({ x: handleX, y: handleY, postIdx: hi });
+
+            // Draw handle if visible
+            if (showHandles) {
+              const isHovered = this._soilHandleHover === hi;
+              const isDragged = this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.postIdx === hi;
+
+              ctx.beginPath();
+              ctx.arc(handleX, handleY, handleR / this.profileZoom, 0, Math.PI * 2);
+              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2 / this.profileZoom;
+              ctx.stroke();
+
+              // If dragging this handle, draw a horizontal guide line
+              if (isDragged) {
+                ctx.save();
+                ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
+                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+                ctx.lineWidth = 1 / this.profileZoom;
+                ctx.beginPath();
+                ctx.moveTo(originX - 20, handleY);
+                ctx.lineTo(originX + fencePixelW + 20, handleY);
+                ctx.stroke();
+                ctx.restore();
+              }
+            }
+
+            // Advance cursor: past this post + next panel
+            hx += epw;
+            if (hi < panelCount) hx += epanelW;
+          }
         }
 
         ctx.restore();
