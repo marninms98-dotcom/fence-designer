@@ -1668,7 +1668,6 @@
         }
 
         const postColour = '#5a5a5a';       // flat dark grey
-        const postCapColour = '#4a4a4a';
         const railColour = '#505050';
 
         // ── Dimensions in mm ──
@@ -1797,20 +1796,20 @@
 
           // Post above ground (code-drawn, not from image)
           const postAboveH = postAboveMm * scale;
+          const patioWider = postInfo.patio ? pw * 0.15 : 0;
+          const postDrawX = cursorX - patioWider;
+          const postDrawW = pw + patioWider * 2;
           ctx.fillStyle = postColour;
-          ctx.fillRect(cursorX, postTopY, pw, postAboveH);
+          ctx.fillRect(postDrawX, postTopY, postDrawW, postAboveH);
           ctx.strokeStyle = '#404040';
           ctx.lineWidth = 0.5;
-          ctx.strokeRect(cursorX, postTopY, pw, postAboveH);
+          ctx.strokeRect(postDrawX, postTopY, postDrawW, postAboveH);
 
-          // Patio tube post overlay (when postInfo.patio is true)
+          // Patio tube centre stripe (76x38 RHS between back-to-back C-channels)
           if (postInfo.patio) {
-            const patioExtra = 2;
-            ctx.strokeStyle = '#e67e22';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(cursorX - patioExtra, postTopY - patioExtra, pw + patioExtra * 2, postAboveH + patioExtra * 2);
-            ctx.fillStyle = 'rgba(230, 126, 34, 0.12)';
-            ctx.fillRect(cursorX, postTopY, pw, postAboveH);
+            const stripeW = Math.max(2, postDrawW * 0.15);
+            ctx.fillStyle = '#e67e22';
+            ctx.fillRect(postDrawX + (postDrawW - stripeW) / 2, postTopY, stripeW, postAboveH);
           }
 
           // Post below ground (dashed footing)
@@ -1821,18 +1820,13 @@
           ctx.strokeRect(cursorX + 1, postGndY, pw - 2, embedDepthMm * scale);
           ctx.restore();
 
-          // Post cap (triangle)
-          const capH = capHeightMm * scale;
-          ctx.fillStyle = postCapColour;
-          ctx.beginPath();
-          ctx.moveTo(cursorX - 1, postTopY);
-          ctx.lineTo(cursorX + pw / 2, postTopY - capH);
-          ctx.lineTo(cursorX + pw + 1, postTopY);
-          ctx.closePath();
-          ctx.fill();
+          // Post cap (flat pressed-metal cap)
+          const capH = Math.max(4, 8 * scale);
+          ctx.fillStyle = '#6a6a6a';
+          ctx.fillRect(cursorX, postTopY - capH, pw, capH);
           ctx.strokeStyle = '#404040';
           ctx.lineWidth = 0.5;
-          ctx.stroke();
+          ctx.strokeRect(cursorX, postTopY - capH, pw, capH);
 
           cursorX += pw;
 
@@ -1897,47 +1891,42 @@
             ctx.lineWidth = 0.5;
             ctx.strokeRect(cursorX, panelGndY - btmRailH, panelW, btmRailH);
 
-            // ── Plinths (stacked blocks, 2px gaps, alternating grey) ──
+            // ── Plinths (tapered concrete retaining plinths) ──
             if (plinths > 0) {
               const plinthH = plinthHeightMm * scale;
               const plinthGap = 2;
+              const taper = Math.min(2, plinthH * 0.05);
               for (let pi = 0; pi < plinths; pi++) {
                 const py = panelGndY + pi * (plinthH + plinthGap);
-                ctx.fillStyle = pi % 2 === 0 ? '#9ca3af' : '#b4b9c1';
-                ctx.fillRect(cursorX, py, panelW, plinthH);
-                ctx.strokeStyle = '#7b8290';
-                ctx.lineWidth = 0.7;
-                ctx.strokeRect(cursorX, py, panelW, plinthH);
+                // Tapered shape (wider at bottom)
+                ctx.beginPath();
+                ctx.moveTo(cursorX + taper, py);
+                ctx.lineTo(cursorX + panelW - taper, py);
+                ctx.lineTo(cursorX + panelW, py + plinthH);
+                ctx.lineTo(cursorX, py + plinthH);
+                ctx.closePath();
+                ctx.fillStyle = '#8B8B83';
+                ctx.fill();
+                ctx.strokeStyle = '#6B6B63';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                // Shadow below plinth
+                ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                ctx.fillRect(cursorX, py + plinthH, panelW, 1);
               }
             }
 
-            // ── Ground lines ──
-            // High side (green) at panel ground
-            ctx.strokeStyle = '#22c55e';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(cursorX - pw, panelGndY);
-            ctx.lineTo(cursorX + panelW + pw, panelGndY);
-            ctx.stroke();
-
+            // ── Ground indicator ──
             // Low side (brown) at bottom of plinths
             if (plinths > 0) {
               const plinthGap = 2;
               const lowSideY = panelGndY + plinths * (plinthHeightMm * scale + plinthGap);
               ctx.strokeStyle = '#92400e';
-              ctx.lineWidth = 2;
+              ctx.lineWidth = 1;
               ctx.beginPath();
-              ctx.moveTo(cursorX - pw, lowSideY);
-              ctx.lineTo(cursorX + panelW + pw, lowSideY);
+              ctx.moveTo(cursorX, lowSideY);
+              ctx.lineTo(cursorX + panelW, lowSideY);
               ctx.stroke();
-
-              // Gradient fill between ground lines
-              const grd = ctx.createLinearGradient(0, panelGndY, 0, lowSideY);
-              grd.addColorStop(0, 'rgba(34,197,94,0.12)');
-              grd.addColorStop(0.3, 'rgba(146,64,14,0.08)');
-              grd.addColorStop(1, 'rgba(146,64,14,0.15)');
-              ctx.fillStyle = grd;
-              ctx.fillRect(cursorX, panelGndY, panelW, lowSideY - panelGndY);
             }
 
             // ── Panel number (circled) ──
