@@ -530,6 +530,21 @@
       transition: opacity 0.1s;
     }
 
+    .soil-handle-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(139,115,85,0.95);
+      color: #fff;
+      font-size: 11px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 4px;
+      white-space: nowrap;
+      z-index: 12;
+      display: none;
+    }
+
     .pv-reset-btn {
       position: absolute;
       top: 8px;
@@ -716,6 +731,7 @@
       <div class="profile-view-container" id="profileViewContainer">
         <canvas id="profileCanvas"></canvas>
         <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
+        <div class="soil-handle-tooltip" id="soilHandleTooltip"></div>
         <button class="pv-reset-btn" onclick="app.resetProfileView()">Reset View</button>
       </div>
       <div class="visualiser-placeholder" id="threeDPlaceholder" style="display:none;">
@@ -1511,6 +1527,13 @@
       _profileHover: null,
       highlightedPanelIdx: null,
 
+      // ── Soil profile handle dragging state ──
+      _soilHandlePositions: [],    // [{x, y, postIdx}] world coords of each handle
+      _soilHandleDrag: null,       // {postIdx, startY, startRetLeft, startRetRight} when dragging
+      _soilHandleHover: -1,        // index of hovered handle, -1 if none
+      _soilHandleProximity: false,  // true when mouse is near ground line
+      _soilGroundOffsets: [],       // cached ground offsets in mm for handle drag calculations
+
       // Select a panel (from table click or canvas click)
       selectPanel(idx) {
         this.highlightedPanelIdx = (this.highlightedPanelIdx === idx) ? null : idx;
@@ -1555,15 +1578,146 @@
         return null;
       },
 
+      // Check if world coords are near a soil handle; returns index or -1
+      _hitTestSoilHandle(wx, wy) {
+        const isTouchDevice = 'ontouchstart' in window;
+        // Handle is drawn at (handleR / zoom) world units; use a generous hit area
+        const baseR = isTouchDevice ? 12 : 8;
+        const worldR = (baseR + 4) / this.profileZoom; // slightly larger than visual for easy grabbing
+        for (let i = 0; i < this._soilHandlePositions.length; i++) {
+          const h = this._soilHandlePositions[i];
+          const dx = wx - h.x, dy = wy - h.y;
+          if (dx * dx + dy * dy <= worldR * worldR) return i;
+        }
+        return -1;
+      },
+
+      // Check if world Y is within proximity of the soil profile line
+      _isNearSoilProfile(wx, wy) {
+        const proximityPx = 30 / this.profileZoom;
+        for (let i = 0; i < this._soilHandlePositions.length; i++) {
+          const h = this._soilHandlePositions[i];
+          if (Math.abs(wy - h.y) < proximityPx && Math.abs(wx - h.x) < proximityPx * 3) return true;
+        }
+        return false;
+      },
+
+      // Apply soil handle drag: calculate new retaining values from handle position
+      _applySoilHandleDrag(postIdx, worldY) {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run || run.panels.length === 0) return;
+
+        const panelCount = run.panels.length;
+        const plinthHeightMm = 150;
+
+        // The handle's worldY maps to the high-side ground level at this post.
+        // We need the rendering parameters to convert worldY back to retaining mm.
+        // Use cached layout from last render.
+        const layout = this._soilHandleLayout;
+        if (!layout) return;
+
+        // Convert worldY displacement from the low-side ground to retaining mm
+        // handle going UP (smaller worldY) = more retaining
+        // handle going DOWN (larger worldY) = less retaining
+
+        // For the left panel (postIdx - 1): retaining = lowSideGndY - worldY in mm
+        // For the right panel (postIdx): retaining = lowSideGndY - worldY in mm
+        if (postIdx > 0 && postIdx <= panelCount) {
+          // Left panel
+          const lpIdx = postIdx - 1;
+          const lpLowOff = Math.max(layout.groundOffsets[lpIdx], layout.groundOffsets[postIdx]);
+          const lpLowGndY = layout.groundY + lpLowOff * layout.scale;
+          const rawRetMm = (lpLowGndY - worldY) / layout.scale;
+          const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
+          run.panels[lpIdx].retaining = Math.max(0, Math.min(750, snapped));
+        }
+        if (postIdx >= 0 && postIdx < panelCount) {
+          // Right panel
+          const rpIdx = postIdx;
+          const rpLowOff = Math.max(layout.groundOffsets[rpIdx], layout.groundOffsets[rpIdx + 1]);
+          const rpLowGndY = layout.groundY + rpLowOff * layout.scale;
+          const rawRetMm = (rpLowGndY - worldY) / layout.scale;
+          const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
+          run.panels[rpIdx].retaining = Math.max(0, Math.min(750, snapped));
+        }
+      },
+
+      // Show the soil handle drag tooltip
+      _showSoilHandleTooltip(clientX, clientY, postIdx) {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run) return;
+        const container = document.getElementById('profileViewContainer');
+        const tooltip = document.getElementById('soilHandleTooltip');
+        if (!tooltip || !container) return;
+
+        // Find the max retaining of adjacent panels
+        const panelCount = run.panels.length;
+        let retMm = 0;
+        if (postIdx > 0) retMm = Math.max(retMm, run.panels[postIdx - 1].retaining);
+        if (postIdx < panelCount) retMm = Math.max(retMm, run.panels[postIdx].retaining);
+
+        const plinths = retMm / 150;
+        let text;
+        if (retMm === 0) {
+          text = '0mm (no retaining)';
+        } else {
+          text = `+${retMm}mm (${plinths} plinth${plinths !== 1 ? 's' : ''})`;
+        }
+
+        const rect = container.getBoundingClientRect();
+        tooltip.textContent = text;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (clientX - rect.left + 14) + 'px';
+        tooltip.style.top = (clientY - rect.top - 34) + 'px';
+      },
+
+      _hideSoilHandleTooltip() {
+        const tooltip = document.getElementById('soilHandleTooltip');
+        if (tooltip) tooltip.style.display = 'none';
+      },
+
       initProfileViewControls() {
         const container = document.getElementById('profileViewContainer');
         if (!container || container._pvBound) return;
         container._pvBound = true;
 
+        const isTouchDevice = 'ontouchstart' in window;
+
         container.addEventListener('mousedown', (e) => {
+          // Check if clicking on a soil handle first
+          const w = this._screenToWorld(e.clientX, e.clientY);
+          const handleIdx = this._hitTestSoilHandle(w.x, w.y);
+          if (handleIdx >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            const run = this.job.runs.find(r => r.id === this.currentRunId);
+            if (!run) return;
+            this._soilHandleDrag = {
+              postIdx: handleIdx,
+              startWorldY: w.y,
+              active: true
+            };
+            this._soilHandleHover = handleIdx;
+            container.style.cursor = 'ns-resize';
+            this._showSoilHandleTooltip(e.clientX, e.clientY, handleIdx);
+            return;
+          }
           this._profileDrag = { startX: e.clientX, startY: e.clientY, panX: this.profilePan.x, panY: this.profilePan.y, moved: false };
         });
+
         window.addEventListener('mousemove', (e) => {
+          // Soil handle drag in progress
+          if (this._soilHandleDrag && this._soilHandleDrag.active) {
+            const w = this._screenToWorld(e.clientX, e.clientY);
+            this._applySoilHandleDrag(this._soilHandleDrag.postIdx, w.y);
+            this._showSoilHandleTooltip(e.clientX, e.clientY, this._soilHandleDrag.postIdx);
+            this.renderProfileView();
+            // Sync panel table retaining dropdowns without full re-render
+            this._syncPanelTableRetaining();
+            return;
+          }
+
+          // Pan drag in progress
           if (this._profileDrag) {
             const dx = e.clientX - this._profileDrag.startX;
             const dy = e.clientY - this._profileDrag.startY;
@@ -1573,8 +1727,36 @@
             this.renderProfileView();
             return;
           }
-          // Hover hit-testing
+
+          // Hover: check soil handles and hit regions
           const w = this._screenToWorld(e.clientX, e.clientY);
+          const handleIdx = this._hitTestSoilHandle(w.x, w.y);
+          const nearSoil = this._isNearSoilProfile(w.x, w.y);
+
+          if (handleIdx >= 0) {
+            this._soilHandleHover = handleIdx;
+            this._soilHandleProximity = true;
+            container.style.cursor = 'ns-resize';
+            this._showSoilHandleTooltip(e.clientX, e.clientY, handleIdx);
+            if (this._profileHover) {
+              this._profileHover = null;
+              const pvTooltip = document.getElementById('pvTooltip');
+              if (pvTooltip) pvTooltip.style.display = 'none';
+            }
+            this.renderProfileView();
+            return;
+          } else if (this._soilHandleHover >= 0) {
+            this._soilHandleHover = -1;
+            this._hideSoilHandleTooltip();
+            this.renderProfileView();
+          }
+
+          // Track proximity to soil line (show/hide handles)
+          const wasNear = this._soilHandleProximity;
+          this._soilHandleProximity = nearSoil;
+          if (wasNear !== nearSoil) this.renderProfileView();
+
+          // Standard hover hit-testing
           const hit = this._hitTest(w.x, w.y);
           const tooltip = document.getElementById('pvTooltip');
           if (hit) {
@@ -1591,11 +1773,23 @@
           } else if (this._profileHover) {
             this._profileHover = null;
             if (tooltip) tooltip.style.display = 'none';
-            container.style.cursor = 'grab';
+            if (!nearSoil) container.style.cursor = 'grab';
             this.renderProfileView();
+          } else if (!nearSoil) {
+            container.style.cursor = 'grab';
           }
         });
+
         window.addEventListener('mouseup', (e) => {
+          if (this._soilHandleDrag && this._soilHandleDrag.active) {
+            // Finish soil handle drag — save and do full re-render
+            this._soilHandleDrag = null;
+            this._hideSoilHandleTooltip();
+            container.style.cursor = 'grab';
+            this.save();
+            this.render();
+            return;
+          }
           if (this._profileDrag && !this._profileDrag.moved) {
             // Click — check for panel number circle hit
             const w = this._screenToWorld(e.clientX, e.clientY);
@@ -1605,6 +1799,47 @@
             }
           }
           this._profileDrag = null;
+        });
+
+        // Touch support for soil handles
+        container.addEventListener('touchstart', (e) => {
+          if (e.touches.length !== 1) return;
+          const touch = e.touches[0];
+          const w = this._screenToWorld(touch.clientX, touch.clientY);
+          const handleIdx = this._hitTestSoilHandle(w.x, w.y);
+          if (handleIdx >= 0) {
+            e.preventDefault();
+            this._soilHandleDrag = {
+              postIdx: handleIdx,
+              startWorldY: w.y,
+              active: true,
+              isTouch: true
+            };
+            this._soilHandleHover = handleIdx;
+            this._showSoilHandleTooltip(touch.clientX, touch.clientY, handleIdx);
+            this.renderProfileView();
+          }
+        }, { passive: false });
+
+        container.addEventListener('touchmove', (e) => {
+          if (this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.isTouch) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const w = this._screenToWorld(touch.clientX, touch.clientY);
+            this._applySoilHandleDrag(this._soilHandleDrag.postIdx, w.y);
+            this._showSoilHandleTooltip(touch.clientX, touch.clientY, this._soilHandleDrag.postIdx);
+            this.renderProfileView();
+            this._syncPanelTableRetaining();
+          }
+        }, { passive: false });
+
+        container.addEventListener('touchend', (e) => {
+          if (this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.isTouch) {
+            this._soilHandleDrag = null;
+            this._hideSoilHandleTooltip();
+            this.save();
+            this.render();
+          }
         });
 
         container.addEventListener('wheel', (e) => {
@@ -1619,6 +1854,49 @@
           this.profileZoom = Math.max(0.5, Math.min(5, this.profileZoom));
           this.renderProfileView();
         }, { passive: false });
+      },
+
+      // Sync panel table retaining dropdowns to match current panel data (no full re-render)
+      _syncPanelTableRetaining() {
+        const run = this.job.runs.find(r => r.id === this.currentRunId);
+        if (!run) return;
+        const dragIdx = this._soilHandleDrag ? this._soilHandleDrag.postIdx : -1;
+        const rows = document.querySelectorAll('.panel-table tbody tr[data-panel-idx]');
+        rows.forEach(row => {
+          const idx = parseInt(row.getAttribute('data-panel-idx'));
+          if (idx >= 0 && idx < run.panels.length) {
+            const sel = row.querySelector('.col-ret select');
+            if (sel && parseInt(sel.value) !== run.panels[idx].retaining) {
+              sel.value = run.panels[idx].retaining;
+            }
+            // Update plinths display
+            const plTd = row.querySelector('.col-pl');
+            if (plTd) {
+              const plinths = run.panels[idx].retaining / 150;
+              plTd.textContent = plinths >= 3 ? `${plinths}†` : `${plinths}`;
+            }
+            // Update total display
+            const totTd = row.querySelector('.col-total');
+            if (totTd) {
+              const total = run.panels[idx].height + run.panels[idx].retaining;
+              totTd.textContent = total;
+              totTd.className = 'col-total ' + (total > 1800 ? 'total-elevated' : 'total-standard');
+            }
+            // Update post display
+            const postTd = row.querySelector('.col-post');
+            if (postTd) {
+              const posts = this.getRunPosts(run);
+              const leftPost = posts[idx];
+              const rightPost = posts[idx + 1];
+              const maxPost = Math.max(leftPost.postSize, rightPost.postSize);
+              const anyPatio = leftPost.patio || rightPost.patio;
+              postTd.innerHTML = anyPatio ? `<span class="post-patio">${maxPost}†</span>` : `${maxPost}`;
+            }
+            // Highlight adjacent panels during handle drag
+            const isAdjacent = (dragIdx === idx || dragIdx === idx + 1);
+            row.style.background = isAdjacent ? 'rgba(139,115,85,0.10)' : '';
+          }
+        });
       },
 
       // ── Profile View: main render ──
@@ -1727,6 +2005,9 @@
         for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGndOffset;
         const maxGndOffset = Math.max(...groundOffsets);
 
+        // Cache ground offsets for soil handle drag calculations (stored as array in mm)
+        this._soilGroundOffsets = groundOffsets.slice();
+
         const posts = this.getRunPosts(run);
 
         let maxPostAbove = 0;
@@ -1768,6 +2049,9 @@
         const fencePixelW = totalFenceWidthMm * scale;
         const originX = (cw / this.profileZoom - fencePixelW) / 2;
         const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.1;
+
+        // Cache layout for soil handle drag math
+        this._soilHandleLayout = { groundY, scale, groundOffsets, originX, postWidthMm, panelWidthMm };
 
         const railH = railHeightMm * scale;
         const footingWMm = 300;
@@ -2115,6 +2399,21 @@
             ctx.textBaseline = 'middle';
             ctx.fillText(`P${i + 1}`, circleCX, circleCY);
 
+            // ── Highlight panel during adjacent soil handle drag ──
+            if (this._soilHandleDrag && this._soilHandleDrag.active) {
+              const dragIdx = this._soilHandleDrag.postIdx;
+              // Panel i is adjacent to handles at post i and post i+1
+              if (dragIdx === i || dragIdx === i + 1) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(139,115,85,0.12)';
+                ctx.fillRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
+                ctx.strokeStyle = 'rgba(139,115,85,0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(cursorX, capRailTopY, panelW, lowSideGndY - capRailTopY);
+                ctx.restore();
+              }
+            }
+
             cursorX += panelW;
           }
         }
@@ -2130,6 +2429,74 @@
           grdGround.addColorStop(1, 'rgba(146,64,14,0.1)');
           ctx.fillStyle = grdGround;
           ctx.fillRect(originX - 30, groundBandTop, fencePixelW + 60, groundBandH);
+        }
+
+        // ── Soil profile draggable handles ──
+        {
+          const isTouchDevice = 'ontouchstart' in window;
+          const showHandles = isTouchDevice || this._soilHandleProximity || (this._soilHandleDrag && this._soilHandleDrag.active);
+          const handleR = isTouchDevice ? 12 : 8;
+          const epw = postWidthMm * scale;
+          const epanelW = panelWidthMm * scale;
+
+          // Calculate handle positions (world coords) at each post junction
+          this._soilHandlePositions = [];
+          let hx = originX;
+
+          for (let hi = 0; hi <= panelCount; hi++) {
+            const postGnd = groundY + groundOffsets[hi] * scale;
+            // Compute high-side ground at this post (same logic as soil profile path)
+            let highSideAtPost = postGnd;
+            if (hi > 0) {
+              const lp = run.panels[hi - 1];
+              const lpLowOff = Math.max(groundOffsets[hi - 1], groundOffsets[hi]);
+              const lpLowGndY = groundY + lpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, lpLowGndY - lp.retaining * scale);
+            }
+            if (hi < panelCount) {
+              const rp = run.panels[hi];
+              const rpLowOff = Math.max(groundOffsets[hi], groundOffsets[hi + 1]);
+              const rpLowGndY = groundY + rpLowOff * scale;
+              highSideAtPost = Math.min(highSideAtPost, rpLowGndY - rp.retaining * scale);
+            }
+
+            // Handle X = centre of the post
+            const handleX = hx + epw / 2;
+            const handleY = highSideAtPost;
+
+            this._soilHandlePositions.push({ x: handleX, y: handleY, postIdx: hi });
+
+            // Draw handle if visible
+            if (showHandles) {
+              const isHovered = this._soilHandleHover === hi;
+              const isDragged = this._soilHandleDrag && this._soilHandleDrag.active && this._soilHandleDrag.postIdx === hi;
+
+              ctx.beginPath();
+              ctx.arc(handleX, handleY, handleR / this.profileZoom, 0, Math.PI * 2);
+              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2 / this.profileZoom;
+              ctx.stroke();
+
+              // If dragging this handle, draw a horizontal guide line
+              if (isDragged) {
+                ctx.save();
+                ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
+                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+                ctx.lineWidth = 1 / this.profileZoom;
+                ctx.beginPath();
+                ctx.moveTo(originX - 20, handleY);
+                ctx.lineTo(originX + fencePixelW + 20, handleY);
+                ctx.stroke();
+                ctx.restore();
+              }
+            }
+
+            // Advance cursor: past this post + next panel
+            hx += epw;
+            if (hi < panelCount) hx += epanelW;
+          }
         }
 
         ctx.restore();
