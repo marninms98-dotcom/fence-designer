@@ -1056,8 +1056,8 @@
         { ret: 0,   post: 2400, patio: false },
         { ret: 150, post: 2400, patio: false },
         { ret: 300, post: 2400, patio: false },
-        { ret: 450, post: 2400, patio: false },
-        { ret: 600, post: 2400, patio: false }
+        { ret: 450, post: 2400, patio: true },
+        { ret: 600, post: 2400, patio: true }
       ],
       1500: [
         { ret: 0,   post: 2400, patio: false },
@@ -1141,7 +1141,7 @@
       else if (required <= 3000) postSize = 3000;
       else postSize = 3000;
       const plinths = retaining / 150;
-      return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 5 };
+      return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 4 };
     }
 
     // ── Application ──
@@ -3496,7 +3496,7 @@
 
             const lookup = lookupPost(panel.height, totalRet);
             const postH = lookup.post;
-            const patio = plinths >= 3;
+            const patio = plinths >= 3 && plinths <= 4;
             if (patio) panelsWithPatio++;
 
             // Group panels by sheet height + post height for material order
@@ -3904,7 +3904,7 @@
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
         order += `CONCRETE:\n${d.concreteBags} \u00D7 Bags Quickset Concrete\n\n`;
-        order += `FIXINGS:\n${d.tekBoxes} \u00D7 Boxes Tek Screws\nPost Caps, Fixings as required\n\n`;
+        order += `FIXINGS:\n${d.tekBoxes} \u00D7 Boxes Tek Screws\nFixings as required\n\n`;
         order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks WA\nfencing@secureworkswa.com.au | 0489 267 772`;
 
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
