@@ -3888,8 +3888,8 @@
         order += `PANELS & POSTS:\n${panelLines}`;
         if (d.totalPlinths > 0) order += `PLINTHS:\n${d.totalPlinths} \u00D7 150mm Plinths \u2014 ${d.colour}\n\n`;
         if (d.totalPatioTubes > 0) {
-          const panelsW = d.runDetails.reduce((s, r) => s + r.panelsWithPatio, 0);
-          order += `PATIO TUBING:\n${d.totalPatioTubes} \u00D7 76x38 RHS Patio Tube @ 3000mm\n    (Calculation: ${panelsW} panels with 3+ plinths + 1 = ${d.totalPatioTubes} tubes)\n\n`;
+          const patioCalcParts = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio} panels + 1 = ${r.patioTubes}`);
+          order += `PATIO TUBING:\n${d.totalPatioTubes} \u00D7 76x38 RHS Patio Tube @ 3000mm\n    (${patioCalcParts.join('; ')})\n\n`;
         }
         if (d.gatePosts > 0) {
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
