@@ -1529,16 +1529,16 @@
         const slopePlinthsArr = new Array(panelCount).fill(0);
 
         for (let i = startIdx; i !== endIdx; i += step) {
-          const totalGap = carriedGap + panelFalls[i];
+          // carriedGap: positive = unfilled gap, negative = plinth credit (overshoot)
+          carriedGap += panelFalls[i];
 
-          if (totalGap >= GAP_THRESHOLD) {
-            const plinthsNeeded = Math.ceil(totalGap / PLINTH_H);
+          if (carriedGap >= GAP_THRESHOLD) {
+            const plinthsNeeded = Math.ceil(carriedGap / PLINTH_H);
             slopePlinthsArr[i] = plinthsNeeded;
-            carriedGap = (plinthsNeeded * PLINTH_H) - totalGap;
-            if (carriedGap < 0) carriedGap = 0;
+            // Overshoot becomes credit (negative carriedGap)
+            carriedGap = carriedGap - (plinthsNeeded * PLINTH_H);
           } else {
             slopePlinthsArr[i] = 0;
-            carriedGap = totalGap;
           }
         }
 
