@@ -1483,75 +1483,72 @@
       },
 
       // ── Calculate slope-derived steps and plinths for all panels in a run ──
-      // This sets panel.slopePlinths and panel.step based on the slope line.
-      // Called whenever slope points change or panels are synced.
+      // ACCUMULATED GAP MODEL: The bottom rail is rigid (~2380mm). On a slope,
+      // the high side touches ground, low side has a gap. When gap reaches 50mm,
+      // plinths fill it. We track a running "carried_gap" across panels.
       calcSlopeForRun(run) {
         if (!run || !run.panels.length) return;
         const panelCount = run.panels.length;
         const runLengthM = run.length || 0;
         const slopePoints = (run.slope && run.slope.points) || [];
-        const plinthH = 150;
-        const maxStepsPerPanel = 4; // 600mm max step between adjacent panels
+        const PLINTH_H = 150;
+        const GAP_THRESHOLD = 50;
 
-        // Get the interpolated ground height at each post position (panelCount + 1 posts)
+        // Step 1: Interpolate ground height at LEFT and RIGHT edge of each panel
         const groundHeights = [];
         for (let i = 0; i <= panelCount; i++) {
           const distM = runLengthM > 0 ? (i / panelCount) * runLengthM : 0;
           groundHeights.push(this.computeGroundHeight(slopePoints, distM));
         }
 
-        // Each panel spans from post i to post i+1.
-        // The panel's "base level" snaps to the nearest plinthH step below the ground.
-        // We work left-to-right. Panel 0's base = 0 (reference).
-        // For each subsequent panel, the base steps down/up when ground changes enough.
+        // Step 2: Calculate panel_fall for each panel
+        const panelFalls = [];
+        for (let i = 0; i < panelCount; i++) {
+          const leftGround = groundHeights[i];
+          const rightGround = groundHeights[i + 1];
+          panelFalls.push(Math.abs(leftGround - rightGround));
+        }
 
-        // Panel base levels (in mm, relative to start — negative = lower, positive = higher)
-        const baseLevels = new Array(panelCount).fill(0);
-        baseLevels[0] = 0; // First panel is the reference
+        // Determine direction of the overall fall (high end to low end)
+        const firstGround = groundHeights[0];
+        const lastGround = groundHeights[panelCount];
+        const fallsLeftToRight = firstGround >= lastGround;
 
-        for (let i = 1; i < panelCount; i++) {
-          // Ground height at this panel's left post
-          const groundAtPost = groundHeights[i];
-          // How far has ground dropped from the previous panel's base?
-          const prevBase = baseLevels[i - 1];
-          const dropFromPrevBase = prevBase - groundAtPost; // positive = ground is lower
-          if (dropFromPrevBase >= plinthH) {
-            // Step down by however many full plinths fit, capped at 4 (600mm)
-            const steps = Math.min(maxStepsPerPanel, Math.floor(dropFromPrevBase / plinthH));
-            baseLevels[i] = prevBase - steps * plinthH;
-          } else if (dropFromPrevBase <= -plinthH) {
-            // Ground has risen — step up, capped at 4 (600mm)
-            const steps = Math.min(maxStepsPerPanel, Math.floor(-dropFromPrevBase / plinthH));
-            baseLevels[i] = prevBase + steps * plinthH;
+        // Step 3-4: Walk panels in the direction of the fall, accumulating gap
+        let carriedGap = 0;
+        const startIdx = fallsLeftToRight ? 0 : panelCount - 1;
+        const endIdx = fallsLeftToRight ? panelCount : -1;
+        const step = fallsLeftToRight ? 1 : -1;
+
+        const slopePlinthsArr = new Array(panelCount).fill(0);
+
+        for (let i = startIdx; i !== endIdx; i += step) {
+          const totalGap = carriedGap + panelFalls[i];
+
+          if (totalGap >= GAP_THRESHOLD) {
+            const plinthsNeeded = Math.ceil(totalGap / PLINTH_H);
+            slopePlinthsArr[i] = plinthsNeeded;
+            carriedGap = (plinthsNeeded * PLINTH_H) - totalGap;
+            if (carriedGap < 0) carriedGap = 0;
           } else {
-            baseLevels[i] = prevBase;
+            slopePlinthsArr[i] = 0;
+            carriedGap = totalGap;
           }
         }
 
-        // Now calculate slopePlinths, step direction, and stepMm for each panel
+        // Step 5: Write results back to panel objects
         for (let i = 0; i < panelCount; i++) {
           const panel = run.panels[i];
+          panel.slopePlinths = slopePlinthsArr[i];
 
-          // Slope plinths = how far this panel's base is above the lowest ground
-          // at either end of the panel, measured in plinth units
-          const groundLeft = groundHeights[i];
-          const groundRight = groundHeights[i + 1];
-          const lowestGround = Math.min(groundLeft, groundRight);
-          const gapMm = baseLevels[i] - lowestGround; // how far base is above ground
-          const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
-          panel.slopePlinths = slopePlinths;
-
-          // Step direction and magnitude: compare this panel's base to previous
-          if (i === 0) {
-            panel.step = 'level';
-            panel.stepMm = 0;
-          } else {
-            const diff = baseLevels[i] - baseLevels[i - 1];
-            if (diff < 0) panel.step = 'down';
-            else if (diff > 0) panel.step = 'up';
-            else panel.step = 'level';
-            panel.stepMm = diff; // negative = down, positive = up, 0 = level
-          }
+          // Step: actual fall across this panel (for display)
+          const leftGround = groundHeights[i];
+          const rightGround = groundHeights[i + 1];
+          const diff = rightGround - leftGround;
+          if (diff < -0.5) panel.step = 'down';
+          else if (diff > 0.5) panel.step = 'up';
+          else panel.step = 'level';
+          panel.stepMm = Math.round(diff); // negative = drops L→R, positive = rises L→R
         }
       },
 
