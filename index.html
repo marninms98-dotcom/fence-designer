@@ -314,6 +314,103 @@
       color: #999;
     }
 
+    /* Simple/Advanced mode toggle */
+    .slope-simple-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .slope-control-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #293C46;
+    }
+    .slope-control-row label {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #6B5335;
+      min-width: 70px;
+      letter-spacing: 0.3px;
+    }
+    .slope-direction-toggle {
+      display: inline-flex;
+      border: 1px solid #8B7355;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .slope-direction-btn {
+      padding: 4px 10px;
+      border: none;
+      background: #f5f0ea;
+      color: #6B5335;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      transition: background 0.15s, color 0.15s;
+    }
+    .slope-direction-btn:not(:last-child) {
+      border-right: 1px solid #8B7355;
+    }
+    .slope-direction-btn.active {
+      background: #8B7355;
+      color: #fff;
+    }
+    .slope-direction-btn:hover:not(.active) {
+      background: #e8dfd4;
+    }
+    .slope-fall-input-simple {
+      width: 70px;
+      padding: 3px 6px;
+      border: 1px solid #8B7355;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      text-align: center;
+    }
+    .slope-fall-input-simple:focus {
+      outline: none;
+      border-color: #6B5335;
+      box-shadow: 0 0 0 2px rgba(139,115,85,0.2);
+    }
+    .slope-starts-select {
+      padding: 3px 6px;
+      border: 1px solid #8B7355;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background: #fff;
+    }
+    .slope-starts-select:focus {
+      outline: none;
+      border-color: #6B5335;
+      box-shadow: 0 0 0 2px rgba(139,115,85,0.2);
+    }
+    .slope-helper-label {
+      font-size: 11px;
+      color: #8B7355;
+      font-style: italic;
+      margin-top: -4px;
+      padding-left: 78px;
+    }
+    .slope-mode-link {
+      display: inline-block;
+      font-size: 11px;
+      color: #8B7355;
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .slope-mode-link:hover {
+      color: #6B5335;
+      text-decoration: underline;
+    }
+
     .slope-pt-label {
       display: inline-flex;
       align-items: center;
@@ -1474,7 +1571,7 @@
           sheetHeight: 1800,
           extension: 'none',
           panels: [],
-          slope: { points: [] }
+          slope: { mode: 'simple', points: [], simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' }, monotonic: null }
         };
         this.job.runs.push(run);
         this.currentRunId = run.id;
@@ -1504,17 +1601,25 @@
       // ── Slope point management ──
 
       syncSlopePoints(run) {
-        if (!run.slope) run.slope = { points: [] };
+        if (!run.slope) run.slope = { mode: 'simple', points: [], simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' }, monotonic: null };
+        if (!run.slope.simple) run.slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+        if (run.slope.mode === undefined) run.slope.mode = 'simple';
         const pts = run.slope.points;
         const runLen = run.length || 0;
+        const isAdvanced = run.slope.mode === 'advanced';
 
-        // Ensure start point at distanceM=0
+        // In simple mode, regenerate points from simple inputs
+        if (!isAdvanced) {
+          this._generateSimpleSlopePoints(run);
+          return;
+        }
+
+        // Advanced mode: ensure start and end points exist
         const startIdx = pts.findIndex(p => p.distanceM === 0);
         if (startIdx < 0) {
           pts.unshift({ distanceM: 0, heightMm: 0 });
-        } else {
-          pts[startIdx].heightMm = 0; // Start always level
         }
+        // In advanced mode, do NOT force start point to 0 — Point A is unlocked
 
         if (runLen > 0) {
           // Remove intermediate points beyond run length (keep first/start)
@@ -1525,17 +1630,156 @@
           // Ensure end point exists at runLen
           const endIdx = pts.findIndex(p => p.distanceM === runLen);
           if (endIdx < 0) {
-            // Find last point's height and add end
             const lastPt = pts[pts.length - 1];
             pts.push({ distanceM: runLen, heightMm: lastPt ? lastPt.heightMm : 0 });
           }
         } else {
-          // No length: keep only start
           pts.length = 1;
         }
 
-        // Sort by distanceM
         pts.sort((a, b) => a.distanceM - b.distanceM);
+      },
+
+      // Generate slope points from simple mode inputs
+      _generateSimpleSlopePoints(run) {
+        const slope = run.slope;
+        if (!slope.simple) slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+        const simple = slope.simple;
+        const runLen = run.length || 0;
+        if (runLen <= 0) {
+          slope.points = [{ distanceM: 0, heightMm: 0 }];
+          return;
+        }
+        const totalFall = simple.totalFallMm || 0;
+        const startPctMap = { 'start': 0, '25': 0.25, '50': 0.50, '75': 0.75 };
+        const startPct = startPctMap[simple.startsFrom] || 0;
+
+        // Build points for left-to-right direction first
+        let points;
+        if (totalFall === 0) {
+          points = [
+            { distanceM: 0, heightMm: 0 },
+            { distanceM: runLen, heightMm: 0 }
+          ];
+        } else if (startPct === 0) {
+          // Gradual slope across entire run
+          points = [
+            { distanceM: 0, heightMm: 0 },
+            { distanceM: runLen, heightMm: -totalFall }
+          ];
+        } else {
+          // Flat portion then slope
+          const flatEndM = Math.round(startPct * runLen * 2) / 2;
+          points = [
+            { distanceM: 0, heightMm: 0 },
+            { distanceM: Math.min(flatEndM, runLen - 0.5), heightMm: 0 },
+            { distanceM: runLen, heightMm: -totalFall }
+          ];
+        }
+
+        // If right-to-left, mirror the profile horizontally
+        if (simple.direction === 'right-to-left') {
+          points = points.map(p => ({
+            distanceM: Math.round((runLen - p.distanceM) * 2) / 2,
+            heightMm: p.heightMm
+          }));
+          points.sort((a, b) => a.distanceM - b.distanceM);
+        }
+
+        slope.points = points;
+      },
+
+      // Toggle between simple and advanced slope modes
+      toggleSlopeMode(runId) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run || !run.slope) return;
+
+        if (run.slope.mode === 'simple') {
+          // Switch to advanced: keep current points, add userSet flags
+          run.slope.mode = 'advanced';
+          run.slope.monotonic = null;
+          run.slope.points.forEach(p => { p.userSet = false; });
+        } else {
+          // Switch back to simple: calculate closest simple values
+          this._slopeAdvancedToSimple(run);
+          this._generateSimpleSlopePoints(run);
+        }
+
+        this.calcSlopeForRun(run);
+        this.save();
+        this.render();
+      },
+
+      // Calculate closest simple mode values from advanced profile
+      _slopeAdvancedToSimple(run) {
+        const pts = run.slope.points;
+        if (!pts || pts.length < 2) {
+          run.slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+          run.slope.mode = 'simple';
+          run.slope.monotonic = null;
+          return;
+        }
+
+        const firstH = pts[0].heightMm || 0;
+        const lastH = pts[pts.length - 1].heightMm || 0;
+        const diff = lastH - firstH; // negative = falls L→R, positive = rises L→R
+
+        let direction, totalFall;
+        if (diff <= 0) {
+          direction = 'left-to-right';
+          totalFall = Math.abs(diff);
+        } else {
+          direction = 'right-to-left';
+          totalFall = diff;
+        }
+
+        // Snap totalFall to nearest 150mm
+        totalFall = Math.round(totalFall / 150) * 150;
+        totalFall = Math.min(1800, Math.max(0, totalFall));
+
+        // Detect startsFrom by checking for flat initial portion
+        let startsFrom = 'start';
+        const runLen = run.length || pts[pts.length - 1].distanceM;
+        if (pts.length >= 3 && runLen > 0) {
+          const highEndH = direction === 'left-to-right' ? firstH : lastH;
+          // Check intermediate points near the high-end level
+          for (let i = 1; i < pts.length - 1; i++) {
+            if (Math.abs(pts[i].heightMm - highEndH) < 30) {
+              const pct = direction === 'left-to-right'
+                ? pts[i].distanceM / runLen
+                : (runLen - pts[i].distanceM) / runLen;
+              if (pct >= 0.65) startsFrom = '75';
+              else if (pct >= 0.40) startsFrom = '50';
+              else if (pct >= 0.18) startsFrom = '25';
+            }
+          }
+        }
+
+        run.slope.simple = { direction, totalFallMm: totalFall, startsFrom };
+        run.slope.mode = 'simple';
+        run.slope.monotonic = null;
+      },
+
+      // Update simple mode slope inputs
+      updateSimpleSlope(runId, field, value) {
+        const run = this.job.runs.find(r => r.id === runId);
+        if (!run || !run.slope || !run.slope.simple) return;
+
+        if (field === 'direction') {
+          run.slope.simple.direction = value;
+        } else if (field === 'totalFallMm') {
+          let numVal = parseInt(value, 10) || 0;
+          numVal = Math.round(numVal / 150) * 150;
+          numVal = Math.max(0, Math.min(1800, numVal));
+          run.slope.simple.totalFallMm = numVal;
+        } else if (field === 'startsFrom') {
+          run.slope.simple.startsFrom = value;
+        }
+
+        this._generateSimpleSlopePoints(run);
+        this.calcSlopeForRun(run);
+        this.save();
+        this.render();
       },
 
       addSlopePoint(runId) {
@@ -1552,11 +1796,10 @@
         }
 
         const midDist = (pts[maxIdx].distanceM + pts[maxIdx + 1].distanceM) / 2;
-        // Round to nearest 0.5m
         const rounded = Math.round(midDist * 2) / 2;
         const heightMm = this.computeGroundHeight(pts, rounded);
 
-        pts.push({ distanceM: rounded, heightMm: Math.round(heightMm) });
+        pts.push({ distanceM: rounded, heightMm: Math.round(heightMm), userSet: false });
         pts.sort((a, b) => a.distanceM - b.distanceM);
         this.calcSlopeForRun(run);
         this.save();
@@ -1567,7 +1810,6 @@
         const run = this.job.runs.find(r => r.id === runId);
         if (!run || !run.slope) return;
         const pts = run.slope.points;
-        // Cannot remove first (start) or last (end)
         if (pointIdx <= 0 || pointIdx >= pts.length - 1) return;
         pts.splice(pointIdx, 1);
         this.calcSlopeForRun(run);
@@ -1581,16 +1823,37 @@
         const pts = run.slope.points;
         if (!pts[pointIdx]) return;
 
-        if (field === 'fallMm') {
+        if (field === 'heightMm') {
+          // Direct heightMm input (advanced mode, Point A included)
+          const numVal = parseFloat(value) || 0;
+          pts[pointIdx].heightMm = Math.max(-2400, Math.min(2400, numVal));
+          pts[pointIdx].userSet = true;
+        } else if (field === 'fallMm') {
           // User enters positive = ground drops, stored as negative heightMm
-          if (pointIdx === 0) return; // Start always 0
           const numVal = parseFloat(value) || 0;
           pts[pointIdx].heightMm = -numVal;
+          pts[pointIdx].userSet = true;
         } else if (field === 'distanceM') {
-          if (pointIdx === 0 || pointIdx === pts.length - 1) return; // can't move start/end
+          if (pointIdx === 0 || pointIdx === pts.length - 1) return;
           const numVal = parseFloat(value) || 0;
           pts[pointIdx].distanceM = Math.max(0.5, Math.min((run.length || 0) - 0.5, numVal));
           pts.sort((a, b) => a.distanceM - b.distanceM);
+          return; // Don't apply waterfall for distance changes
+        }
+
+        // Waterfall: auto-adjust subsequent non-userSet points
+        const changedHeight = pts[pointIdx].heightMm;
+        for (let i = pointIdx + 1; i < pts.length; i++) {
+          if (!pts[i].userSet) {
+            pts[i].heightMm = changedHeight;
+          } else {
+            // Enforce monotonic on userSet points
+            if (run.slope.monotonic === 'falling') {
+              pts[i].heightMm = Math.min(pts[i].heightMm, pts[i - 1].heightMm);
+            } else if (run.slope.monotonic === 'rising') {
+              pts[i].heightMm = Math.max(pts[i].heightMm, pts[i - 1].heightMm);
+            }
+          }
         }
 
         this.calcSlopeForRun(run);
@@ -1601,7 +1864,16 @@
       resetSlope(runId) {
         const run = this.job.runs.find(r => r.id === runId);
         if (!run || !run.slope) return;
-        run.slope.points.forEach(p => { p.heightMm = 0; });
+
+        if (run.slope.mode === 'simple') {
+          run.slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+          this._generateSimpleSlopePoints(run);
+        } else {
+          // Advanced mode: reset all points to 0, clear userSet and monotonic
+          run.slope.points.forEach(p => { p.heightMm = 0; p.userSet = false; });
+          run.slope.monotonic = null;
+        }
+
         this.calcSlopeForRun(run);
         this.save();
         this.render();
@@ -1960,52 +2232,112 @@
           </div>
 
           ${(() => {
-            const slopePts = (run.slope && run.slope.points) || [];
-            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-            let slopeRows = '';
-            slopePts.forEach((pt, pi) => {
-              const letter = pi < letters.length ? letters[pi] : '?';
-              if (pi === 0) {
-                // Start point (read-only)
-                slopeRows += '<div class="slope-point-row slope-point-start">' +
-                  '<span class="slope-pt-label">' + letter + '</span>' +
-                  '<span>' + letter + ' \u2014 Start (0m) \u2014 Reference level</span>' +
-                  '</div>';
-              } else if (pi === slopePts.length - 1) {
-                // End point (editable fall only)
-                const fallMm = -(pt.heightMm || 0);
-                slopeRows += '<div class="slope-point-row">' +
-                  '<span class="slope-pt-label">' + letter + '</span>' +
-                  '<span>' + letter + ' \u2014 End (' + pt.distanceM.toFixed(1) + 'm) \u2014 falls</span>' +
-                  '<input type="number" class="slope-fall-input" value="' + fallMm + '" step="50" ' +
-                  'onchange="app.updateSlopePoint(\'' + run.id + '\', ' + pi + ', \'fallMm\', this.value)">' +
-                  '<span>mm</span>' +
-                  '</div>';
+            const slope = run.slope || {};
+            const slopeMode = slope.mode || 'simple';
+            const simple = slope.simple || { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+            const slopePts = (slope.points) || [];
+            const rid = run.id;
+            const runLen = run.length || 0;
+
+            if (slopeMode === 'simple') {
+              // ── SIMPLE MODE ──
+              const dirLR = simple.direction === 'left-to-right';
+              const fall = simple.totalFallMm || 0;
+              // Helper label
+              let helperText = '';
+              if (fall === 0) {
+                helperText = 'Flat ground (no slope)';
               } else {
-                // Intermediate point (editable distance + fall + delete)
-                const fallMm = -(pt.heightMm || 0);
-                slopeRows += '<div class="slope-point-row">' +
-                  '<span class="slope-pt-label">' + letter + '</span>' +
-                  '<span>' + letter + ' \u2014</span>' +
-                  '<input type="number" class="slope-dist-input" value="' + pt.distanceM.toFixed(1) + '" step="0.5" min="0.5" max="' + ((run.length || 0) - 0.5) + '" ' +
-                  'onchange="app.updateSlopePoint(\'' + run.id + '\', ' + pi + ', \'distanceM\', this.value)">' +
-                  '<span>m \u2014 falls</span>' +
-                  '<input type="number" class="slope-fall-input" value="' + fallMm + '" step="50" ' +
-                  'onchange="app.updateSlopePoint(\'' + run.id + '\', ' + pi + ', \'fallMm\', this.value)">' +
-                  '<span>mm</span>' +
-                  '<button class="slope-point-delete" onclick="app.removeSlopePoint(\'' + run.id + '\', ' + pi + ')" title="Remove point">&times;</button>' +
-                  '</div>';
+                const dirText = dirLR ? 'left to right' : 'right to left';
+                const startLabels = { 'start': '', '25': ' from 25%', '50': ' from 50%', '75': ' from 75%' };
+                helperText = 'Ground drops ' + fall + 'mm over ' + runLen.toFixed(1) + 'm (' + dirText + ')' + (startLabels[simple.startsFrom] || '');
               }
-            });
-            return '<div class="slope-section">' +
-              '<h3>Ground Slope</h3>' +
-              '<div class="slope-hint">Starts flat. Set the end fall to add slope, or add points for complex profiles. Drag points in the profile view to fine-tune.</div>' +
-              '<div class="slope-point-list">' + slopeRows + '</div>' +
-              '<div class="slope-actions">' +
-              '<button class="btn-slope" onclick="app.addSlopePoint(\'' + run.id + '\')">+ Add Point</button>' +
-              '<button class="btn-slope" onclick="app.resetSlope(\'' + run.id + '\')" style="background:#A0895F;">Reset Flat</button>' +
-              '</div>' +
+
+              return '<div class="slope-section">' +
+                '<h3>Ground Slope</h3>' +
+                '<div class="slope-simple-controls">' +
+                  '<div class="slope-control-row">' +
+                    '<label>Direction</label>' +
+                    '<div class="slope-direction-toggle">' +
+                      '<button class="slope-direction-btn' + (dirLR ? ' active' : '') + '" onclick="app.updateSimpleSlope(\'' + rid + '\', \'direction\', \'left-to-right\')">Falls left \u2192 right</button>' +
+                      '<button class="slope-direction-btn' + (!dirLR ? ' active' : '') + '" onclick="app.updateSimpleSlope(\'' + rid + '\', \'direction\', \'right-to-left\')">Falls right \u2192 left</button>' +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="slope-control-row">' +
+                    '<label>Total Fall</label>' +
+                    '<input type="number" class="slope-fall-input-simple" value="' + fall + '" step="150" min="0" max="1800" ' +
+                      'onchange="app.updateSimpleSlope(\'' + rid + '\', \'totalFallMm\', this.value)">' +
+                    '<span style="font-size:12px;color:#6B5335;">mm</span>' +
+                  '</div>' +
+                  '<div class="slope-helper-label">' + helperText + '</div>' +
+                  '<div class="slope-control-row">' +
+                    '<label>Starts at</label>' +
+                    '<select class="slope-starts-select" onchange="app.updateSimpleSlope(\'' + rid + '\', \'startsFrom\', this.value)">' +
+                      '<option value="start"' + (simple.startsFrom === 'start' ? ' selected' : '') + '>From start</option>' +
+                      '<option value="25"' + (simple.startsFrom === '25' ? ' selected' : '') + '>From 25%</option>' +
+                      '<option value="50"' + (simple.startsFrom === '50' ? ' selected' : '') + '>From 50%</option>' +
+                      '<option value="75"' + (simple.startsFrom === '75' ? ' selected' : '') + '>From 75%</option>' +
+                    '</select>' +
+                  '</div>' +
+                '</div>' +
+                '<a class="slope-mode-link" onclick="app.toggleSlopeMode(\'' + rid + '\')">Advanced mode \u2192</a>' +
               '</div>';
+            } else {
+              // ── ADVANCED MODE ──
+              const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+              let slopeRows = '';
+              slopePts.forEach((pt, pi) => {
+                const letter = pi < letters.length ? letters[pi] : '?';
+                const hMm = pt.heightMm || 0;
+                const userFlag = pt.userSet ? ' \u2022' : '';
+
+                if (pi === 0) {
+                  // Point A — UNLOCKED in advanced mode
+                  slopeRows += '<div class="slope-point-row">' +
+                    '<span class="slope-pt-label">' + letter + '</span>' +
+                    '<span>' + letter + ' \u2014 Start (0m) \u2014 height</span>' +
+                    '<input type="number" class="slope-fall-input" value="' + hMm + '" step="50" ' +
+                    'onchange="app.updateSlopePoint(\'' + rid + '\', 0, \'heightMm\', this.value)">' +
+                    '<span>mm' + userFlag + '</span>' +
+                    '</div>';
+                } else if (pi === slopePts.length - 1) {
+                  // End point
+                  slopeRows += '<div class="slope-point-row">' +
+                    '<span class="slope-pt-label">' + letter + '</span>' +
+                    '<span>' + letter + ' \u2014 End (' + pt.distanceM.toFixed(1) + 'm) \u2014 height</span>' +
+                    '<input type="number" class="slope-fall-input" value="' + hMm + '" step="50" ' +
+                    'onchange="app.updateSlopePoint(\'' + rid + '\', ' + pi + ', \'heightMm\', this.value)">' +
+                    '<span>mm' + userFlag + '</span>' +
+                    '</div>';
+                } else {
+                  // Intermediate point
+                  slopeRows += '<div class="slope-point-row">' +
+                    '<span class="slope-pt-label">' + letter + '</span>' +
+                    '<span>' + letter + ' \u2014</span>' +
+                    '<input type="number" class="slope-dist-input" value="' + pt.distanceM.toFixed(1) + '" step="0.5" min="0.5" max="' + (runLen - 0.5) + '" ' +
+                    'onchange="app.updateSlopePoint(\'' + rid + '\', ' + pi + ', \'distanceM\', this.value)">' +
+                    '<span>m \u2014 height</span>' +
+                    '<input type="number" class="slope-fall-input" value="' + hMm + '" step="50" ' +
+                    'onchange="app.updateSlopePoint(\'' + rid + '\', ' + pi + ', \'heightMm\', this.value)">' +
+                    '<span>mm' + userFlag + '</span>' +
+                    '<button class="slope-point-delete" onclick="app.removeSlopePoint(\'' + rid + '\', ' + pi + ')" title="Remove point">&times;</button>' +
+                    '</div>';
+                }
+              });
+
+              const monoLabel = slope.monotonic === 'falling' ? ' (falling)' : (slope.monotonic === 'rising' ? ' (rising)' : '');
+
+              return '<div class="slope-section">' +
+                '<h3>Ground Slope \u2014 Advanced' + monoLabel + '</h3>' +
+                '<div class="slope-hint">Drag points in the profile view or edit heights directly. Monotonic direction is enforced. Waterfall: subsequent unset points auto-follow.</div>' +
+                '<div class="slope-point-list">' + slopeRows + '</div>' +
+                '<div class="slope-actions">' +
+                '<button class="btn-slope" onclick="app.addSlopePoint(\'' + rid + '\')">+ Add Point</button>' +
+                '<button class="btn-slope" onclick="app.resetSlope(\'' + rid + '\')" style="background:#A0895F;">Reset Flat</button>' +
+                '</div>' +
+                '<a class="slope-mode-link" onclick="app.toggleSlopeMode(\'' + rid + '\')">\u2190 Simple mode</a>' +
+              '</div>';
+            }
           })()}
 
           <div class="quick-retaining">
@@ -2267,18 +2599,50 @@
       },
 
       // Apply slope point drag: update point heightMm from canvas drag
-      // Snaps to 50mm, clamped ±2400mm. Can't drag start point (index 0).
+      // Advanced mode only. Point A unlocked. Monotonic + waterfall enforced.
       _applySlopePointDrag(pointIdx, worldY) {
         const run = this.job.runs.find(r => r.id === this.currentRunId);
-        if (!run || !run.slope || pointIdx <= 0) return;
+        if (!run || !run.slope) return;
+        // Block dragging in simple mode
+        if (run.slope.mode === 'simple') return;
         const pts = run.slope.points;
         if (!pts[pointIdx]) return;
         const layout = this._soilHandleLayout;
         if (!layout) return;
 
         const rawMm = (layout.groundY - worldY) / layout.scale;
-        const snapped = Math.max(-2400, Math.min(2400, Math.round(rawMm / 50) * 50));
+        let snapped = Math.max(-2400, Math.min(2400, Math.round(rawMm / 50) * 50));
+
+        // Determine monotonic direction on first drag
+        const prevHeight = pts[pointIdx].heightMm;
+        if (run.slope.monotonic === null && snapped !== prevHeight) {
+          run.slope.monotonic = snapped < prevHeight ? 'falling' : 'rising';
+        }
+
+        // Enforce monotonic: this point must be consistent with previous
+        if (pointIdx > 0 && run.slope.monotonic === 'falling') {
+          snapped = Math.min(snapped, pts[pointIdx - 1].heightMm);
+        } else if (pointIdx > 0 && run.slope.monotonic === 'rising') {
+          snapped = Math.max(snapped, pts[pointIdx - 1].heightMm);
+        }
+
         pts[pointIdx].heightMm = snapped;
+        pts[pointIdx].userSet = true;
+
+        // Waterfall: auto-adjust subsequent non-userSet points
+        for (let i = pointIdx + 1; i < pts.length; i++) {
+          if (!pts[i].userSet) {
+            pts[i].heightMm = snapped;
+          } else {
+            // Enforce monotonic on userSet subsequent points too
+            if (run.slope.monotonic === 'falling') {
+              pts[i].heightMm = Math.min(pts[i].heightMm, pts[i - 1].heightMm);
+            } else if (run.slope.monotonic === 'rising') {
+              pts[i].heightMm = Math.max(pts[i].heightMm, pts[i - 1].heightMm);
+            }
+          }
+        }
+
         this.calcSlopeForRun(run);
       },
 
@@ -2367,16 +2731,19 @@
         container.addEventListener('mousedown', (e) => {
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Check slope points (variable ground profile)
-          const slopeIdx = this._hitTestSlopePoint(w.x, w.y);
-          if (slopeIdx >= 0 && slopeIdx !== 0) {
-            e.preventDefault();
-            e.stopPropagation();
-            this._slopePointDrag = { pointIdx: slopeIdx, startWorldY: w.y, active: true };
-            this._slopePointHover = slopeIdx;
-            container.style.cursor = 'ns-resize';
-            this._showSlopePointTooltip(e.clientX, e.clientY, slopeIdx);
-            return;
+          // Check slope points (variable ground profile) — advanced mode only
+          const curRun = this.job.runs.find(r => r.id === this.currentRunId);
+          if (curRun && curRun.slope && curRun.slope.mode === 'advanced') {
+            const slopeIdx = this._hitTestSlopePoint(w.x, w.y);
+            if (slopeIdx >= 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              this._slopePointDrag = { pointIdx: slopeIdx, startWorldY: w.y, active: true };
+              this._slopePointHover = slopeIdx;
+              container.style.cursor = 'ns-resize';
+              this._showSlopePointTooltip(e.clientX, e.clientY, slopeIdx);
+              return;
+            }
           }
 
           // Check retaining handles (per-panel)
@@ -2436,11 +2803,12 @@
           // Hover: check slope handles, retaining handles, and hit regions
           const w = this._screenToWorld(e.clientX, e.clientY);
 
-          // Slope point hover
-          const slopeHoverIdx = this._hitTestSlopePoint(w.x, w.y);
+          // Slope point hover — advanced mode only
+          const hoverRun = this.job.runs.find(r => r.id === this.currentRunId);
+          const slopeHoverIdx = (hoverRun && hoverRun.slope && hoverRun.slope.mode === 'advanced') ? this._hitTestSlopePoint(w.x, w.y) : -1;
           if (slopeHoverIdx >= 0) {
             this._slopePointHover = slopeHoverIdx;
-            container.style.cursor = slopeHoverIdx === 0 ? 'default' : 'ns-resize';
+            container.style.cursor = 'ns-resize';
             this._showSlopePointTooltip(e.clientX, e.clientY, slopeHoverIdx);
             if (this._soilHandleHover >= 0) { this._soilHandleHover = -1; }
             if (this._profileHover) { this._profileHover = null; const pvT = document.getElementById('pvTooltip'); if (pvT) pvT.style.display = 'none'; }
@@ -2539,15 +2907,18 @@
           const touch = e.touches[0];
           const w = this._screenToWorld(touch.clientX, touch.clientY);
 
-          // Slope points (variable ground profile)
-          const slopeIdx = this._hitTestSlopePoint(w.x, w.y);
-          if (slopeIdx >= 0 && slopeIdx !== 0) {
-            e.preventDefault();
-            this._slopePointDrag = { pointIdx: slopeIdx, startWorldY: w.y, active: true, isTouch: true };
-            this._slopePointHover = slopeIdx;
-            this._showSlopePointTooltip(touch.clientX, touch.clientY, slopeIdx);
-            this.renderProfileView();
-            return;
+          // Slope points (variable ground profile) — advanced mode only
+          const curRunT = this.job.runs.find(r => r.id === this.currentRunId);
+          if (curRunT && curRunT.slope && curRunT.slope.mode === 'advanced') {
+            const slopeIdx = this._hitTestSlopePoint(w.x, w.y);
+            if (slopeIdx >= 0) {
+              e.preventDefault();
+              this._slopePointDrag = { pointIdx: slopeIdx, startWorldY: w.y, active: true, isTouch: true };
+              this._slopePointHover = slopeIdx;
+              this._showSlopePointTooltip(touch.clientX, touch.clientY, slopeIdx);
+              this.renderProfileView();
+              return;
+            }
           }
 
           // Retaining handles
@@ -3258,45 +3629,41 @@
             ctx.restore();
           }
 
-          // Draw labelled circles at each slope point
-          for (let si = 0; si < slopeWorldPoints.length; si++) {
-            const sp = slopeWorldPoints[si];
-            const isStart = (si === 0);
-            const isHovered = this._slopePointHover === si;
-            const isDragged = this._slopePointDrag && this._slopePointDrag.active && this._slopePointDrag.pointIdx === si;
-            const letter = si < letters.length ? letters[si] : '?';
+          // Draw labelled circles at each slope point — advanced mode only
+          const slopeIsAdvanced = run.slope && run.slope.mode === 'advanced';
+          if (slopeIsAdvanced) {
+            for (let si = 0; si < slopeWorldPoints.length; si++) {
+              const sp = slopeWorldPoints[si];
+              const isHovered = this._slopePointHover === si;
+              const isDragged = this._slopePointDrag && this._slopePointDrag.active && this._slopePointDrag.pointIdx === si;
+              const letter = si < letters.length ? letters[si] : '?';
 
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, slopeHandleR / this.profileZoom, 0, Math.PI * 2);
-            if (isStart) {
-              ctx.fillStyle = '#aaa';
-            } else {
-              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
-            }
-            ctx.fill();
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 2 / this.profileZoom;
-            ctx.stroke();
-
-            // Letter label
-            const labelSize = Math.max(7, Math.min(11, 9 / this.profileZoom));
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = `700 ${labelSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(letter, sp.x, sp.y);
-
-            // Guide line when dragging
-            if (isDragged) {
-              ctx.save();
-              ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
-              ctx.strokeStyle = 'rgba(139,115,85,0.5)';
-              ctx.lineWidth = 1 / this.profileZoom;
               ctx.beginPath();
-              ctx.moveTo(originX - 20, sp.y);
-              ctx.lineTo(originX + fencePixelW + 20, sp.y);
+              ctx.arc(sp.x, sp.y, slopeHandleR / this.profileZoom, 0, Math.PI * 2);
+              ctx.fillStyle = isDragged ? '#6B5335' : (isHovered ? '#A0895F' : '#8B7355');
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2 / this.profileZoom;
               ctx.stroke();
-              ctx.restore();
+
+              const labelSize = Math.max(7, Math.min(11, 9 / this.profileZoom));
+              ctx.fillStyle = '#FFFFFF';
+              ctx.font = `700 ${labelSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(letter, sp.x, sp.y);
+
+              if (isDragged) {
+                ctx.save();
+                ctx.setLineDash([6 / this.profileZoom, 4 / this.profileZoom]);
+                ctx.strokeStyle = 'rgba(139,115,85,0.5)';
+                ctx.lineWidth = 1 / this.profileZoom;
+                ctx.beginPath();
+                ctx.moveTo(originX - 20, sp.y);
+                ctx.lineTo(originX + fencePixelW + 20, sp.y);
+                ctx.stroke();
+                ctx.restore();
+              }
             }
           }
         }
@@ -4075,13 +4442,11 @@
               if (!run.slope || !run.slope.points) {
                 const runLen = run.length || 0;
                 if (run.slopeProfile && run.slopeProfile.some(v => v !== 0)) {
-                  // Convert old 5-point slopeProfile array to {distanceM, heightMm} points
                   const fracs = [0, 0.25, 0.50, 0.75, 1.0];
                   const rawPts = fracs.map((f, i) => ({
                     distanceM: Math.round(f * runLen * 2) / 2,
                     heightMm: run.slopeProfile[i]
                   }));
-                  // Simplify: remove intermediate points that lie on the interpolation line
                   const simplified = [rawPts[0]];
                   for (let j = 1; j < rawPts.length - 1; j++) {
                     const prev = simplified[simplified.length - 1];
@@ -4093,25 +4458,35 @@
                     if (Math.abs(rawPts[j].heightMm - interp) > 10) simplified.push(rawPts[j]);
                   }
                   simplified.push(rawPts[rawPts.length - 1]);
-                  run.slope = { points: simplified };
+                  run.slope = { mode: 'advanced', points: simplified, simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' }, monotonic: null };
                 } else if (run.slopePoints && run.slopePoints.length >= 2) {
-                  // Convert old [{x,y}] format (x=fraction, y=heightMm)
                   run.slope = {
+                    mode: 'advanced',
                     points: run.slopePoints.map(p => ({
                       distanceM: Math.round(p.x * runLen * 2) / 2,
                       heightMm: p.y || 0
-                    }))
+                    })),
+                    simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' },
+                    monotonic: null
                   };
                 } else {
-                  // Default: start + end points
-                  run.slope = { points: [
-                    { distanceM: 0, heightMm: 0 },
-                    { distanceM: runLen, heightMm: 0 }
-                  ]};
+                  run.slope = {
+                    mode: 'simple',
+                    points: [
+                      { distanceM: 0, heightMm: 0 },
+                      { distanceM: runLen, heightMm: 0 }
+                    ],
+                    simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' },
+                    monotonic: null
+                  };
                 }
                 delete run.slopeProfile;
                 delete run.slopePoints;
               }
+              // Ensure new slope fields exist on existing slope data
+              if (!run.slope.mode) run.slope.mode = 'simple';
+              if (!run.slope.simple) run.slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
+              if (run.slope.monotonic === undefined) run.slope.monotonic = null;
               run.panels.forEach(p => {
                 if (p.step === undefined) p.step = p.ground || 'level';
                 if (p.slopePlinths === undefined) p.slopePlinths = 0;
