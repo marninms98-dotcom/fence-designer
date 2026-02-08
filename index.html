@@ -1438,7 +1438,15 @@
         const plinthsCapped = rawPlinths > 4;
         const totalRetaining = plinths * 150;
         const totalHeight = panel.height + totalRetaining;
-        const lookup = lookupPost(panel.height, Math.min(600, totalRetaining));
+        // Post = sheetHeight + (total_plinths × 150) + 600mm embedment
+        // Post uses FULL 150mm per plinth because post extends full depth
+        const postRequired = panel.height + (plinths * 150) + 600;
+        // Snap up to standard post sizes
+        let postSize;
+        if (postRequired <= 2400) postSize = 2400;
+        else if (postRequired <= 2700) postSize = 2700;
+        else if (postRequired <= 3000) postSize = 3000;
+        else postSize = 3000;
         return {
           plinths,
           rawPlinths,
@@ -1447,8 +1455,8 @@
           manualPlinths,
           totalRetaining,
           totalHeight,
-          postSize: lookup.post,
-          patio: lookup.patio,
+          postSize,
+          patio: plinths >= 3 && plinths <= 4,
           needsPatioTube: plinths >= 3 && plinths <= 4
         };
       },
