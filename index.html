@@ -1370,32 +1370,30 @@
       },
 
       // ── Section 6.3: Post height per-post (between two panels) ──
+      // Post = sheetHeight + (total_plinths × 150) + 600mm, snapped to standard sizes
+      // Uses max of both adjacent panels
       getPostHeight(leftPanel, rightPanel) {
-        let leftTotal = 0, rightTotal = 0;
-        let leftLookup = null, rightLookup = null;
-
-        if (leftPanel) {
-          leftTotal = leftPanel.height + leftPanel.retaining;
-          leftLookup = lookupPost(leftPanel.height, leftPanel.retaining);
-        }
-        if (rightPanel) {
-          rightTotal = rightPanel.height + rightPanel.retaining;
-          rightLookup = lookupPost(rightPanel.height, rightPanel.retaining);
+        function calcPost(panel) {
+          if (!panel) return null;
+          const derived = app.getPanelDerived(panel);
+          return { postSize: derived.postSize, patio: derived.patio };
         }
 
-        // Use whichever side demands the taller post
+        const left = calcPost(leftPanel);
+        const right = calcPost(rightPanel);
+
         let postSize = 2400;
         let patio = false;
 
-        if (leftLookup && rightLookup) {
-          postSize = Math.max(leftLookup.post, rightLookup.post);
-          patio = leftLookup.patio || rightLookup.patio;
-        } else if (leftLookup) {
-          postSize = leftLookup.post;
-          patio = leftLookup.patio;
-        } else if (rightLookup) {
-          postSize = rightLookup.post;
-          patio = rightLookup.patio;
+        if (left && right) {
+          postSize = Math.max(left.postSize, right.postSize);
+          patio = left.patio || right.patio;
+        } else if (left) {
+          postSize = left.postSize;
+          patio = left.patio;
+        } else if (right) {
+          postSize = right.postSize;
+          patio = right.patio;
         }
 
         return { postSize, patio };
