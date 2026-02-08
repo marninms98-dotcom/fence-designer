@@ -2130,17 +2130,17 @@
           // Slope plinths display (read-only, greyed out)
           const slopePlinthsDisplay = derived.slopePlinths > 0 ? `${derived.slopePlinths}` : '—';
 
-          // Step auto-calculated from slope — shows direction + mm amount
+          // Step: show actual drop at this panel (e.g. "↓50", "↓150")
           const stepMm = panel.stepMm || 0;
           let stepDisplay;
-          if (stepMm < 0) stepDisplay = '\u2193' + Math.abs(stepMm);
-          else if (stepMm > 0) stepDisplay = '\u2191' + stepMm;
+          if (stepMm < 0) stepDisplay = '\u2193' + Math.abs(Math.round(stepMm));
+          else if (stepMm > 0) stepDisplay = '\u2191' + Math.round(stepMm);
           else stepDisplay = '\u2014';
 
-          // Warning badge for max capacity (capped or at limit)
+          // Warning: red if slope + retaining exceeds 4 plinths
           const maxWarning = derived.plinthsCapped
-            ? ' <span title="Max plinth capacity — slope + retaining exceeds 4" style="color:#e65100;font-weight:700;">\u26A0</span>'
-            : (derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#e65100;font-weight:700;">\u26A0</span>' : '');
+            ? ' <span title="Max plinth capacity — slope + retaining exceeds 4" style="color:#d32f2f;font-weight:700;">\u26A0</span>'
+            : (derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#d32f2f;font-weight:700;">\u26A0</span>' : '');
 
           return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
@@ -2159,7 +2159,7 @@
                 ).join('')}
               </select>
             </td>
-            <td class="col-pl">${plinthsDisplay}${maxWarning}</td>
+            <td class="col-pl" ${derived.plinthsCapped ? 'style="color:#d32f2f;font-weight:700;"' : ''}>${plinthsDisplay}${maxWarning}</td>
             <td class="col-step" style="text-align:center;color:#666;">${stepDisplay}</td>
             <td class="col-total ${totalClass}">${derived.totalHeight}</td>
             <td class="col-post">${postDisplay}</td>
