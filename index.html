@@ -1529,17 +1529,23 @@
         }
 
         // Now calculate slopePlinths, step direction, and stepMm for each panel
+        // Slope plinths use accumulated gap algorithm with 50mm threshold
+        let carriedGap = 0;
         for (let i = 0; i < panelCount; i++) {
           const panel = run.panels[i];
 
-          // Slope plinths = how far this panel's base is above the lowest ground
-          // at either end of the panel, measured in plinth units
-          const groundLeft = groundHeights[i];
-          const groundRight = groundHeights[i + 1];
-          const lowestGround = Math.min(groundLeft, groundRight);
-          const gapMm = baseLevels[i] - lowestGround; // how far base is above ground
-          const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
-          panel.slopePlinths = slopePlinths;
+          // Accumulated gap: track gap between fence bottom and ground
+          const panelFall = groundHeights[i] - groundHeights[i + 1]; // positive = downhill
+          const totalGap = carriedGap + panelFall;
+
+          if (totalGap >= 50) {
+            const plinthsNeeded = Math.ceil(totalGap / 150);
+            panel.slopePlinths = Math.min(4, plinthsNeeded);
+            carriedGap = 0; // Gap resets to zero after plinth placement
+          } else {
+            panel.slopePlinths = 0;
+            carriedGap = Math.max(0, totalGap);
+          }
 
           // Step direction and magnitude: compare this panel's base to previous
           if (i === 0) {
