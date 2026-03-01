@@ -1281,7 +1281,9 @@
         </div>
         <div class="generate-btns">
           <button class="generate-btn" onclick="app.generateOutputs()">HTML Outputs</button>
-          <button class="generate-btn secondary" onclick="app.generatePDFs()">Download PDFs</button>
+          <button class="generate-btn secondary" onclick="app.generatePDFs()">All PDFs</button>
+          <button class="generate-btn secondary" onclick="app.exportMaterialOrder()">Material Order</button>
+          <button class="generate-btn secondary" onclick="app.exportWorkOrder()">Work Order</button>
           <button class="generate-btn" onclick="app.emailQuote()" style="background:#293C46">Email Quote</button>
           <button class="generate-btn ai" onclick="app.toggleAIPanel()">AI Preview</button>
         </div>
@@ -4452,6 +4454,35 @@
         await pdfGen.generateAllPDFs();
       },
 
+      // ── Export individual PDFs ──
+      async exportMaterialOrder() {
+        const { errors, warnings } = this._runComplianceChecks();
+        if (errors.length > 0) {
+          alert('STOP — Cannot generate Material Order:\n\n' + errors.join('\n\n'));
+          return;
+        }
+        if (warnings.length > 0) {
+          if (!confirm('Warnings detected:\n\n' + warnings.join('\n\n') + '\n\nProceed anyway?')) return;
+        }
+        pdfGen._logoPng = await getLogoPNG();
+        const data = this._collectOutputData();
+        pdfGen._generateMaterialOrderPDF(data);
+      },
+
+      async exportWorkOrder() {
+        const { errors, warnings } = this._runComplianceChecks();
+        if (errors.length > 0) {
+          alert('STOP — Cannot generate Work Order:\n\n' + errors.join('\n\n'));
+          return;
+        }
+        if (warnings.length > 0) {
+          if (!confirm('Warnings detected:\n\n' + warnings.join('\n\n') + '\n\nProceed anyway?')) return;
+        }
+        pdfGen._logoPng = await getLogoPNG();
+        const data = this._collectOutputData();
+        pdfGen._generateWorkOrderPDF(data);
+      },
+
       // ── Email Quote via Web Share API ──
       async emailQuote() {
         if (!navigator.canShare) {
@@ -5649,7 +5680,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
         // Camera — lower FOV for realistic perspective
         this.camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 200);
-        this.camera.position.set(6, 3, 8);
+        this.camera.position.set(5, 2.5, 5);
 
         // Renderer — PBR pipeline with warm tone mapping
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -5953,16 +5984,20 @@ window.addEventListener('DOMContentLoaded', function() {
       rebuild() {
         if (!this._initialized || !this._fenceGroup) return;
 
-        // Clear old
-        while (this._fenceGroup.children.length > 0) {
-          const child = this._fenceGroup.children[0];
-          this._fenceGroup.remove(child);
-          if (child.geometry) child.geometry.dispose();
-          if (child.material) {
-            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-            else child.material.dispose();
+        // Clear old (recursive to handle nested groups from _buildPanelGroup)
+        const disposeNode = (node) => {
+          while (node.children.length > 0) {
+            const child = node.children[0];
+            if (child.children && child.children.length > 0) disposeNode(child);
+            node.remove(child);
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+              else child.material.dispose();
+            }
           }
-        }
+        };
+        disposeNode(this._fenceGroup);
 
         const job = app.job;
         if (!job || !job.runs || job.runs.length === 0) return;
@@ -6005,21 +6040,7 @@ window.addEventListener('DOMContentLoaded', function() {
           metalness: 0.15,
         });
 
-        // ── Profile-specific rib configuration ──
-        // Corrugated-style: visible ribs on front, flat back
-        // Good-neighbour-style: subtle ribs on both sides (same look each way)
-        const PROFILE_RIBS = {
-          'Ridgeside':     { ribs: 16, depth: 0.012, widthRatio: 0.5, bothSides: false },
-          'Sameside':      { ribs: 8,  depth: 0.008, widthRatio: 0.7, bothSides: true },
-          'Trimclad':      { ribs: 20, depth: 0.010, widthRatio: 0.4, bothSides: false },
-          'Harmony':       { ribs: 6,  depth: 0.006, widthRatio: 0.8, bothSides: true },
-          'Neetascreen':   { ribs: 16, depth: 0.012, widthRatio: 0.5, bothSides: false },
-          'Smartascreen':  { ribs: 8,  depth: 0.006, widthRatio: 0.75, bothSides: true },
-          'Superdek':      { ribs: 12, depth: 0.014, widthRatio: 0.45, bothSides: false },
-          'Good Neighbour':{ ribs: 10, depth: 0.005, widthRatio: 0.7, bothSides: true },
-        };
         const profileName = job.profile || 'Ridgeside';
-        const ribCfg = PROFILE_RIBS[profileName] || PROFILE_RIBS['Ridgeside'];
 
         // Scale: 1 unit = 1 metre — use supplier-specific panel width
         const supplierData = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES['RNR'];
@@ -6053,44 +6074,13 @@ window.addEventListener('DOMContentLoaded', function() {
             const panelX = xOffset + PANEL_W_M / 2;
             const panelBaseY = plinthH_M;
 
-            // Panel sheet — profile-specific corrugated/flat rendering
+            // Panel sheet — profile-specific geometry
             const corrW = PANEL_W_M;
             const corrH = sheetH_M;
-            const { ribs, depth: ribDepth, widthRatio: ribWR, bothSides } = ribCfg;
-            const ribW = corrW / ribs;
-            const panelGroup = new THREE.Group();
-            // Main panel body (thin sheet)
-            const baseGeo = new THREE.BoxGeometry(corrW, corrH, 0.004);
-            const baseMesh = new THREE.Mesh(baseGeo, panelMat);
-            panelGroup.add(baseMesh);
-            // Front face ribs
-            for (let ri = 0; ri < ribs; ri++) {
-              if (ri % 2 === 0) continue; // every other rib
-              const ribGeo = new THREE.BoxGeometry(ribW * ribWR, corrH, ribDepth);
-              const rib = new THREE.Mesh(ribGeo, panelMat);
-              rib.position.set(-corrW / 2 + ribW * (ri + 0.5), 0, ribDepth / 2);
-              panelGroup.add(rib);
-            }
-            // Good-neighbour profiles: matching ribs on back face too
-            if (bothSides) {
-              for (let ri = 0; ri < ribs; ri++) {
-                if (ri % 2 === 0) continue;
-                const ribGeo = new THREE.BoxGeometry(ribW * ribWR, corrH, ribDepth);
-                const rib = new THREE.Mesh(ribGeo, panelBackMat);
-                rib.position.set(-corrW / 2 + ribW * (ri + 0.5), 0, -(ribDepth / 2 + 0.004));
-                panelGroup.add(rib);
-              }
-            }
+            const panelGroup = this._buildPanelGroup(corrW, corrH, profileName, panelMat, panelBackMat);
             panelGroup.position.set(panelX, panelBaseY + corrH / 2, 0);
             panelGroup.castShadow = true;
             panelGroup.receiveShadow = true;
-            // Back face base sheet
-            if (!bothSides) {
-              const backGeo = new THREE.BoxGeometry(corrW, corrH, 0.002);
-              const backMesh = new THREE.Mesh(backGeo, panelBackMat);
-              backMesh.position.z = -0.003;
-              panelGroup.add(backMesh);
-            }
             this._fenceGroup.add(panelGroup);
 
             // Top rail (C-channel cap)
@@ -6137,11 +6127,144 @@ window.addEventListener('DOMContentLoaded', function() {
         // Center the fence
         this._fenceGroup.position.x = -totalExtent / 2;
 
-        // Position camera
+        // Position camera — cap Z at 6 to stay in front of house wall (z=10)
         const dist = Math.max(totalExtent * 0.8, 5);
-        this.camera.position.set(totalExtent * 0.3, Math.max(3, totalExtent * 0.15), dist * 0.6);
+        const camZ = Math.min(dist * 0.55, 6);
+        const camX = totalExtent * 0.3 + Math.max(0, dist * 0.55 - 6) * 0.4;
+        this.camera.position.set(camX, Math.max(2.5, totalExtent * 0.12), camZ);
         this.controls.target.set(0, 1.0, 0);
         this.controls.update();
+      },
+
+      // Build panel geometry based on profile type
+      // Returns a THREE.Group centered at origin (width along X, height along Y, depth along Z)
+      _buildPanelGroup(corrW, corrH, profileName, panelMat, panelBackMat) {
+        const group = new THREE.Group();
+
+        // Profile configs grouped by construction type
+        const PROFILE_CFG = {
+          // Corrugated: zigzag cross-section, ribs visible from front, concave valleys from back
+          'Ridgeside':     { type: 'corrugated', ribs: 30, depth: 0.014 },
+          'Neetascreen':   { type: 'corrugated', ribs: 30, depth: 0.013 },
+          // Standing seam: flat pan + narrow protruding fins (like Trimdek roofing)
+          'Trimclad':      { type: 'standing_seam', pans: 14, finW: 0.004, finD: 0.016 },
+          'Superdek':      { type: 'standing_seam', pans: 10, finW: 0.005, finD: 0.018 },
+          // Good neighbour: flat both sides with vertical groove lines
+          'Sameside':      { type: 'good_neighbour', grooves: 20, grooveW: 0.003, thick: 0.008 },
+          'Harmony':       { type: 'good_neighbour', grooves: 12, grooveW: 0.004, thick: 0.008 },
+          'Smartascreen':  { type: 'good_neighbour', grooves: 20, grooveW: 0.003, thick: 0.008 },
+          'Good Neighbour':{ type: 'good_neighbour', grooves: 16, grooveW: 0.003, thick: 0.008 },
+        };
+        const cfg = PROFILE_CFG[profileName] || PROFILE_CFG['Ridgeside'];
+
+        if (cfg.type === 'corrugated') {
+          // ── Corrugated: ExtrudeGeometry with actual zigzag cross-section ──
+          // Shape coords: x = panel width, y = corrugation depth (front-back)
+          // Extrusion along Z = panel height, then rotate to stand upright
+          const shape = new THREE.Shape();
+          const ribW = corrW / cfg.ribs;
+          const d = cfg.depth;
+          const t = 0.002; // sheet thickness
+
+          // Outer face (front)
+          shape.moveTo(0, t / 2);
+          for (let i = 0; i < cfg.ribs; i++) {
+            const x0 = i * ribW;
+            const curZ = (i % 2 === 0) ? 0 : d;
+            const nextZ = ((i + 1) % 2 === 0) ? 0 : d;
+            shape.lineTo(x0 + ribW * 0.25, curZ + t / 2);  // flat at current level
+            shape.lineTo(x0 + ribW * 0.75, nextZ + t / 2); // ramp to next level
+          }
+          const endZ = (cfg.ribs % 2 === 0) ? 0 : d;
+          shape.lineTo(corrW, endZ + t / 2);
+
+          // Inner face (back) — trace backwards
+          shape.lineTo(corrW, endZ - t / 2);
+          for (let i = cfg.ribs - 1; i >= 0; i--) {
+            const x0 = i * ribW;
+            const curZ = (i % 2 === 0) ? 0 : d;
+            const nextZ = ((i + 1) % 2 === 0) ? 0 : d;
+            shape.lineTo(x0 + ribW * 0.75, nextZ - t / 2);
+            shape.lineTo(x0 + ribW * 0.25, curZ - t / 2);
+          }
+          shape.lineTo(0, -t / 2);
+          shape.closePath();
+
+          const geo = new THREE.ExtrudeGeometry(shape, { depth: corrH, bevelEnabled: false });
+          const mesh = new THREE.Mesh(geo, panelMat);
+          // ExtrudeGeometry goes: x = width, y = depth, z = 0→corrH
+          // We need: x = width, y = height (up), z = depth (front-back)
+          // Rotate -90° around X: y→-z, z→y
+          mesh.rotation.x = -Math.PI / 2;
+          // After -90° X rotation: (x,y,z) → (x, z, -y)
+          // Shape x:[0,corrW] → X:[0,corrW], need -corrW/2 to center
+          // Extrusion z:[0,corrH] → Y:[0,corrH], need -corrH/2 to center
+          // Shape y:[-t/2, d+t/2] → Z:[-d-t/2, t/2], need centering on 0
+          mesh.position.set(-corrW / 2, -corrH / 2, 0);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          group.add(mesh);
+
+        } else if (cfg.type === 'standing_seam') {
+          // ── Standing seam (Trimclad/Superdek): flat base + narrow tall fins ──
+          // Flat base sheet
+          const baseGeo = new THREE.BoxGeometry(corrW, corrH, 0.004);
+          const baseMesh = new THREE.Mesh(baseGeo, panelMat);
+          group.add(baseMesh);
+
+          // Standing seam fins protruding from front face
+          const panW = corrW / cfg.pans;
+          for (let i = 1; i < cfg.pans; i++) {
+            const finGeo = new THREE.BoxGeometry(cfg.finW, corrH, cfg.finD);
+            const fin = new THREE.Mesh(finGeo, panelMat);
+            fin.position.set(-corrW / 2 + panW * i, 0, cfg.finD / 2);
+            fin.castShadow = true;
+            group.add(fin);
+          }
+
+          // Back face (galvanised)
+          const backGeo = new THREE.BoxGeometry(corrW, corrH, 0.002);
+          const backMesh = new THREE.Mesh(backGeo, panelBackMat);
+          backMesh.position.z = -0.003;
+          group.add(backMesh);
+
+        } else if (cfg.type === 'good_neighbour') {
+          // ── Good Neighbour: thick flat panel, groove lines on both sides ──
+          const baseGeo = new THREE.BoxGeometry(corrW, corrH, cfg.thick);
+          const baseMesh = new THREE.Mesh(baseGeo, panelMat);
+          group.add(baseMesh);
+
+          // Groove lines — thin dark strips on both front and back faces
+          const grooveMat = new THREE.MeshStandardMaterial({
+            color: panelMat.color.clone().multiplyScalar(0.65),
+            roughness: 0.5,
+            metalness: 0.15,
+          });
+          const spacing = corrW / (cfg.grooves + 1);
+          for (let i = 1; i <= cfg.grooves; i++) {
+            const gx = -corrW / 2 + spacing * i;
+            // Front groove
+            const fGeo = new THREE.BoxGeometry(cfg.grooveW, corrH, 0.001);
+            const fMesh = new THREE.Mesh(fGeo, grooveMat);
+            fMesh.position.set(gx, 0, cfg.thick / 2 + 0.0005);
+            group.add(fMesh);
+            // Back groove (mirrored)
+            const bGeo = new THREE.BoxGeometry(cfg.grooveW, corrH, 0.001);
+            const bMesh = new THREE.Mesh(bGeo, grooveMat);
+            bMesh.position.set(gx, 0, -(cfg.thick / 2 + 0.0005));
+            group.add(bMesh);
+          }
+        }
+
+        // Enable shadows on all meshes in the group
+        group.traverse(child => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        return group;
       },
 
       _addPost(x, heightM, isPatio, postMat, concreteMat) {
