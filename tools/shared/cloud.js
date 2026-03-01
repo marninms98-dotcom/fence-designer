@@ -1032,7 +1032,7 @@
     },
 
     // Small save indicator badge
-    showSaveStatus: function(status) {
+    showSaveStatus: function(status, message) {
       var el = document.getElementById('sw-save-status');
       if (!el) {
         el = document.createElement('div');
@@ -1044,7 +1044,7 @@
       if (status === 'saving') {
         el.style.background = '#F0F4F7';
         el.style.color = '#4C6A7C';
-        el.textContent = 'Saving...';
+        el.textContent = message || 'Saving...';
         el.style.opacity = '1';
       } else if (status === 'saved') {
         el.style.background = '#34C75920';

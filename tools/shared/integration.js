@@ -375,65 +375,125 @@
         await cloud.ghl.saveScope(_jobId, state, meta);
         console.log('[Integration] Scope saved successfully');
 
-        // Upload site photos to Supabase Storage (if any)
+        // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
-        if (sitePhotos.length > 0) {
-          console.log('[Integration] Uploading', sitePhotos.length, 'photos...');
-          for (var i = 0; i < sitePhotos.length; i++) {
-            var photo = sitePhotos[i];
-            if (photo.cloudUrl) continue; // Already uploaded
+        var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
+        if (photosToUpload.length > 0) {
+          console.log('[Integration] Uploading', photosToUpload.length, 'photos via signed URLs...');
+          cloud.ui.showSaveStatus('saving', 'Uploading photos 0/' + photosToUpload.length);
+          for (var i = 0; i < photosToUpload.length; i++) {
+            var photo = photosToUpload[i];
             try {
-              var result = await cloud.ghl.uploadPhoto(_jobId, photo.dataUrl, photo.label, photo.caption);
-              photo.cloudUrl = result.url; // Mark as uploaded
-              console.log('[Integration] Photo uploaded:', photo.label, result.url);
+              cloud.ui.showSaveStatus('saving', 'Uploading photo ' + (i + 1) + '/' + photosToUpload.length);
+
+              // Convert dataUrl to Blob for direct upload
+              var mimeMatch = photo.dataUrl.match(/data:([^;]+);/);
+              var mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+              var ext = mime.includes('png') ? 'png' : 'jpg';
+              var b64 = photo.dataUrl.split(',')[1];
+              var binary = atob(b64);
+              var bytes = new Uint8Array(binary.length);
+              for (var j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+              var blob = new Blob([bytes], { type: mime });
+
+              // Get signed upload URL
+              var urlRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  jobId: _jobId,
+                  fileName: (photo.label || 'photo_' + i) + '.' + ext,
+                  contentType: mime
+                })
+              });
+              var urlData = await urlRes.json();
+              if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
+
+              // Upload directly to Supabase Storage
+              var uploadRes = await fetch(urlData.signedUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': mime },
+                body: blob
+              });
+              if (!uploadRes.ok) throw new Error('Photo upload failed: ' + uploadRes.status);
+
+              // Register in database
+              await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  jobId: _jobId,
+                  storageUrl: urlData.publicUrl,
+                  type: 'photo',
+                  label: photo.label || 'Photo ' + (i + 1)
+                })
+              });
+
+              photo.cloudUrl = urlData.publicUrl;
+              console.log('[Integration] Photo uploaded:', photo.label, (blob.size / 1024).toFixed(0) + 'KB');
             } catch(photoErr) {
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
           }
         }
 
-        // Upload site video if present (uses signed URL for large files)
+        // Upload site video via signed URL (handles large files)
         var siteVideo = window.siteVideo || null;
-        if (siteVideo && siteVideo.file && !siteVideo.cloudUrl) {
-          try {
-            console.log('[Integration] Uploading video...', siteVideo.file.name, (siteVideo.file.size / 1048576).toFixed(1) + 'MB');
-            // Get a signed upload URL from the edge function
-            var urlRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jobId: _jobId,
-                fileName: siteVideo.file.name || 'video.mp4',
-                contentType: siteVideo.file.type || 'video/mp4'
-              })
-            });
-            var urlData = await urlRes.json();
-            if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
+        if (siteVideo && !siteVideo.cloudUrl) {
+          // Need either a File object or a dataUrl to upload
+          var videoBody = siteVideo.file || null;
+          var videoMime = 'video/mp4';
+          var videoName = 'video.mp4';
 
-            // Upload directly to Supabase Storage using the signed URL
-            var uploadRes = await fetch(urlData.signedUrl, {
-              method: 'PUT',
-              headers: { 'Content-Type': siteVideo.file.type || 'video/mp4' },
-              body: siteVideo.file
-            });
-            if (!uploadRes.ok) throw new Error('Video upload failed: ' + uploadRes.status);
+          if (!videoBody && siteVideo.dataUrl) {
+            // Convert dataUrl to blob (rare — most videos come as File)
+            var vMimeMatch = siteVideo.dataUrl.match(/data:([^;]+);/);
+            videoMime = vMimeMatch ? vMimeMatch[1] : 'video/mp4';
+            var vB64 = siteVideo.dataUrl.split(',')[1];
+            var vBinary = atob(vB64);
+            var vBytes = new Uint8Array(vBinary.length);
+            for (var k = 0; k < vBinary.length; k++) vBytes[k] = vBinary.charCodeAt(k);
+            videoBody = new Blob([vBytes], { type: videoMime });
+          }
 
-            // Register the video in the database
-            var regRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jobId: _jobId,
-                storageUrl: urlData.publicUrl,
-                type: 'video',
-                label: siteVideo.label || 'Site Walkthrough'
-              })
-            });
+          if (videoBody) {
+            try {
+              if (videoBody.name) videoName = videoBody.name;
+              if (videoBody.type) videoMime = videoBody.type;
+              console.log('[Integration] Uploading video...', videoName, ((videoBody.size || 0) / 1048576).toFixed(1) + 'MB');
+              cloud.ui.showSaveStatus('saving', 'Uploading video...');
 
-            siteVideo.cloudUrl = urlData.publicUrl;
-            console.log('[Integration] Video uploaded:', urlData.publicUrl);
-          } catch(vidErr) {
-            console.warn('[Integration] Video upload failed:', vidErr);
+              var urlRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId: _jobId, fileName: videoName, contentType: videoMime })
+              });
+              var urlData = await urlRes.json();
+              if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
+
+              var uploadRes = await fetch(urlData.signedUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': videoMime },
+                body: videoBody
+              });
+              if (!uploadRes.ok) throw new Error('Video upload failed: ' + uploadRes.status);
+
+              await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  jobId: _jobId,
+                  storageUrl: urlData.publicUrl,
+                  type: 'video',
+                  label: siteVideo.label || 'Site Walkthrough'
+                })
+              });
+
+              siteVideo.cloudUrl = urlData.publicUrl;
+              console.log('[Integration] Video uploaded:', urlData.publicUrl);
+            } catch(vidErr) {
+              console.warn('[Integration] Video upload failed:', vidErr);
+            }
           }
         }
 
