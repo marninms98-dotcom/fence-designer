@@ -1149,6 +1149,75 @@
     .pending-badge { position:fixed; bottom:16px; left:16px; background:#293C46; color:#fff; padding:6px 14px; border-radius:20px; font-size:12px; font-weight:700; cursor:pointer; z-index:100; display:none; }
     .pending-badge:hover { background:#4C6A7C; }
 
+    /* ── QA Verification Overlay ── */
+    .qa-body-locked { overflow:hidden !important; }
+    .qa-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.7); display:none; flex-direction:column; }
+    .qa-overlay.active { display:flex; }
+    .qa-overlay-inner { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; background:#F5F5F7; }
+    .qa-header { position:sticky; top:0; z-index:10; background:#293C46; color:#fff; padding:14px 20px; padding-top:calc(14px + env(safe-area-inset-top, 0px)); display:flex; justify-content:space-between; align-items:center; }
+    .qa-header h2 { margin:0; font-size:16px; font-weight:700; }
+    .qa-header-summary { font-size:12px; opacity:0.85; }
+    .qa-header-summary .qa-count-red { color:#FCA5A5; font-weight:700; }
+    .qa-header-summary .qa-count-amber { color:#FCD34D; font-weight:700; }
+    .qa-header-summary .qa-count-green { color:#86EFAC; font-weight:700; }
+    .qa-header-close { background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:4px 8px; min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; }
+    .qa-cards { padding:16px; max-width:720px; margin:0 auto; }
+    .qa-card { background:#fff; border-radius:8px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,0.08); border-left:4px solid #22C55E; overflow:hidden; }
+    .qa-card.severity-red { border-left-color:#EF4444; }
+    .qa-card.severity-amber { border-left-color:#F59E0B; }
+    .qa-card.severity-blue { border-left-color:#3B82F6; }
+    .qa-card-header { padding:12px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #F0F0F0; }
+    .qa-card-title { font-size:13px; font-weight:700; color:#293C46; text-transform:uppercase; letter-spacing:0.5px; }
+    .qa-card-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; }
+    .qa-card-badge.pass { background:#DCFCE7; color:#166534; }
+    .qa-card-badge.warn { background:#FEF3C7; color:#92400E; }
+    .qa-card-badge.fail { background:#FEE2E2; color:#991B1B; }
+    .qa-card-badge.info { background:#DBEAFE; color:#1E40AF; }
+    .qa-card-body { padding:12px 16px; }
+    .qa-kv { display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px solid rgba(0,0,0,0.04); }
+    .qa-kv:last-child { border-bottom:none; }
+    .qa-kv-label { font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#86868B; font-weight:600; }
+    .qa-kv-value { font-size:13px; font-weight:600; color:#1D1D1F; text-align:right; max-width:60%; }
+    .qa-kv-value .qa-swatch { display:inline-block; width:14px; height:14px; border-radius:50%; border:1px solid rgba(0,0,0,0.15); vertical-align:middle; margin-right:6px; }
+    .qa-flag { padding:8px 12px; border-radius:6px; margin-top:8px; font-size:12px; display:flex; align-items:flex-start; gap:8px; }
+    .qa-flag.red { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
+    .qa-flag.amber { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+    .qa-flag.blue { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; }
+    .qa-flag-text { flex:1; line-height:1.4; }
+    .qa-flag .qa-fix-btn { background:#EF4444; color:#fff; border:none; border-radius:4px; padding:8px 12px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; min-height:44px; }
+    .qa-flag .qa-fix-btn:hover { background:#DC2626; }
+    .qa-flag .qa-ack-label { display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap; font-weight:600; font-size:11px; min-height:44px; padding:4px 0; }
+    .qa-flag .qa-ack-label input[type="checkbox"] { width:22px; height:22px; min-width:22px; cursor:pointer; }
+    .qa-photo-strip { display:flex; gap:6px; overflow-x:auto; padding:8px 0; -webkit-overflow-scrolling:touch; }
+    .qa-photo-strip img { width:64px; height:64px; object-fit:cover; border-radius:4px; border:1px solid #E5E5E5; flex-shrink:0; }
+    .qa-footer { position:sticky; bottom:0; z-index:10; background:#fff; border-top:1px solid #E5E5E5; padding:12px 20px; padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .qa-footer-info { font-size:11px; color:#86868B; }
+    .qa-signoff-btn { padding:12px 24px; border:none; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer; transition:opacity 0.2s; min-height:44px; }
+    .qa-signoff-btn.enabled { background:#22C55E; color:#fff; }
+    .qa-signoff-btn.enabled:hover { background:#16A34A; }
+    .qa-signoff-btn.disabled { background:#D1D5DB; color:#9CA3AF; cursor:not-allowed; }
+    .qa-cancel-btn { background:none; border:1px solid #D1D5DB; border-radius:6px; padding:10px 16px; font-size:13px; color:#4B5563; cursor:pointer; min-height:44px; }
+    .qa-cancel-btn:hover { background:#F3F4F6; }
+
+    /* ── QA Locked/Draft states ── */
+    .qa-locked-btn { opacity:0.4; cursor:not-allowed !important; }
+    .qa-draft-watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-35deg); font-size:48px; font-weight:900; color:rgba(239,68,68,0.12); pointer-events:none; z-index:9999; white-space:nowrap; letter-spacing:4px; }
+    .qa-review-banner { background:#FEF3C7; border:1px solid #F59E0B; border-radius:6px; padding:10px 14px; margin:8px 0; font-size:12px; color:#92400E; display:flex; align-items:center; gap:8px; }
+    .qa-review-banner .qa-banner-icon { font-size:16px; }
+    .qa-review-banner .qa-banner-text { flex:1; }
+    .qa-review-banner .qa-banner-btn { background:#F59E0B; color:#fff; border:none; border-radius:4px; padding:6px 12px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; min-height:44px; }
+    .qa-review-banner .qa-banner-btn:hover { background:#D97706; }
+    .qa-approved-banner { background:#DCFCE7; border:1px solid #22C55E; border-radius:6px; padding:10px 14px; margin:8px 0; font-size:12px; color:#166534; }
+
+    /* ── QA Order Preview Card ── */
+    .qa-order-preview { background:#F9FAFB; border:1px solid #E5E5E5; border-radius:6px; padding:12px; margin-top:8px; font-family:monospace; font-size:11px; white-space:pre-wrap; line-height:1.5; max-height:300px; overflow-y:auto; }
+    .qa-order-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .qa-order-actions button { padding:8px 14px; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer; border:none; min-height:44px; }
+    .qa-order-actions .qa-copy-btn { background:#293C46; color:#fff; }
+    .qa-order-actions .qa-copy-btn:hover { background:#4C6A7C; }
+    .qa-order-actions .qa-pdf-btn { background:#fff; color:#293C46; border:1px solid #293C46; }
+    .qa-order-actions .qa-pdf-btn:hover { background:#F3F4F6; }
+
     /* ── Responsive: tablet ── */
     @media (max-width: 1024px) {
       .main { flex-direction: column; height: auto; }
@@ -1279,12 +1348,19 @@
             <div class="value price-badge" id="statCost">$0</div>
           </div>
         </div>
+        <div style="margin-bottom:8px">
+          <button class="generate-btn" onclick="qaVerification.showScopeVerification()" style="background:#22C55E;width:100%;padding:10px 16px;font-size:14px;font-weight:700">Review &amp; Sign Off</button>
+        </div>
+        <div id="qaMaterialBanner" style="display:none"></div>
         <div class="generate-btns">
-          <button class="generate-btn" onclick="app.generateOutputs()">HTML Outputs</button>
-          <button class="generate-btn secondary" onclick="app.generatePDFs()">All PDFs</button>
-          <button class="generate-btn secondary" onclick="app.exportMaterialOrder()">Material Order</button>
-          <button class="generate-btn secondary" onclick="app.exportWorkOrder()">Work Order</button>
-          <button class="generate-btn" onclick="app.emailQuote()" style="background:#293C46">Email Quote</button>
+          <button class="generate-btn qa-locked-btn" id="btnFenceOutputs" onclick="app.generateOutputs()">HTML Outputs</button>
+          <button class="generate-btn secondary qa-locked-btn" id="btnFencePDFs" onclick="app.generatePDFs()">All PDFs</button>
+          <button class="generate-btn qa-locked-btn" id="btnFenceEmailQuote" onclick="app.emailQuote()" style="background:#293C46">Email Quote</button>
+        </div>
+        <div class="generate-btns" style="margin-top:6px">
+          <button class="generate-btn secondary qa-locked-btn" id="btnMaterialOrder" data-tooltip="Pending material review" onclick="qaVerification.showDraftPreview()">Material Order</button>
+          <button class="generate-btn secondary qa-locked-btn" id="btnWorkOrder" data-tooltip="Pending material review" onclick="qaVerification._showToast('Work order locked — pending material review sign-off')">Work Order</button>
+          <button class="generate-btn secondary" id="btnReviewMaterials" onclick="qaVerification.showMaterialReview()" style="display:none;background:#F59E0B;color:#fff">Review Materials</button>
           <button class="generate-btn ai" onclick="app.toggleAIPanel()">AI Preview</button>
         </div>
         <div class="ai-panel" id="aiPanel">
@@ -1317,6 +1393,44 @@
     <button class="lb-nav next" onclick="scopeMedia.navLightbox(1)">&rsaquo;</button>
     <img id="lightboxImg" src="" alt="">
     <div class="lb-caption" id="lightboxCaption"></div>
+  </div>
+
+  <!-- QA Scope Verification Overlay -->
+  <div class="qa-overlay" id="qaScopeOverlay" role="dialog" aria-modal="true" aria-labelledby="qaScopeTitle">
+    <div class="qa-overlay-inner">
+      <div class="qa-header">
+        <div>
+          <h2 id="qaScopeTitle">Scope Verification</h2>
+          <div class="qa-header-summary" id="qaScopeSummary"></div>
+        </div>
+        <button class="qa-header-close" onclick="qaVerification.closeOverlay('scope')" aria-label="Close">&times;</button>
+      </div>
+      <div class="qa-cards" id="qaScopeCards"></div>
+    </div>
+    <div class="qa-footer">
+      <button class="qa-cancel-btn" onclick="qaVerification.closeOverlay('scope')">Cancel</button>
+      <div class="qa-footer-info" id="qaScopeFooterInfo"></div>
+      <button class="qa-signoff-btn disabled" id="qaScopeSignOffBtn" onclick="qaVerification.scopeSignOff()">Sign Off &amp; Save</button>
+    </div>
+  </div>
+
+  <!-- QA Material Review Overlay -->
+  <div class="qa-overlay" id="qaMaterialOverlay" role="dialog" aria-modal="true" aria-labelledby="qaMaterialTitle">
+    <div class="qa-overlay-inner">
+      <div class="qa-header">
+        <div>
+          <h2 id="qaMaterialTitle">Material Order Review</h2>
+          <div class="qa-header-summary" id="qaMaterialSummary"></div>
+        </div>
+        <button class="qa-header-close" onclick="qaVerification.closeOverlay('material')" aria-label="Close">&times;</button>
+      </div>
+      <div class="qa-cards" id="qaMaterialCards"></div>
+    </div>
+    <div class="qa-footer">
+      <button class="qa-cancel-btn" onclick="qaVerification.closeOverlay('material')">Cancel</button>
+      <div class="qa-footer-info" id="qaMaterialFooterInfo"></div>
+      <button class="qa-signoff-btn disabled" id="qaMaterialSignOffBtn" onclick="qaVerification.materialSignOff()">Approve &amp; Unlock Orders</button>
+    </div>
   </div>
 
   <!-- Save Overlay -->
@@ -5288,6 +5402,631 @@ window.addEventListener('DOMContentLoaded', function() {
     };
 
     // ════════════════════════════════════════════════════════
+    // QA VERIFICATION: Scope + Material Review System
+    // ════════════════════════════════════════════════════════
+    const qaVerification = {
+      _acknowledgedFlags: new Set(),
+      _signOffTimer: null,
+
+      // ── Colour hex lookup helper ──
+      _getColourHex(colourName) {
+        const all = [...COLOURS_STOCK, ...COLOURS_SPECIAL];
+        const found = all.find(c => c.name === colourName);
+        return found ? found.hex : '#323233';
+      },
+
+      // ── Run all scoper verification checks ──
+      runScopeChecks(d) {
+        const flags = [];
+
+        // Card 1: Job & Client
+        if (!d.job.client || !d.job.client.trim()) flags.push({ id: 'F-J1', card: 'job', severity: 'red', message: 'Client name is missing', field: 'client' });
+        if (!d.job.address || !d.job.address.trim()) flags.push({ id: 'F-J2', card: 'job', severity: 'red', message: 'Site address is missing', field: 'address' });
+        if (!d.job.ref || !d.job.ref.trim()) flags.push({ id: 'F-J3', card: 'job', severity: 'amber', message: 'Job reference is empty', field: 'jobRef' });
+
+        // Card 2: Fence Runs
+        d.runDetails.forEach((run, ri) => {
+          if (!run.length || run.length <= 0) flags.push({ id: `F-R${ri}-1`, card: 'runs', severity: 'red', message: `${run.name}: Run has zero length`, field: 'run-' + ri });
+          const expectedPanels = Math.ceil((run.length || 0) / d.panelWidthM);
+          if (run.panelCount !== expectedPanels && run.length > 0) flags.push({ id: `F-R${ri}-2`, card: 'runs', severity: 'red', message: `${run.name}: Panel count ${run.panelCount} doesn't match expected ${expectedPanels} (${run.length}m ÷ ${d.panelWidthM}m)`, field: 'run-' + ri });
+          if (run.length > 50) flags.push({ id: `F-R${ri}-3`, card: 'runs', severity: 'amber', message: `${run.name}: Run is ${run.length}m — unusually long single run`, field: 'run-' + ri });
+        });
+        if (d.totalMetres > 80) flags.push({ id: 'F-R-T', card: 'runs', severity: 'amber', message: `Total fencing ${d.totalMetres.toFixed(1)}m exceeds 80m — verify scope is complete`, field: null });
+
+        // Card 3: Retaining & Posts
+        d.runDetails.forEach((run, ri) => {
+          run.panels.forEach((p, pi) => {
+            const slopePl = d.job.runs[ri].panels[pi].slopePlinths || 0;
+            const manualPl = d.job.runs[ri].panels[pi].retaining / 150;
+            const totalPl = slopePl + manualPl;
+            if (totalPl >= 5) flags.push({ id: `F-P${ri}-${pi}-1`, card: 'retaining', severity: 'red', message: `${run.name} P${pi+1}: ${totalPl} plinths exceeds max 4. Requires engineered retaining.`, field: 'run-' + ri });
+            if (p.retaining >= 500) flags.push({ id: `F-P${ri}-${pi}-2`, card: 'retaining', severity: 'amber', message: `${run.name} P${pi+1}: Retaining ${p.retaining}mm ≥ 500mm — requires Building Permit + Engineer Cert`, field: 'run-' + ri });
+
+            // Post height lookup verification
+            const lookup = lookupPost(p.height, p.retaining);
+            if (lookup.post !== p.postH) flags.push({ id: `F-P${ri}-${pi}-3`, card: 'retaining', severity: 'red', message: `${run.name} P${pi+1}: Post height ${p.postH}mm doesn't match lookup ${lookup.post}mm for ${p.height}H + ${p.retaining}mm retaining`, field: 'run-' + ri });
+          });
+        });
+        // Front fence height check
+        const frontRun = d.job.runs.find(r => r.name && r.name.toLowerCase().includes('front'));
+        if (frontRun) {
+          const avgH = frontRun.panels.reduce((s, p) => s + p.height, 0) / (frontRun.panels.length || 1);
+          if (avgH > 1200) flags.push({ id: 'F-P-DA', card: 'retaining', severity: 'amber', message: `Front fence average height ${avgH}mm > 1200mm — may require DA approval`, field: null });
+        }
+
+        // Card 4: Gates & Extras
+        if (d.js.removeAsbestos && d.js.removeAsbestosQty > 0) flags.push({ id: 'F-G1', card: 'gates', severity: 'amber', message: 'Asbestos removal flagged — ensure licensed removal included in quote', field: null });
+        const isSpecial = COLOURS_SPECIAL.some(c => c.name === d.colour);
+        if (isSpecial) flags.push({ id: 'F-G2', card: 'gates', severity: 'blue', message: `Special-order colour "${d.colour}" — check lead time with supplier`, field: null });
+
+        // Card 5: Fixings & Concrete
+        const expectedBags = Math.ceil((d.allPosts * 2 * 1.1) / 2) * 2;
+        if (d.concreteBags !== expectedBags) flags.push({ id: 'F-C1', card: 'concrete', severity: 'amber', message: `Concrete ${d.concreteBags} bags doesn't match formula: ceil(${d.allPosts} × 2 × 1.1 / 2) × 2 = ${expectedBags}`, field: null });
+
+        // Card 6: Site Documentation
+        const photoCount = (typeof scopeMedia !== 'undefined' && scopeMedia.photos) ? scopeMedia.photos.length : 0;
+        const hasVideo = (typeof scopeMedia !== 'undefined' && scopeMedia.video) ? true : false;
+        if (photoCount < 3) flags.push({ id: 'F-D1', card: 'docs', severity: 'amber', message: `Only ${photoCount} site photos — recommend at least 3`, field: null });
+        if (!hasVideo) flags.push({ id: 'F-D2', card: 'docs', severity: 'blue', message: 'No video walkthrough attached', field: null });
+
+        // Card 7: Pricing
+        const margin = d.grandTotal > 0 ? ((d.grandTotal - d.gst - d.internalCost - d.internalLabour) / (d.grandTotal - d.gst) * 100) : 0;
+        if (d.grandTotal - d.gst < d.internalCost + d.internalLabour) flags.push({ id: 'F-PR1', card: 'pricing', severity: 'red', message: 'Sell price is below total cost — job will lose money', field: 'pricePerMetre' });
+        if (margin > 0 && margin < 20) flags.push({ id: 'F-PR2', card: 'pricing', severity: 'amber', message: `Margin is ${margin.toFixed(1)}% — below 20% minimum target`, field: 'pricePerMetre' });
+        const rate = d.pricePerMetre;
+        if (rate < 80 || rate > 250) flags.push({ id: 'F-PR3', card: 'pricing', severity: 'amber', message: `Per-metre rate $${rate} is outside normal range ($80–$250)`, field: 'pricePerMetre' });
+
+        return flags;
+      },
+
+      // ── Run material review checks ──
+      runMaterialChecks(d) {
+        const flags = [];
+
+        // Card M1: Panels & Posts
+        const supplierData = SUPPLIER_PROFILES[d.supplier];
+        if (!supplierData) flags.push({ id: 'F-M1-1', card: 'mpanels', severity: 'red', message: `Supplier "${d.supplier}" not found in supplier profiles`, field: null });
+        const validProfiles = supplierData ? supplierData.profiles : [];
+        if (validProfiles.length > 0 && !validProfiles.includes(d.profile)) flags.push({ id: 'F-M1-2', card: 'mpanels', severity: 'red', message: `Profile "${d.profile}" is not valid for supplier ${d.supplier}. Valid: ${validProfiles.join(', ')}`, field: null });
+        // Post height verification per group
+        d.runDetails.forEach((run, ri) => {
+          run.panels.forEach((p, pi) => {
+            const lookup = lookupPost(p.height, p.retaining);
+            if (lookup.post !== p.postH) flags.push({ id: `F-M1-P${ri}-${pi}`, card: 'mpanels', severity: 'red', message: `${run.name} P${pi+1}: Post height ${p.postH}mm should be ${lookup.post}mm`, field: null });
+          });
+        });
+        const isSpecial = COLOURS_SPECIAL.some(c => c.name === d.colour);
+        if (isSpecial) flags.push({ id: 'F-M1-S', card: 'mpanels', severity: 'amber', message: `Special-order colour "${d.colour}" — confirm lead time before ordering`, field: null });
+
+        // Card M2: Plinths & Patio Tubing
+        d.runDetails.forEach(run => {
+          const patioCalc = run.panelsWithPatio > 0 ? run.panelsWithPatio + 1 : 0;
+          if (run.patioTubes !== patioCalc) flags.push({ id: `F-M2-${run.name}`, card: 'mplinths', severity: 'red', message: `${run.name}: Patio tube count ${run.patioTubes} doesn't match formula (${run.panelsWithPatio} panels + 1 = ${patioCalc})`, field: null });
+        });
+        // High plinth check
+        d.runDetails.forEach(run => {
+          run.panels.forEach((p, pi) => {
+            if (p.plinths === 4) flags.push({ id: `F-M2-HP-${run.name}-${pi}`, card: 'mplinths', severity: 'amber', message: `${run.name} P${pi+1}: At maximum 4 plinths — close to structural limit`, field: null });
+          });
+        });
+
+        // Card M3: Gates, Concrete & Fixings
+        const totalGatePosts = d.gatePosts;
+        const expectedGatePosts = ((d.js.pedGate ? d.js.pedGateQty : 0) * 2) + ((d.js.dblGate ? d.js.dblGateQty : 0) * 4) + (d.job.gates || []).reduce((s, g) => s + (g.type === 'double' ? 4 : 2), 0);
+        if (totalGatePosts !== expectedGatePosts) flags.push({ id: 'F-M3-1', card: 'mgates', severity: 'red', message: `Gate post count ${totalGatePosts} doesn't match expected ${expectedGatePosts}`, field: null });
+        const expectedBags = Math.ceil((d.allPosts * 2 * 1.1) / 2) * 2;
+        const bagDiff = Math.abs(d.concreteBags - expectedBags) / expectedBags;
+        if (bagDiff > 0.10) flags.push({ id: 'F-M3-2', card: 'mgates', severity: 'amber', message: `Concrete ${d.concreteBags} bags is >${Math.round(bagDiff*100)}% off formula (${expectedBags} expected)`, field: null });
+
+        return flags;
+      },
+
+      // ── Render a QA card ──
+      renderCard(title, kvRows, flags, options = {}) {
+        const cardFlags = flags || [];
+        const reds = cardFlags.filter(f => f.severity === 'red').length;
+        const ambers = cardFlags.filter(f => f.severity === 'amber').length;
+        const blues = cardFlags.filter(f => f.severity === 'blue').length;
+
+        let severity = 'green';
+        if (reds > 0) severity = 'red';
+        else if (ambers > 0) severity = 'amber';
+        else if (blues > 0) severity = 'blue';
+
+        let badgeClass = 'pass', badgeText = '✓ Pass';
+        if (reds > 0) { badgeClass = 'fail'; badgeText = `✗ ${reds} issue${reds > 1 ? 's' : ''}`; }
+        else if (ambers > 0) { badgeClass = 'warn'; badgeText = `⚠ ${ambers} warning${ambers > 1 ? 's' : ''}`; }
+        else if (blues > 0) { badgeClass = 'info'; badgeText = `ℹ ${blues} note${blues > 1 ? 's' : ''}`; }
+
+        let kvHtml = '';
+        (kvRows || []).forEach(kv => {
+          let valueHtml = kv.value;
+          if (kv.swatch) valueHtml = `<span class="qa-swatch" style="background:${kv.swatch}"></span>${valueHtml}`;
+          kvHtml += `<div class="qa-kv"><span class="qa-kv-label">${kv.label}</span><span class="qa-kv-value">${valueHtml}</span></div>`;
+        });
+
+        let flagHtml = '';
+        cardFlags.forEach(f => {
+          if (f.severity === 'red') {
+            const fixAttr = f.field ? ` onclick="qaVerification.fixIssue('${f.field}')"` : '';
+            flagHtml += `<div class="qa-flag red"><span class="qa-flag-text">${f.message}</span>${f.field ? `<button class="qa-fix-btn"${fixAttr}>Fix</button>` : ''}</div>`;
+          } else if (f.severity === 'amber') {
+            const checked = this._acknowledgedFlags.has(f.id) ? ' checked' : '';
+            flagHtml += `<div class="qa-flag amber"><span class="qa-flag-text">${f.message}</span><label class="qa-ack-label"><input type="checkbox"${checked} onchange="qaVerification.acknowledgeFlag('${f.id}', this.checked)">Noted</label></div>`;
+          } else if (f.severity === 'blue') {
+            flagHtml += `<div class="qa-flag blue"><span class="qa-flag-text">${f.message}</span></div>`;
+          }
+        });
+
+        let extraHtml = options.extraHtml || '';
+
+        return `<div class="qa-card severity-${severity}">
+          <div class="qa-card-header"><span class="qa-card-title">${title}</span><span class="qa-card-badge ${badgeClass}">${badgeText}</span></div>
+          <div class="qa-card-body">${kvHtml}${flagHtml}${extraHtml}</div>
+        </div>`;
+      },
+
+      // ── Show scope verification overlay ──
+      showScopeVerification() {
+        this._acknowledgedFlags = new Set();
+        const d = app._collectOutputData();
+        const flags = this.runScopeChecks(d);
+        this._currentFlags = flags;
+        this._currentData = d;
+        this._currentMode = 'scope';
+
+        const cardsEl = document.getElementById('qaScopeCards');
+        let html = '';
+
+        // Card 1: Job & Client
+        const colourHex = this._getColourHex(d.colour);
+        html += this.renderCard('Job & Client', [
+          { label: 'Job Ref', value: d.job.ref || '—' },
+          { label: 'Client', value: d.job.client || '—' },
+          { label: 'Address', value: d.job.address || '—' },
+          { label: 'Email', value: d.job.email || '—' },
+          { label: 'Supplier', value: d.supplier },
+          { label: 'Profile', value: d.profile },
+          { label: 'Colour', value: d.colour, swatch: colourHex },
+        ], flags.filter(f => f.card === 'job'));
+
+        // Card 2: Fence Runs
+        const runKV = [];
+        d.runDetails.forEach(r => {
+          runKV.push({ label: r.name, value: `${r.length}m | ${r.panelCount} panels | ${r.postCount} posts` });
+        });
+        runKV.push({ label: 'Totals', value: `${d.totalMetres.toFixed(1)}m | ${d.totalPanels} panels | ${d.totalPosts} posts` });
+        html += this.renderCard('Fence Runs', runKV, flags.filter(f => f.card === 'runs'));
+
+        // Card 3: Retaining & Posts
+        const postKV = [];
+        const postGroupEntries = Object.values(d.postGroups);
+        postGroupEntries.forEach(g => {
+          postKV.push({ label: `${g.sheetH}mm sheet`, value: `${g.count}× ${g.postH}mm posts` });
+        });
+        // Retaining summary
+        d.runDetails.forEach(run => {
+          if (run.hasRetaining) {
+            const retPanels = run.panels.filter(p => p.retaining > 0);
+            const retDesc = retPanels.map(p => `P${p.num}:${p.retaining}mm`).join(', ');
+            postKV.push({ label: `${run.name} retaining`, value: retDesc });
+          }
+        });
+        postKV.push({ label: 'Total Plinths', value: String(d.totalPlinths) });
+        if (d.totalPatioTubes > 0) {
+          const tubeCalc = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio}+1=${r.patioTubes}`).join(', ');
+          postKV.push({ label: 'Patio Tubes', value: `${d.totalPatioTubes} (${tubeCalc})` });
+        }
+        html += this.renderCard('Retaining & Posts', postKV, flags.filter(f => f.card === 'retaining'));
+
+        // Card 4: Gates & Extras
+        const gateKV = [];
+        if (d.js.pedGate && d.js.pedGateQty > 0) gateKV.push({ label: 'Pedestrian Gates', value: `${d.js.pedGateQty}× (2 posts each, 90×90 SHS)` });
+        if (d.js.dblGate && d.js.dblGateQty > 0) gateKV.push({ label: 'Double Gates', value: `${d.js.dblGateQty}× (4 posts each, 90×90 SHS)` });
+        (d.job.gates || []).forEach(g => gateKV.push({ label: `${g.type} gate`, value: `${g.width}mm (90×90 SHS)` }));
+        if (d.removalItems.length > 0) d.removalItems.forEach(r => gateKV.push({ label: 'Removal', value: `${r.desc} (${r.qty} ${r.unit})` }));
+        if (d.groundFinishDesc) gateKV.push({ label: 'Ground Finish', value: d.groundFinishDesc });
+        if (d.deliveryFee > 0) gateKV.push({ label: 'Delivery', value: `$${d.deliveryFee.toFixed(0)}` });
+        if (d.customItems.length > 0) d.customItems.forEach(c => gateKV.push({ label: 'Custom', value: `${c.desc} ×${c.qty}` }));
+        if (gateKV.length === 0) gateKV.push({ label: 'Gates & Extras', value: 'None' });
+        html += this.renderCard('Gates & Extras', gateKV, flags.filter(f => f.card === 'gates'));
+
+        // Card 5: Fixings & Concrete
+        const concreteCalc = `${d.concreteBags} bags (${d.allPosts} posts × 2 × 1.1)`;
+        html += this.renderCard('Fixings & Concrete', [
+          { label: 'Concrete Bags', value: concreteCalc },
+          { label: 'Tek Screw Boxes', value: `${d.tekBoxes} (${d.totalPanels} panels ÷ 4)` },
+          { label: 'Total Posts', value: `${d.allPosts} (${d.totalPosts} fence + ${d.gatePosts} gate)` },
+        ], flags.filter(f => f.card === 'concrete'));
+
+        // Card 6: Site Documentation
+        const photoCount = (typeof scopeMedia !== 'undefined' && scopeMedia.photos) ? scopeMedia.photos.length : 0;
+        const hasVideo = (typeof scopeMedia !== 'undefined' && scopeMedia.video) ? true : false;
+        const docKV = [
+          { label: 'Photos', value: `${photoCount} captured` },
+          { label: 'Video', value: hasVideo ? 'Yes' : 'None' },
+        ];
+        // Photo label coverage
+        if (photoCount > 0) {
+          const labelled = scopeMedia.photos.filter(p => p.label && p.label !== 'General').length;
+          docKV.push({ label: 'Labelled Photos', value: `${labelled} of ${photoCount}` });
+        }
+        let photoStripHtml = '';
+        if (photoCount > 0) {
+          photoStripHtml = '<div class="qa-photo-strip">';
+          scopeMedia.photos.forEach(p => {
+            photoStripHtml += `<img src="${p.dataUrl}" alt="${p.label || 'Site photo'}" title="${p.label || 'Site photo'}">`;
+          });
+          photoStripHtml += '</div>';
+        }
+        html += this.renderCard('Site Documentation', docKV, flags.filter(f => f.card === 'docs'), { extraHtml: photoStripHtml });
+
+        // Card 7: Pricing
+        const margin = d.grandTotal > 0 ? ((d.grandTotal - d.gst - d.internalCost - d.internalLabour) / (d.grandTotal - d.gst) * 100) : 0;
+        html += this.renderCard('Pricing', [
+          { label: 'Per-Metre Rate', value: `$${d.pricePerMetre}` },
+          { label: 'Fencing', value: `$${d.fencingTotal.toFixed(0)}` },
+          { label: 'Plinths', value: `$${d.plinthsTotal.toFixed(0)}` },
+          { label: 'Gates', value: `$${d.gatesTotal.toFixed(0)}` },
+          { label: 'Removal', value: `$${d.removalTotal.toFixed(0)}` },
+          { label: 'Subtotal (ex GST)', value: `$${d.subtotal.toFixed(0)}` },
+          { label: 'GST', value: `$${d.gst.toFixed(0)}` },
+          { label: 'Grand Total', value: `$${d.grandTotal.toFixed(0)}` },
+          { label: 'Margin', value: `${margin.toFixed(1)}%` },
+        ], flags.filter(f => f.card === 'pricing'));
+
+        cardsEl.innerHTML = html;
+        this._updateOverlayState('scope');
+
+        const overlay = document.getElementById('qaScopeOverlay');
+        overlay.classList.add('active');
+        overlay.querySelector('.qa-overlay-inner').scrollTop = 0;
+        document.body.classList.add('qa-body-locked');
+      },
+
+      // ── Show material review overlay ──
+      showMaterialReview() {
+        this._acknowledgedFlags = new Set();
+        const d = app._collectOutputData();
+        const flags = this.runMaterialChecks(d);
+        this._currentFlags = flags;
+        this._currentData = d;
+        this._currentMode = 'material';
+
+        const cardsEl = document.getElementById('qaMaterialCards');
+        let html = '';
+
+        // Card M1: Panels & Posts
+        const panelKV = [];
+        Object.values(d.postGroups).forEach(g => {
+          panelKV.push({ label: `${g.sheetH}mm panels`, value: `${g.count}× with ${g.postH}mm posts` });
+        });
+        panelKV.push({ label: 'Panel Width', value: `${d.panelWidthMm}mm (${d.supplier})` });
+        panelKV.push({ label: 'Profile', value: d.profile });
+        const colourHex = this._getColourHex(d.colour);
+        panelKV.push({ label: 'Colour', value: d.colour, swatch: colourHex });
+        html += this.renderCard('Panels & Posts', panelKV, flags.filter(f => f.card === 'mpanels'));
+
+        // Card M2: Plinths & Patio Tubing
+        const plinthKV = [{ label: 'Total Plinths', value: String(d.totalPlinths) }];
+        d.runDetails.forEach(run => {
+          if (run.plinths > 0) plinthKV.push({ label: run.name, value: `${run.plinths} plinths` });
+        });
+        if (d.totalPatioTubes > 0) {
+          const tubeCalc = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.panelsWithPatio} panels with 3+ plinths → ${r.panelsWithPatio}+1 = ${r.patioTubes}`).join('; ');
+          plinthKV.push({ label: 'Patio Tubes', value: `${d.totalPatioTubes} (${tubeCalc})` });
+        }
+        plinthKV.push({ label: 'Patio Tube Spec', value: '76×38 RHS @ 3000mm' });
+        html += this.renderCard('Plinths & Patio Tubing', plinthKV, flags.filter(f => f.card === 'mplinths'));
+
+        // Card M3: Gates, Concrete & Fixings
+        const mgateKV = [];
+        if (d.gatePosts > 0) mgateKV.push({ label: 'Gate Posts', value: `${d.gatePosts}× 90×90 SHS (NOT C-channel)` });
+        if (d.js.pedGate && d.js.pedGateQty > 0) mgateKV.push({ label: 'Pedestrian Gates', value: `${d.js.pedGateQty}× kit` });
+        if (d.js.dblGate && d.js.dblGateQty > 0) mgateKV.push({ label: 'Double Gates', value: `${d.js.dblGateQty}× kit` });
+        mgateKV.push({ label: 'Concrete', value: `${d.concreteBags} bags (${d.allPosts} posts × 2 × 1.1)` });
+        mgateKV.push({ label: 'Tek Screws', value: `${d.tekBoxes} boxes` });
+        html += this.renderCard('Gates, Concrete & Fixings', mgateKV, flags.filter(f => f.card === 'mgates'));
+
+        // Card M4: Order Preview — only if M1-M3 have no unresolved reds
+        const unresolvedReds = flags.filter(f => f.severity === 'red').length;
+        if (unresolvedReds === 0) {
+          const orderHTML = this._buildOrderPreviewText(d);
+          html += this.renderCard('Order Preview', [], [], {
+            extraHtml: `<div class="qa-order-preview">${orderHTML}</div>
+              <div class="qa-order-actions">
+                <button class="qa-copy-btn" onclick="qaVerification.copyOrderToClipboard()">Copy to Clipboard</button>
+                <button class="qa-pdf-btn" onclick="app.exportMaterialOrder()">Download PDF</button>
+              </div>`
+          });
+        } else {
+          html += this.renderCard('Order Preview', [
+            { label: 'Status', value: 'Fix red issues above to preview order' }
+          ], [{ id: 'F-M4-LOCKED', card: 'morder', severity: 'red', message: `${unresolvedReds} issue${unresolvedReds > 1 ? 's' : ''} must be resolved before order can be previewed` }]);
+        }
+
+        cardsEl.innerHTML = html;
+        this._updateOverlayState('material');
+
+        const overlay = document.getElementById('qaMaterialOverlay');
+        overlay.classList.add('active');
+        overlay.querySelector('.qa-overlay-inner').scrollTop = 0;
+        document.body.classList.add('qa-body-locked');
+      },
+
+      // ── Build plain-text order preview ──
+      _buildOrderPreviewText(d) {
+        const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+        let txt = '';
+        txt += `SECUREWORKS WA — Material Order\n`;
+        txt += `Job: ${d.job.ref || '—'} | ${d.job.client || '—'}\n`;
+        txt += `Delivery: ${d.job.address || '—'} | ${tomorrow}\n`;
+        txt += `Supplier: ${d.supplier}\n`;
+        txt += `${'─'.repeat(40)}\n`;
+        Object.values(d.postGroups).forEach(g => {
+          txt += `${g.count}× ${g.sheetH}H × ${d.panelWidthMm}W panels w/ ${g.postH}H posts | ${d.profile} | ${d.colour}\n`;
+        });
+        if (d.totalPlinths > 0) txt += `${d.totalPlinths}× 150mm Plinths — ${d.colour}\n`;
+        if (d.totalPatioTubes > 0) txt += `${d.totalPatioTubes}× 76×38 RHS Patio Tubes @ 3000mm\n`;
+        if (d.gatePosts > 0) txt += `${d.gatePosts}× 90×90 SHS Gate Posts\n`;
+        txt += `${d.concreteBags}× Bags Quickset Concrete\n`;
+        txt += `${d.tekBoxes}× Boxes Tek Screws\n`;
+        return txt;
+      },
+
+      // ── Copy order text to clipboard ──
+      copyOrderToClipboard() {
+        const d = this._currentData || app._collectOutputData();
+        const txt = this._buildOrderPreviewText(d).replace(/<[^>]+>/g, '');
+        navigator.clipboard.writeText(txt).then(() => {
+          const btn = document.querySelector('.qa-copy-btn');
+          if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000); }
+        }).catch(() => alert('Copy failed — try selecting the text manually'));
+      },
+
+      // ── Acknowledge an amber flag ──
+      acknowledgeFlag(id, checked) {
+        if (checked) this._acknowledgedFlags.add(id);
+        else this._acknowledgedFlags.delete(id);
+        this._updateOverlayState(this._currentMode);
+      },
+
+      // ── Fix issue: close overlay, scroll to field ──
+      fixIssue(field) {
+        this.closeOverlay(this._currentMode);
+        setTimeout(() => {
+          const el = document.getElementById(field);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.focus();
+            el.style.outline = '3px solid #EF4444';
+            setTimeout(() => { el.style.outline = ''; }, 3000);
+          }
+        }, 300);
+      },
+
+      // ── Update overlay header summary and sign-off button state ──
+      _updateOverlayState(mode) {
+        const flags = this._currentFlags || [];
+        const reds = flags.filter(f => f.severity === 'red').length;
+        const ambers = flags.filter(f => f.severity === 'amber').length;
+        const unacknowledgedAmbers = flags.filter(f => f.severity === 'amber' && !this._acknowledgedFlags.has(f.id)).length;
+
+        const summaryEl = document.getElementById(mode === 'scope' ? 'qaScopeSummary' : 'qaMaterialSummary');
+        const btnEl = document.getElementById(mode === 'scope' ? 'qaScopeSignOffBtn' : 'qaMaterialSignOffBtn');
+        const infoEl = document.getElementById(mode === 'scope' ? 'qaScopeFooterInfo' : 'qaMaterialFooterInfo');
+
+        if (reds > 0) {
+          summaryEl.innerHTML = `<span class="qa-count-red">${reds} issue${reds > 1 ? 's' : ''} need fixing</span>${ambers > 0 ? ` · <span class="qa-count-amber">${ambers} warning${ambers > 1 ? 's' : ''}</span>` : ''}`;
+        } else if (unacknowledgedAmbers > 0) {
+          summaryEl.innerHTML = `<span class="qa-count-amber">${unacknowledgedAmbers} warning${unacknowledgedAmbers > 1 ? 's' : ''} need acknowledgment</span>`;
+        } else {
+          summaryEl.innerHTML = `<span class="qa-count-green">All clear — ready to sign off</span>`;
+        }
+
+        const canSignOff = reds === 0 && unacknowledgedAmbers === 0;
+        btnEl.className = 'qa-signoff-btn ' + (canSignOff ? 'enabled' : 'disabled');
+        btnEl.disabled = !canSignOff;
+        infoEl.textContent = canSignOff ? '' : (reds > 0 ? `Fix ${reds} red issue${reds > 1 ? 's' : ''} to continue` : `Acknowledge ${unacknowledgedAmbers} warning${unacknowledgedAmbers > 1 ? 's' : ''}`);
+
+        // 1.5s delay before sign-off button activates (anti-fatigue)
+        if (canSignOff) {
+          btnEl.disabled = true;
+          btnEl.className = 'qa-signoff-btn disabled';
+          clearTimeout(this._signOffTimer);
+          this._signOffTimer = setTimeout(() => {
+            btnEl.disabled = false;
+            btnEl.className = 'qa-signoff-btn enabled';
+          }, 1500);
+        }
+      },
+
+      // ── Scope sign-off ──
+      async scopeSignOff() {
+        const btn = document.getElementById('qaScopeSignOffBtn');
+        if (btn.disabled) return;
+
+        const scoperName = prompt('Your name (for sign-off record):');
+        if (!scoperName || !scoperName.trim()) return;
+
+        // Store verification state on job
+        if (!app.job.verification) app.job.verification = {};
+        app.job.verification.scoper = {
+          signedOff: true,
+          by: scoperName.trim(),
+          at: new Date().toISOString(),
+          amberAcknowledged: Array.from(this._acknowledgedFlags),
+          checksRun: this._currentFlags.reduce((acc, f) => { acc[f.id] = { severity: f.severity, message: f.message }; return acc; }, {})
+        };
+        if (!app.job.verification.materialReview) {
+          app.job.verification.materialReview = { signedOff: false, by: null, at: null, checksRun: null };
+        }
+
+        // Save to localStorage
+        app.save();
+
+        this.closeOverlay('scope');
+        this._updateButtonStates();
+        this._showToast('Scope signed off by ' + scoperName.trim() + '. Quote export unlocked.');
+
+        // Trigger the normal save flow (opens save overlay with summary + progress)
+        if (typeof scopeMedia !== 'undefined' && scopeMedia.showSaveSubmit) {
+          setTimeout(() => scopeMedia.showSaveSubmit(), 400);
+        }
+      },
+
+      // ── Material sign-off ──
+      materialSignOff() {
+        const btn = document.getElementById('qaMaterialSignOffBtn');
+        if (btn.disabled) return;
+
+        const reviewerName = prompt('Your name (for material review record):');
+        if (!reviewerName || !reviewerName.trim()) return;
+
+        if (!app.job.verification) app.job.verification = {};
+        app.job.verification.materialReview = {
+          signedOff: true,
+          by: reviewerName.trim(),
+          at: new Date().toISOString(),
+          checksRun: this._currentFlags.reduce((acc, f) => { acc[f.id] = { severity: f.severity, message: f.message }; return acc; }, {})
+        };
+
+        app.save();
+        this.closeOverlay('material');
+        this._updateButtonStates();
+        this._showToast('Material order approved by ' + reviewerName.trim() + '. Export unlocked.');
+      },
+
+      // ── Close overlay ──
+      closeOverlay(mode) {
+        const id = mode === 'scope' ? 'qaScopeOverlay' : 'qaMaterialOverlay';
+        document.getElementById(id).classList.remove('active');
+        document.body.classList.remove('qa-body-locked');
+        clearTimeout(this._signOffTimer);
+      },
+
+      // ── Update button lock/unlock states ──
+      _updateButtonStates() {
+        const v = app.job.verification || {};
+        const scopeOk = v.scoper && v.scoper.signedOff;
+        const materialOk = v.materialReview && v.materialReview.signedOff;
+
+        // Quote/output buttons — locked until scope signed off
+        ['btnFenceOutputs', 'btnFencePDFs', 'btnFenceEmailQuote'].forEach(id => {
+          const btn = document.getElementById(id);
+          if (btn) {
+            if (scopeOk) { btn.classList.remove('qa-locked-btn'); }
+            else { btn.classList.add('qa-locked-btn'); }
+          }
+        });
+
+        // Material Order button
+        const matBtn = document.getElementById('btnMaterialOrder');
+        if (matBtn) {
+          if (materialOk) {
+            matBtn.classList.remove('qa-locked-btn');
+            matBtn.removeAttribute('data-tooltip');
+            matBtn.onclick = function() { app.exportMaterialOrder(); };
+          } else {
+            matBtn.classList.add('qa-locked-btn');
+            matBtn.setAttribute('data-tooltip', 'Pending material review');
+            matBtn.onclick = function(e) { e.preventDefault(); qaVerification._showToast('Material order locked — pending material review sign-off'); };
+          }
+        }
+
+        // Work Order button
+        const woBtn = document.getElementById('btnWorkOrder');
+        if (woBtn) {
+          if (materialOk) {
+            woBtn.classList.remove('qa-locked-btn');
+            woBtn.removeAttribute('data-tooltip');
+            woBtn.onclick = function() { app.exportWorkOrder(); };
+          } else {
+            woBtn.classList.add('qa-locked-btn');
+            woBtn.setAttribute('data-tooltip', 'Pending material review');
+            woBtn.onclick = function(e) { e.preventDefault(); qaVerification._showToast('Work order locked — pending material review sign-off'); };
+          }
+        }
+
+        // Review Materials button visibility
+        const reviewBtn = document.getElementById('btnReviewMaterials');
+        if (reviewBtn) {
+          reviewBtn.style.display = scopeOk && !materialOk ? 'inline-block' : 'none';
+        }
+
+        // Material review banner
+        const banner = document.getElementById('qaMaterialBanner');
+        if (banner) {
+          if (scopeOk && !materialOk) {
+            banner.className = 'qa-review-banner';
+            banner.style.display = 'flex';
+            banner.innerHTML = `<span class="qa-banner-icon">⚠</span><span class="qa-banner-text">Scope signed off by ${v.scoper.by} on ${new Date(v.scoper.at).toLocaleDateString('en-AU')}. Material order pending review.</span><button class="qa-banner-btn" onclick="qaVerification.showMaterialReview()">Review Materials</button>`;
+          } else if (materialOk) {
+            banner.className = 'qa-approved-banner';
+            banner.style.display = 'block';
+            banner.innerHTML = `✓ Materials approved by ${v.materialReview.by} on ${new Date(v.materialReview.at).toLocaleDateString('en-AU')}. Orders unlocked.`;
+          } else {
+            banner.style.display = 'none';
+          }
+        }
+      },
+
+      // ── Show draft watermark on material order preview ──
+      showDraftPreview() {
+        const v = app.job.verification || {};
+        const materialOk = v.materialReview && v.materialReview.signedOff;
+        if (materialOk) {
+          app.exportMaterialOrder();
+          return;
+        }
+        // Show read-only preview with watermark
+        const d = app._collectOutputData();
+        const html = app._generateMaterialOrderHTML(d);
+        const w = window.open('', '_blank');
+        w.document.write(html);
+        // Inject watermark
+        const watermarkDiv = w.document.createElement('div');
+        watermarkDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:48px;font-weight:900;color:rgba(239,68,68,0.15);pointer-events:none;z-index:9999;white-space:nowrap;letter-spacing:4px;';
+        watermarkDiv.textContent = 'DRAFT — PENDING REVIEW';
+        w.document.body.appendChild(watermarkDiv);
+        // Disable copy button in preview
+        const copyBtn = w.document.querySelector('button');
+        if (copyBtn) {
+          copyBtn.disabled = true;
+          copyBtn.textContent = 'DRAFT — Copy disabled until approved';
+          copyBtn.style.opacity = '0.5';
+          copyBtn.style.cursor = 'not-allowed';
+        }
+        w.document.close();
+      },
+
+      // ── Toast notification ──
+      _showToast(msg) {
+        let toast = document.getElementById('qaToast');
+        if (!toast) {
+          toast = document.createElement('div');
+          toast.id = 'qaToast';
+          toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#293C46;color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:10001;opacity:0;transition:opacity 0.3s;max-width:360px;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+          document.body.appendChild(toast);
+        }
+        toast.textContent = msg;
+        toast.style.opacity = '1';
+        setTimeout(() => { toast.style.opacity = '0'; }, 3500);
+      },
+
+      // ── Initialize: check existing verification state ──
+      init() {
+        this._updateButtonStates();
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && this._currentMode) {
+            this.closeOverlay(this._currentMode);
+            this._currentMode = null;
+          }
+        });
+      }
+    };
+
+    // ════════════════════════════════════════════════════════
     // SCOPE MEDIA: Photo/Video Capture + Save/Submit + PDF
     // ════════════════════════════════════════════════════════
     const scopeMedia = {
@@ -7005,7 +7744,18 @@ window.addEventListener('DOMContentLoaded', function() {
       document.getElementById('headerBrand').innerHTML = SW_LOGO_WHITE;
       app.init();
       scopeMedia._updatePendingBadge();
+      qaVerification.init();
     });
   </script>
+
+<!-- ═══ Cloud Integration (Supabase) ═══ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+  window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
+</script>
+<script src="../../../tools/shared/cloud.js"></script>
+<script src="../../../tools/shared/integration.js"></script>
+
 </body>
 </html>
