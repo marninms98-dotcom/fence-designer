@@ -126,9 +126,16 @@
   var auth = {
     // Send magic link email
     async sendMagicLink(email) {
+      // Use current URL if on GitHub Pages, otherwise fall back to GitHub Pages patio URL
+      var redirectUrl = window.location.href.split('?')[0].split('#')[0];
+      if (redirectUrl.startsWith('file:') || redirectUrl.includes('127.0.0.1') || redirectUrl.includes('localhost')) {
+        // Local dev — redirect to GitHub Pages so the link actually works
+        var title = (document.title || '').toLowerCase();
+        redirectUrl = title.includes('fence') ? 'https://marninms98-dotcom.github.io/fence-designer/' : 'https://marninms98-dotcom.github.io/patio/';
+      }
       var result = await sb.auth.signInWithOtp({
         email: email,
-        options: { emailRedirectTo: window.location.origin + window.location.pathname }
+        options: { emailRedirectTo: redirectUrl }
       });
       if (result.error) throw result.error;
       return true;
@@ -163,29 +170,25 @@
     getRole() { return _userProfile?.role || null; }
   };
 
-  // Load user profile from users table
+  // Load user profile via edge function (bypasses RLS)
   async function _loadUserProfile() {
     if (!_user) return;
-    var result = await sb.from('users').select('*').eq('id', _user.id).single();
-    if (result.error) {
-      // User exists in auth but not in users table — auto-create
-      if (result.error.code === 'PGRST116') {
-        var insert = await sb.from('users').insert({
-          id: _user.id,
-          org_id: '00000000-0000-0000-0000-000000000001', // default org
-          name: _user.email.split('@')[0],
-          email: _user.email,
-          role: 'estimator'
-        }).select().single();
-        if (insert.error) throw insert.error;
-        _userProfile = insert.data;
-      } else {
-        throw result.error;
-      }
-    } else {
-      _userProfile = result.data;
+    try {
+      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=get_profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: _user.id, email: _user.email || '' })
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Profile load failed');
+      _userProfile = data.profile;
+      _orgId = _userProfile.org_id;
+    } catch(e) {
+      console.warn('[Cloud] Profile load failed, using auth data:', e);
+      // Fallback: use basic auth data so user isn't blocked
+      _userProfile = { id: _user.id, email: _user.email, name: (_user.email || '').split('@')[0], role: 'estimator', org_id: '00000000-0000-0000-0000-000000000001' };
+      _orgId = _userProfile.org_id;
     }
-    _orgId = _userProfile.org_id;
   }
 
   // Listen for auth state changes
