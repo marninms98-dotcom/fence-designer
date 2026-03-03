@@ -2,37 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Fence Designer Pro — SecureWorks WA</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    /* ── iPad-first base ── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
 
     body {
       font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 400;
       background: #f8fafc;
+      font-size: 16px;
+      -webkit-tap-highlight-color: transparent;
+      padding-bottom: 80px;
     }
 
-    /* Section 0: Branding */
+    /* All interactive elements: minimum 44px touch targets */
+    input, select, button, textarea {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 16px;
+    }
+
+    /* ── Header (slim, sticky) ── */
     .header {
       background: #293C46;
       color: #FFFFFF;
-      padding: 12px 20px;
+      padding: 10px 16px;
       display: flex;
       gap: 12px;
       flex-wrap: wrap;
       align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
     }
 
     .header-brand {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 16px;
-      margin-right: 8px;
+      font-size: 18px;
+      margin-right: 4px;
       white-space: nowrap;
     }
 
@@ -43,7 +52,6 @@
     }
 
     .header-group label {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
       font-size: 10px;
       text-transform: uppercase;
@@ -53,91 +61,232 @@
 
     .header-group input,
     .header-group select {
-      padding: 5px 8px;
+      padding: 6px 10px;
       border: 1px solid #4C6A70;
       border-radius: 4px;
-      font-size: 13px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      min-height: 36px;
+      background: #fff;
+      color: #293C46;
     }
 
-    .header-group input {
-      min-width: 100px;
-    }
-
-    .header-group select {
-      min-width: 120px;
-    }
+    .header-group input { min-width: 90px; }
 
     .header-actions {
       margin-left: auto;
       display: flex;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
     }
 
     .header-actions .saved-indicator {
-      font-size: 12px;
+      font-size: 13px;
       opacity: 0.7;
     }
 
     .btn-header {
-      padding: 6px 14px;
+      padding: 8px 18px;
       background: #F15A29;
       color: #FFFFFF;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 44px;
     }
 
-    .btn-header:hover {
-      background: #d94e22;
+    .btn-header:active { background: #d94e22; }
+
+    /* ── Scope Form Layout ── */
+    .scope-form {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px;
     }
 
-    /* Main Layout */
-    .main {
-      display: flex;
-      height: calc(100vh - 72px);
-    }
-
-    .left-panel {
-      width: 40%;
-      min-width: 450px;
+    .scope-section {
       background: #FFFFFF;
-      overflow-y: auto;
-      border-right: 1px solid #4C6A70;
+      border: 1px solid #4C6A70;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      overflow: hidden;
     }
 
-    .right-panel {
-      width: 60%;
-      background: #f8fafc;
+    .scope-section-header {
+      width: 100%;
+      padding: 14px 18px;
+      background: #F5F5F5;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      color: #293C46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      -webkit-tap-highlight-color: transparent;
+      min-height: 52px;
+    }
+
+    .scope-section-header:active { background: #eef0f2; }
+
+    .section-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .section-status.complete { background: #16a34a; color: #fff; }
+    .section-status.complete::after { content: '\2713'; }
+    .section-status.warning { background: #f59e0b; color: #fff; }
+    .section-status.warning::after { content: '!'; font-weight: 700; }
+    .section-status.empty { background: #e5e7eb; color: #4C6A70; }
+    .section-status.empty::after { content: '\2014'; }
+
+    .section-chevron {
+      margin-left: auto;
+      transition: transform 0.2s;
+      font-size: 14px;
+      color: #4C6A70;
+    }
+    .section-chevron::after { content: '\25B6'; }
+    .scope-section.open .section-chevron { transform: rotate(90deg); }
+
+    .scope-section-body {
+      display: none;
+      padding: 16px 18px;
+    }
+    .scope-section.open .scope-section-body { display: block; }
+
+    /* ── Form Layout (2-col grid) ── */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .form-row.full-width { grid-template-columns: 1fr; }
+    .form-row.three-col { grid-template-columns: 1fr 1fr 1fr; }
+
+    .form-group {
       display: flex;
       flex-direction: column;
+      gap: 6px;
     }
 
-    /* Run Tabs */
+    .form-group label {
+      font-weight: 700;
+      font-size: 13px;
+      color: #4C6A70;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      padding: 10px 12px;
+      border: 1px solid #4C6A70;
+      border-radius: 6px;
+      font-size: 16px;
+      min-height: 44px;
+      background: #fff;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #F15A29;
+      box-shadow: 0 0 0 3px rgba(241, 90, 41, 0.15);
+    }
+
+    /* Toggle buttons (Yes/No, access, etc.) */
+    .toggle-group {
+      display: inline-flex;
+      border: 2px solid #4C6A70;
+      border-radius: 6px;
+      overflow: hidden;
+      width: fit-content;
+    }
+
+    .toggle-btn {
+      padding: 10px 20px;
+      border: none;
+      background: #fff;
+      color: #4C6A70;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      min-height: 44px;
+      min-width: 60px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .toggle-btn:not(:last-child) { border-right: 1px solid #4C6A70; }
+    .toggle-btn.active { background: #293C46; color: #fff; }
+    .toggle-btn:active:not(.active) { background: #e5e7eb; }
+
+    /* Location toggle (can multi-select) */
+    /* ── Common Buttons ── */
+    .btn-orange {
+      padding: 10px 18px;
+      background: #F15A29;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 700;
+      min-height: 44px;
+    }
+    .btn-orange:active { background: #d94e22; }
+
+    .btn-delete {
+      padding: 8px 14px;
+      background: transparent;
+      color: #dc2626;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      min-height: 44px;
+    }
+
+    /* ── Run Tabs ── */
     .run-tabs {
       display: flex;
       background: #F5F5F5;
       border-bottom: 2px solid #4C6A70;
       padding: 8px 8px 0 8px;
-      gap: 4px;
+      gap: 6px;
       flex-wrap: wrap;
     }
 
     .run-tab {
-      padding: 8px 16px;
+      padding: 10px 18px;
       background: #e5e7eb;
       border: 1px solid #4C6A70;
       border-bottom: none;
-      border-radius: 4px 4px 0 0;
+      border-radius: 6px 6px 0 0;
       cursor: pointer;
-      font-size: 13px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 15px;
       font-weight: 400;
       color: #4C6A70;
+      min-height: 44px;
     }
 
     .run-tab.active {
@@ -151,44 +300,35 @@
       border-right-color: #F15A29;
     }
 
-    .run-tab:not(.active):hover {
-      background: #d1d5db;
-    }
+    .run-tab:not(.active):active { background: #d1d5db; }
 
     .add-run-btn {
-      padding: 8px 16px;
+      padding: 10px 18px;
       background: transparent;
       color: #F15A29;
       border: 2px dashed #F15A29;
       border-bottom: none;
-      border-radius: 4px 4px 0 0;
+      border-radius: 6px 6px 0 0;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 44px;
     }
 
-    .add-run-btn:hover {
-      background: rgba(241, 90, 41, 0.08);
-    }
-
-    /* Run Content */
-    .run-content {
-      padding: 16px;
-    }
+    /* ── Run Content ── */
+    .run-content { padding: 16px; }
 
     .run-settings {
       background: #F5F5F5;
       padding: 14px;
-      border-radius: 4px;
+      border-radius: 6px;
       margin-bottom: 16px;
       border: 1px solid #4C6A70;
     }
 
     .run-settings h3 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
       margin-bottom: 10px;
       color: #293C46;
       text-transform: uppercase;
@@ -198,90 +338,27 @@
     .run-settings-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
+      gap: 12px;
     }
 
     .run-settings-actions {
       display: flex;
       gap: 10px;
-      margin-top: 10px;
+      margin-top: 12px;
     }
 
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-
-    .form-group label {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      font-weight: 700;
-      font-size: 11px;
-      color: #4C6A70;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    .form-group input,
-    .form-group select {
-      padding: 5px 8px;
-      border: 1px solid #4C6A70;
-      border-radius: 4px;
-      font-size: 13px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus {
-      outline: none;
-      border-color: #F15A29;
-      box-shadow: 0 0 0 2px rgba(241, 90, 41, 0.15);
-    }
-
-    .btn-orange {
-      padding: 6px 14px;
-      background: #F15A29;
-      color: #FFFFFF;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-
-    .btn-orange:hover {
-      background: #d94e22;
-    }
-
-    .btn-delete {
-      padding: 6px 14px;
-      background: transparent;
-      color: #dc2626;
-      border: none;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-
-    .btn-delete:hover {
-      text-decoration: underline;
-    }
-
-    /* Ground Slope Section */
+    /* ── Ground Slope Section ── */
     .slope-section {
       background: #f5f0ea;
       border: 1px solid #8B7355;
       padding: 14px;
-      border-radius: 4px;
+      border-radius: 6px;
       margin-bottom: 16px;
     }
 
     .slope-section h3 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
       margin-bottom: 6px;
       color: #6B5335;
       text-transform: uppercase;
@@ -289,7 +366,7 @@
     }
 
     .slope-hint {
-      font-size: 11px;
+      font-size: 13px;
       color: #8B7355;
       margin-bottom: 10px;
       line-height: 1.4;
@@ -298,39 +375,36 @@
     .slope-point-list {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
       margin-bottom: 10px;
     }
 
     .slope-point-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 12px;
+      gap: 10px;
+      font-size: 14px;
       color: #293C46;
     }
 
-    .slope-point-row.slope-point-start {
-      color: #999;
-    }
+    .slope-point-row.slope-point-start { color: #999; }
 
-    /* Simple/Advanced mode toggle */
     .slope-simple-controls {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       margin-bottom: 10px;
     }
     .slope-control-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 12px;
+      gap: 10px;
+      font-size: 14px;
       color: #293C46;
     }
     .slope-control-row label {
       font-weight: 700;
-      font-size: 11px;
+      font-size: 13px;
       text-transform: uppercase;
       color: #6B5335;
       min-width: 70px;
@@ -338,165 +412,147 @@
     }
     .slope-direction-toggle {
       display: inline-flex;
-      border: 1px solid #8B7355;
-      border-radius: 4px;
+      border: 2px solid #8B7355;
+      border-radius: 6px;
       overflow: hidden;
     }
     .slope-direction-btn {
-      padding: 4px 10px;
+      padding: 8px 14px;
       border: none;
       background: #f5f0ea;
       color: #6B5335;
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 44px;
       transition: background 0.15s, color 0.15s;
     }
-    .slope-direction-btn:not(:last-child) {
-      border-right: 1px solid #8B7355;
-    }
-    .slope-direction-btn.active {
-      background: #8B7355;
-      color: #fff;
-    }
-    .slope-direction-btn:hover:not(.active) {
-      background: #e8dfd4;
-    }
+    .slope-direction-btn:not(:last-child) { border-right: 1px solid #8B7355; }
+    .slope-direction-btn.active { background: #8B7355; color: #fff; }
+    .slope-direction-btn:active:not(.active) { background: #e8dfd4; }
+
     .slope-fall-input-simple {
-      width: 70px;
-      padding: 3px 6px;
+      width: 80px;
+      padding: 8px 10px;
       border: 1px solid #8B7355;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 6px;
+      font-size: 16px;
       text-align: center;
+      min-height: 44px;
     }
     .slope-fall-input-simple:focus {
       outline: none;
       border-color: #6B5335;
-      box-shadow: 0 0 0 2px rgba(139,115,85,0.2);
+      box-shadow: 0 0 0 3px rgba(139,115,85,0.2);
     }
     .slope-starts-select {
-      padding: 3px 6px;
+      padding: 8px 10px;
       border: 1px solid #8B7355;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 6px;
+      font-size: 16px;
       background: #fff;
+      min-height: 44px;
     }
     .slope-starts-select:focus {
       outline: none;
       border-color: #6B5335;
-      box-shadow: 0 0 0 2px rgba(139,115,85,0.2);
+      box-shadow: 0 0 0 3px rgba(139,115,85,0.2);
     }
     .slope-helper-label {
-      font-size: 11px;
+      font-size: 13px;
       color: #8B7355;
       font-style: italic;
       margin-top: -4px;
-      padding-left: 78px;
+      padding-left: 80px;
     }
     .slope-mode-link {
       display: inline-block;
-      font-size: 11px;
+      font-size: 13px;
       color: #8B7355;
       cursor: pointer;
       text-decoration: none;
       font-weight: 600;
-      margin-top: 4px;
+      margin-top: 6px;
+      min-height: 44px;
+      line-height: 44px;
     }
-    .slope-mode-link:hover {
-      color: #6B5335;
-      text-decoration: underline;
-    }
+    .slope-mode-link:active { color: #6B5335; text-decoration: underline; }
 
     .slope-pt-label {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 22px;
-      height: 22px;
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       background: #8B7355;
       color: #fff;
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 700;
       flex-shrink: 0;
     }
-
-    .slope-point-start .slope-pt-label {
-      background: #aaa;
-    }
+    .slope-point-start .slope-pt-label { background: #aaa; }
 
     .slope-dist-input,
     .slope-fall-input {
-      width: 65px;
-      padding: 3px 6px;
+      width: 75px;
+      padding: 8px 8px;
       border: 1px solid #8B7355;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 6px;
+      font-size: 16px;
       text-align: center;
+      min-height: 44px;
     }
-
     .slope-dist-input:focus,
     .slope-fall-input:focus {
       outline: none;
       border-color: #6B5335;
-      box-shadow: 0 0 0 2px rgba(139,115,85,0.2);
+      box-shadow: 0 0 0 3px rgba(139,115,85,0.2);
     }
 
     .slope-section .slope-actions {
       display: flex;
-      gap: 8px;
-      margin-top: 8px;
+      gap: 10px;
+      margin-top: 10px;
     }
 
     .slope-section .btn-slope {
-      padding: 5px 12px;
+      padding: 8px 16px;
       background: #8B7355;
       color: #fff;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 44px;
     }
-
-    .slope-section .btn-slope:hover {
-      background: #6B5335;
-    }
+    .slope-section .btn-slope:active { background: #6B5335; }
 
     .slope-point-delete {
       background: none;
       border: none;
       color: #dc2626;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 18px;
       font-weight: 700;
-      padding: 2px 4px;
+      padding: 4px 8px;
+      min-width: 44px;
+      min-height: 44px;
     }
 
-    .slope-point-delete:hover {
-      background: #fee2e2;
-      border-radius: 3px;
-    }
-
-    /* Quick Retaining Tool */
+    /* ── Quick Retaining Tool ── */
     .quick-retaining {
       background: #fef3c7;
       border: 1px solid #4C6A70;
       padding: 14px;
-      border-radius: 4px;
+      border-radius: 6px;
       margin-bottom: 16px;
     }
 
     .quick-retaining h3 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
       margin-bottom: 10px;
       color: #293C46;
       text-transform: uppercase;
@@ -507,17 +563,15 @@
       display: flex;
       gap: 10px;
       align-items: end;
+      flex-wrap: wrap;
     }
 
-    /* Panel Table */
-    .panel-table-section {
-      margin-bottom: 16px;
-    }
+    /* ── Panel Table ── */
+    .panel-table-section { margin-bottom: 16px; }
 
     .panel-table-section h3 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
       margin-bottom: 8px;
       color: #293C46;
       text-transform: uppercase;
@@ -525,16 +579,18 @@
     }
 
     .panel-table-wrap {
-      max-height: 400px;
+      max-height: 500px;
       overflow-y: auto;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       border: 1px solid #4C6A70;
-      border-radius: 4px;
+      border-radius: 6px;
     }
 
     .panel-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 14px;
     }
 
     .panel-table thead {
@@ -545,11 +601,10 @@
 
     .panel-table th {
       background: #F5F5F5;
-      padding: 6px 6px;
+      padding: 10px 8px;
       text-align: center;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 11px;
+      font-size: 12px;
       color: #293C46;
       border-bottom: 2px solid #4C6A70;
       text-transform: uppercase;
@@ -558,134 +613,76 @@
     }
 
     .panel-table td {
-      padding: 4px 4px;
+      padding: 8px 6px;
       border-bottom: 1px solid #e5e7eb;
       text-align: center;
-      font-size: 12px;
+      font-size: 14px;
     }
 
-    .panel-table tbody tr:nth-child(even) {
-      background: #F5F5F5;
-    }
-
-    .panel-table tbody tr:hover {
-      background: #e0f2fe;
-    }
+    .panel-table tbody tr:nth-child(even) { background: #F5F5F5; }
+    .panel-table tbody tr:active { background: #e0f2fe; }
 
     .panel-table select {
-      padding: 2px 4px;
+      padding: 6px 6px;
       border: 1px solid #4C6A70;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 4px;
+      font-size: 14px;
       text-align: center;
+      min-height: 36px;
     }
 
-    .panel-table .col-pnum {
-      width: 30px;
-      font-weight: 700;
-      color: #293C46;
-    }
+    .panel-table .col-pnum { width: 36px; font-weight: 700; color: #293C46; }
+    .panel-table .col-ht { width: 60px; }
+    .panel-table .col-slope { width: 44px; color: #8B7355; text-align: center; }
+    .panel-table .col-ret { width: 70px; }
+    .panel-table .col-pl { width: 50px; font-weight: 700; color: #4C6A70; }
+    .panel-table .col-step { width: 50px; color: #4C6A70; }
+    .panel-table .col-total { width: 56px; font-weight: 700; }
+    .panel-table .col-post { width: 60px; font-weight: 700; }
+    .panel-table .col-del { width: 36px; }
 
-    .panel-table .col-ht {
-      width: 55px;
-    }
-
-    .panel-table .col-slope {
-      width: 40px;
-      color: #8B7355;
-      text-align: center;
-    }
-
-    .panel-table .col-ret {
-      width: 65px;
-    }
-
-    .panel-table .col-pl {
-      width: 45px;
-      font-weight: 700;
-      color: #4C6A70;
-    }
-
-    .panel-table .col-step {
-      width: 48px;
-      color: #4C6A70;
-    }
-
-    .panel-table .col-total {
-      width: 50px;
-      font-weight: 700;
-    }
-
-    .panel-table .col-post {
-      width: 55px;
-      font-weight: 700;
-    }
-
-    .panel-table .col-del {
-      width: 20px;
-    }
-
-    .total-standard {
-      color: #16a34a;
-    }
-
-    .total-elevated {
-      color: #F15A29;
-    }
-
-    .post-patio {
-      color: #F15A29;
-    }
+    .total-standard { color: #16a34a; }
+    .total-elevated { color: #F15A29; }
+    .post-patio { color: #F15A29; }
 
     .delete-panel-btn {
       background: none;
       border: none;
       color: #dc2626;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 18px;
       font-weight: 700;
-      padding: 2px 4px;
+      padding: 4px 8px;
+      min-width: 36px;
+      min-height: 36px;
     }
 
-    .delete-panel-btn:hover {
-      background: #fee2e2;
-      border-radius: 3px;
+    .panel-table tbody tr.panel-row-highlight {
+      background: rgba(241,90,41,0.12) !important;
+      outline: 2px solid #F15A29;
+      outline-offset: -2px;
     }
 
-    /* Gates */
-    .gates-section {
-      margin-bottom: 16px;
-    }
-
+    /* ── Gates Section ── */
+    .gates-section { margin-bottom: 16px; }
     .gates-section h3 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
       margin-bottom: 8px;
       color: #293C46;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    .gate-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .gate-row select,
-    .gate-row input {
-      padding: 4px 6px;
+    .gate-card {
+      background: #F5F5F5;
       border: 1px solid #4C6A70;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 10px;
     }
 
-    /* Right Panel */
+    /* ── View Tabs ── */
     .view-tabs {
       display: flex;
       background: #F5F5F5;
@@ -694,15 +691,15 @@
     }
 
     .view-tab {
-      padding: 10px 20px;
+      padding: 12px 24px;
       background: transparent;
       border: none;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       color: #4C6A70;
       border-bottom: 3px solid transparent;
+      min-height: 44px;
     }
 
     .view-tab.active {
@@ -711,7 +708,7 @@
     }
 
     .visualiser-placeholder {
-      flex: 1;
+      height: 300px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -720,32 +717,32 @@
       font-weight: 400;
     }
 
+    /* ── Profile View ── */
     .profile-view-container {
-      flex: 1;
+      width: 100%;
+      height: 50vh;
+      min-height: 300px;
+      max-height: 600px;
       position: relative;
       overflow: hidden;
       cursor: grab;
       background: #f0f4f8;
+      border: 1px solid #4C6A70;
+      border-radius: 6px;
     }
 
-    .profile-view-container:active {
-      cursor: grabbing;
-    }
-
-    .profile-view-container canvas {
-      display: block;
-    }
+    .profile-view-container:active { cursor: grabbing; }
+    .profile-view-container canvas { display: block; }
 
     .pv-tooltip {
       position: absolute;
       pointer-events: none;
       background: rgba(41,60,70,0.92);
       color: #fff;
-      font-size: 11px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 13px;
       font-weight: 600;
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 6px 10px;
+      border-radius: 6px;
       white-space: nowrap;
       z-index: 10;
       transition: opacity 0.1s;
@@ -756,11 +753,10 @@
       pointer-events: none;
       background: rgba(139,115,85,0.95);
       color: #fff;
-      font-size: 11px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 13px;
       font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 4px;
+      padding: 6px 12px;
+      border-radius: 6px;
       white-space: nowrap;
       z-index: 12;
       display: none;
@@ -773,315 +769,297 @@
       z-index: 10;
       background: rgba(255,255,255,0.92);
       border: 1px solid #c0c8cc;
-      border-radius: 4px;
-      padding: 4px 10px;
-      font-size: 11px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
       font-weight: 600;
       color: #293C46;
       cursor: pointer;
-      transition: background 0.15s;
-    }
-    .pv-reset-btn:hover {
-      background: rgba(255,255,255,1);
-      border-color: #8899a4;
+      min-height: 40px;
     }
 
-    .panel-table tbody tr.panel-row-highlight {
-      background: rgba(241,90,41,0.12) !important;
-      outline: 2px solid #F15A29;
-      outline-offset: -2px;
-    }
-
-    .stats-bar {
-      background: #FFFFFF;
-      border-top: 1px solid #4C6A70;
-      padding: 14px 20px;
-    }
-
+    /* ── Stats ── */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 12px;
-      margin-bottom: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
     }
 
     .stat-item {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
 
     .stat-item label {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 700;
-      font-size: 10px;
+      font-size: 11px;
       color: #4C6A70;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .stat-item .value {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 700;
       color: #293C46;
     }
 
-    .stat-item .value.price-badge {
-      color: #16a34a;
+    .stat-item .value.price-badge { color: #16a34a; }
+
+    /* ── Generate Bar (sticky bottom) ── */
+    .generate-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px;
+      background: #FFFFFF;
+      border-top: 2px solid #4C6A70;
+      z-index: 100;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
     }
 
     .generate-btn {
       width: 100%;
-      padding: 12px;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: block;
+      padding: 16px;
       background: #F15A29;
       color: #FFFFFF;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 15px;
+      font-size: 18px;
       font-weight: 700;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      min-height: 52px;
     }
+    .generate-btn:active { background: #d94e22; }
 
-    .generate-btn:hover {
-      background: #d94e22;
-    }
-
-    /* Compliance Warnings */
+    /* ── Compliance Warnings ── */
     .compliance-warning {
       border: 1px solid #dc2626;
       border-left: 4px solid #dc2626;
-      padding: 10px 14px;
+      padding: 12px 16px;
       margin-bottom: 12px;
-      border-radius: 4px;
+      border-radius: 6px;
       background: #fef2f2;
     }
+    .compliance-warning.warn { border-color: #f59e0b; background: #fffbeb; }
+    .compliance-warning h4 { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+    .compliance-warning p { font-size: 14px; }
 
-    .compliance-warning.warn {
-      border-color: #f59e0b;
-      background: #fffbeb;
-    }
-
-    .compliance-warning h4 {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      font-weight: 700;
-      font-size: 13px;
-      margin-bottom: 4px;
-    }
-
-    .compliance-warning p {
-      font-size: 12px;
-    }
-
-    /* Colour swatch in dropdown */
+    /* ── Misc ── */
     .colour-option-swatch {
       display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 2px;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
       border: 1px solid #ccc;
       vertical-align: middle;
       margin-right: 6px;
     }
 
-    /* No shadows heavier than spec */
-    * {
-      box-shadow: none;
-    }
-
-    /* Job Settings Section */
-    .job-settings-section {
-      background: #F5F5F5;
-      border: 1px solid #4C6A70;
-      border-radius: 4px;
-      margin-bottom: 16px;
-    }
-
-    .job-settings-toggle {
-      width: 100%;
-      padding: 10px 14px;
-      background: #F5F5F5;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      font-weight: 700;
+    .section-label {
       font-size: 13px;
-      color: #293C46;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .job-settings-toggle:hover {
-      background: #eef0f2;
-    }
-
-    .job-settings-toggle .toggle-arrow {
-      font-size: 12px;
-      transition: transform 0.2s;
-    }
-
-    .job-settings-toggle .toggle-arrow.open {
-      transform: rotate(90deg);
-    }
-
-    .job-settings-body {
-      padding: 0 14px 14px 14px;
-    }
-
-    .job-settings-body.collapsed {
-      display: none;
-    }
-
-    .js-row {
-      display: flex;
-      gap: 10px;
-      align-items: end;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-
-    .js-row .form-group {
-      flex: 1;
-      min-width: 100px;
-    }
-
-    .js-opt-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      font-size: 12px;
-    }
-
-    .js-opt-row input[type="checkbox"] {
-      margin: 0;
-    }
-
-    .js-opt-row input[type="number"],
-    .js-opt-row input[type="text"],
-    .js-opt-row select {
-      padding: 3px 6px;
-      border: 1px solid #4C6A70;
-      border-radius: 3px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      width: 65px;
-    }
-
-    .js-opt-row .js-desc-input {
-      width: 120px;
-    }
-
-    .js-opt-row .js-price-input {
-      width: 70px;
-    }
-
-    .js-opt-row .js-unit-input {
-      width: 50px;
-    }
-
-    .js-label {
-      font-size: 11px;
       font-weight: 700;
       color: #4C6A70;
       text-transform: uppercase;
       letter-spacing: 0.3px;
-      margin-top: 8px;
-      margin-bottom: 4px;
+      margin-top: 12px;
+      margin-bottom: 6px;
     }
 
-    .js-notes {
-      width: 100%;
-      min-height: 50px;
-      padding: 6px 8px;
-      border: 1px solid #4C6A70;
-      border-radius: 4px;
-      font-size: 12px;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      resize: vertical;
+    /* ── Address autocomplete dropdown ── */
+    .address-autocomplete-wrap { position: relative; }
+    .address-dropdown {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+      background: #fff; border: 1px solid #d1d5db; border-top: none;
+      border-radius: 0 0 8px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      max-height: 260px; overflow-y: auto; display: none;
+    }
+    .address-dropdown.open { display: block; }
+    .address-dropdown-item {
+      padding: 12px 16px; font-size: 14px; cursor: pointer;
+      border-bottom: 1px solid #f3f4f6; min-height: 44px;
+      display: flex; align-items: center;
+    }
+    .address-dropdown-item:last-child { border-bottom: none; }
+    .address-dropdown-item:hover, .address-dropdown-item.active {
+      background: #f0fdf4;
+    }
+    .address-dropdown-item em { font-weight: 700; font-style: normal; }
+
+    /* ── Sub-tabs (inside sections) ── */
+    .sub-tabs {
+      display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #e5e7eb;
+    }
+    .sub-tab {
+      padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+      color: #4C6A70; background: none; border: none; border-bottom: 2px solid transparent;
+      margin-bottom: -2px; min-height: 44px;
+    }
+    .sub-tab.active { color: #293C46; border-bottom-color: #F15A29; }
+    .sub-tab:active { background: #f3f4f6; }
+
+    /* ── Photo upload area + thumbnails ── */
+    .photo-upload-area {
+      border: 2px dashed #4C6A70; border-radius: 8px;
+      padding: 24px 16px; text-align: center; cursor: pointer;
+      background: #f8fafc; min-height: 120px;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .photo-upload-area:active, .photo-upload-area.dragover {
+      border-color: #F15A29; background: #fff7ed;
+    }
+    .photo-thumbnails {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 10px; margin-top: 12px;
+    }
+    .photo-thumb {
+      position: relative; border-radius: 6px; overflow: hidden;
+      border: 1px solid #e5e7eb; background: #f3f4f6;
+    }
+    .photo-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+    .photo-thumb-delete {
+      position: absolute; top: 4px; right: 4px;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(220,38,38,0.85); color: #fff; border: none;
+      font-size: 18px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 44px; min-width: 44px;
+    }
+    .photo-thumb-name {
+      padding: 4px 6px; font-size: 11px; color: #4C6A70;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    .js-notes:focus {
-      outline: none;
-      border-color: #F15A29;
-      box-shadow: 0 0 0 2px rgba(241, 90, 41, 0.15);
+    /* ── Responsive: portrait / narrow ── */
+    @media (max-width: 768px) {
+      .form-row { grid-template-columns: 1fr; }
+      .form-row.three-col { grid-template-columns: 1fr 1fr; }
+      .scope-form { padding: 8px; }
+      .scope-section-body { padding: 12px 14px; }
+      .run-settings-grid { grid-template-columns: 1fr 1fr; }
+      .header { padding: 8px 12px; gap: 8px; }
+      .photo-thumbnails { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
     }
   </style>
 </head>
 <body>
-  <!-- Header Bar -->
-  <div class="header">
+  <!-- Header Bar (slim, sticky) -->
+  <div class="header" id="headerBar">
     <div class="header-brand">SW</div>
     <div class="header-group">
       <label>Job Ref</label>
       <input type="text" id="jobRef" placeholder="SW9248">
     </div>
     <div class="header-group">
-      <label>Client</label>
-      <input type="text" id="client" placeholder="Client name">
+      <label>Date</label>
+      <input type="date" id="jobDate">
     </div>
     <div class="header-group">
-      <label>Address</label>
-      <input type="text" id="address" placeholder="Site address" style="min-width:160px;">
-    </div>
-    <div class="header-group">
-      <label>Supplier</label>
-      <select id="supplier">
-        <option value="RNR">RNR</option>
-        <option value="Metroll">Metroll</option>
-        <option value="Lysaght">Lysaght</option>
-        <option value="Stratco">Stratco</option>
-      </select>
-    </div>
-    <div class="header-group">
-      <label>Profile</label>
-      <select id="profile"></select>
-    </div>
-    <div class="header-group">
-      <label>Colour</label>
-      <select id="colour"></select>
-    </div>
-    <div class="header-group">
-      <label>$/Metre</label>
-      <input type="number" id="pricePerMetre" value="115" step="0.01" min="0" style="min-width:70px;">
+      <label>Scoper</label>
+      <input type="text" id="scoper" placeholder="Name">
     </div>
     <div class="header-actions">
       <span class="saved-indicator" id="savedIndicator">Saved</span>
       <button class="btn-header" onclick="app.newJob()">New</button>
+      <button class="btn-header" style="background:#dc2626;color:#fff;" onclick="app.resetJob()">Reset</button>
     </div>
   </div>
 
-  <!-- Main Layout -->
-  <div class="main">
-    <!-- Left Panel -->
-    <div class="left-panel">
-      <div class="run-tabs" id="runTabs"></div>
-      <div class="run-content" id="runContent"></div>
+  <!-- Scope Form -->
+  <div class="scope-form" id="scopeForm">
+
+    <!-- Section 1: Site Information -->
+    <div class="scope-section open" id="sectionSiteInfo" data-section="siteInfo">
+      <button class="scope-section-header" onclick="app.toggleSection('siteInfo')">
+        <span class="section-status empty" id="statusSiteInfo"></span>
+        <span class="section-title">1. Site Information</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodySiteInfo"></div>
     </div>
 
-    <!-- Right Panel -->
-    <div class="right-panel">
-      <div class="view-tabs">
-        <button class="view-tab active" onclick="app.switchView('profile')">Profile View</button>
-        <button class="view-tab" onclick="app.switchView('3d')">3D View</button>
-      </div>
-      <div class="profile-view-container" id="profileViewContainer">
-        <canvas id="profileCanvas"></canvas>
-        <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
-        <div class="soil-handle-tooltip" id="soilHandleTooltip"></div>
-        <button class="pv-reset-btn" onclick="app.resetProfileView()">Reset View</button>
-      </div>
-      <div class="visualiser-placeholder" id="threeDPlaceholder" style="display:none;">
-        3D View — coming soon
-      </div>
+    <!-- Section 2: Removal -->
+    <div class="scope-section" id="sectionRemoval" data-section="removal">
+      <button class="scope-section-header" onclick="app.toggleSection('removal')">
+        <span class="section-status empty" id="statusRemoval"></span>
+        <span class="section-title">2. Removal</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyRemoval"></div>
+    </div>
 
-      <!-- Stats Bar -->
-      <div class="stats-bar">
+    <!-- Section 3: Installation Details -->
+    <div class="scope-section" id="sectionInstallation" data-section="installation">
+      <button class="scope-section-header" onclick="app.toggleSection('installation')">
+        <span class="section-status empty" id="statusInstallation"></span>
+        <span class="section-title">3. Installation Details</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyInstallation"></div>
+    </div>
+
+    <!-- Section 4: Fence Runs -->
+    <div class="scope-section" id="sectionRuns" data-section="runs">
+      <button class="scope-section-header" onclick="app.toggleSection('runs')">
+        <span class="section-status empty" id="statusRuns"></span>
+        <span class="section-title">4. Fence Runs</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyRuns">
+        <div class="run-tabs" id="runTabs"></div>
+        <div class="run-content" id="runContent"></div>
+      </div>
+    </div>
+
+    <!-- Section 5: Gates -->
+    <div class="scope-section" id="sectionGates" data-section="gates">
+      <button class="scope-section-header" onclick="app.toggleSection('gates')">
+        <span class="section-status empty" id="statusGates"></span>
+        <span class="section-title">5. Gates</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyGates"></div>
+    </div>
+
+    <!-- Section 6: Profile View -->
+    <div class="scope-section" id="sectionVisualizer" data-section="visualizer">
+      <button class="scope-section-header" onclick="app.toggleSection('visualizer')">
+        <span class="section-status empty" id="statusVisualizer"></span>
+        <span class="section-title">6. Profile View</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyVisualizer">
+        <div class="view-tabs">
+          <button class="view-tab active" onclick="app.switchView('profile')">Profile View</button>
+          <button class="view-tab" onclick="app.switchView('3d')">3D View</button>
+        </div>
+        <div class="profile-view-container" id="profileViewContainer">
+          <canvas id="profileCanvas"></canvas>
+          <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
+          <div class="soil-handle-tooltip" id="soilHandleTooltip"></div>
+          <button class="pv-reset-btn" onclick="app.resetProfileView()">Reset View</button>
+        </div>
+        <div class="visualiser-placeholder" id="threeDPlaceholder" style="display:none;">
+          3D View — coming soon
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 7: Stats & Summary -->
+    <div class="scope-section" id="sectionStats" data-section="stats">
+      <button class="scope-section-header" onclick="app.toggleSection('stats')">
+        <span class="section-status empty" id="statusStats"></span>
+        <span class="section-title">7. Stats & Summary</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyStats">
         <div class="stats-grid">
           <div class="stat-item">
             <label>Metres</label>
@@ -1104,18 +1082,42 @@
             <div class="value price-badge" id="statCost">$0</div>
           </div>
         </div>
-        <button class="generate-btn" onclick="app.generateOutputs()">Generate Outputs</button>
       </div>
     </div>
+
+    <!-- Section 8: Quote -->
+    <div class="scope-section" id="sectionQuote" data-section="quote">
+      <button class="scope-section-header" onclick="app.toggleSection('quote')">
+        <span class="section-status empty" id="statusQuote"></span>
+        <span class="section-title">8. Quote</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyQuote"></div>
+    </div>
+
+    <!-- Section 9: Checklist -->
+    <div class="scope-section" id="sectionChecklist" data-section="checklist">
+      <button class="scope-section-header" onclick="app.toggleSection('checklist')">
+        <span class="section-status empty" id="statusChecklist"></span>
+        <span class="section-title">9. Checklist</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyChecklist"></div>
+    </div>
+
+  </div>
+
+  <!-- Sticky Generate Bar -->
+  <div class="generate-bar" id="generateBar">
+    <button class="generate-btn" onclick="app.generateOutputs()">Generate Outputs</button>
   </div>
 
   <script>
     // ── Section 4B: Supplier profiles ──
     const SUPPLIER_PROFILES = {
       RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380 },
-      Metroll:{ profiles: ['Trimclad', 'Harmony'],   panelWidth: 2365 },
-      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen'], panelWidth: 2360 },
-      Stratco:{ profiles: ['Superdek', 'Good Neighbour'],  panelWidth: 2350 }
+      Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365 },
+      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360 }
     };
 
     // ── Section 9: Colorbond fencing colour palette ──
@@ -1181,6 +1183,7 @@
 
     const RETAINING_OPTIONS = [0, 150, 300, 450, 600];
     const SHEET_HEIGHTS = [1200, 1500, 1800, 2100];
+    const RUN_NAME_OPTIONS = ['', 'LHS', 'RHS', 'Rear', 'Front', 'LHS Rear', 'RHS Rear', 'LHS Front', 'RHS Front', 'Side Return', 'Other'];
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
 
     // ── Business rules: cost prices (internal) ──
@@ -1248,21 +1251,58 @@
 
       init() {
         this.loadFromStorage();
-        this.populateColourDropdown();
         this.bindHeaderInputs();
 
         if (!this.job) {
           this.job = {
             ref: '',
             client: '',
+            clientFirstName: '',
+            clientLastName: '',
+            scoper: '',
             address: '',
-            supplier: 'RNR',
-            profile: 'Ridgeside',
-            colour: 'Shale Grey',
+            siteNotes: '',
+            phone: '',
+            email: '',
+            neighboursRequired: undefined,
+            neighbours: [{ id: 'nb-1', firstName: '', lastName: '', phone: '', email: '', address: '' }],
+            supplier: '',
+            profile: '',
+            colour: '',
             pricePerMetre: 115,
             runs: [],
+            gatesRequired: undefined,
             gates: [],
-            date: new Date().toISOString().slice(0, 10)
+            date: new Date().toISOString().slice(0, 10),
+            removal: {
+              removalRequired: undefined,
+              existingFenceLength: 0,
+              existingFenceType: '',
+              disposal: 'company',
+              vegetation: false,
+              gateOnExisting: false,
+              access: 'easy',
+              notes: ''
+            },
+            installation: {
+              coreDrill: false,
+              coreDrillHoles: 0,
+              fenceLocation: [],
+              manufacturer: '',
+              supplierSource: ''
+            },
+            quote: {
+              urgency: 'standard',
+              deliveryFee: 250,
+              groundFinish: 'none',
+              customLineItems: [{}, {}, {}]
+            },
+            checklist: {
+              photosTaken: 0,
+              photos: [],
+              videoWalkthrough: false,
+              finalNotes: ''
+            }
           };
           this.addRun();
         } else {
@@ -1272,24 +1312,26 @@
           }
         }
 
-        this.updateProfileDropdown();
         this._loadPanelTexture();
         this.render();
 
         // Resize handler for profile view canvas
-        window.addEventListener('resize', () => this.renderProfileView());
+        window.addEventListener('resize', () => {
+          if (this._openSections.visualizer) this.renderProfileView();
+        });
       },
 
       // ── Colour dropdown (Section 9.3) ──
       populateColourDropdown() {
         const select = document.getElementById('colour');
+        if (!select) return;
         let html = '<optgroup label="── Stock ──">';
         COLOURS_STOCK.forEach(c => {
-          html += `<option value="${c.name}" data-hex="${c.hex}">${c.name}</option>`;
+          html += `<option value="${c.name}" data-hex="${c.hex}" ${c.name === this.job.colour ? 'selected' : ''}>${c.name}</option>`;
         });
         html += '</optgroup><optgroup label="── Special Order ──">';
         COLOURS_SPECIAL.forEach(c => {
-          html += `<option value="${c.name}" data-hex="${c.hex}">${c.name} (SO)</option>`;
+          html += `<option value="${c.name}" data-hex="${c.hex}" ${c.name === this.job.colour ? 'selected' : ''}>${c.name} (SO)</option>`;
         });
         html += '</optgroup>';
         select.innerHTML = html;
@@ -1298,14 +1340,19 @@
       // ── Profile dropdown (Section 4B) ──
       updateProfileDropdown() {
         const select = document.getElementById('profile');
+        if (!select) return;
         const supplierData = SUPPLIER_PROFILES[this.job.supplier];
-        select.innerHTML = supplierData.profiles.map(p =>
-          `<option value="${p}" ${p === this.job.profile ? 'selected' : ''}>${p}</option>`
-        ).join('');
-        // If current profile is not valid for new supplier, reset to default
-        if (!supplierData.profiles.includes(this.job.profile)) {
-          this.job.profile = supplierData.profiles[0];
-          select.value = this.job.profile;
+        if (!supplierData) {
+          select.innerHTML = '<option value="">Select panel system first...</option>';
+          return;
+        }
+        select.innerHTML = '<option value="" ' + (!this.job.profile ? 'selected' : '') + '>Select...</option>' +
+          supplierData.profiles.map(p =>
+            `<option value="${p}" ${p === this.job.profile ? 'selected' : ''}>${p}</option>`
+          ).join('');
+        if (this.job.profile && !supplierData.profiles.includes(this.job.profile)) {
+          this.job.profile = '';
+          select.value = '';
         }
       },
 
@@ -1314,48 +1361,27 @@
           this.job.ref = e.target.value;
           this.save();
         });
-        document.getElementById('client').addEventListener('input', (e) => {
-          this.job.client = e.target.value;
+        document.getElementById('jobDate').addEventListener('change', (e) => {
+          this.job.date = e.target.value;
           this.save();
         });
-        document.getElementById('address').addEventListener('input', (e) => {
-          this.job.address = e.target.value;
+        document.getElementById('scoper').addEventListener('input', (e) => {
+          this.job.scoper = e.target.value;
           this.save();
-        });
-        document.getElementById('supplier').addEventListener('change', (e) => {
-          this.job.supplier = e.target.value;
-          this.updateProfileDropdown();
-          this.recalculateAll();
-          this.save();
-        });
-        document.getElementById('profile').addEventListener('change', (e) => {
-          this.job.profile = e.target.value;
-          this.save();
-        });
-        document.getElementById('colour').addEventListener('change', (e) => {
-          this.job.colour = e.target.value;
-          this.renderProfileView();
-          this.save();
-        });
-        document.getElementById('pricePerMetre').addEventListener('input', (e) => {
-          this.job.pricePerMetre = parseFloat(e.target.value) || 0;
-          this.updateStats();
-          this.save();
+          this.updateSectionStatuses();
         });
       },
 
       syncHeaderFromJob() {
         document.getElementById('jobRef').value = this.job.ref || '';
-        document.getElementById('client').value = this.job.client || '';
-        document.getElementById('address').value = this.job.address || '';
-        document.getElementById('supplier').value = this.job.supplier || 'RNR';
-        document.getElementById('colour').value = this.job.colour || 'Shale Grey';
-        document.getElementById('pricePerMetre').value = this.job.pricePerMetre || 115;
+        document.getElementById('jobDate').value = this.job.date || new Date().toISOString().slice(0, 10);
+        document.getElementById('scoper').value = this.job.scoper || '';
       },
 
       // ── Section 3.5: Panel width by supplier ──
       getPanelWidthMm() {
-        return SUPPLIER_PROFILES[this.job.supplier].panelWidth;
+        const s = SUPPLIER_PROFILES[this.job.supplier];
+        return s ? s.panelWidth : 2380;
       },
 
       getPanelWidthM() {
@@ -1562,11 +1588,9 @@
 
       // ── Runs ──
       addRun() {
-        const idx = this.job.runs.length;
-        const name = idx < RUN_NAME_CYCLE.length ? RUN_NAME_CYCLE[idx] : 'Custom';
         const run = {
           id: 'run-' + Date.now(),
-          name: name,
+          name: '',
           length: 0,
           sheetHeight: 1800,
           extension: 'none',
@@ -1960,7 +1984,10 @@
           type: 'pedestrian',
           width: 900,
           runIndex: 0,
-          afterPanel: 1
+          afterPanel: 1,
+          height: 1800,
+          gatePosts: '',
+          groundFinish: 'none'
         });
         this.save();
         this.render();
@@ -1973,6 +2000,9 @@
         else if (field === 'width') gate.width = parseInt(value) || 900;
         else if (field === 'runIndex') gate.runIndex = parseInt(value);
         else if (field === 'afterPanel') gate.afterPanel = parseInt(value);
+        else if (field === 'height') gate.height = parseInt(value) || 1800;
+        else if (field === 'gatePosts') gate.gatePosts = value;
+        else if (field === 'groundFinish') gate.groundFinish = value;
         this.save();
         this.render();
       },
@@ -2054,15 +2084,981 @@
         this.init();
       },
 
+      resetJob() {
+        if (!confirm('Reset everything? All data, photos, and runs will be permanently deleted.')) return;
+        localStorage.removeItem('fenceJob');
+        this.job = null;
+        this.currentRunId = null;
+        this._siteInfoTab = 'client';
+        Object.keys(this._openSections).forEach(k => this._openSections[k] = false);
+        this.init();
+        window.scrollTo(0, 0);
+      },
+
       // ── Render ──
+      // ── Section toggle & status system ──
+      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, quote: false, checklist: false },
+
+      toggleSection(sectionId) {
+        this._openSections[sectionId] = !this._openSections[sectionId];
+        const key = sectionId.charAt(0).toUpperCase() + sectionId.slice(1);
+        const el = document.getElementById('section' + key);
+        if (el) el.classList.toggle('open', this._openSections[sectionId]);
+        if (sectionId === 'visualizer' && this._openSections[sectionId]) {
+          requestAnimationFrame(() => this.renderProfileView());
+        }
+      },
+
+      updateSectionStatuses() {
+        const j = this.job;
+        const clientDone = [j.clientFirstName, j.clientLastName, j.address, j.phone, j.email].every(Boolean);
+        const neighboursDone = j.neighboursRequired === false ||
+          (j.neighboursRequired === true && j.neighbours && j.neighbours.length > 0 && j.neighbours[0].firstName);
+        const siteComplete = clientDone && (j.neighboursRequired !== undefined) && neighboursDone;
+        this._setSectionStatus('SiteInfo', siteComplete ? 'complete' : 'warning');
+
+        const r = j.removal || {};
+        const removalDone = r.removalRequired === false ||
+          (r.removalRequired === true && r.existingFenceType && r.existingFenceLength > 0);
+        this._setSectionStatus('Removal', removalDone ? 'complete' : 'warning');
+
+        this._setSectionStatus('Installation',
+          (j.profile && j.colour) ? 'complete' : 'warning');
+
+        const allRunsComplete = j.runs.length > 0 && j.runs.every(run => run.name && run.length > 0 && run.sheetHeight);
+        const hasRuns = j.runs.some(run => run.panels.length > 0);
+        this._setSectionStatus('Runs', (hasRuns && allRunsComplete) ? 'complete' : 'warning');
+        const gatesDone = j.gatesRequired === false ||
+          (j.gatesRequired === true && (j.gates || []).length > 0);
+        this._setSectionStatus('Gates', gatesDone ? 'complete' : 'warning');
+        const hasLength = j.runs.some(run => run.length > 0);
+        this._setSectionStatus('Visualizer', hasLength ? 'complete' : 'warning');
+        this._setSectionStatus('Stats', hasRuns ? 'complete' : 'warning');
+        this._setSectionStatus('Quote', j.pricePerMetre > 0 ? 'complete' : 'warning');
+
+        const cl = j.checklist || {};
+        const photoCount = (cl.photos || []).length;
+        this._setSectionStatus('Checklist',
+          (photoCount >= 5 && cl.videoWalkthrough) ? 'complete' : 'warning');
+      },
+
+      _setSectionStatus(name, status) {
+        const el = document.getElementById('status' + name);
+        if (el) el.className = 'section-status ' + status;
+      },
+
+      // ── Render Site Information ──
+      _siteInfoTab: 'client',
+
+      renderSiteInfo() {
+        const j = this.job;
+        const tab = this._siteInfoTab || 'client';
+        const nbs = j.neighbours || [];
+
+        let contentHtml = '';
+        if (tab === 'client') {
+          contentHtml = `
+            <div class="form-row">
+              <div class="form-group">
+                <label>First Name *</label>
+                <input type="text" value="${this._esc(j.clientFirstName)}" placeholder="Client first name"
+                  onchange="app.updateField('clientFirstName', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Last Name *</label>
+                <input type="text" value="${this._esc(j.clientLastName)}" placeholder="Client last name"
+                  onchange="app.updateField('clientLastName', this.value)">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Phone *</label>
+                <input type="tel" value="${this._esc(j.phone)}" placeholder="0400 000 000"
+                  onchange="app.updateField('phone', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Email *</label>
+                <input type="email" value="${this._esc(j.email)}" placeholder="client@example.com"
+                  onchange="app.updateField('email', this.value)">
+              </div>
+            </div>
+            <div class="form-row full-width">
+              <div class="form-group">
+                <label>Site Address *</label>
+                <div class="address-autocomplete-wrap">
+                  <input type="text" id="addressInput" value="${this._esc(j.address)}" placeholder="Start typing address..."
+                    oninput="app.onAddressInput(this.value)"
+                    onchange="app.updateField('address', this.value)"
+                    onkeydown="app.onAddressKeydown(event)"
+                    autocomplete="off">
+                  <div class="address-dropdown" id="addressDropdown"></div>
+                </div>
+              </div>
+            </div>
+            <div class="form-row full-width">
+              <div class="form-group">
+                <label>Site Notes</label>
+                <textarea rows="3" placeholder="Access instructions, dog on site, etc."
+                  onchange="app.updateField('siteNotes', this.value)">${this._esc(j.siteNotes)}</textarea>
+              </div>
+            </div>
+          `;
+        } else {
+          const nbRequired = j.neighboursRequired === true;
+          const nbFields = nbRequired ? nbs.map((nb, i) => `
+            <div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:12px;background:#fafbfc;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-weight:700;font-size:14px;color:#293C46;">Neighbour ${i + 1}</span>
+                ${nbs.length > 1 ? `<button class="btn-delete" style="padding:4px 12px;font-size:13px;min-height:36px;" onclick="app.deleteNeighbour('${nb.id}')">Remove</button>` : ''}
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>First Name *</label>
+                  <input type="text" value="${this._esc(nb.firstName)}" placeholder="Neighbour first name"
+                    onchange="app.updateNeighbour('${nb.id}', 'firstName', this.value)">
+                </div>
+                <div class="form-group">
+                  <label>Last Name</label>
+                  <input type="text" value="${this._esc(nb.lastName)}" placeholder="Neighbour last name"
+                    onchange="app.updateNeighbour('${nb.id}', 'lastName', this.value)">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Phone</label>
+                  <input type="tel" value="${this._esc(nb.phone)}" placeholder="0400 000 000"
+                    onchange="app.updateNeighbour('${nb.id}', 'phone', this.value)">
+                </div>
+                <div class="form-group">
+                  <label>Email</label>
+                  <input type="email" value="${this._esc(nb.email)}" placeholder="neighbour@example.com"
+                    onchange="app.updateNeighbour('${nb.id}', 'email', this.value)">
+                </div>
+              </div>
+              <div class="form-row full-width">
+                <div class="form-group">
+                  <label>Address</label>
+                  <input type="text" value="${this._esc(nb.address)}" placeholder="Neighbour address"
+                    onchange="app.updateNeighbour('${nb.id}', 'address', this.value)">
+                </div>
+              </div>
+            </div>
+          `).join('') + `
+            <button class="btn-orange" style="margin-top:4px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
+          ` : '';
+
+          contentHtml = `
+            <div class="form-row">
+              <div class="form-group">
+                <label>Neighbour Details Available? *</label>
+                <div class="toggle-group" style="margin-top:4px;">
+                  <button class="toggle-btn ${j.neighboursRequired === true ? 'active' : ''}" style="min-width:80px;" onclick="app.updateField('neighboursRequired', true)">Yes</button>
+                  <button class="toggle-btn ${j.neighboursRequired === false ? 'active' : ''}" style="min-width:80px;" onclick="app.updateField('neighboursRequired', false)">No</button>
+                </div>
+              </div>
+            </div>
+            ${nbFields}
+          `;
+        }
+
+        document.getElementById('bodySiteInfo').innerHTML = `
+          <div class="sub-tabs">
+            <button class="sub-tab ${tab === 'client' ? 'active' : ''}" onclick="app.switchSiteInfoTab('client')">Client</button>
+            <button class="sub-tab ${tab === 'neighbours' ? 'active' : ''}" onclick="app.switchSiteInfoTab('neighbours')">Neighbours</button>
+          </div>
+          ${contentHtml}
+        `;
+      },
+
+      switchSiteInfoTab(tab) {
+        this._siteInfoTab = tab;
+        this.renderSiteInfo();
+      },
+
+      addNeighbour() {
+        if (!this.job.neighbours) this.job.neighbours = [];
+        this.job.neighbours.push({
+          id: 'nb-' + Date.now(),
+          firstName: '', lastName: '', phone: '', email: '', address: ''
+        });
+        this.save();
+        this.renderSiteInfo();
+      },
+
+      deleteNeighbour(nbId) {
+        if (!this.job.neighbours) return;
+        this.job.neighbours = this.job.neighbours.filter(n => n.id !== nbId);
+        if (this.job.neighbours.length === 0) {
+          this.job.neighbours.push({ id: 'nb-' + Date.now(), firstName: '', lastName: '', phone: '', email: '', address: '' });
+        }
+        this.save();
+        this.renderSiteInfo();
+      },
+
+      updateNeighbour(nbId, field, value) {
+        if (!this.job.neighbours) return;
+        const nb = this.job.neighbours.find(n => n.id === nbId);
+        if (nb) nb[field] = value;
+        this.save();
+      },
+
+      // ── Render Removal ──
+      renderRemoval() {
+        const r = this.job.removal || {};
+        const required = r.removalRequired === true;
+        const types = ['Timber','Lap','Hardie','Colourbond','Asbestos','Other'];
+        const detailsHtml = required ? `
+          <div class="form-row">
+            <div class="form-group">
+              <label>Existing Fence Type *</label>
+              <select onchange="app.updateRemoval('existingFenceType', this.value)">
+                <option value="" ${!r.existingFenceType ? 'selected' : ''}>— Select —</option>
+                ${types.map(t => `<option value="${t.toLowerCase()}" ${r.existingFenceType === t.toLowerCase() ? 'selected' : ''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Existing Fence Length (m) *</label>
+              <input type="number" value="${r.existingFenceLength || ''}" min="0" step="0.5" placeholder="0"
+                onchange="app.updateRemoval('existingFenceLength', this.value)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Disposal</label>
+              <div class="toggle-group">
+                <button class="toggle-btn ${r.disposal === 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'client')">Client</button>
+                <button class="toggle-btn ${r.disposal !== 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'company')">Company</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Access Difficulty</label>
+              <div class="toggle-group">
+                ${['easy','moderate','difficult'].map(a => `<button class="toggle-btn ${r.access === a ? 'active' : ''}" onclick="app.updateRemoval('access', '${a}')">${a.charAt(0).toUpperCase() + a.slice(1)}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Vegetation Clear</label>
+              <div class="toggle-group">
+                <button class="toggle-btn ${r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', true)">Yes</button>
+                <button class="toggle-btn ${!r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', false)">No</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Gate on Existing Fence</label>
+              <div class="toggle-group">
+                <button class="toggle-btn ${r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', true)">Yes</button>
+                <button class="toggle-btn ${!r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', false)">No</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-row full-width">
+            <div class="form-group">
+              <label>Removal Notes</label>
+              <textarea rows="2" placeholder="Any removal details..."
+                onchange="app.updateRemoval('notes', this.value)">${this._esc(r.notes)}</textarea>
+            </div>
+          </div>
+        ` : '';
+
+        document.getElementById('bodyRemoval').innerHTML = `
+          <div class="form-row">
+            <div class="form-group">
+              <label>Removal Required? *</label>
+              <div class="toggle-group" style="margin-top:4px;">
+                <button class="toggle-btn ${r.removalRequired === true ? 'active' : ''}" style="min-width:80px;" onclick="app.updateRemoval('removalRequired', true)">Yes</button>
+                <button class="toggle-btn ${r.removalRequired === false ? 'active' : ''}" style="min-width:80px;" onclick="app.updateRemoval('removalRequired', false)">No</button>
+              </div>
+            </div>
+          </div>
+          ${detailsHtml}
+        `;
+      },
+
+      // ── Render Installation ──
+      renderInstallation() {
+        const j = this.job;
+        const inst = j.installation || {};
+        const supplierKeys = Object.keys(SUPPLIER_PROFILES);
+        const colourHex = this._getColourHex(j.colour);
+
+        const swatchHtml = (colours) => colours.map(c => {
+          const sel = c.name === j.colour;
+          return `<div onclick="app.updateColour('${c.name}')" title="${c.name}"
+            style="width:40px;height:40px;border-radius:6px;background:${c.hex};cursor:pointer;
+            border:2px solid ${sel ? '#F15A29' : 'transparent'};
+            box-shadow:${sel ? '0 0 0 2px #F15A29' : 'inset 0 0 0 1px rgba(0,0,0,0.12)'};"></div>`;
+        }).join('');
+
+        document.getElementById('bodyInstallation').innerHTML = `
+          <div class="form-row">
+            <div class="form-group">
+              <label>Manufacturer</label>
+              <select onchange="app.updateInstallation('manufacturer', this.value)">
+                <option value="">Select...</option>
+                ${['RnR','Metroll','Lysaght'].map(m => `<option value="${m}" ${inst.manufacturer === m ? 'selected' : ''}>${m}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Supplier (Buy From)</label>
+              <select onchange="app.updateInstallation('supplierSource', this.value)">
+                <option value="">Select...</option>
+                ${['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'].map(s => `<option value="${s}" ${inst.supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Panel System</label>
+              <select id="supplier" onchange="app.updateSupplier(this.value)">
+                <option value="" ${!j.supplier ? 'selected' : ''}>Select...</option>
+                ${supplierKeys.map(s => `<option value="${s}" ${j.supplier === s ? 'selected' : ''}>${s} (${SUPPLIER_PROFILES[s].panelWidth}mm)</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Profile *</label>
+              <select id="profile" onchange="app.updateProfile(this.value)"></select>
+            </div>
+          </div>
+          ${this._getProfileSVG(j.profile)}
+          <div class="form-group" style="margin-top:16px;">
+            <label>Colour *</label>
+            <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:8px 0 6px;">Stock Colours</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_STOCK)}</div>
+            <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Special Order</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_SPECIAL)}</div>
+            ${j.colour ? `<div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+              <div style="width:32px;height:32px;border-radius:6px;background:${colourHex};border:1px solid #d1d5db;"></div>
+              <span style="font-size:14px;color:#293C46;font-weight:600;">${this._esc(j.colour)}</span>
+            </div>` : ''}
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label>Core Drill</label>
+            <div class="toggle-group">
+              <button class="toggle-btn ${inst.coreDrill ? 'active' : ''}" onclick="app.updateInstallation('coreDrill', true)">Yes</button>
+              <button class="toggle-btn ${!inst.coreDrill ? 'active' : ''}" onclick="app.updateInstallation('coreDrill', false)">No</button>
+            </div>
+            ${inst.coreDrill ? `<input type="number" value="${inst.coreDrillHoles || ''}" min="0" placeholder="Number of holes"
+              style="margin-top:8px;" onchange="app.updateInstallation('coreDrillHoles', this.value)">` : ''}
+          </div>
+        `;
+        this.updateProfileDropdown();
+      },
+
+      // ── Render Gates Section ──
+      renderGatesSection() {
+        const j = this.job;
+        const gatesHtml = (j.gates || []).map(gate => `
+          <div class="gate-card">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Type</label>
+                <select onchange="app.updateGate('${gate.id}', 'type', this.value)">
+                  <option value="pedestrian" ${gate.type === 'pedestrian' ? 'selected' : ''}>Pedestrian</option>
+                  <option value="double" ${gate.type === 'double' ? 'selected' : ''}>Double</option>
+                  <option value="sliding" ${gate.type === 'sliding' ? 'selected' : ''}>Sliding</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Width (mm)</label>
+                <input type="number" value="${gate.width}" min="600" step="100"
+                  onchange="app.updateGate('${gate.id}', 'width', this.value)">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Gate Height</label>
+                <select onchange="app.updateGate('${gate.id}', 'height', parseInt(this.value))">
+                  <option value="1800" ${gate.height == 1800 ? 'selected' : ''}>1800mm</option>
+                  <option value="2100" ${gate.height == 2100 ? 'selected' : ''}>2100mm</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Ground Finish</label>
+                <select onchange="app.updateGate('${gate.id}', 'groundFinish', this.value)">
+                  ${['none','mulch','turf','stone','other'].map(g => `<option value="${g}" ${gate.groundFinish === g ? 'selected' : ''}>${g === 'none' ? 'None' : g.charAt(0).toUpperCase() + g.slice(1)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Run / After Panel</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <select style="flex:1;" onchange="app.updateGate('${gate.id}', 'runIndex', this.value)">
+                    ${j.runs.map((r, ri) => `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${r.name || 'Unnamed'}</option>`).join('')}
+                  </select>
+                  <span style="font-weight:700;">P</span>
+                  <input type="number" value="${gate.afterPanel}" min="1" style="width:70px;"
+                    onchange="app.updateGate('${gate.id}', 'afterPanel', this.value)">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Gate Posts</label>
+                <input type="text" value="${this._esc(gate.gatePosts)}" placeholder="Post notes"
+                  onchange="app.updateGate('${gate.id}', 'gatePosts', this.value)">
+              </div>
+            </div>
+            <button class="btn-delete" onclick="app.deleteGate('${gate.id}')" style="margin-top:4px;">Delete Gate</button>
+          </div>
+        `).join('');
+
+        document.getElementById('bodyGates').innerHTML = `
+          <div class="form-group">
+            <label>Gates Required? *</label>
+            <div class="toggle-group">
+              <button class="toggle-btn ${j.gatesRequired === true ? 'active' : ''}" style="min-width:80px;" onclick="app.updateField('gatesRequired', true)">Yes</button>
+              <button class="toggle-btn ${j.gatesRequired === false ? 'active' : ''}" style="min-width:80px;" onclick="app.updateField('gatesRequired', false)">No</button>
+            </div>
+          </div>
+          ${j.gatesRequired === true ? `
+            ${gatesHtml || '<p style="color:#4C6A70;margin-bottom:12px;">No gates added yet.</p>'}
+            <button class="btn-orange" onclick="app.addGate()">+ Add Gate</button>
+          ` : ''}
+        `;
+      },
+
+      // ── Render Quote ──
+      renderQuote() {
+        const j = this.job;
+        const q = j.quote || {};
+        const items = q.customLineItems && q.customLineItems.length >= 3 ? q.customLineItems : [{}, {}, {}];
+        document.getElementById('bodyQuote').innerHTML = `
+          <div class="form-row">
+            <div class="form-group">
+              <label>$/Metre</label>
+              <input type="number" id="pricePerMetre" value="${j.pricePerMetre || 115}" step="0.01" min="0"
+                onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats();">
+            </div>
+            <div class="form-group">
+              <label>Urgency</label>
+              <select onchange="app.updateQuote('urgency', this.value)">
+                <option value="standard" ${q.urgency === 'standard' ? 'selected' : ''}>Standard (2-4 weeks)</option>
+                <option value="urgent" ${q.urgency === 'urgent' ? 'selected' : ''}>Next Week (+10%)</option>
+                <option value="rush" ${q.urgency === 'rush' ? 'selected' : ''}>Rush &lt;1 week (+20%)</option>
+                <option value="emergency" ${q.urgency === 'emergency' ? 'selected' : ''}>Emergency (+30%)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Delivery Fee ($)</label>
+              <input type="number" value="${q.deliveryFee != null ? q.deliveryFee : 250}" min="0" step="10"
+                onchange="app.updateQuote('deliveryFee', this.value)">
+            </div>
+            <div class="form-group">
+              <label>Ground Finish</label>
+              <select onchange="app.updateQuote('groundFinish', this.value)">
+                ${['none','mulch','stones','turf'].map(g => `<option value="${g}" ${q.groundFinish === g ? 'selected' : ''}>${g === 'none' ? 'None' : g.charAt(0).toUpperCase() + g.slice(1)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
+          ${items.map((c, i) => `
+            <div class="form-row" style="margin-bottom:8px;">
+              <div class="form-group">
+                <input type="text" value="${this._esc(c.desc)}" placeholder="Description"
+                  onchange="app.updateCustomItem(${i}, 'desc', this.value)">
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'qty', this.value)">
+                <input type="text" value="${this._esc(c.unit)}" placeholder="unit" style="width:60px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'unit', this.value)">
+                <span style="font-weight:700;">$</span>
+                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Price" style="width:80px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'price', this.value)">
+              </div>
+            </div>
+          `).join('')}
+        `;
+      },
+
+      // ── Render Checklist ──
+      renderChecklist() {
+        const cl = this.job.checklist || {};
+        const photos = cl.photos || [];
+        const photoCount = photos.length;
+        const photoColor = photoCount === 0 ? '#dc2626' : photoCount < 5 ? '#d97706' : '#16a34a';
+        const photoMsg = photoCount === 0 ? 'No photos — at least 1 required'
+          : photoCount < 5 ? photoCount + ' photo' + (photoCount > 1 ? 's' : '') + ' — need ' + (5 - photoCount) + ' more for complete checklist'
+          : photoCount + ' photos — Done';
+
+        let thumbsHtml = '';
+        if (photos.length > 0) {
+          thumbsHtml = '<div class="photo-thumbnails">' + photos.map(p => `
+            <div class="photo-thumb">
+              <img src="${p.dataUrl}" alt="${this._esc(p.name)}">
+              <button class="photo-thumb-delete" onclick="app.deletePhoto('${p.id}')" title="Delete">&times;</button>
+              <div class="photo-thumb-name">${this._esc(p.name)}</div>
+            </div>
+          `).join('') + '</div>';
+        }
+
+        document.getElementById('bodyChecklist').innerHTML = `
+          <div class="form-row full-width">
+            <div class="form-group">
+              <label>Site Photos *</label>
+              <div class="photo-upload-area" id="photoUploadArea"
+                onclick="document.getElementById('photoFileInput').click()"
+                ondragover="event.preventDefault(); this.classList.add('dragover')"
+                ondragleave="this.classList.remove('dragover')"
+                ondrop="event.preventDefault(); this.classList.remove('dragover'); app.handlePhotoDrop(event)">
+                <div style="color:#4C6A70;">
+                  <div style="font-size:32px;margin-bottom:6px;">&#128247;</div>
+                  <div style="font-weight:600;font-size:15px;">Tap to upload photos</div>
+                  <div style="font-size:13px;margin-top:4px;opacity:0.8;">Colour swatch, video walkthrough stills, general site pics</div>
+                </div>
+              </div>
+              <input type="file" id="photoFileInput" accept="image/*" multiple capture="environment"
+                style="display:none" onchange="app.handlePhotoSelect(event)">
+              ${thumbsHtml}
+              <div style="margin-top:8px;font-size:14px;font-weight:600;color:${photoColor};">${photoMsg}</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Video Walkthrough</label>
+              <div class="toggle-group" style="margin-top:4px;">
+                <button class="toggle-btn ${cl.videoWalkthrough ? 'active' : ''}"
+                  onclick="app.updateChecklist('videoWalkthrough', true)">Done</button>
+                <button class="toggle-btn ${!cl.videoWalkthrough ? 'active' : ''}"
+                  onclick="app.updateChecklist('videoWalkthrough', false)">Not Done</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-row full-width">
+            <div class="form-group">
+              <label>Final Notes</label>
+              <textarea rows="4" placeholder="Anything else to note about this scope..."
+                onchange="app.updateChecklist('finalNotes', this.value)">${this._esc(cl.finalNotes)}</textarea>
+            </div>
+          </div>
+        `;
+      },
+
+      // ── Field update handlers ──
+      updateField(field, value) {
+        this.job[field] = value;
+        if (field === 'clientFirstName' || field === 'clientLastName') {
+          this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        }
+        this.save();
+        this.updateSectionStatuses();
+        if (field === 'neighboursRequired') {
+          this.renderSiteInfo();
+        }
+        if (field === 'gatesRequired') {
+          this.renderGatesSection();
+        }
+      },
+
+      // ── Address autocomplete ──
+      _addressDebounceTimer: null,
+      _addressResults: [],
+      _addressActiveIdx: -1,
+
+      onAddressInput(query) {
+        clearTimeout(this._addressDebounceTimer);
+        if (query.length < 3) {
+          this.hideAddressDropdown();
+          return;
+        }
+        this._addressDebounceTimer = setTimeout(() => this.fetchAddresses(query), 300);
+      },
+
+      async fetchAddresses(query) {
+        try {
+          const res = await fetch('https://api.addressr.io/addresses?q=' + encodeURIComponent(query));
+          if (!res.ok) return;
+          const data = await res.json();
+          this._addressResults = Array.isArray(data) ? data : [];
+          this.renderAddressDropdown(query);
+        } catch (e) {
+          // API error — silently fail, input still works as normal text field
+        }
+      },
+
+      renderAddressDropdown(query) {
+        const dd = document.getElementById('addressDropdown');
+        if (!dd) return;
+        const results = this._addressResults;
+        if (results.length === 0) {
+          dd.innerHTML = '<div class="address-dropdown-item" style="color:#6b7280;cursor:default;">No addresses found</div>';
+          dd.classList.add('open');
+          this._addressActiveIdx = -1;
+          return;
+        }
+        dd.innerHTML = results.map((r, i) => {
+          const display = (r.highlight && r.highlight.sla) ? r.highlight.sla : this._esc(r.sla);
+          return `<div class="address-dropdown-item" data-idx="${i}" onmousedown="app.selectAddress(${i})">${display}</div>`;
+        }).join('');
+        dd.classList.add('open');
+        this._addressActiveIdx = -1;
+      },
+
+      selectAddress(idx) {
+        const r = this._addressResults[idx];
+        if (!r) return;
+        const input = document.getElementById('addressInput');
+        if (input) input.value = r.sla;
+        this.updateField('address', r.sla);
+        this.hideAddressDropdown();
+      },
+
+      hideAddressDropdown() {
+        const dd = document.getElementById('addressDropdown');
+        if (dd) { dd.classList.remove('open'); dd.innerHTML = ''; }
+        this._addressResults = [];
+        this._addressActiveIdx = -1;
+      },
+
+      onAddressKeydown(e) {
+        const dd = document.getElementById('addressDropdown');
+        if (!dd || !dd.classList.contains('open')) return;
+        const items = dd.querySelectorAll('.address-dropdown-item[data-idx]');
+        if (!items.length) return;
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this._addressActiveIdx = Math.min(this._addressActiveIdx + 1, items.length - 1);
+          this._highlightAddressItem(items);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this._addressActiveIdx = Math.max(this._addressActiveIdx - 1, 0);
+          this._highlightAddressItem(items);
+        } else if (e.key === 'Enter' && this._addressActiveIdx >= 0) {
+          e.preventDefault();
+          this.selectAddress(this._addressActiveIdx);
+        } else if (e.key === 'Escape') {
+          this.hideAddressDropdown();
+        }
+      },
+
+      _highlightAddressItem(items) {
+        items.forEach((el, i) => {
+          el.classList.toggle('active', i === this._addressActiveIdx);
+          if (i === this._addressActiveIdx) el.scrollIntoView({ block: 'nearest' });
+        });
+      },
+
+      updateRemoval(field, value) {
+        if (!this.job.removal) this.job.removal = {};
+        if (field === 'existingFenceLength') value = parseFloat(value) || 0;
+        this.job.removal[field] = value;
+        this.save();
+        this.updateSectionStatuses();
+        this.renderRemoval();
+      },
+
+      updateInstallation(field, value) {
+        if (!this.job.installation) this.job.installation = {};
+        if (field === 'coreDrill') value = !!value;
+        if (field === 'coreDrillHoles') value = parseInt(value) || 0;
+        this.job.installation[field] = value;
+        this.save();
+        this.renderInstallation();
+        this.updateSectionStatuses();
+      },
+
+      updateSupplier(value) {
+        this.job.supplier = value;
+        const supplierData = SUPPLIER_PROFILES[value];
+        if (!supplierData.profiles.includes(this.job.profile)) {
+          this.job.profile = supplierData.profiles[0];
+        }
+        this.recalculateAll();
+        this.save();
+        this.renderInstallation();
+      },
+
+      updateProfile(value) {
+        this.job.profile = value;
+        this.save();
+        this.renderInstallation();
+        this.updateSectionStatuses();
+      },
+
+      updateColour(value) {
+        this.job.colour = value;
+        if (this._openSections.visualizer) this.renderProfileView();
+        this.save();
+        this.renderInstallation();
+        this.updateSectionStatuses();
+      },
+
+      updateQuote(field, value) {
+        if (!this.job.quote) this.job.quote = {};
+        if (field === 'deliveryFee') value = parseFloat(value) || 250;
+        this.job.quote[field] = value;
+        this.save();
+        this.updateSectionStatuses();
+      },
+
+      updateCustomItem(idx, field, value) {
+        if (!this.job.quote) this.job.quote = {};
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
+        while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push({});
+        if (field === 'qty' || field === 'price') value = parseFloat(value) || 0;
+        this.job.quote.customLineItems[idx][field] = value;
+        this.save();
+      },
+
+      updateChecklist(field, value) {
+        if (!this.job.checklist) this.job.checklist = {};
+        this.job.checklist[field] = value;
+        this.save();
+        this.renderChecklist();
+        this.updateSectionStatuses();
+      },
+
+      handlePhotoSelect(event) {
+        const files = event.target.files;
+        if (files && files.length > 0) this._processPhotoFiles(files);
+        event.target.value = '';
+      },
+
+      handlePhotoDrop(event) {
+        const files = event.dataTransfer.files;
+        if (files && files.length > 0) this._processPhotoFiles(files);
+      },
+
+      async _processPhotoFiles(files) {
+        if (!this.job.checklist) this.job.checklist = {};
+        if (!this.job.checklist.photos) this.job.checklist.photos = [];
+
+        for (const file of files) {
+          if (!file.type.startsWith('image/')) continue;
+          try {
+            const dataUrl = await this._compressImage(file, 800, 0.7);
+            // Check localStorage budget (~4.5MB cap)
+            const currentSize = JSON.stringify(this.job).length;
+            if (currentSize + dataUrl.length > 4500000) {
+              alert('Storage almost full. Delete some photos before adding more.');
+              break;
+            }
+            this.job.checklist.photos.push({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              name: file.name,
+              dataUrl: dataUrl,
+              timestamp: Date.now()
+            });
+          } catch (e) {
+            console.warn('Failed to process photo:', file.name, e);
+          }
+        }
+        // Keep photosTaken in sync for backwards compatibility
+        this.job.checklist.photosTaken = this.job.checklist.photos.length;
+        this.save();
+        this.renderChecklist();
+        this.updateSectionStatuses();
+      },
+
+      _compressImage(file, maxDim, quality) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+              let w = img.width, h = img.height;
+              if (w > maxDim || h > maxDim) {
+                if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                else { w = Math.round(w * maxDim / h); h = maxDim; }
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = w; canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      },
+
+      deletePhoto(photoId) {
+        if (!this.job.checklist || !this.job.checklist.photos) return;
+        this.job.checklist.photos = this.job.checklist.photos.filter(p => p.id !== photoId);
+        this.job.checklist.photosTaken = this.job.checklist.photos.length;
+        this.save();
+        this.renderChecklist();
+        this.updateSectionStatuses();
+      },
+
+      _esc(val) {
+        if (!val) return '';
+        return String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      },
+
+      _getColourHex(name) {
+        const c = [...COLOURS_STOCK, ...COLOURS_SPECIAL].find(c => c.name === name);
+        return c ? c.hex : '#cccccc';
+      },
+
+      _getProfileSVG(profile) {
+        const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
+        const dimBase = 'https://steelselect.com.au/sites/default/files/images/products/dimensions/';
+        const urls = {
+          'Ridgeside': dimBase + 'Ridgeside%20Front.jpg',
+          'Sameside': dimBase + 'Sameside%20Front.jpg',
+          'Trimclad': imgBase + 'Metroll%20Trimclad-%C2%AB%20Fencing.jpg',
+          'Metline Premium': imgBase + 'Metroll%20Metline%20Premium.jpg',
+          'Harmony': imgBase + 'Metroll%20Metline%20Harmony.jpg',
+          'Metzag': imgBase + 'Metroll%20Metzag%20Fencing.jpg',
+          'Corodek': imgBase + 'Metroll%20Corodek-%C2%AB%20Fencing.jpg',
+          'Mini Corodek': imgBase + 'Metroll%20Mini%20Corodek-%C2%AB%20Fencing.jpg',
+          'Atlas': imgBase + 'Atlas1200.jpg',
+          'Polaris': imgBase + 'Polaris%201200.jpg',
+          'Gemini': imgBase + 'gemini1200.jpg',
+          'Neetascreen': imgBase + 'LYSAGHT%20NEETASCREEN-%C2%AB%20Fencing.jpg',
+          'Smartascreen': imgBase + 'LYSAGHT%20SMARTASCREEN-%C2%AB%20Fencing.jpg',
+          'Miniscreen': imgBase + 'LYSAGHT%20MINISCREEN-%C2%AB%20Fencing.jpg',
+          'Customscreen': imgBase + 'LYSAGHT%20CUSTOMSCREEN-%C2%AB%20Fencing.jpg',
+          'Superdek': imgBase + 'stratco-superdek-fencing.jpg',
+          'Good Neighbour': imgBase + 'stratco-good-neighbour-fencing.jpg'
+        };
+        const url = urls[profile];
+        const escaped = profile.replace(/'/g, "\\'");
+        if (url) {
+          return `<div style="margin-top:8px;max-width:340px;">
+            <img src="${url}" alt="${this._esc(profile)} profile"
+              style="width:100%;border-radius:4px;display:block;background:#f3f4f6;"
+              onerror="app._onProfileImgError(this,'${escaped}')">
+          </div>`;
+        }
+        return this._buildProfileSVG(profile);
+      },
+
+      _onProfileImgError(img, profile) {
+        img.parentElement.innerHTML = this._buildProfileSVG(profile);
+      },
+
+      _buildProfileSVG(profile) {
+        const pw = 300, ph = 180, railH = 8, postW = 6;
+        const base = '#d9d9d9', rail = '#b0b0b0', railEdge = '#a0a0a0';
+        const rib = '#c5c5c5', shade = '#b0b0b0', deep = '#a0a0a0', hi = '#e4e4e4';
+        const st = railH, sh = ph - 2 * railH;
+        const sx = postW, ex = pw - postW;
+        let strips = '';
+
+        const drawStrips = (pattern) => {
+          let x = sx;
+          while (x < ex) {
+            for (const [w, c] of pattern) {
+              if (x >= ex) break;
+              const dw = Math.min(w, ex - x);
+              if (c !== base) strips += `<rect x="${x.toFixed(1)}" y="${st}" width="${dw.toFixed(1)}" height="${sh}" fill="${c}"/>`;
+              x += w;
+            }
+          }
+        };
+        const drawWave = (period, minV, maxV) => {
+          for (let x = sx; x < ex; x += 1.5) {
+            const t = Math.sin(x * 2 * Math.PI / period);
+            const v = Math.round(minV + (maxV - minV) * (t + 1) / 2);
+            strips += `<rect x="${x}" y="${st}" width="${Math.min(1.5, ex - x)}" height="${sh}" fill="rgb(${v},${v},${v})"/>`;
+          }
+        };
+
+        switch(profile) {
+          case 'Ridgeside':
+            drawStrips([[9,base],[1.5,rib],[0.8,shade],[7,base],[2,rib],[1,shade]]);
+            break;
+          case 'Sameside':
+          case 'Good Neighbour':
+            drawWave(24, 185, 225);
+            break;
+          case 'Trimclad':
+          case 'Neetascreen':
+            drawStrips([[15,base],[2,rib],[1,shade]]);
+            break;
+          case 'Metline Premium':
+            drawStrips([[10,base],[0.8,shade],[2,hi],[0.8,shade]]);
+            break;
+          case 'Harmony':
+            drawStrips([[2,base],[1.5,rib],[0.8,shade],[2,base],[1.5,rib],[0.8,shade],[2,base],[1.5,rib],[0.8,shade],[10,base]]);
+            break;
+          case 'Metzag':
+            drawStrips([[7,hi],[2.5,shade],[7,hi],[2.5,shade]]);
+            break;
+          case 'Corodek':
+          case 'Customscreen':
+            drawWave(20, 180, 228);
+            break;
+          case 'Mini Corodek':
+          case 'Miniscreen':
+            drawWave(12, 185, 225);
+            break;
+          case 'Atlas':
+            drawStrips([[1.5,shade],[22,hi],[1.5,shade],[5,base]]);
+            break;
+          case 'Polaris':
+            drawStrips([[14,base],[0.8,shade],[5,hi],[0.8,shade]]);
+            break;
+          case 'Gemini':
+            drawStrips([[5,hi],[2,shade],[5,hi],[2,shade]]);
+            break;
+          case 'Smartascreen': {
+            for (let x = sx; x < ex; x += 1) {
+              const t = (x % 20) / 20;
+              const v = Math.round(190 + 35 * t);
+              strips += `<rect x="${x}" y="${st}" width="1" height="${sh}" fill="rgb(${v},${v},${v})"/>`;
+            }
+            break;
+          }
+          case 'Spanscreen':
+            drawStrips([[1.5,deep],[20,hi],[1.5,deep],[8,base]]);
+            break;
+          case 'Superdek':
+            drawStrips([[1.5,shade],[16,hi],[1.5,shade],[8,base]]);
+            break;
+          default:
+            drawStrips([[14,base],[2,rib],[1,shade]]);
+        }
+
+        return `<svg viewBox="0 0 ${pw} ${ph}" preserveAspectRatio="xMidYMid meet" overflow="hidden" style="width:100%;max-width:340px;height:auto;margin-top:8px;display:block;border-radius:4px;">
+          <rect width="${pw}" height="${ph}" fill="${base}" rx="2"/>
+          ${strips}
+          <rect width="${pw}" height="${railH}" fill="${rail}"/>
+          <line x1="0" y1="${railH}" x2="${pw}" y2="${railH}" stroke="${railEdge}" stroke-width="0.5"/>
+          <rect y="${ph-railH}" width="${pw}" height="${railH}" fill="${rail}"/>
+          <line x1="0" y1="${ph-railH}" x2="${pw}" y2="${railH}" stroke="${railEdge}" stroke-width="0.5"/>
+          <rect width="${postW}" height="${ph}" fill="${rail}"/>
+          <rect x="${pw-postW}" width="${postW}" height="${ph}" fill="${rail}"/>
+          <rect width="${pw}" height="${ph}" fill="none" stroke="${railEdge}" stroke-width="1" rx="2"/>
+        </svg>`;
+      },
+
       render() {
+        // Sync section open/closed state to DOM
+        Object.keys(this._openSections).forEach(k => {
+          const key = k.charAt(0).toUpperCase() + k.slice(1);
+          const el = document.getElementById('section' + key);
+          if (el) el.classList.toggle('open', this._openSections[k]);
+        });
+
         // Recalc slope-derived steps + plinths for all runs before rendering
         this.job.runs.forEach(run => this.calcSlopeForRun(run));
+
+        // Render all scope form sections
+        this.renderSiteInfo();
+        this.renderRemoval();
+        this.renderInstallation();
         this.renderRunTabs();
         this.renderRunContent();
-        this._restoreJobSettings();
+        this.renderGatesSection();
         this.updateStats();
-        this.renderProfileView();
+        this.renderQuote();
+        this.renderChecklist();
+        this.updateSectionStatuses();
+
+        // Only render profile view if visualizer section is open
+        if (this._openSections.visualizer) {
+          this.renderProfileView();
+        }
       },
 
       renderRunTabs() {
@@ -2070,7 +3066,7 @@
           const panelCount = run.panels.length;
           return `<div class="run-tab ${run.id === this.currentRunId ? 'active' : ''}"
                        onclick="app.switchRun('${run.id}')">
-                    ${run.name}${panelCount > 0 ? ` (${panelCount})` : ''}
+                    ${run.name || 'Unnamed'}${panelCount > 0 ? ` (${panelCount})` : ''}
                   </div>`;
         }).join('');
 
@@ -2170,28 +3166,6 @@
           { value: 'lattice', label: 'Lattice' }
         ];
 
-        // Gates section
-        const gatesHtml = (this.job.gates || []).map(gate => `
-          <div class="gate-row">
-            <select onchange="app.updateGate('${gate.id}', 'type', this.value)">
-              <option value="pedestrian" ${gate.type === 'pedestrian' ? 'selected' : ''}>Pedestrian</option>
-              <option value="double" ${gate.type === 'double' ? 'selected' : ''}>Double</option>
-              <option value="sliding" ${gate.type === 'sliding' ? 'selected' : ''}>Sliding</option>
-            </select>
-            <input type="number" value="${gate.width}" min="600" step="100" style="width:70px;"
-                   onchange="app.updateGate('${gate.id}', 'width', this.value)" placeholder="mm">
-            <select onchange="app.updateGate('${gate.id}', 'runIndex', this.value)">
-              ${this.job.runs.map((r, ri) =>
-                `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${r.name}</option>`
-              ).join('')}
-            </select>
-            <label style="font-size:11px;">After P</label>
-            <input type="number" value="${gate.afterPanel}" min="1" max="${run.panels.length}" style="width:50px;"
-                   onchange="app.updateGate('${gate.id}', 'afterPanel', this.value)">
-            <button class="delete-panel-btn" onclick="app.deleteGate('${gate.id}')" title="Delete gate">&times;</button>
-          </div>
-        `).join('');
-
         document.getElementById('runContent').innerHTML = `
           ${warningsHtml}
 
@@ -2199,17 +3173,19 @@
             <h3>Run Settings</h3>
             <div class="run-settings-grid">
               <div class="form-group">
-                <label>Name</label>
-                <input type="text" value="${run.name}"
-                       onchange="app.updateRunSettings('${run.id}', 'name', this.value)">
+                <label>Side of Property *</label>
+                <select onchange="app.updateRunSettings('${run.id}', 'name', this.value)">
+                  ${RUN_NAME_OPTIONS.map(n => `<option value="${n}" ${run.name === n ? 'selected' : ''}>${n || '— Select —'}</option>`).join('')}
+                </select>
+                ${!RUN_NAME_OPTIONS.includes(run.name) && run.name ? `<div style="margin-top:4px;font-size:12px;color:#4C6A70;">Custom: ${this._esc(run.name)}</div>` : ''}
               </div>
               <div class="form-group">
-                <label>Length (m)</label>
+                <label>Length (m) *</label>
                 <input type="number" value="${run.length || ''}" min="0" step="0.5" placeholder="0.0"
                        onchange="app.updateRunSettings('${run.id}', 'length', this.value)">
               </div>
               <div class="form-group">
-                <label>Sheet Height</label>
+                <label>Sheet Height *</label>
                 <select onchange="app.updateRunSettings('${run.id}', 'sheetHeight', this.value)">
                   ${SHEET_HEIGHTS.map(h =>
                     `<option value="${h}" ${run.sheetHeight === h ? 'selected' : ''}>${h}mm</option>`
@@ -2387,102 +3363,7 @@
             </div>
           </div>
 
-          <div class="gates-section">
-            <h3>Gates</h3>
-            ${gatesHtml || '<p style="font-size:12px; color:#4C6A70;">No gates added.</p>'}
-            <button class="btn-orange" style="margin-top:8px;" onclick="app.addGate()">+ Add Gate</button>
-          </div>
-
-          <div class="job-settings-section">
-            <button class="job-settings-toggle" onclick="app.toggleJobSettings()">
-              <span>Job Settings &amp; Scope</span>
-              <span class="toggle-arrow ${this._jobSettingsOpen ? 'open' : ''}" id="jsToggleArrow">&#9654;</span>
-            </button>
-            <div class="job-settings-body ${this._jobSettingsOpen ? '' : 'collapsed'}" id="jsBody">
-              <div class="js-row">
-                <div class="form-group">
-                  <label>Access Difficulty</label>
-                  <select id="jsAccess" onchange="app.saveJobSettings()">
-                    <option value="easy">Easy</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="difficult">Difficult</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Urgency</label>
-                  <select id="jsUrgency" onchange="app.saveJobSettings()">
-                    <option value="standard">Standard</option>
-                    <option value="urgent">Urgent</option>
-                    <option value="rush">Rush</option>
-                    <option value="emergency">Emergency</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Delivery Fee ($)</label>
-                  <input type="number" id="jsDelivery" value="250" min="0" step="10" onchange="app.saveJobSettings()">
-                </div>
-              </div>
-
-              <div class="js-label">Optional Items</div>
-
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsRemoveHardie" onchange="app.saveJobSettings()">
-                <label for="jsRemoveHardie">Remove Hardie sheets</label>
-                <input type="number" id="jsRemoveHardieQty" value="0" min="0" style="width:50px;" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;color:#666;">qty</span>
-              </div>
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsRemoveTimber" onchange="app.saveJobSettings()">
-                <label for="jsRemoveTimber">Remove timber lap</label>
-                <input type="number" id="jsRemoveTimberQty" value="0" min="0" step="0.5" style="width:50px;" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;color:#666;">metres</span>
-              </div>
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsRemoveAsbestos" onchange="app.saveJobSettings()">
-                <label for="jsRemoveAsbestos">Remove asbestos sheets</label>
-                <input type="number" id="jsRemoveAsbestosQty" value="0" min="0" style="width:50px;" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;color:#666;">qty</span>
-              </div>
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsVegClear" onchange="app.saveJobSettings()">
-                <label for="jsVegClear">Vegetation / site clear ($150 flat)</label>
-              </div>
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsPedGate" onchange="app.saveJobSettings()">
-                <label for="jsPedGate">Pedestrian gate</label>
-                <input type="number" id="jsPedGateQty" value="1" min="1" style="width:50px;" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;color:#666;">qty</span>
-              </div>
-              <div class="js-opt-row">
-                <input type="checkbox" id="jsDblGate" onchange="app.saveJobSettings()">
-                <label for="jsDblGate">Double swing gate</label>
-                <input type="number" id="jsDblGateQty" value="1" min="1" style="width:50px;" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;color:#666;">qty</span>
-              </div>
-              <div class="js-opt-row">
-                <label for="jsGroundFinish" style="margin-right:4px;">Ground finish:</label>
-                <select id="jsGroundFinish" onchange="app.saveJobSettings()">
-                  <option value="none">None</option>
-                  <option value="mulch">Mulch</option>
-                  <option value="stones">Stones</option>
-                  <option value="turf">Turf</option>
-                </select>
-              </div>
-
-              <div class="js-label">Custom Line Items</div>
-              ${[0,1,2].map(ci => `
-              <div class="js-opt-row">
-                <input type="text" class="js-desc-input" id="jsCustomDesc${ci}" placeholder="Description" onchange="app.saveJobSettings()">
-                <input type="number" id="jsCustomQty${ci}" value="0" min="0" style="width:50px;" placeholder="Qty" onchange="app.saveJobSettings()">
-                <input type="text" class="js-unit-input" id="jsCustomUnit${ci}" placeholder="unit" onchange="app.saveJobSettings()">
-                <span style="font-size:11px;">$</span>
-                <input type="number" class="js-price-input" id="jsCustomPrice${ci}" value="0" min="0" step="1" placeholder="Price" onchange="app.saveJobSettings()">
-              </div>`).join('')}
-
-              <div class="js-label">Special Notes</div>
-              <textarea class="js-notes" id="jsNotes" placeholder="Site access notes, special instructions..." onchange="app.saveJobSettings()"></textarea>
-            </div>
-          </div>
+          <!-- Gates and Job Settings moved to their own scope sections -->
         `;
       },
 
@@ -2521,7 +3402,7 @@
       // Select a panel (from table click or canvas click)
       selectPanel(idx) {
         this.highlightedPanelIdx = (this.highlightedPanelIdx === idx) ? null : idx;
-        this.renderProfileView();
+        if (this._openSections.visualizer) this.renderProfileView();
         // Update table row highlights without full re-render
         const rows = document.querySelectorAll('.panel-table tbody tr[data-panel-idx]');
         rows.forEach(row => {
@@ -3731,78 +4612,7 @@
         ctx.restore();
       },
 
-      // ── Job Settings ──
-      _jobSettingsOpen: false,
-
-      toggleJobSettings() {
-        this._jobSettingsOpen = !this._jobSettingsOpen;
-        const body = document.getElementById('jsBody');
-        const arrow = document.getElementById('jsToggleArrow');
-        if (body) body.classList.toggle('collapsed', !this._jobSettingsOpen);
-        if (arrow) arrow.classList.toggle('open', this._jobSettingsOpen);
-      },
-
-      saveJobSettings() {
-        if (!this.job) return;
-        this.job.jobSettings = this._readJobSettings();
-        this.save();
-      },
-
-      _readJobSettings() {
-        return {
-          access: (document.getElementById('jsAccess') || {}).value || 'easy',
-          urgency: (document.getElementById('jsUrgency') || {}).value || 'standard',
-          delivery: parseFloat((document.getElementById('jsDelivery') || {}).value) || 250,
-          removeHardie: !!(document.getElementById('jsRemoveHardie') || {}).checked,
-          removeHardieQty: parseInt((document.getElementById('jsRemoveHardieQty') || {}).value) || 0,
-          removeTimber: !!(document.getElementById('jsRemoveTimber') || {}).checked,
-          removeTimberQty: parseFloat((document.getElementById('jsRemoveTimberQty') || {}).value) || 0,
-          removeAsbestos: !!(document.getElementById('jsRemoveAsbestos') || {}).checked,
-          removeAsbestosQty: parseInt((document.getElementById('jsRemoveAsbestosQty') || {}).value) || 0,
-          vegClear: !!(document.getElementById('jsVegClear') || {}).checked,
-          pedGate: !!(document.getElementById('jsPedGate') || {}).checked,
-          pedGateQty: parseInt((document.getElementById('jsPedGateQty') || {}).value) || 1,
-          dblGate: !!(document.getElementById('jsDblGate') || {}).checked,
-          dblGateQty: parseInt((document.getElementById('jsDblGateQty') || {}).value) || 1,
-          groundFinish: (document.getElementById('jsGroundFinish') || {}).value || 'none',
-          custom: [0,1,2].map(i => ({
-            desc: (document.getElementById('jsCustomDesc' + i) || {}).value || '',
-            qty: parseFloat((document.getElementById('jsCustomQty' + i) || {}).value) || 0,
-            unit: (document.getElementById('jsCustomUnit' + i) || {}).value || '',
-            price: parseFloat((document.getElementById('jsCustomPrice' + i) || {}).value) || 0
-          })),
-          notes: (document.getElementById('jsNotes') || {}).value || ''
-        };
-      },
-
-      _restoreJobSettings() {
-        const js = this.job && this.job.jobSettings;
-        if (!js) return;
-        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
-        setVal('jsAccess', js.access || 'easy');
-        setVal('jsUrgency', js.urgency || 'standard');
-        setVal('jsDelivery', js.delivery || 250);
-        setChk('jsRemoveHardie', js.removeHardie);
-        setVal('jsRemoveHardieQty', js.removeHardieQty || 0);
-        setChk('jsRemoveTimber', js.removeTimber);
-        setVal('jsRemoveTimberQty', js.removeTimberQty || 0);
-        setChk('jsRemoveAsbestos', js.removeAsbestos);
-        setVal('jsRemoveAsbestosQty', js.removeAsbestosQty || 0);
-        setChk('jsVegClear', js.vegClear);
-        setChk('jsPedGate', js.pedGate);
-        setVal('jsPedGateQty', js.pedGateQty || 1);
-        setChk('jsDblGate', js.dblGate);
-        setVal('jsDblGateQty', js.dblGateQty || 1);
-        setVal('jsGroundFinish', js.groundFinish || 'none');
-        (js.custom || []).forEach((c, i) => {
-          setVal('jsCustomDesc' + i, c.desc || '');
-          setVal('jsCustomQty' + i, c.qty || 0);
-          setVal('jsCustomUnit' + i, c.unit || '');
-          setVal('jsCustomPrice' + i, c.price || 0);
-        });
-        setVal('jsNotes', js.notes || '');
-      },
+      // ── Job Settings (legacy — now integrated into scope sections) ──
 
       // ── Compliance checks ──
       _runComplianceChecks() {
@@ -3828,7 +4638,25 @@
       // ── Collect all data for outputs ──
       _collectOutputData() {
         const job = this.job;
-        const js = this._readJobSettings();
+        const rem = job.removal || {};
+        const q = job.quote || {};
+        const js = {
+          access: rem.access || 'easy',
+          urgency: q.urgency || 'standard',
+          delivery: q.deliveryFee != null ? q.deliveryFee : 250,
+          removeHardie: rem.existingFenceType === 'hardie',
+          removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil((rem.existingFenceLength || 0) / 2.4) : 0,
+          removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
+          removeTimberQty: (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
+          removeAsbestos: rem.existingFenceType === 'asbestos',
+          removeAsbestosQty: rem.existingFenceType === 'asbestos' ? Math.ceil((rem.existingFenceLength || 0) / 2.4) : 0,
+          vegClear: rem.vegetation,
+          groundFinish: q.groundFinish || 'none',
+          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 })),
+          notes: job.siteNotes || '',
+          pedGate: false, pedGateQty: 0,
+          dblGate: false, dblGateQty: 0,
+        };
         const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
         const panelWidthMm = supplier.panelWidth;
         const panelWidthM = panelWidthMm / 1000;
@@ -3918,16 +4746,6 @@
           gatePosts += gp;
           gateDetails.push({ type: g.type, width: g.width, posts: gp });
         });
-        // Also count job-settings gates
-        let jsPedGatePosts = 0, jsDblGatePosts = 0;
-        if (js.pedGate && js.pedGateQty > 0) {
-          jsPedGatePosts = js.pedGateQty * 2;
-          gatePosts += jsPedGatePosts;
-        }
-        if (js.dblGate && js.dblGateQty > 0) {
-          jsDblGatePosts = js.dblGateQty * 4;
-          gatePosts += jsDblGatePosts;
-        }
 
         // Concrete: (totalPosts + gatePosts) * 2 * 1.1, round up to even
         const allPosts = totalPosts + gatePosts;
@@ -3951,24 +4769,9 @@
         const patioSell = COST_PRICES.patioTube / (1 - MARGIN);
         const patioTotal = totalPatioTubes * patioSell;
 
-        // Gates from job settings
+        // Gates
         let gatesTotal = 0;
         const gateLineItems = [];
-        if (js.pedGate && js.pedGateQty > 0) {
-          const sell = COST_PRICES.gateKitPedestrian / (1 - MARGIN);
-          const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
-          const lineTotal = js.pedGateQty * (sell + 2 * postSell);
-          gatesTotal += lineTotal;
-          gateLineItems.push({ desc: 'Pedestrian gate (supply + install)', qty: js.pedGateQty, total: lineTotal });
-        }
-        if (js.dblGate && js.dblGateQty > 0) {
-          const sell = COST_PRICES.gateKitDouble / (1 - MARGIN);
-          const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
-          const lineTotal = js.dblGateQty * (sell + 4 * postSell);
-          gatesTotal += lineTotal;
-          gateLineItems.push({ desc: 'Double swing gate (supply + install)', qty: js.dblGateQty, total: lineTotal });
-        }
-        // Also gates from the panel section
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') {
             const sell = COST_PRICES.gateKitPedestrian / (1 - MARGIN);
@@ -4069,8 +4872,6 @@
         internalCost += totalPatioTubes * COST_PRICES.patioTube;
         internalCost += concreteBags * COST_PRICES.concrete;
         internalCost += tekBoxes * COST_PRICES.tekScrewBox;
-        if (js.pedGate) internalCost += js.pedGateQty * (COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90);
-        if (js.dblGate) internalCost += js.dblGateQty * (COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90);
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') internalCost += COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90;
           else if (g.type === 'double') internalCost += COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90;
@@ -4091,13 +4892,49 @@
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
           subtotal, gst, grandTotal,
-          internalCost, internalLabour, materialMargin,
-          jsPedGatePosts, jsDblGatePosts
+          internalCost, internalLabour, materialMargin
         };
       },
 
       // ── Generate output HTML documents ──
       generateOutputs() {
+        // Check required fields (hard requirements)
+        const missing = [];
+        if (!this.job.clientFirstName) missing.push('Client first name (Site Information)');
+        if (!this.job.clientLastName) missing.push('Client last name (Site Information)');
+        if (!this.job.address) missing.push('Site address (Site Information)');
+        if (!this.job.phone) missing.push('Phone number (Site Information)');
+        if (!this.job.email) missing.push('Email address (Site Information)');
+        if (this.job.neighboursRequired === undefined) missing.push('Neighbour details: select Yes or No (Site Information)');
+        if (this.job.neighboursRequired === true && (!this.job.neighbours || !this.job.neighbours.length || !this.job.neighbours[0].firstName)) {
+          missing.push('At least one neighbour first name (Site Information)');
+        }
+        const photos = (this.job.checklist && this.job.checklist.photos) || [];
+        if (photos.length === 0) missing.push('At least 1 site photo (Checklist)');
+        if (!this.job.runs.some(r => r.panels.length > 0)) missing.push('At least one fence run with panels');
+        if (this.job.runs.some(r => !r.name)) missing.push('All fence runs must have a side of property selected');
+        if (this.job.runs.some(r => !r.length || r.length <= 0)) missing.push('All fence runs must have a length');
+        if (this.job.runs.some(r => !r.sheetHeight)) missing.push('All fence runs must have a sheet height');
+
+        if (missing.length > 0) {
+          alert('Required fields missing:\n\n' + missing.map(m => '• ' + m).join('\n') + '\n\nPlease complete these sections before generating outputs.');
+          return;
+        }
+
+        // Soft warnings
+        const softWarnings = [];
+        const cl = this.job.checklist || {};
+        if (!this.job.scoper) softWarnings.push('Scoper name not filled in');
+        if (photos.length < 5) softWarnings.push('Fewer than 5 photos uploaded (' + photos.length + ')');
+        if (!cl.videoWalkthrough) softWarnings.push('Video walkthrough not marked as done');
+
+        if (softWarnings.length > 0) {
+          if (!confirm('Incomplete checklist items:\n\n' + softWarnings.map(w => '• ' + w).join('\n') + '\n\nGenerate outputs anyway?')) return;
+        }
+
+        // Sync client name
+        this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+
         // Run compliance checks
         const { errors, warnings } = this._runComplianceChecks();
 
@@ -4110,7 +4947,6 @@
           if (!confirm('Warnings detected:\n\n' + warnings.join('\n\n') + '\n\nProceed anyway?')) return;
         }
 
-        // Restore settings from DOM
         const data = this._collectOutputData();
 
         // Generate 3 HTML documents in new tabs
@@ -4169,7 +5005,13 @@
         if (d.totalPlinths > 0) scopeDesc += `, including ${d.totalPlinths} retaining plinths`;
         if (d.totalPatioTubes > 0) scopeDesc += ` with patio tube bracing`;
         scopeDesc += '. All posts set in concrete. Site clean-up included.';
-        if (d.removalItems.length > 0) scopeDesc += ' Removal and disposal of existing fencing included.';
+        const rem = d.job.removal || {};
+        if (rem.existingFenceType && rem.existingFenceType !== 'none') {
+          const ftype = rem.existingFenceType.charAt(0).toUpperCase() + rem.existingFenceType.slice(1);
+          scopeDesc += ` Removal and disposal of existing ${ftype} fencing`;
+          if (rem.existingFenceLength > 0) scopeDesc += ` (approx. ${rem.existingFenceLength}m)`;
+          scopeDesc += rem.disposal === 'client' ? ' — client disposing.' : ' included.';
+        }
 
         let lineItemsHtml = '';
         lineItemsHtml += `<tr><td>COLORBOND\u00AE ${d.profile} fencing — ${d.colour} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="text-right">$${this._fmt(d.fencingTotal)}</td></tr>`;
@@ -4198,8 +5040,10 @@
               <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '—'}</span></div>
               <div><span class="label">Address:</span> <span class="value">${d.job.address || '—'}</span></div>
               <div><span class="label">Date:</span> <span class="value">${date}</span></div>
-              <div></div>
+              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '—'}</span></div>
               <div><span class="label">Valid until:</span> <span class="value">${validUntil}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${d.job.email || '—'}</span></div>
+              <div></div>
             </div>
           </div>
           <div class="section">
@@ -4250,6 +5094,7 @@
         order += `Delivery Address: ${d.job.address || '\u2014'}\n`;
         order += `Site Contact: 0489 267 772\n`;
         order += `Delivery Date: ${tomorrow} | Time: 8-10am\n`;
+        if (d.job.scoper) order += `Scoped by: ${d.job.scoper}\n`;
         order += `Supplier: ${d.supplier}\n\n`;
         order += `${'─'.repeat(50)}\nORDER DETAILS:\n${'─'.repeat(50)}\n\n`;
         order += `PANELS & POSTS:\n${panelLines}`;
@@ -4262,11 +5107,10 @@
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
           // Gate kits
           const allGates = [];
-          if (d.js.pedGate && d.js.pedGateQty > 0) allGates.push(`${d.js.pedGateQty} \u00D7 Pedestrian gate kit | 900mm W | 1750mm H | ${d.colour}`);
-          if (d.js.dblGate && d.js.dblGateQty > 0) allGates.push(`${d.js.dblGateQty} \u00D7 Double swing gate kit | ${d.colour}`);
           (d.job.gates || []).forEach(g => {
-            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${d.colour}`);
-            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${d.colour}`);
+            const h = g.height || 1800;
+            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
+            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
           });
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
@@ -4330,6 +5174,8 @@
         d.removalItems.forEach(r => { scopeChecklist += `<li>${r.desc} (${r.qty} ${r.unit})</li>`; });
         d.gateLineItems.forEach(g => { scopeChecklist += `<li>${g.desc}</li>`; });
         if (d.groundFinishDesc) scopeChecklist += `<li>${d.groundFinishDesc}</li>`;
+        const inst = d.job.installation || {};
+        if (inst.coreDrill && inst.coreDrillHoles > 0) scopeChecklist += `<li>Core drill ${inst.coreDrillHoles} holes</li>`;
         scopeChecklist += '<li>Site clean-up and rubbish removal</li>';
         scopeChecklist += '</ul>';
 
@@ -4355,10 +5201,22 @@
               <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '\u2014'}</span></div>
               <div><span class="label">Address:</span> <span class="value">${d.job.address || '\u2014'}</span></div>
               <div><span class="label">Date:</span> <span class="value">${date}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${d.job.email || '\u2014'}</span></div>
+              <div><span class="label">Scoper:</span> <span class="value">${d.job.scoper || '\u2014'}</span></div>
               <div><span class="label">Access:</span> <span class="value">${d.js.access}</span></div>
               <div><span class="label">Urgency:</span> <span class="value">${d.js.urgency}</span></div>
             </div>
           </div>
+          ${((d.job.neighbours || []).filter(n => n.firstName || n.lastName).length > 0) ? `<div class="section">
+            <h2>Neighbour Details</h2>
+            ${d.job.neighbours.filter(n => n.firstName || n.lastName).map(n => `<div class="info-grid" style="margin-bottom:8px;">
+              <div><span class="label">Name:</span> <span class="value">${[n.firstName, n.lastName].filter(Boolean).join(' ') || '\u2014'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${n.phone || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${n.address || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${n.email || '\u2014'}</span></div>
+            </div>`).join('')}
+          </div>` : ''}
           <div class="section">
             <h2>Fence Specification</h2>
             <div class="info-grid">
@@ -4419,12 +5277,22 @@
 
       // ── LocalStorage ──
       save() {
-        localStorage.setItem('fenceJob', JSON.stringify(this.job));
-        const ind = document.getElementById('savedIndicator');
-        if (ind) {
-          ind.textContent = 'Saved';
-          ind.style.opacity = '1';
-          setTimeout(() => { ind.style.opacity = '0.7'; }, 1000);
+        try {
+          localStorage.setItem('fenceJob', JSON.stringify(this.job));
+          const ind = document.getElementById('savedIndicator');
+          if (ind) {
+            ind.textContent = 'Saved';
+            ind.style.opacity = '1';
+            setTimeout(() => { ind.style.opacity = '0.7'; }, 1000);
+          }
+        } catch (e) {
+          if (e.name === 'QuotaExceededError' || e.code === 22) {
+            alert('Storage is full. Please delete some photos to free up space, then try again.');
+            const ind = document.getElementById('savedIndicator');
+            if (ind) { ind.textContent = 'NOT SAVED'; ind.style.opacity = '1'; ind.style.color = '#dc2626'; }
+          } else {
+            throw e;
+          }
         }
       },
 
@@ -4435,6 +5303,7 @@
             this.job = JSON.parse(saved);
             // Migration: ensure new fields exist
             if (!this.job.gates) this.job.gates = [];
+            if (this.job.gatesRequired === undefined && !('gatesRequired' in this.job)) this.job.gatesRequired = undefined;
             this.job.runs.forEach(run => {
               if (run.sheetHeight === undefined) run.sheetHeight = run.defaultHeight || 1800;
               if (run.extension === undefined || run.extension === null) run.extension = 'none';
@@ -4495,6 +5364,67 @@
                 if (p.retaining > 600) p.retaining = 600;
               });
             });
+            // Migration: new scope form fields
+            if (!this.job.scoper) this.job.scoper = '';
+            if (!this.job.siteNotes) this.job.siteNotes = '';
+            if (!this.job.clientFirstName) {
+              const parts = (this.job.client || '').trim().split(/\s+/);
+              this.job.clientFirstName = parts[0] || '';
+              this.job.clientLastName = parts.slice(1).join(' ') || '';
+            }
+            if (!this.job.clientLastName && this.job.clientLastName !== '') this.job.clientLastName = '';
+
+            if (!this.job.removal) {
+              const js = this.job.jobSettings || {};
+              this.job.removal = {
+                existingFenceLength: 0,
+                existingFenceType: js.removeAsbestos ? 'asbestos' : js.removeHardie ? 'hardie' : js.removeTimber ? 'timber' : 'none',
+                disposal: 'company',
+                vegetation: !!js.vegClear,
+                gateOnExisting: false,
+                access: js.access || 'easy',
+                notes: ''
+              };
+            }
+
+            if (!this.job.installation) {
+              this.job.installation = {
+                coreDrill: false,
+                coreDrillHoles: 0,
+                fenceLocation: [],
+                manufacturer: '',
+                supplierSource: ''
+              };
+            }
+
+            if (!this.job.quote) {
+              const js = this.job.jobSettings || {};
+              this.job.quote = {
+                urgency: js.urgency || 'standard',
+                deliveryFee: js.delivery || 250,
+                groundFinish: js.groundFinish || 'none',
+                customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
+                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 }))
+                  : [{}, {}, {}]
+              };
+            }
+
+            if (!this.job.checklist) {
+              this.job.checklist = { photosTaken: 0, photos: [], videoWalkthrough: false, finalNotes: '' };
+            }
+            if (this.job.phone === undefined) this.job.phone = '';
+            if (this.job.email === undefined) this.job.email = '';
+            if (!this.job.neighbours) this.job.neighbours = [{ id: 'nb-1', firstName: '', lastName: '', phone: '', email: '', address: '' }];
+            if (this.job.neighboursRequired === undefined && !('neighboursRequired' in this.job)) this.job.neighboursRequired = undefined;
+            if (!this.job.checklist.photos) this.job.checklist.photos = [];
+
+            // Migrate gate objects
+            (this.job.gates || []).forEach(g => {
+              if (g.height === undefined) g.height = 1800;
+              if (g.groundFinish === undefined) g.groundFinish = 'none';
+              if (g.gatePosts === undefined) g.gatePosts = '';
+            });
+
             if (this.job.runs.length > 0 && !this.currentRunId) {
               this.currentRunId = this.job.runs[0].id;
             }
@@ -4506,6 +5436,9 @@
     };
 
     window.addEventListener('DOMContentLoaded', () => app.init());
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.address-autocomplete-wrap')) app.hideAddressDropdown();
+    });
   </script>
 </body>
 </html>
