@@ -1078,6 +1078,8 @@
       <img src="logo.png" alt="SecureWorks WA" class="header-logo">
       <div class="header-actions">
         <span class="saved-indicator" id="savedIndicator">Saved</span>
+        <button class="btn-header" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
+        <button class="btn-header" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
         <button class="btn-header" onclick="app.newJob()">New</button>
         <button class="btn-header btn-header-reset" onclick="app.resetJob()">Reset</button>
       </div>
@@ -5605,10 +5607,160 @@
       }
     };
 
+    // ════════════════════════════════════════════════════════
+    // CLOUD INTEGRATION: buildPricingJson + scopeComplete
+    // ════════════════════════════════════════════════════════
+
+    // Build structured pricing JSON from _collectOutputData for dashboard/Xero
+    app.buildPricingJson = function() {
+      var d = this._collectOutputData();
+      var lineItems = [];
+
+      if (d.totalMetres > 0) {
+        lineItems.push({
+          description: d.totalPanels + '× ' + (d.profile || 'panels') + ' (' + d.totalMetres.toFixed(1) + 'm total)',
+          quantity: d.totalMetres, unit: 'm',
+          cost_price: null, sell_price: d.pricePerMetre,
+          total_cost: null, total_sell: d.fencingTotal,
+          category: 'fencing'
+        });
+      }
+      if (d.totalPlinths > 0) {
+        lineItems.push({
+          description: 'Retaining plinths (150mm COLORBOND)',
+          quantity: d.totalPlinths, unit: 'each',
+          cost_price: COST_PRICES.plinth, sell_price: d.plinthSell,
+          total_cost: d.totalPlinths * COST_PRICES.plinth, total_sell: d.plinthsTotal,
+          category: 'materials'
+        });
+      }
+      if (d.totalPatioTubes > 0) {
+        lineItems.push({
+          description: 'Patio tubes (76×38 RHS 3000mm)',
+          quantity: d.totalPatioTubes, unit: 'each',
+          cost_price: COST_PRICES.patioTube, sell_price: d.patioSell,
+          total_cost: d.totalPatioTubes * COST_PRICES.patioTube, total_sell: d.patioTotal,
+          category: 'materials'
+        });
+      }
+      (d.gateLineItems || []).forEach(function(g) {
+        lineItems.push({ description: g.desc, quantity: g.qty, unit: 'each', total_sell: g.total, category: 'gates' });
+      });
+      (d.removalItems || []).forEach(function(r) {
+        lineItems.push({ description: r.desc, quantity: r.qty, unit: r.unit, total_sell: r.total, category: 'removal' });
+      });
+      if (d.groundFinishTotal > 0) {
+        lineItems.push({ description: d.groundFinishDesc, quantity: d.totalMetres, unit: 'm', total_sell: d.groundFinishTotal, category: 'ground_finish' });
+      }
+      (d.customItems || []).forEach(function(c) {
+        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, total_sell: c.total, category: 'custom' });
+      });
+      if (d.accessSurcharge > 0) {
+        lineItems.push({ description: 'Access surcharge (' + (d.accessRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.accessSurcharge, category: 'surcharges' });
+      }
+      if (d.urgencySurcharge > 0) {
+        lineItems.push({ description: 'Urgency surcharge (' + (d.urgencyRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.urgencySurcharge, category: 'surcharges' });
+      }
+      if (d.deliveryFee > 0) {
+        lineItems.push({ description: 'Delivery', quantity: 1, unit: 'lot', cost_price: COST_PRICES.delivery, sell_price: d.deliveryFee, total_sell: d.deliveryFee, category: 'delivery' });
+      }
+
+      return {
+        source: 'fence-designer', version: '2.0', generated_at: new Date().toISOString(),
+        line_items: lineItems,
+        subtotal: d.subtotal, gst: d.gst, totalExGST: d.subtotal, totalIncGST: d.grandTotal,
+        internal: { cost: d.internalCost, labour: d.internalLabour, margin: d.materialMargin }
+      };
+    };
+
+    // Validation gate for Scope Complete
+    function validateForScopeComplete() {
+      var j = app.job;
+      var errors = [];
+      if (!j.clientFirstName || j.clientFirstName.trim().length < 2) errors.push('• Client first name is required');
+      if (!j.clientLastName || j.clientLastName.trim().length < 1) errors.push('• Client last name is required');
+      if (!j.address || j.address.trim().length < 5) errors.push('• Site address is required');
+      if (!j.email || !j.email.includes('@')) errors.push('• Valid email is required');
+      if (!j.phone || j.phone.replace(/\D/g,'').length < 8) errors.push('• Phone number is required (min 8 digits)');
+      if (!j.runs || j.runs.length === 0) errors.push('• At least 1 fence run required');
+      if (j.runs && j.runs.some(function(r) { return !r.panels || r.panels.length === 0; })) errors.push('• All runs must have at least 1 panel');
+      var totalM = (j.runs || []).reduce(function(s, r) { return s + (r.length || 0); }, 0);
+      if (totalM <= 0) errors.push('• Total fence length must be > 0');
+      var photos = (j.checklist && j.checklist.photos) || [];
+      if (photos.length < 1) errors.push('• At least 1 site photo required');
+      // Check pricing
+      try {
+        var d = app._collectOutputData();
+        if (d.grandTotal <= 0) errors.push('• Pricing must be calculated (total > $0)');
+      } catch(e) {
+        errors.push('• Unable to calculate pricing — check fence run data');
+      }
+      return errors;
+    }
+
+    // Scope Complete — validation gate + cloud chain trigger
+    async function scopeComplete() {
+      // Sync client name
+      app.job.client = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ');
+
+      // Validate required fields
+      var errors = validateForScopeComplete();
+      if (errors.length > 0) {
+        alert('Cannot complete scope:\n\n' + errors.join('\n'));
+        return;
+      }
+
+      // Run compliance checks
+      var checks = app._runComplianceChecks();
+      if (checks.errors.length > 0) {
+        alert('STOP — Compliance errors:\n\n' + checks.errors.join('\n\n'));
+        return;
+      }
+
+      // Warnings
+      var warnings = checks.warnings.slice();
+      var photos = (app.job.checklist && app.job.checklist.photos) || [];
+      if (photos.length < 5) warnings.push('Fewer than 5 site photos (' + photos.length + ').');
+      if (!(app.job.checklist && app.job.checklist.videoWalkthrough)) warnings.push('Video walkthrough not marked as done.');
+      if (!app.job.scoper) warnings.push('Scoper name not filled in.');
+
+      if (warnings.length > 0) {
+        if (!confirm('Warnings:\n\n' + warnings.map(function(w) { return '• ' + w; }).join('\n') + '\n\nProceed anyway?')) return;
+      }
+
+      // Final confirmation
+      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Generate a job number (SWF-25XXX)\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
+
+      // Enrich job state before cloud save
+      app.job._pricing_json = app.buildPricingJson();
+
+      // Trigger full cloud save + link chain
+      if (window._swIntegration) {
+        try {
+          await window._swIntegration.save();
+          alert('Scope completed successfully! Job number will appear in the dashboard.');
+        } catch (e) {
+          alert('Scope complete failed: ' + e.message);
+        }
+      } else {
+        alert('Cloud integration not available. Please sign in first via the cloud bar.');
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => app.init());
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.address-autocomplete-wrap')) app.hideAddressDropdown();
     });
   </script>
+
+<!-- ═══ Cloud Integration (Supabase) ═══ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
+  window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
+</script>
+<script src="cloud.js"></script>
+<script src="integration.js"></script>
+
 </body>
 </html>
