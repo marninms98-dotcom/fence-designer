@@ -56,6 +56,7 @@
       if (contact.email) window.app.job.email = contact.email;
       if (contact.phone) window.app.job.phone = contact.phone;
       if (fullAddress) window.app.job.address = fullAddress;
+      if (contact.suburb) window.app.job.suburb = contact.suburb;
       window.app.save();
       if (typeof window.app.render === 'function') window.app.render();
       return;
@@ -66,7 +67,8 @@
       { val: contact.name, selectors: '#customerName, #clientName, #client, [name="clientName"]' },
       { val: contact.email, selectors: '#clientEmail, #customerEmail, [name="clientEmail"], [name="email"]' },
       { val: contact.phone, selectors: '#customerPhone, #clientPhone, [name="clientPhone"], [name="phone"]' },
-      { val: fullAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, #address, [name="siteAddress"], [name="address"]' }
+      { val: fullAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, #address, [name="siteAddress"], [name="address"]' },
+      { val: contact.suburb || '', selectors: '#customerSuburb, #clientSuburb' }
     ];
 
     mapping.forEach(function(m) {
@@ -363,6 +365,131 @@
   }
 
   // ════════════════════════════════════════════════════════════
+  // VALIDATION GATE  (blocks save if required fields are missing)
+  // ════════════════════════════════════════════════════════════
+
+  // Parse "$1,234.56" formatted strings to numbers. Returns 0 for invalid/empty.
+  function parseDollar(str) {
+    if (typeof str === 'number') return str;
+    if (!str) return 0;
+    var cleaned = String(str).replace(/[^0-9.\-]/g, '');
+    var num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  }
+
+  // Collect and normalize form data from either tool type into a standard object
+  function _collectValidationData() {
+    var data = { name: '', phone: '', email: '', address: '', suburb: '', hasItems: false, sellPrice: 0, costPrice: 0 };
+
+    if (_toolType === 'fencing' && window.app && window.app.job) {
+      // ── Fencing tool ──
+      var j = window.app.job;
+      data.name = ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim() || j.client || '';
+      data.phone = j.phone || '';
+      data.email = j.email || '';
+      data.address = j.address || '';
+      data.suburb = j.suburb || '';
+      data.hasItems = Array.isArray(j.runs) && j.runs.length > 0;
+
+      // Get pricing from _collectOutputData if available
+      if (typeof window.app._collectOutputData === 'function') {
+        try {
+          var od = window.app._collectOutputData();
+          data.sellPrice = od.grandTotal || 0;
+          data.costPrice = (od.internalCost || 0) + (od.internalLabour || 0);
+        } catch(e) { /* pricing calc may fail if no runs */ }
+      }
+    } else {
+      // ── Patio tool ──
+      // Try gatherJobData() first, fall back to DOM
+      if (typeof window.gatherJobData === 'function') {
+        try {
+          var gd = window.gatherJobData();
+          if (gd && gd.client) {
+            data.name = gd.client.name || '';
+            data.phone = gd.client.phone || '';
+            data.email = gd.client.email || '';
+            data.address = gd.client.address || '';
+            data.suburb = gd.client.suburb || '';
+          }
+        } catch(e) { /* fall through to DOM */ }
+      }
+
+      // DOM fallbacks
+      if (!data.name) data.name = (document.getElementById('customerName') || {}).value || '';
+      if (!data.phone) data.phone = (document.getElementById('customerPhone') || {}).value || '';
+      if (!data.email) data.email = (document.getElementById('clientEmail') || {}).value || '';
+      if (!data.address) data.address = (document.getElementById('customerAddress') || {}).value || '';
+      if (!data.suburb) data.suburb = (document.getElementById('customerSuburb') || {}).value || '';
+
+      // Patio always has at least one config — check if roof style is set
+      var roofStyle = (document.getElementById('inRoofStyle') || {}).value || '';
+      data.hasItems = roofStyle !== '' && roofStyle !== 'none';
+
+      // Pricing from DOM
+      data.sellPrice = parseDollar((document.getElementById('ttSubSell') || {}).textContent);
+      data.costPrice = parseDollar((document.getElementById('ttSubCost') || {}).textContent);
+    }
+
+    // Trim all strings
+    data.name = data.name.trim();
+    data.phone = data.phone.trim();
+    data.email = data.email.trim();
+    data.address = data.address.trim();
+    data.suburb = data.suburb.trim();
+
+    return data;
+  }
+
+  // Run 8 validation checks. Returns { valid: boolean, errors: string[] }
+  function _validateForSave() {
+    var d = _collectValidationData();
+    var errors = [];
+
+    if (!d.name)       errors.push('Client name is required');
+    if (!d.phone)      errors.push('Phone number is required');
+    if (!d.email)      errors.push('Email address is required');
+    if (!d.address)    errors.push('Site address is required');
+    if (!d.suburb)     errors.push('Suburb is required');
+    if (!d.hasItems)   errors.push('At least one scope item is required');
+    if (d.sellPrice <= 0) errors.push('Total sell price must be greater than $0');
+    if (d.sellPrice > 0 && d.costPrice > 0 && d.sellPrice <= d.costPrice)
+      errors.push('Sell price must be greater than cost price (negative margin)');
+
+    return { valid: errors.length === 0, errors: errors };
+  }
+
+  // Show a hard-block modal with validation errors — no bypass option
+  function _showValidationModal(errors) {
+    // Remove any existing modal
+    var existing = document.getElementById('sw-validation-modal');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'sw-validation-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;';
+
+    var listItems = errors.map(function(e) {
+      return '<li style="margin-bottom:8px;font-size:15px;color:#333;">' + e + '</li>';
+    }).join('');
+
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:12px;width:90%;max-width:480px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+        '<div style="background:#D32F2F;padding:16px 24px;">' +
+          '<h3 style="margin:0;color:#fff;font-size:18px;font-weight:700;">Cannot Save — Missing Required Info</h3>' +
+        '</div>' +
+        '<div style="padding:24px;">' +
+          '<ul style="margin:0 0 20px 0;padding-left:20px;">' + listItems + '</ul>' +
+          '<button onclick="document.getElementById(\'sw-validation-modal\').remove()" ' +
+            'style="width:100%;padding:12px;background:#D32F2F;color:#fff;border:none;border-radius:8px;' +
+            'font-size:16px;font-weight:700;cursor:pointer;">Fix Issues</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+  }
+
+  // ════════════════════════════════════════════════════════════
   // PUBLIC API  (exposed on window for button clicks)
   // ════════════════════════════════════════════════════════════
 
@@ -374,6 +501,13 @@
     save: async function() {
       if (!cloud || !cloud.auth.isLoggedIn()) {
         cloud.ui.showLoginModal();
+        return;
+      }
+
+      // ── Validation gate — hard block if required fields missing ──
+      var validation = _validateForSave();
+      if (!validation.valid) {
+        _showValidationModal(validation.errors);
         return;
       }
 
@@ -394,7 +528,7 @@
         var c = state.customer || {};
         var cl = state.client || {};
         meta.client_name = c.name || cl.name || '';
-        meta.site_suburb = cl.suburb || c.address || '';
+        meta.site_suburb = cl.suburb || '';
         meta.client_phone = c.phone || cl.phone || '';
         meta.client_email = c.email || cl.email || '';
         meta.site_address = c.address || cl.address || '';
@@ -404,6 +538,7 @@
       if (!meta.client_phone) meta.client_phone = (document.getElementById('customerPhone') || document.getElementById('clientPhone') || {}).value || '';
       if (!meta.client_email) meta.client_email = (document.getElementById('clientEmail') || {}).value || '';
       if (!meta.site_address) meta.site_address = (document.getElementById('customerAddress') || document.getElementById('address') || {}).value || '';
+      if (!meta.site_suburb) meta.site_suburb = (document.getElementById('customerSuburb') || document.getElementById('clientSuburb') || {}).value || '';
 
       // Include pricing_json if the tool attached it to job state
       if (state.job && state.job._pricing_json) {

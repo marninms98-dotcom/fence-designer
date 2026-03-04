@@ -1389,6 +1389,7 @@
             clientLastName: '',
             scoper: '',
             address: '',
+            suburb: '',
             siteNotes: '',
             phone: '',
             email: '',
@@ -2345,6 +2346,13 @@
                     autocomplete="off">
                   <div class="address-dropdown" id="addressDropdown"></div>
                 </div>
+              </div>
+            </div>
+            <div class="form-row full-width">
+              <div class="form-group">
+                <label>Suburb *</label>
+                <input type="text" id="clientSuburb" value="${this._esc(j.suburb)}" placeholder="Suburb"
+                  onchange="app.updateField('suburb', this.value)">
               </div>
             </div>
             <div class="form-row full-width">
