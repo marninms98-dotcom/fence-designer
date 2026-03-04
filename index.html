@@ -2207,7 +2207,9 @@
         localStorage.removeItem('fenceJob');
         this.job = null;
         this.currentRunId = null;
+        this._resetSections();
         this.init();
+        window.scrollTo(0, 0);
       },
 
       resetJob() {
@@ -2216,9 +2218,21 @@
         this.job = null;
         this.currentRunId = null;
         this._siteInfoTab = 'client';
-        Object.keys(this._openSections).forEach(k => this._openSections[k] = false);
+        this._resetSections();
         this.init();
         window.scrollTo(0, 0);
+      },
+
+      _resetSections() {
+        Object.keys(this._openSections).forEach(k => {
+          this._openSections[k] = false;
+          const key = k.charAt(0).toUpperCase() + k.slice(1);
+          const el = document.getElementById('section' + key);
+          if (el) el.classList.remove('open');
+        });
+        this._openSections.siteInfo = true;
+        const siteEl = document.getElementById('sectionSiteInfo');
+        if (siteEl) siteEl.classList.add('open');
       },
 
       // ── Render ──
@@ -2818,10 +2832,17 @@
 
       async fetchAddresses(query) {
         try {
-          const res = await fetch('https://api.addressr.io/addresses?q=' + encodeURIComponent(query));
+          // Append WA to bias results toward Western Australia
+          const biased = /\bWA\b/i.test(query) ? query : query + ' WA';
+          const res = await fetch('https://api.addressr.io/addresses?q=' + encodeURIComponent(biased));
           if (!res.ok) return;
           const data = await res.json();
-          this._addressResults = Array.isArray(data) ? data : [];
+          const all = Array.isArray(data) ? data : [];
+          // Prioritise WA results, then show others
+          this._addressResults = [
+            ...all.filter(r => /\bWA\b/.test(r.sla)),
+            ...all.filter(r => !/\bWA\b/.test(r.sla))
+          ];
           this.renderAddressDropdown(query);
         } catch (e) {
           // API error — silently fail, input still works as normal text field
