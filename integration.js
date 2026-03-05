@@ -540,9 +540,11 @@
       if (!meta.site_address) meta.site_address = (document.getElementById('customerAddress') || document.getElementById('address') || {}).value || '';
       if (!meta.site_suburb) meta.site_suburb = (document.getElementById('customerSuburb') || document.getElementById('clientSuburb') || {}).value || '';
 
-      // Include pricing_json if the tool attached it to job state
+      // Include pricing_json if the tool attached it to job state or root state
       if (state.job && state.job._pricing_json) {
         meta.pricing_json = state.job._pricing_json;
+      } else if (state._pricing_json) {
+        meta.pricing_json = state._pricing_json;
       }
 
       try {
@@ -754,11 +756,12 @@
             contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
           }
 
-          // Check if a Supabase job already exists for this opportunity
+          // Check if a Supabase job already exists for this opportunity + tool type
+          // Passing _toolType prevents cross-division overwrite (patio vs fencing)
           var existingJob = null;
           try {
-            existingJob = await cloud.ghl.findJobByOpportunity(opp.id);
-            console.log('[Integration] Existing job:', existingJob ? existingJob.id : 'none');
+            existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
+            console.log('[Integration] Existing job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
           } catch(e) {
             console.warn('[Integration] findJobByOpportunity failed:', e);
           }

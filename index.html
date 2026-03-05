@@ -5673,10 +5673,29 @@
         lineItems.push({ description: 'Delivery', quantity: 1, unit: 'lot', cost_price: COST_PRICES.delivery, sell_price: d.deliveryFee, total_sell: d.deliveryFee, category: 'delivery' });
       }
 
+      // Enhanced cost estimates for dashboard/reporting
+      var materialCostEstimate = d.internalCost || 0;
+      var labourCostEstimate = d.internalLabour || 0;
+      var totalCostEstimate = materialCostEstimate + labourCostEstimate;
+      var margin_pct = d.subtotal > 0 ? Math.round(((d.subtotal - totalCostEstimate) / d.subtotal) * 1000) / 10 : 0;
+
+      // Auto-generate job description from scope data
+      var heights = (d.runDetails || []).map(function(r) { return r.sheetH; }).filter(Boolean);
+      var dominantHeight = heights.length > 0 ? heights[0] : '';
+      var job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
+        + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
+        + (d.colour ? ' ' + d.colour : '')
+        + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
+
       return {
-        source: 'fence-designer', version: '2.0', generated_at: new Date().toISOString(),
+        source: 'scoping_tool', version: '2.0', generated_at: new Date().toISOString(),
         line_items: lineItems,
         subtotal: d.subtotal, gst: d.gst, totalExGST: d.subtotal, totalIncGST: d.grandTotal,
+        totalCostEstimate: totalCostEstimate,
+        materialCostEstimate: materialCostEstimate,
+        labourCostEstimate: labourCostEstimate,
+        margin_pct: margin_pct,
+        job_description: job_description,
         internal: { cost: d.internalCost, labour: d.internalLabour, margin: d.materialMargin }
       };
     };

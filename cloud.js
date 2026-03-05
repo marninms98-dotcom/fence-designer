@@ -467,9 +467,11 @@
     },
 
     // Find existing Supabase job for a GHL opportunity (via edge function to bypass RLS)
-    async findJobByOpportunity(opportunityId) {
-      console.log('[Cloud] findJobByOpportunity:', opportunityId);
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=find_job&opportunityId=' + encodeURIComponent(opportunityId));
+    async findJobByOpportunity(opportunityId, type) {
+      console.log('[Cloud] findJobByOpportunity:', opportunityId, 'type:', type || 'any');
+      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=find_job&opportunityId=' + encodeURIComponent(opportunityId);
+      if (type) url += '&type=' + encodeURIComponent(type);
+      var res = await fetch(url);
       var data = await res.json();
       console.log('[Cloud] findJobByOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to find job');
