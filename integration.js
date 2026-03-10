@@ -31,7 +31,9 @@
   var _jobId = null;
   var _ghlOpportunityId = null;
   var _ghlContactId = null;
+  var _lastJobNumber = null;
   var _toolType = null;
+  var _jobLoaded = false;
   var _getStateFn = null;
   var _loadStateFn = null;
 
@@ -170,6 +172,24 @@
       if (typeof window.updateVideoBadge === 'function') window.updateVideoBadge();
       console.log('[Integration] Loaded video from cloud');
     }
+  }
+
+  // ── Apply job number to UI ──
+  function _applyJobNumber(jobNumber) {
+    if (!jobNumber) return;
+    var refEl = document.getElementById('jobRef');
+    if (refEl) refEl.value = jobNumber;
+    // Update app.job.ref if fencing tool
+    if (window.app && window.app.job) window.app.job.ref = jobNumber;
+    // Update header badge
+    var badge = document.getElementById('headerBadge');
+    if (badge) {
+      var name = '';
+      if (window.app && window.app.job) name = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
+      badge.style.display = '';
+      badge.innerHTML = '<strong>' + jobNumber + '</strong>' + (name ? ' &nbsp;' + name : '');
+    }
+    console.log('[Integration] Job number applied to UI:', jobNumber);
   }
 
   // ── Detect tool type ──
@@ -844,6 +864,10 @@
 
     openDashboard: function() {
       window.location.href = '../dashboard/index.html';
+    },
+
+    getJobId: function() {
+      return _jobId;
     }
   };
 
@@ -876,35 +900,14 @@
 
     cloud.on('auth:login', function() {
       updateUI();
-      var urlJobId = getJobIdFromURL();
-      if (urlJobId) {
-        _jobId = urlJobId;
-        // Load job via edge function (bypasses RLS)
-        cloud.ghl.loadJob(urlJobId).then(async function(job) {
-          if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-            _loadStateFn(job.scope_json);
-          }
-          _ghlOpportunityId = job.ghl_opportunity_id || null;
-
-          // Load photos/videos from cloud into the tool
-          try {
-            await _loadCloudMedia(urlJobId);
-          } catch(e) {
-            console.warn('[Integration] Media load failed:', e);
-          }
-
-          cloud.startAutoSave(_jobId, _getStateFn, 30000);
-          updateUI();
-        }).catch(function(e) {
-          console.warn('[Integration] Failed to auto-load job:', e);
-        });
-      }
+      _autoLoadJob();
     });
 
     cloud.on('auth:logout', function() {
       _jobId = null;
       _ghlOpportunityId = null;
       _ghlContactId = null;
+      _jobLoaded = false;
       cloud.stopAutoSave();
       updateUI();
     });
@@ -930,19 +933,29 @@
     updateUI();
 
     if (cloud.auth.isLoggedIn()) {
-      var urlJobId = getJobIdFromURL();
-      if (urlJobId) {
-        _jobId = urlJobId;
-        cloud.ghl.loadJob(urlJobId).then(async function(job) {
-          if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-            _loadStateFn(job.scope_json);
-          }
-          _ghlOpportunityId = job.ghl_opportunity_id || null;
-          try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
-          cloud.startAutoSave(_jobId, _getStateFn, 30000);
-          updateUI();
-        }).catch(function(e) { console.warn('[Integration] Failed to load job:', e); });
+      _autoLoadJob();
+    }
+  }
+
+  async function _autoLoadJob() {
+    var urlJobId = getJobIdFromURL();
+    if (!urlJobId || _jobLoaded) return;
+    _jobLoaded = true;
+    _jobId = urlJobId;
+    try {
+      var job = await cloud.ghl.loadJob(urlJobId);
+      if (job.scope_json && Object.keys(job.scope_json).length > 0) {
+        _loadStateFn(job.scope_json);
       }
+      _ghlOpportunityId = job.ghl_opportunity_id || null;
+      _lastJobNumber = job.job_number || null;
+      _applyJobNumber(_lastJobNumber);
+      try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+      cloud.startAutoSave(_jobId, _getStateFn, 30000);
+      updateUI();
+    } catch(e) {
+      console.warn('[Integration] Failed to auto-load job:', e);
+      _jobLoaded = false;
     }
   }
 

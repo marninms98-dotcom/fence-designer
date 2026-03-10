@@ -1211,6 +1211,7 @@
   <div class="header" id="headerBar">
     <div class="header-top">
       <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+      <div class="job-badge" id="headerBadge" style="background:rgba(255,255,255,0.12);color:#fff;padding:4px 12px;border-radius:4px;font-size:13px;white-space:nowrap;display:none;"><strong>SW—</strong></div>
       <div class="header-actions">
         <span class="saved-indicator" id="savedIndicator">Saved</span>
         <button class="btn-header" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
@@ -1417,6 +1418,7 @@
   <!-- Sticky Generate Bar -->
   <div class="generate-bar-multi" id="generateBar">
     <button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>
+    <button class="gen-btn" id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="background:#F15A29;color:#fff;">Send Quote</button>
     <button class="gen-btn gen-btn-quote" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
     <button class="gen-btn gen-btn-material" id="btnMaterialOrder" onclick="app.generateMaterialOrder()">Material Order</button>
     <button class="gen-btn gen-btn-workorder" id="btnWorkOrder" onclick="app.generateWorkOrder()">Work Order</button>
@@ -1687,9 +1689,23 @@
         }
       },
 
+      _updateHeaderBadge() {
+        var badge = document.getElementById('headerBadge');
+        if (!badge) return;
+        var ref = this.job.ref || '';
+        var name = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        if (ref || name) {
+          badge.style.display = '';
+          badge.innerHTML = '<strong>' + (ref || 'SW—') + '</strong>' + (name ? ' &nbsp;' + name : '');
+        } else {
+          badge.style.display = 'none';
+        }
+      },
+
       bindHeaderInputs() {
         document.getElementById('jobRef').addEventListener('input', (e) => {
           this.job.ref = e.target.value;
+          this._updateHeaderBadge();
           this.save();
         });
         document.getElementById('jobDate').addEventListener('change', (e) => {
@@ -1707,6 +1723,7 @@
         document.getElementById('jobRef').value = this.job.ref || '';
         document.getElementById('jobDate').value = this.job.date || new Date().toISOString().slice(0, 10);
         document.getElementById('scoper').value = this.job.scoper || '';
+        this._updateHeaderBadge();
       },
 
       // ── Section 3.5: Panel width by supplier ──
@@ -3383,6 +3400,7 @@
         this.job[field] = value;
         if (field === 'clientFirstName' || field === 'clientLastName') {
           this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+          this._updateHeaderBadge();
         }
         this.save();
         this.updateSectionStatuses();
@@ -7248,6 +7266,9 @@
       },
 
       // ── Generate Quote PDF (jsPDF) ──
+      // Flag to capture PDF blob instead of saving to disk (used by Send Quote)
+      _capturePdfBlob: null,
+
       generateQuotePDF() {
         const missing = this._validateRequired();
         if (missing.length > 0) {
@@ -7441,10 +7462,14 @@
         doc.setTextColor(76, 106, 124);
         doc.text('SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, fy, { align: 'center' });
 
-        // Save
+        // Save or capture for Send Quote
         const clientName = (d.job.client || 'Client').replace(/[^a-zA-Z0-9]/g, '_');
-        doc.save(`SecureWorks_Quote_${clientName}_${date}.pdf`);
-        this.showToast('Quote PDF downloaded', 'success');
+        if (this._capturePdfBlob !== null) {
+          this._capturePdfBlob = doc.output('blob');
+        } else {
+          doc.save(`SecureWorks_Quote_${clientName}_${date}.pdf`);
+          this.showToast('Quote PDF downloaded', 'success');
+        }
       },
 
       // ── Generate Material Order (categorised) ──
@@ -8022,6 +8047,126 @@
         return flags;
       }
     };
+
+    // ════════════════════════════════════════════════════════
+    // SEND QUOTE — Modal + Upload + Email via Edge Functions
+    // ════════════════════════════════════════════════════════
+    function showSendQuoteModal() {
+      var existing = document.getElementById('sendQuoteModal');
+      if (existing) existing.remove();
+
+      var clientEmail = app.job.email || '';
+      var clientFirst = app.job.clientFirstName || '';
+
+      var overlay = document.createElement('div');
+      overlay.id = 'sendQuoteModal';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+      overlay.innerHTML = '<div style="background:#fff;border-radius:8px;max-width:480px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+        '<h3 style="margin:0 0 4px;color:#293C46;font-size:18px;">Send Quote to Client</h3>' +
+        '<p style="margin:0 0 16px;color:#4C6A7C;font-size:13px;">A branded email with Accept/Decline will be sent.</p>' +
+        '<label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;color:#293C46;">Client Email</label>' +
+        '<input type="email" id="sqClientEmail" value="' + (clientEmail || '') + '" placeholder="client@email.com" style="width:100%;padding:10px 12px;border:1px solid #D4DEE4;border-radius:4px;font-size:14px;margin-bottom:12px;" />' +
+        '<label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;color:#293C46;">Personal Message (optional)</label>' +
+        '<textarea id="sqMessage" rows="3" placeholder="Hi ' + (clientFirst || 'there') + ', here\'s your fencing quote..." style="width:100%;padding:10px 12px;border:1px solid #D4DEE4;border-radius:4px;font-size:14px;margin-bottom:12px;resize:vertical;font-family:inherit;"></textarea>' +
+        '<label style="display:block;margin-bottom:6px;font-weight:600;font-size:13px;color:#293C46;">Supporting Documents</label>' +
+        '<div style="margin-bottom:16px;">' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:#4C6A7C;cursor:pointer;"><input type="checkbox" class="sq-doc-check" value="colorbond_colour_chart"> Colorbond Colour Chart</label>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:#4C6A7C;cursor:pointer;"><input type="checkbox" class="sq-doc-check" value="warranty_guide"> Warranty Guide</label>' +
+        '</div>' +
+        '<div id="sqStatus" style="display:none;padding:10px 12px;border-radius:4px;font-size:13px;margin-bottom:12px;"></div>' +
+        '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+          '<button onclick="document.getElementById(\'sendQuoteModal\').remove()" style="padding:10px 20px;border:1px solid #D4DEE4;background:#fff;border-radius:4px;font-size:14px;cursor:pointer;">Cancel</button>' +
+          '<button id="sqSendBtn" onclick="executeSendQuote()" style="padding:10px 24px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:14px;font-weight:700;cursor:pointer;">Send Quote</button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    async function executeSendQuote() {
+      var statusEl = document.getElementById('sqStatus');
+      var sendBtn = document.getElementById('sqSendBtn');
+      var clientEmail = (document.getElementById('sqClientEmail') || {}).value.trim();
+      if (!clientEmail || !clientEmail.includes('@')) {
+        statusEl.style.display = '';
+        statusEl.style.background = '#FEE2E2';
+        statusEl.style.color = '#991B1B';
+        statusEl.textContent = 'Please enter a valid email address';
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Generating PDF...';
+      sendBtn.style.opacity = '0.6';
+      statusEl.style.display = '';
+      statusEl.style.background = '#EDF1F4';
+      statusEl.style.color = '#293C46';
+      statusEl.textContent = 'Generating quote PDF...';
+      try {
+        var cloud = window.SECUREWORKS_CLOUD;
+        var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+        var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
+        var jobRef = app.job.ref || 'DRAFT';
+        var message = (document.getElementById('sqMessage') || {}).value.trim();
+        var supportingDocs = [];
+        document.querySelectorAll('.sq-doc-check:checked').forEach(function(cb) {
+          supportingDocs.push(cb.value);
+        });
+
+        // Generate PDF by capturing blob instead of saving to disk
+        app._capturePdfBlob = 'pending';
+        app.generateQuotePDF();
+        var pdfBlob = app._capturePdfBlob;
+        app._capturePdfBlob = null;
+        if (!pdfBlob || pdfBlob === 'pending') throw new Error('PDF generation failed');
+
+        var safeFn = function(s) { return (s || '').replace(/[^a-zA-Z0-9._-]/g, '_'); };
+        var fileName = 'Quote_' + safeFn(clientName) + '_' + jobRef + '.pdf';
+
+        statusEl.textContent = 'Preparing upload...';
+        sendBtn.textContent = 'Uploading PDF...';
+
+        var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId: jobId, fileName: fileName, supportingDocs: supportingDocs.length > 0 ? supportingDocs : null })
+        });
+        var prepData = await prepRes.json();
+        if (!prepRes.ok) throw new Error(prepData.error || 'Failed to prepare quote');
+
+        statusEl.textContent = 'Uploading PDF (' + (pdfBlob.size / 1024).toFixed(0) + 'KB)...';
+
+        var uploadRes = await fetch(prepData.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: pdfBlob });
+        if (!uploadRes.ok) throw new Error('PDF upload failed: ' + uploadRes.status);
+
+        statusEl.textContent = 'Sending email to ' + clientEmail + '...';
+        sendBtn.textContent = 'Sending...';
+
+        var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document_id: prepData.documentId, client_email: clientEmail, client_name: clientName, message: message || '' })
+        });
+        var sendData = await sendRes.json();
+        if (!sendRes.ok) throw new Error(sendData.error || 'Failed to send quote');
+
+        statusEl.style.background = '#DCFCE7';
+        statusEl.style.color = '#166534';
+        statusEl.innerHTML = '<strong>Quote sent!</strong> Client will receive a branded email with an Accept/Decline page.';
+        sendBtn.textContent = 'Sent ✓';
+        sendBtn.style.background = '#22C55E';
+        app.showToast('Quote sent to ' + clientEmail, 'success');
+        setTimeout(function() { var modal = document.getElementById('sendQuoteModal'); if (modal) modal.remove(); }, 2500);
+      } catch(e) {
+        console.error('[SendQuote] Error:', e);
+        statusEl.style.display = '';
+        statusEl.style.background = '#FEE2E2';
+        statusEl.style.color = '#991B1B';
+        statusEl.textContent = 'Failed: ' + e.message;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Retry Send';
+        sendBtn.style.opacity = '1';
+      }
+    }
 
     window.addEventListener('DOMContentLoaded', () => app.init());
     document.addEventListener('click', (e) => {
