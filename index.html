@@ -1624,8 +1624,8 @@
               tradeRate: 450,
               labourerDays: 1,
               labourerRate: 300,
-              // Scope add-ons
-              addons: { demo: 0, skipBin: 0, permit: 0, soakwell: 0, electrical: 0, crane: 0 }
+              // Scope add-ons (use custom line items instead)
+              addons: {}
             },
             checklist: {
               photosTaken: 0,
@@ -3263,45 +3263,6 @@
             </div>
           </div>
 
-          <div class="section-label" style="margin-top:16px;">Scope Add-ons</div>
-          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Additional items (enter sell price, $0 = not included)</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Demolition ($)</label>
-              <input type="number" value="${(q.addons && q.addons.demo) || 0}" min="0" step="10"
-                onchange="app.updateAddon('demo', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Skip Bin ($)</label>
-              <input type="number" value="${(q.addons && q.addons.skipBin) || 0}" min="0" step="10"
-                onchange="app.updateAddon('skipBin', this.value)">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Council Permit ($)</label>
-              <input type="number" value="${(q.addons && q.addons.permit) || 0}" min="0" step="10"
-                onchange="app.updateAddon('permit', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Soakwell ($)</label>
-              <input type="number" value="${(q.addons && q.addons.soakwell) || 0}" min="0" step="10"
-                onchange="app.updateAddon('soakwell', this.value)">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Electrical Relocation ($)</label>
-              <input type="number" value="${(q.addons && q.addons.electrical) || 0}" min="0" step="10"
-                onchange="app.updateAddon('electrical', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Crane Hire ($)</label>
-              <input type="number" value="${(q.addons && q.addons.crane) || 0}" min="0" step="10"
-                onchange="app.updateAddon('crane', this.value)">
-            </div>
-          </div>
-
           <div class="section-label" style="margin-top:16px;">Custom Quote Description</div>
           <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Optional — appears on the quote below the auto-generated scope description</div>
           <div class="form-group" style="margin-bottom:12px;">
@@ -4210,6 +4171,8 @@
         document.getElementById('fence3DViewport').style.display = view === '3d' ? '' : 'none';
         if (view === '3d') {
           if (!this._fence3DReady) this.initFence3D();
+          // Ensure correct sizing after viewport becomes visible
+          requestAnimationFrame(() => this._resizeFence3D());
           this.buildFence3D();
         }
       },
@@ -4962,9 +4925,13 @@
         const f = this._f3d;
         const container = document.getElementById('fence3DViewport');
         if (!container || !f.renderer) return;
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        f.renderer.setSize(w, h);
+        const w = container.clientWidth || 600;
+        const h = container.clientHeight || 400;
+        f.renderer.setSize(w, h, false);
+        f.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const canvas = f.renderer.domElement;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
         f.camera.aspect = w / h;
         f.camera.updateProjectionMatrix();
         const a = w / h;
