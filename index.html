@@ -1322,8 +1322,20 @@
             <div class="value" id="statPlinths">0</div>
           </div>
           <div class="stat-item">
-            <label>Est. Total</label>
+            <label>Total (inc GST)</label>
             <div class="value price-badge" id="statCost">$0</div>
+          </div>
+          <div class="stat-item">
+            <label>Deposit (50%)</label>
+            <div class="value" id="statDeposit" style="color:#F15A29;font-weight:700;">$0</div>
+          </div>
+          <div class="stat-item">
+            <label>Margin</label>
+            <div class="value" id="statMargin">—</div>
+          </div>
+          <div class="stat-item">
+            <label>Cost</label>
+            <div class="value" id="statInternalCost" style="font-size:13px;">$0</div>
           </div>
         </div>
       </div>
@@ -1867,7 +1879,7 @@
 
       deleteRun(runId) {
         if (this.job.runs.length <= 1) {
-          alert('Must have at least one run.');
+          app.showToast('Must have at least one run', 'warning');
           return;
         }
         if (!confirm('Delete this run?')) return;
@@ -2226,7 +2238,7 @@
         const retaining = parseInt(document.getElementById(`qr-retaining-${runId}`).value);
 
         if (startPanel < 1 || endPanel > run.panels.length || startPanel > endPanel) {
-          alert('Invalid panel range.');
+          app.showToast('Invalid panel range', 'warning');
           return;
         }
 
@@ -2306,7 +2318,6 @@
         let totalMetres = 0;
         let totalPlinths = 0;
         let plinthPanelCount = 0;
-        const panelWidthM = this.getPanelWidthM();
         const panelWidthMm = this.getPanelWidthMm();
 
         this.job.runs.forEach(run => {
@@ -2321,20 +2332,35 @@
           });
         });
 
-        // Corner post sharing: if >1 run, subtract shared corners
-        // Simple approximation: subtract (runs - 1) for connected runs
-        // TODO: proper corner handling needs run-connection data
-
-        const estimate = totalMetres * this.job.pricePerMetre * 1.1;
-
         document.getElementById('statMetres').textContent =
           totalMetres > 0 ? `${totalMetres.toFixed(1)}m / ${totalPanels} × ${panelWidthMm}mm` : '0.0m';
         document.getElementById('statPanels').textContent = totalPanels;
         document.getElementById('statPosts').textContent = totalPosts;
         document.getElementById('statPlinths').textContent =
           totalPlinths > 0 ? `${totalPlinths} (across ${plinthPanelCount} panels)` : '0';
-        document.getElementById('statCost').textContent =
-          estimate > 0 ? `$${Math.round(estimate).toLocaleString()} EST.` : '$0';
+
+        // Full pricing from _collectOutputData
+        try {
+          const d = this._collectOutputData();
+          document.getElementById('statCost').textContent =
+            d.grandTotal > 0 ? `$${Math.round(d.grandTotal).toLocaleString()}` : '$0';
+          document.getElementById('statDeposit').textContent =
+            d.grandTotal > 0 ? `$${Math.round(d.grandTotal * 0.5).toLocaleString()}` : '$0';
+
+          const totalCost = d.internalCost + d.internalLabour;
+          const marginPct = d.subtotal > 0 ? ((d.subtotal - totalCost) / d.subtotal * 100) : 0;
+          const marginEl = document.getElementById('statMargin');
+          marginEl.textContent = `${marginPct.toFixed(0)}%`;
+          marginEl.style.color = marginPct < 20 ? '#dc2626' : marginPct < 30 ? '#d97706' : '#16a34a';
+
+          document.getElementById('statInternalCost').textContent =
+            totalCost > 0 ? `$${Math.round(totalCost).toLocaleString()}` : '$0';
+        } catch (e) {
+          document.getElementById('statCost').textContent = '$0';
+          document.getElementById('statDeposit').textContent = '$0';
+          document.getElementById('statMargin').textContent = '—';
+          document.getElementById('statInternalCost').textContent = '$0';
+        }
       },
 
       // ── New Job ──
@@ -3039,14 +3065,22 @@
               <div style="margin-top:8px;font-size:14px;font-weight:600;color:${photoColor};">${photoMsg}</div>
             </div>
           </div>
-          <div class="form-row">
+          <div class="form-row full-width">
             <div class="form-group">
               <label>Video Walkthrough</label>
-              <div class="toggle-group" style="margin-top:4px;">
-                <button class="toggle-btn ${cl.videoWalkthrough ? 'active' : ''}"
-                  onclick="app.updateChecklist('videoWalkthrough', true)">Done</button>
-                <button class="toggle-btn ${!cl.videoWalkthrough ? 'active' : ''}"
-                  onclick="app.updateChecklist('videoWalkthrough', false)">Not Done</button>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                <div class="toggle-group">
+                  <button class="toggle-btn ${cl.videoWalkthrough ? 'active' : ''}"
+                    onclick="app.updateChecklist('videoWalkthrough', true)">Done</button>
+                  <button class="toggle-btn ${!cl.videoWalkthrough ? 'active' : ''}"
+                    onclick="app.updateChecklist('videoWalkthrough', false)">Not Done</button>
+                </div>
+                <button class="btn-orange" style="font-size:13px;padding:8px 14px;" onclick="document.getElementById('videoFileInput').click()">
+                  Upload Video
+                </button>
+                <input type="file" id="videoFileInput" accept="video/*" capture="environment"
+                  style="display:none" onchange="app.handleVideoSelect(event)">
+                ${cl.videoFile ? '<span style="font-size:12px;color:#16a34a;font-weight:600;">Video attached: ' + (cl.videoFileName || 'walkthrough.mp4') + '</span>' : ''}
               </div>
             </div>
           </div>
@@ -3287,7 +3321,7 @@
             // Check localStorage budget (~4.5MB cap)
             const currentSize = JSON.stringify(this.job).length;
             if (currentSize + dataUrl.length > 4500000) {
-              alert('Storage almost full. Delete some photos before adding more.');
+              app.showToast('Storage almost full — delete some photos', 'warning');
               break;
             }
             this.job.checklist.photos.push({
@@ -3330,6 +3364,32 @@
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
+      },
+
+      handleVideoSelect(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        if (!this.job.checklist) this.job.checklist = {};
+        this.job.checklist.videoWalkthrough = true;
+        this.job.checklist.videoFileName = file.name;
+        this.job.checklist.videoSize = file.size;
+        // Store video as data URL only if < 50MB (localStorage limit)
+        if (file.size < 50 * 1024 * 1024) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            this.job.checklist.videoFile = e.target.result;
+            this.save();
+            this.renderChecklist();
+            this.updateSectionStatuses();
+            this.showToast('Video attached: ' + file.name, 'success');
+          };
+          reader.readAsDataURL(file);
+        } else {
+          this.save();
+          this.renderChecklist();
+          this.updateSectionStatuses();
+          this.showToast('Video recorded — too large for local storage, will upload to cloud', 'warning');
+        }
       },
 
       deletePhoto(photoId) {
@@ -6364,7 +6424,7 @@
 
       _openOutputTab(title, html) {
         const w = window.open('', '_blank');
-        if (!w) { alert('Popup blocked — please allow popups for this site.'); return; }
+        if (!w) { this.showToast('Popup blocked — allow popups for this site', 'error'); return; }
         w.document.write(html);
         w.document.close();
         w.document.title = title;
@@ -6988,7 +7048,7 @@
           }
         } catch (e) {
           if (e.name === 'QuotaExceededError' || e.code === 22) {
-            alert('Storage is full. Please delete some photos to free up space, then try again.');
+            this.showToast('Storage full — delete some photos to free space', 'error');
             const ind = document.getElementById('savedIndicator');
             if (ind) { ind.textContent = 'NOT SAVED'; ind.style.opacity = '1'; ind.style.color = '#dc2626'; }
           } else {
@@ -7266,14 +7326,14 @@
       // Validate required fields
       var errors = validateForScopeComplete();
       if (errors.length > 0) {
-        alert('Cannot complete scope:\n\n' + errors.join('\n'));
+        app.showToast('Cannot complete scope — ' + errors.length + ' issues found', 'error');
         return;
       }
 
       // Run compliance checks
       var checks = app._runComplianceChecks();
       if (checks.errors.length > 0) {
-        alert('STOP — Compliance errors:\n\n' + checks.errors.join('\n\n'));
+        app.showToast('Compliance errors — fix before completing', 'error');
         return;
       }
 
@@ -7298,12 +7358,12 @@
       if (window._swIntegration) {
         try {
           await window._swIntegration.save();
-          alert('Scope completed successfully! Job number will appear in the dashboard.');
+          app.showToast('Scope completed! Job number will appear in dashboard.', 'success');
         } catch (e) {
-          alert('Scope complete failed: ' + e.message);
+          app.showToast('Scope complete failed: ' + e.message, 'error');
         }
       } else {
-        alert('Cloud integration not available. Please sign in first via the cloud bar.');
+        app.showToast('Cloud integration not available — sign in first', 'warning');
       }
     }
 
