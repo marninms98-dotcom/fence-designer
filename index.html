@@ -2779,14 +2779,16 @@
           ${items.map((c, i) => `
             <div class="form-row" style="margin-bottom:8px;">
               <div class="form-group">
-                <input type="text" value="${this._esc(c.desc)}" placeholder="Description"
+                <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra labour, skip bin, etc."
                   onchange="app.updateCustomItem(${i}, 'desc', this.value)">
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
                 <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'qty', this.value)">
-                <input type="text" value="${this._esc(c.unit)}" placeholder="unit" style="width:60px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'unit', this.value)">
+                  ${['','each','m','m²','hrs','job','lot'].map(u => '<option value="' + u + '"' + (c.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('')}
+                </select>
                 <span style="font-weight:700;">$</span>
                 <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Price" style="width:80px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'price', this.value)">
