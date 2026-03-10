@@ -1190,6 +1190,9 @@
         <span class="saved-indicator" id="savedIndicator">Saved</span>
         <button class="btn-header" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
         <button class="btn-header" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
+        <button class="btn-header" onclick="app.exportJobJSON()" style="background:#4C6A7C;">Export</button>
+        <button class="btn-header" onclick="document.getElementById('importJobInput').click()" style="background:#4C6A7C;">Import</button>
+        <input type="file" id="importJobInput" accept=".json" style="display:none" onchange="app.importJobJSON(event)">
         <button class="btn-header" onclick="app.newJob()">New</button>
         <button class="btn-header btn-header-reset" onclick="app.resetJob()">Reset</button>
       </div>
@@ -1283,6 +1286,7 @@
           <div class="pv-tooltip" id="pvTooltip" style="display:none;"></div>
           <div class="soil-handle-tooltip" id="soilHandleTooltip"></div>
           <button class="pv-reset-btn" onclick="app.resetProfileView()">Reset View</button>
+          <button class="pv-reset-btn" onclick="app.exportProfileScreenshot()" style="left:auto;right:8px;" title="Save screenshot">PNG</button>
         </div>
         <div class="fence-3d-viewport" id="fence3DViewport" style="display:none;">
           <canvas id="fence3DCanvas"></canvas>
@@ -1291,6 +1295,7 @@
             <button onclick="app.setFence3DView('front')">Front</button>
             <button onclick="app.setFence3DView('side')">Side</button>
             <button onclick="app.setFence3DView('top')">Top</button>
+            <button onclick="app.export3DScreenshot()" style="background:#293C46;margin-left:8px;" title="Save screenshot">PNG</button>
           </div>
         </div>
       </div>
@@ -5428,6 +5433,32 @@
         }
       },
 
+      // ── Export 3D screenshot ──
+      export3DScreenshot() {
+        const f = this._f3d;
+        if (!f || !f.renderer) { this.showToast('3D view not active', 'warning'); return; }
+        // Render one frame with preserveDrawingBuffer
+        f.renderer.render(f.scene, f.activeCamera || f.camera);
+        const dataUrl = f.renderer.domElement.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = `fence_3d_${this.job.ref || 'view'}_${Date.now()}.png`;
+        link.href = dataUrl;
+        link.click();
+        this.showToast('3D screenshot saved', 'success');
+      },
+
+      // ── Export profile view screenshot ──
+      exportProfileScreenshot() {
+        const canvas = document.getElementById('profileCanvas');
+        if (!canvas) { this.showToast('Profile view not active', 'warning'); return; }
+        const dataUrl = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = `fence_profile_${this.job.ref || 'view'}_${Date.now()}.png`;
+        link.href = dataUrl;
+        link.click();
+        this.showToast('Profile screenshot saved', 'success');
+      },
+
       // Track the last run ID we auto-fitted, so we re-fit when switching runs
       _lastFittedRunId: null,
 
@@ -7034,6 +7065,49 @@
         this.job.quote.addons[key] = parseFloat(val) || 0;
         this.save();
         this.updateStats();
+      },
+
+      // ── Export / Import job data ──
+      exportJobJSON() {
+        this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        const data = JSON.parse(JSON.stringify(this.job));
+        // Strip photo data URLs to keep export small
+        if (data.checklist && data.checklist.photos) {
+          data.checklist.photos = data.checklist.photos.map(p => ({ ...p, dataUrl: '[stripped]' }));
+        }
+        if (data.checklist && data.checklist.videoFile) {
+          data.checklist.videoFile = '[stripped]';
+        }
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        const clientName = (this.job.client || 'job').replace(/[^a-zA-Z0-9]/g, '_');
+        link.download = `SecureWorks_Fence_${clientName}_${this.job.date || 'export'}.json`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        this.showToast('Job exported as JSON', 'success');
+      },
+
+      importJobJSON(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!data.runs || !Array.isArray(data.runs)) throw new Error('Invalid fence job format');
+            if (!confirm(`Import job for "${data.client || data.clientFirstName || 'Unknown'}"? This will replace current data.`)) return;
+            localStorage.setItem('fenceJob', JSON.stringify(data));
+            this.job = null;
+            this.currentRunId = null;
+            this.init();
+            this.showToast('Job imported successfully', 'success');
+          } catch (err) {
+            this.showToast('Import failed: ' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = ''; // reset so same file can be re-imported
       },
 
       // ── LocalStorage ──
