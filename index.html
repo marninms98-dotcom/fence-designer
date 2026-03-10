@@ -979,6 +979,31 @@
     .compliance-warning h4 { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
     .compliance-warning p { font-size: 14px; }
 
+    /* ── Quote Breakdown Table ── */
+    .qb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .qb-table th { text-align: left; font-size: 11px; text-transform: uppercase; color: #4C6A70; padding: 6px 8px; border-bottom: 2px solid #4C6A70; }
+    .qb-table th.r { text-align: right; }
+    .qb-table td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; color: #293C46; }
+    .qb-table td.r { text-align: right; font-variant-numeric: tabular-nums; }
+    .qb-table tr.qb-subtotal td { font-weight: 700; border-top: 2px solid #293C46; }
+    .qb-table tr.qb-grand td { font-weight: 700; font-size: 15px; color: #F15A29; border-top: 2px solid #293C46; }
+    .qb-table tr.qb-internal td { font-size: 12px; color: #4C6A70; }
+    .qb-table tr.qb-cat td { font-weight: 700; font-size: 11px; text-transform: uppercase; color: #4C6A70; padding-top: 10px; border-bottom: none; }
+    .qb-margin-pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 700; font-size: 12px; }
+
+    /* ── Profit & Orders ── */
+    .po-card { border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+    .po-card-header { padding: 10px 14px; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; display: flex; justify-content: space-between; align-items: center; }
+    .po-card-body { padding: 12px 14px; }
+    .po-card-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .po-card-body td { padding: 4px 0; }
+    .po-card-body td.r { text-align: right; font-variant-numeric: tabular-nums; }
+    .po-card-body tr.po-total td { font-weight: 700; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+    .po-approve-btn { padding: 6px 16px; border: none; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.3px; }
+    .po-gp-bar { height: 24px; border-radius: 4px; background: #f3f4f6; overflow: hidden; margin: 8px 0; position: relative; }
+    .po-gp-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .po-gp-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
     /* ── Misc ── */
     .colour-option-swatch {
       display: inline-block;
@@ -1280,6 +1305,7 @@
         <div class="view-tabs">
           <button class="view-tab active" onclick="app.switchView('profile')">Profile View</button>
           <button class="view-tab" onclick="app.switchView('3d')">3D View</button>
+          <button class="view-tab" onclick="app.generateAIPrompt()" style="margin-left:auto;background:#F15A29;color:#fff;border-color:#F15A29;">AI Preview</button>
         </div>
         <div class="profile-view-container" id="profileViewContainer">
           <canvas id="profileCanvas"></canvas>
@@ -1344,6 +1370,26 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Quote Breakdown (live pricing table) -->
+    <div class="scope-section" id="sectionBreakdown" data-section="breakdown">
+      <button class="scope-section-header" onclick="app.toggleSection('breakdown')">
+        <span class="section-status empty" id="statusBreakdown"></span>
+        <span class="section-title">Quote Breakdown</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyBreakdown"></div>
+    </div>
+
+    <!-- Profit & Orders (GP breakdown + PO approval) -->
+    <div class="scope-section" id="sectionProfitOrders" data-section="profitOrders">
+      <button class="scope-section-header" onclick="app.toggleSection('profitOrders')">
+        <span class="section-status empty" id="statusProfitOrders"></span>
+        <span class="section-title">Profit & Orders</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyProfitOrders"></div>
     </div>
 
     <!-- Section 8: Quote -->
@@ -1489,12 +1535,18 @@
     const URGENCY_SURCHARGE = { standard: 0, urgent: 0.10, rush: 0.20, emergency: 0.35 }; // % of subtotal
 
     const DISCLAIMERS = [
-      'This quote is based on information provided and a standard site assessment. Actual costs may vary if unforeseen conditions are encountered (e.g., rock, tree roots, underground services).',
-      'Customer is responsible for confirming property boundaries before installation. SecureWorks WA accepts no liability for fencing installed on incorrect boundaries.',
-      'Retaining walls over 500mm in height may require a Building Permit and engineer certification under WA Building Regulations. Customer is responsible for obtaining all required approvals.',
-      'This quote does not include any electrical or plumbing relocation, tree removal requiring council approval, or asbestos removal unless specifically listed.',
-      'Payment terms: 50% deposit required to confirm booking. Balance due on completion. Overdue accounts incur 2% monthly interest.',
-      'All materials carry the manufacturer\'s standard warranty (BlueScope 10-year fencing warranty on COLORBOND steel). Workmanship warranty: 12 months from completion.'
+      'This quote is based on information provided and a standard site assessment. Actual costs may vary if unforeseen site conditions are encountered during installation, including but not limited to rock, tree roots, clay, underground services, water table, or non-standard soil conditions. Any additional costs arising from such conditions will be communicated before proceeding.',
+      'Customer is responsible for confirming property boundaries before installation. SecureWorks WA strongly recommends engaging a licensed surveyor to mark boundaries prior to works commencing. SecureWorks WA accepts no liability for fencing installed on incorrect boundaries or for any disputes arising from boundary placement.',
+      'Retaining walls over 500mm in height may require a Building Permit and/or engineer certification under the Building Act 2011 (WA) and associated regulations. Customer is responsible for obtaining all required approvals, permits, and certifications prior to commencement. SecureWorks WA can assist with applications upon request at additional cost.',
+      'This quote does not include any electrical or plumbing relocation, stormwater management, tree removal requiring council approval, asbestos testing or removal, or any works not specifically listed in the scope above. Any additional works requested after acceptance will be quoted separately.',
+      'Payment terms: 50% deposit required to confirm booking and secure materials. Balance due on day of completion prior to handover. Overdue accounts incur interest at the rate of 2% per month (24% per annum) compounding. The customer is liable for all collection costs, including legal fees, in the event of non-payment.',
+      'All COLORBOND\u00AE steel products carry the manufacturer\u2019s standard warranty (BlueScope 10-year fencing warranty). SecureWorks WA provides a 12-month workmanship warranty from the date of completion covering defects in installation. This warranty does not cover damage caused by third parties, acts of nature, ground movement, or unauthorised modifications.',
+      'This quote is valid for 30 days from the date of issue. After this period, pricing may be subject to change due to material cost fluctuations. A new quote will be provided upon request.',
+      'SecureWorks WA holds appropriate public liability insurance and workers\u2019 compensation coverage for all works performed. Copies of insurance certificates are available upon request.',
+      'The customer must provide clear and safe access to the worksite for the duration of works. Any delays caused by restricted access, adverse weather, or other factors outside SecureWorks WA\u2019s control may result in schedule adjustments. SecureWorks WA is not liable for consequential losses arising from such delays.',
+      'Site cleanup is included as part of the scope of works. SecureWorks WA will remove all installation debris and excess materials. Any existing waste, dumped materials, or items not related to this project remain the customer\u2019s responsibility.',
+      'By accepting this quote, the customer agrees to these terms and conditions in full. Acceptance may be communicated in writing, via email, or by payment of the deposit. Verbal acceptance followed by deposit payment constitutes a binding agreement.',
+      'Either party may cancel this agreement in writing. If the customer cancels after deposit has been paid and materials have been ordered, the deposit is non-refundable to the extent of costs already incurred. SecureWorks WA will provide an itemised breakdown of costs incurred upon request.'
     ];
 
     // ── Lookup helper ──
@@ -2368,6 +2420,251 @@
         }
       },
 
+      // ── Quote Breakdown (live pricing table) ──
+      renderQuoteBreakdown() {
+        const el = document.getElementById('bodyBreakdown');
+        if (!el) return;
+        const statusEl = document.getElementById('statusBreakdown');
+        let d;
+        try { d = this._collectOutputData(); } catch(e) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see pricing breakdown.</div>';
+          if (statusEl) { statusEl.className = 'section-status empty'; }
+          return;
+        }
+        if (d.totalMetres <= 0) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see pricing breakdown.</div>';
+          if (statusEl) { statusEl.className = 'section-status empty'; }
+          return;
+        }
+
+        const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const totalCost = d.internalCost + d.internalLabour;
+        const marginPct = d.subtotal > 0 ? ((d.subtotal - totalCost) / d.subtotal * 100) : 0;
+        const marginCol = marginPct < 20 ? '#dc2626' : marginPct < 30 ? '#d97706' : '#16a34a';
+
+        let rows = '';
+
+        // ── Fencing ──
+        rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
+        rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
+        if (d.totalPlinths > 0)
+          rows += `<tr><td>Retaining plinths (150mm COLORBOND)</td><td class="r">${d.totalPlinths} × $${d.plinthSell}</td><td class="r">$${f(d.plinthsTotal)}</td></tr>`;
+        if (d.totalPatioTubes > 0)
+          rows += `<tr><td>Patio tube bracing (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${d.patioSell}</td><td class="r">$${f(d.patioTotal)}</td></tr>`;
+
+        // ── Gates ──
+        if (d.gateLineItems.length > 0) {
+          rows += `<tr class="qb-cat"><td colspan="3">Gates</td></tr>`;
+          d.gateLineItems.forEach(g => {
+            rows += `<tr><td>${this._esc(g.desc)}</td><td class="r">${g.qty > 1 ? g.qty + ' ×' : ''}</td><td class="r">$${f(g.total)}</td></tr>`;
+          });
+        }
+
+        // ── Removal ──
+        if (d.removalItems.length > 0) {
+          rows += `<tr class="qb-cat"><td colspan="3">Removal</td></tr>`;
+          d.removalItems.forEach(r => {
+            rows += `<tr><td>${this._esc(r.desc)}</td><td class="r">${r.qty} ${r.unit}</td><td class="r">$${f(r.total)}</td></tr>`;
+          });
+        }
+
+        // ── Site Works ──
+        const hasSiteWorks = d.groundFinishTotal > 0 || d.addonItems.length > 0;
+        if (hasSiteWorks) {
+          rows += `<tr class="qb-cat"><td colspan="3">Site Works</td></tr>`;
+          if (d.groundFinishTotal > 0)
+            rows += `<tr><td>${this._esc(d.groundFinishDesc)}</td><td class="r">${d.totalMetres.toFixed(1)}m</td><td class="r">$${f(d.groundFinishTotal)}</td></tr>`;
+          d.addonItems.forEach(a => {
+            rows += `<tr><td>${this._esc(a.desc)}</td><td class="r"></td><td class="r">$${f(a.total)}</td></tr>`;
+          });
+        }
+
+        // ── Labour ──
+        if (d.labourTotal > 0) {
+          rows += `<tr class="qb-cat"><td colspan="3">Labour</td></tr>`;
+          if (d.tradeDays > 0) rows += `<tr><td>Tradesperson</td><td class="r">${d.tradeDays}d × $${d.tradeRate}</td><td class="r">$${f(d.tradeDays * d.tradeRate)}</td></tr>`;
+          if (d.labourerDays > 0) rows += `<tr><td>Labourer</td><td class="r">${d.labourerDays}d × $${d.labourerRate}</td><td class="r">$${f(d.labourerDays * d.labourerRate)}</td></tr>`;
+        }
+
+        // ── Custom Items ──
+        if (d.customItems.length > 0) {
+          rows += `<tr class="qb-cat"><td colspan="3">Custom Items</td></tr>`;
+          d.customItems.forEach(c => {
+            rows += `<tr><td>${this._esc(c.desc)}</td><td class="r">${c.qty} ${c.unit} × $${f(c.unitPrice)}</td><td class="r">$${f(c.total)}</td></tr>`;
+          });
+        }
+
+        // ── Surcharges ──
+        if (d.accessSurcharge > 0 || d.urgencySurcharge > 0) {
+          rows += `<tr class="qb-cat"><td colspan="3">Surcharges</td></tr>`;
+          if (d.accessSurcharge > 0) rows += `<tr><td>Access difficulty (${d.js.access})</td><td class="r">${Math.round(d.accessRate * 100)}%</td><td class="r">$${f(d.accessSurcharge)}</td></tr>`;
+          if (d.urgencySurcharge > 0) rows += `<tr><td>Urgency (${d.js.urgency})</td><td class="r">${Math.round(d.urgencyRate * 100)}%</td><td class="r">$${f(d.urgencySurcharge)}</td></tr>`;
+        }
+
+        // ── Delivery ──
+        rows += `<tr><td>Delivery</td><td class="r"></td><td class="r">$${f(d.deliveryFee)}</td></tr>`;
+
+        // ── Totals ──
+        rows += `<tr class="qb-subtotal"><td>Subtotal (ex GST)</td><td></td><td class="r">$${f(d.subtotal)}</td></tr>`;
+        rows += `<tr class="qb-subtotal"><td>GST (10%)</td><td></td><td class="r">$${f(d.gst)}</td></tr>`;
+        rows += `<tr class="qb-grand"><td>Total (inc GST)</td><td></td><td class="r">$${f(d.grandTotal)}</td></tr>`;
+
+        // ── Internal (scoper only) ──
+        rows += `<tr class="qb-internal"><td colspan="3" style="padding-top:12px;font-weight:700;">Internal (not shown to client)</td></tr>`;
+        rows += `<tr class="qb-internal"><td>Material cost</td><td></td><td class="r">$${f(d.internalCost)}</td></tr>`;
+        rows += `<tr class="qb-internal"><td>Labour cost</td><td></td><td class="r">$${f(d.internalLabour)}</td></tr>`;
+        rows += `<tr class="qb-internal"><td>Total cost</td><td></td><td class="r">$${f(totalCost)}</td></tr>`;
+        rows += `<tr class="qb-internal"><td>Margin</td><td></td><td class="r"><span class="qb-margin-pill" style="background:${marginCol}15;color:${marginCol};">${marginPct.toFixed(1)}%</span></td></tr>`;
+        rows += `<tr class="qb-internal"><td>Deposit (50%)</td><td></td><td class="r" style="font-weight:700;color:#F15A29;">$${f(d.grandTotal * 0.5)}</td></tr>`;
+
+        el.innerHTML = `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+        if (statusEl) { statusEl.className = 'section-status done'; }
+      },
+
+      // ── Profit & Orders (GP breakdown + draft PO approval) ──
+      _poApproved: { materials: false, labour: false },
+
+      renderProfitOrders() {
+        const el = document.getElementById('bodyProfitOrders');
+        if (!el) return;
+        const statusEl = document.getElementById('statusProfitOrders');
+        let d;
+        try { d = this._collectOutputData(); } catch(e) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see profit breakdown.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
+          return;
+        }
+        if (d.totalMetres <= 0) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see profit breakdown.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
+          return;
+        }
+
+        const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const totalCost = d.internalCost + d.internalLabour;
+        const gp = d.subtotal - totalCost;
+        const gpPct = d.subtotal > 0 ? (gp / d.subtotal * 100) : 0;
+        const gpCol = gpPct < 20 ? '#dc2626' : gpPct < 30 ? '#d97706' : '#16a34a';
+
+        // ── GP Overview Card ──
+        let html = `<div class="po-card" style="border-color:${gpCol}40;">
+          <div class="po-card-header" style="background:${gpCol}10;color:${gpCol};">
+            Gross Profit Analysis
+            <span class="qb-margin-pill" style="background:${gpCol}15;color:${gpCol};font-size:14px;">${gpPct.toFixed(1)}% GP</span>
+          </div>
+          <div class="po-card-body">
+            <div class="po-gp-bar">
+              <div class="po-gp-fill" style="width:${Math.min(100, Math.max(0, gpPct))}%;background:${gpCol};"></div>
+              <div class="po-gp-label">$${f(gp)} GP on $${f(d.subtotal)} revenue</div>
+            </div>
+            <table>
+              <tr><td>Revenue (ex GST)</td><td class="r" style="font-weight:700;">$${f(d.subtotal)}</td></tr>
+              <tr><td>Total cost (materials + labour)</td><td class="r">$${f(totalCost)}</td></tr>
+              <tr class="po-total"><td style="color:${gpCol};">Gross Profit</td><td class="r" style="color:${gpCol};font-size:15px;">$${f(gp)}</td></tr>
+            </table>
+          </div>
+        </div>`;
+
+        // ── Material PO Card ──
+        let matRows = '';
+        Object.values(d.postGroups).forEach(g => {
+          let unitCost = 0;
+          if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
+          else if (g.sheetH === 1500) unitCost = COST_PRICES.panelKit1500_2400;
+          else if (g.sheetH === 1800) {
+            if (g.postH <= 2400) unitCost = COST_PRICES.panelKit1800_2400;
+            else if (g.postH <= 2700) unitCost = COST_PRICES.panelKit1800_2700;
+            else unitCost = COST_PRICES.panelKit1800_3000;
+          } else if (g.sheetH === 2100) {
+            unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
+          } else unitCost = COST_PRICES.panelKit1800_2400;
+          matRows += `<tr><td>Panel kit ${g.sheetH}H/${g.postH}H</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
+        });
+        if (d.totalPlinths > 0) matRows += `<tr><td>Retaining plinths</td><td class="r">${d.totalPlinths} × $${f(COST_PRICES.plinth)}</td><td class="r">$${f(d.totalPlinths * COST_PRICES.plinth)}</td></tr>`;
+        if (d.totalPatioTubes > 0) matRows += `<tr><td>Patio tubes (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${f(COST_PRICES.patioTube)}</td><td class="r">$${f(d.totalPatioTubes * COST_PRICES.patioTube)}</td></tr>`;
+        matRows += `<tr><td>Concrete (20kg bags)</td><td class="r">${d.concreteBags} × $${f(COST_PRICES.concrete)}</td><td class="r">$${f(d.concreteBags * COST_PRICES.concrete)}</td></tr>`;
+        matRows += `<tr><td>Tek screw boxes</td><td class="r">${d.tekBoxes} × $${f(COST_PRICES.tekScrewBox)}</td><td class="r">$${f(d.tekBoxes * COST_PRICES.tekScrewBox)}</td></tr>`;
+        (d.job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') {
+            matRows += `<tr><td>Ped gate kit + 2× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90)}</td></tr>`;
+          } else if (g.type === 'double') {
+            matRows += `<tr><td>Double gate kit + 4× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90)}</td></tr>`;
+          }
+        });
+        matRows += `<tr class="po-total"><td colspan="2">Material Cost Total</td><td class="r">$${f(d.internalCost)}</td></tr>`;
+
+        const matApproved = this._poApproved.materials;
+        html += `<div class="po-card">
+          <div class="po-card-header" style="background:${matApproved ? '#dcfce7' : '#fef3c7'};color:${matApproved ? '#16a34a' : '#92400e'};">
+            Draft Material Purchase Order
+            <button class="po-approve-btn" style="background:${matApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('materials')">
+              ${matApproved ? 'Approved' : 'Approve'}
+            </button>
+          </div>
+          <div class="po-card-body">
+            <table>
+              <thead><tr><th style="text-align:left;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Item</th><th style="text-align:right;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Qty/Rate</th><th style="text-align:right;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Cost</th></tr></thead>
+              <tbody>${matRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+
+        // ── Labour PO Card ──
+        const labApproved = this._poApproved.labour;
+        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
+        let labRows = `<tr><td>Base labour (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m)</td><td class="r">$${f(labBase)}</td></tr>`;
+        if (d.accessSurcharge > 0) labRows += `<tr><td>Access difficulty (${d.js.access}: +${Math.round(d.accessRate * 100)}%)</td><td class="r">$${f(labBase * d.accessRate)}</td></tr>`;
+        labRows += `<tr class="po-total"><td>Labour Cost Total</td><td class="r">$${f(d.internalLabour)}</td></tr>`;
+        labRows += `<tr><td style="padding-top:8px;font-size:12px;color:#4C6A70;">Scoper allowed: ${d.tradeDays}d trade ($${d.tradeRate}/d) + ${d.labourerDays}d labourer ($${d.labourerRate}/d)</td><td class="r" style="padding-top:8px;font-weight:700;">$${f(d.labourTotal)} sell</td></tr>`;
+        const labMargin = d.labourTotal - d.internalLabour;
+        const labMarginPct = d.labourTotal > 0 ? (labMargin / d.labourTotal * 100) : 0;
+        const labMarginCol = labMarginPct < 0 ? '#dc2626' : labMarginPct < 20 ? '#d97706' : '#16a34a';
+        labRows += `<tr><td style="font-size:12px;color:${labMarginCol};">Labour margin</td><td class="r" style="color:${labMarginCol};font-weight:700;">$${f(labMargin)} (${labMarginPct.toFixed(0)}%)</td></tr>`;
+
+        html += `<div class="po-card">
+          <div class="po-card-header" style="background:${labApproved ? '#dcfce7' : '#fef3c7'};color:${labApproved ? '#16a34a' : '#92400e'};">
+            Draft Labour Purchase Order
+            <button class="po-approve-btn" style="background:${labApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('labour')">
+              ${labApproved ? 'Approved' : 'Approve'}
+            </button>
+          </div>
+          <div class="po-card-body">
+            <table>
+              <tbody>${labRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+
+        // ── Revenue Split Summary ──
+        const matSell = d.fencingTotal + d.plinthsTotal + d.patioTotal + d.gatesTotal + d.deliveryFee;
+        const matMargin = matSell - d.internalCost;
+        const matMarginPct = matSell > 0 ? (matMargin / matSell * 100) : 0;
+        const matMCol = matMarginPct < 20 ? '#dc2626' : matMarginPct < 30 ? '#d97706' : '#16a34a';
+        html += `<div style="margin-top:4px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#4C6A70;">
+          <div style="font-weight:700;text-transform:uppercase;margin-bottom:8px;font-size:11px;">Revenue Split</div>
+          <table style="width:100%;font-size:12px;">
+            <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matMargin)} (${matMarginPct.toFixed(0)}%)</td></tr>
+            <tr><td>Labour: sell $${f(d.labourTotal)}, cost $${f(d.internalLabour)}</td><td class="r" style="color:${labMarginCol};font-weight:700;">GP $${f(labMargin)} (${labMarginPct.toFixed(0)}%)</td></tr>
+            <tr><td>Other (removal, addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.removalTotal + d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
+            <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">Total GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(gp)} (${gpPct.toFixed(1)}%)</td></tr>
+          </table>
+        </div>`;
+
+        el.innerHTML = html;
+        if (statusEl) {
+          statusEl.className = 'section-status ' + (matApproved && labApproved ? 'done' : 'partial');
+        }
+      },
+
+      togglePOApproval(type) {
+        this._poApproved[type] = !this._poApproved[type];
+        this.renderProfitOrders();
+        if (this._poApproved[type]) {
+          this.showToast(type.charAt(0).toUpperCase() + type.slice(1) + ' PO approved', 'success');
+        }
+      },
+
       // ── New Job ──
       newJob() {
         if (!confirm('Start a new job? This will clear all current data.')) return;
@@ -2404,7 +2701,7 @@
 
       // ── Render ──
       // ── Section toggle & status system ──
-      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, quote: false, checklist: false },
+      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, breakdown: false, profitOrders: false, quote: false, checklist: false },
 
       toggleSection(sectionId) {
         const opening = !this._openSections[sectionId];
@@ -2868,7 +3165,7 @@
             <div class="form-group">
               <label>$/Metre</label>
               <input type="number" id="pricePerMetre" value="${j.pricePerMetre || 115}" step="0.01" min="0"
-                onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats();">
+                onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats(); app.renderQuoteBreakdown(); app.renderProfitOrders();">
             </div>
             <div class="form-group">
               <label>Urgency</label>
@@ -3005,6 +3302,14 @@
             </div>
           </div>
 
+          <div class="section-label" style="margin-top:16px;">Custom Quote Description</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Optional — appears on the quote below the auto-generated scope description</div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <textarea rows="3" placeholder="e.g. Fence to follow existing retaining wall on southern boundary. Client to relocate garden beds before work begins..."
+              style="width:100%;min-height:80px;font-size:15px;padding:12px;border:1px solid #4C6A70;border-radius:6px;resize:vertical;"
+              onchange="app.updateQuote('customDescription', this.value)">${this._esc(q.customDescription || '')}</textarea>
+          </div>
+
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
           ${items.map((c, i) => `
             <div class="form-row" style="margin-bottom:8px;">
@@ -3060,11 +3365,11 @@
                 ondrop="event.preventDefault(); this.classList.remove('dragover'); app.handlePhotoDrop(event)">
                 <div style="color:#4C6A70;">
                   <div style="font-size:32px;margin-bottom:6px;">&#128247;</div>
-                  <div style="font-weight:600;font-size:15px;">Tap to upload photos</div>
-                  <div style="font-size:13px;margin-top:4px;opacity:0.8;">Colour swatch, video walkthrough stills, general site pics</div>
+                  <div style="font-weight:600;font-size:15px;">Tap to take or select photos</div>
+                  <div style="font-size:13px;margin-top:4px;opacity:0.8;">Camera or gallery — select multiple from photo library</div>
                 </div>
               </div>
-              <input type="file" id="photoFileInput" accept="image/*" multiple capture="environment"
+              <input type="file" id="photoFileInput" accept="image/*" multiple
                 style="display:none" onchange="app.handlePhotoSelect(event)">
               ${thumbsHtml}
               <div style="margin-top:8px;font-size:14px;font-weight:600;color:${photoColor};">${photoMsg}</div>
@@ -3083,7 +3388,7 @@
                 <button class="btn-orange" style="font-size:13px;padding:8px 14px;" onclick="document.getElementById('videoFileInput').click()">
                   Upload Video
                 </button>
-                <input type="file" id="videoFileInput" accept="video/*" capture="environment"
+                <input type="file" id="videoFileInput" accept="video/*"
                   style="display:none" onchange="app.handleVideoSelect(event)">
                 ${cl.videoFile ? '<span style="font-size:12px;color:#16a34a;font-weight:600;">Video attached: ' + (cl.videoFileName || 'walkthrough.mp4') + '</span>' : ''}
               </div>
@@ -3091,8 +3396,8 @@
           </div>
           <div class="form-row full-width">
             <div class="form-group">
-              <label>Final Notes</label>
-              <textarea rows="4" placeholder="Anything else to note about this scope..."
+              <label>Final Notes <span style="font-weight:400;font-size:11px;color:#4C6A70;">(internal — not shown on client quote)</span></label>
+              <textarea rows="4" placeholder="Anything else to note about this scope — appears on work order only..."
                 onchange="app.updateChecklist('finalNotes', this.value)">${this._esc(cl.finalNotes)}</textarea>
             </div>
           </div>
@@ -3284,6 +3589,9 @@
         if (field === 'deliveryFee') value = parseFloat(value) || 250;
         this.job.quote[field] = value;
         this.save();
+        this.updateStats();
+        this.renderQuoteBreakdown();
+        this.renderProfitOrders();
         this.updateSectionStatuses();
       },
 
@@ -3294,6 +3602,9 @@
         if (field === 'qty' || field === 'price') value = parseFloat(value) || 0;
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
+        this.updateStats();
+        this.renderQuoteBreakdown();
+        this.renderProfitOrders();
       },
 
       updateChecklist(field, value) {
@@ -3569,6 +3880,8 @@
         this.renderRunContent();
         this.renderGatesSection();
         this.updateStats();
+        this.renderQuoteBreakdown();
+        this.renderProfitOrders();
         this.renderQuote();
         this.renderChecklist();
         this.updateSectionStatuses();
@@ -5459,6 +5772,158 @@
         this.showToast('Profile screenshot saved', 'success');
       },
 
+      // ── AI Image Prompt Generator ──
+      generateAIPrompt() {
+        const job = this.job;
+        if (!job.runs.length || !job.colour) {
+          this.showToast('Add fence runs and select a colour first', 'warning');
+          return;
+        }
+
+        // Gather job stats
+        let totalMetres = 0, totalPanels = 0, totalPlinths = 0;
+        let hasSlope = false;
+        const heights = new Set();
+        job.runs.forEach(run => {
+          totalMetres += run.length || 0;
+          totalPanels += run.panels.length;
+          heights.add(run.sheetHeight);
+          run.panels.forEach(p => {
+            const sp = p.slopePlinths || 0;
+            const mp = p.retaining / 150;
+            totalPlinths += Math.min(4, sp + mp);
+          });
+          if (run.slope && run.slope.simple && run.slope.simple.totalFallMm > 0) hasSlope = true;
+        });
+
+        const heightStr = [...heights].map(h => (h / 1000).toFixed(1) + 'm').join(' and ');
+        const profile = job.profile || 'standard ribbed';
+
+        // Descriptive colour mapping for photorealistic prompts
+        const colourDescriptions = {
+          'Surfmist': 'off-white with a warm cream undertone',
+          'Domain': 'warm sandy beige, like bleached limestone',
+          'Evening Haze': 'soft sage-grey with olive warmth',
+          'Paperbark': 'warm tan, like dried eucalyptus bark',
+          'Dune': 'medium warm grey-brown, like coastal sand dunes',
+          'Shale Grey': 'cool neutral mid-grey',
+          'Riversand': 'earthy mid-brown, like dried river clay',
+          'Bluegum': 'cool blue-grey, like gum tree bark',
+          'Pale Eucalypt': 'muted olive green, like eucalyptus leaves',
+          'Wilderness': 'deep forest green-grey',
+          'Basalt': 'medium charcoal grey, like volcanic rock',
+          'Woodland Grey': 'dark charcoal with a slight olive tone',
+          'Ironstone': 'very dark blue-grey, almost anthracite',
+          'Monument': 'near-black charcoal, the darkest standard Colorbond',
+          'Wollemi': 'ultra-deep forest black-green',
+          'Deep Ocean': 'dark navy blue-grey',
+          'Cottage Green': 'classic dark heritage green',
+          'Night Sky': 'true dark charcoal-black',
+          'Manor Red': 'deep heritage brick red, like Australian red earth',
+          'Jasper': 'warm dark taupe-brown',
+          'Windspray': 'light blue-grey, like overcast sky'
+        };
+        const colourDesc = colourDescriptions[job.colour] || job.colour;
+
+        // Slope description
+        let slopeDesc = '';
+        if (hasSlope) {
+          slopeDesc = '\n\nGROUND SLOPE:\n' +
+            'The ground is NOT level — the fence follows sloping terrain. Panels are stepped down the slope ' +
+            '(each panel drops relative to the previous one). Show realistic ground contour with the fence stepping down. ' +
+            'Where panels step, retaining plinths (small 150mm COLORBOND sheets) fill the gap at the bottom.';
+        }
+
+        // Retaining/plinths
+        let plinthDesc = '';
+        if (totalPlinths > 0) {
+          plinthDesc = '\n\nRETAINING PLINTHS:\n' +
+            totalPlinths + ' retaining plinths are used across the fence line. These are narrow 150mm-high COLORBOND sheets ' +
+            'fitted horizontally at the base of panels where the ground drops. They retain soil and prevent gaps. ' +
+            'Same colour as the fence panels (' + job.colour + ').';
+        }
+
+        // Gates
+        let gateDesc = '';
+        if (job.gates && job.gates.length > 0) {
+          const pedGates = job.gates.filter(g => g.type === 'pedestrian');
+          const dblGates = job.gates.filter(g => g.type === 'double');
+          const parts = [];
+          if (pedGates.length) parts.push(pedGates.length + ' pedestrian gate' + (pedGates.length > 1 ? 's' : '') + ' (single swing, ~1m wide, with D-handle latch and self-closing hinges)');
+          if (dblGates.length) parts.push(dblGates.length + ' double swing gate' + (dblGates.length > 1 ? 's' : '') + ' (~3m wide opening, two leaves, with drop bolt and D-handle latch)');
+          gateDesc = '\n\nGATES:\n' + parts.join('\n') +
+            '\nGate frames are built from 40×40mm SHS steel tube, infilled with matching COLORBOND sheets. ' +
+            'Gate posts are heavier 90×90mm SHS steel, set deeper in concrete. Show the gate(s) in the fence line.';
+        }
+
+        // Build the prompt
+        const prompt = 'TASK: Generate a photorealistic image of a newly installed COLORBOND steel fence in a Perth, Western Australia suburban setting.\n\n' +
+
+          'FENCE SPECIFICATIONS:\n' +
+          '- Type: COLORBOND steel fence — Australian-made by BlueScope Steel\n' +
+          '- Profile: ' + profile + ' — vertical ribbed/corrugated steel fence panels\n' +
+          '- Colour: "' + job.colour + '" — ' + colourDesc + '\n' +
+          '- Panel height: ' + heightStr + '\n' +
+          '- Total fence length: ' + totalMetres.toFixed(1) + ' metres\n' +
+          '- Total panels: ' + totalPanels + ' (each panel ~2.36m wide between posts)\n' +
+          '- Posts: galvanised steel C-section posts (visible between panels as a thin vertical line), ' +
+          'with matching ' + job.colour + ' post caps on top\n' +
+          '- Cap rail: continuous COLORBOND cap rail (capping) running along the top edge, same colour as panels\n' +
+          '- Bottom clearance: panels sit ~25mm above ground level (small gap visible at base)\n\n' +
+
+          'COLORBOND FENCE CONSTRUCTION DETAILS (CRITICAL — get these right):\n' +
+          '- Panels are FLAT vertical sheets with evenly-spaced vertical ribs/corrugations running top to bottom\n' +
+          '- Each panel spans between two steel posts — the posts are recessed behind the panels (visible as a narrow vertical strip from the neighbour\'s side)\n' +
+          '- From the street/front side: you see CONTINUOUS smooth panels with the cap rail along the top. Posts are barely visible\n' +
+          '- The fence has a clean, modern, uniform appearance — no horizontal rails visible from the front\n' +
+          '- Colorbond steel has a subtle satin/matte sheen — NOT glossy or mirror-like\n' +
+          '- The colour should be accurate to the real BlueScope Colorbond swatch for "' + job.colour + '"\n' +
+          slopeDesc + plinthDesc + gateDesc + '\n\n' +
+
+          'PERTH SUBURBAN SCENE:\n' +
+          '- Location: typical Perth, Western Australia residential suburb\n' +
+          '- The fence is a boundary fence between two properties\n' +
+          '- House style: single-storey brick or rendered home with Colorbond roof (typical Perth build)\n' +
+          '- Garden: established lawn (kikuyu or couch grass), some native plants (grevillea, kangaroo paw, bottlebrush)\n' +
+          '- Landscaping features: limestone garden edging or retaining, red-brown sandy Perth soil visible where freshly dug\n' +
+          '- Driveway: exposed aggregate or plain concrete\n' +
+          '- Street trees: mature eucalyptus or jacaranda providing dappled shade\n' +
+          '- A typical 700m² suburban block, ~15m frontage\n' +
+          '- Background: neighbouring houses with similar style, typical Perth suburban streetscape\n\n' +
+
+          'CAMERA & LIGHTING:\n' +
+          '- Camera position: eye-level (~1.6m height), standing in the front garden or on the street footpath, ' +
+          'looking along the fence line at a 25–35 degree angle to show depth and perspective\n' +
+          '- Focal length: 35mm (slight wide angle, natural perspective, no distortion)\n' +
+          '- Aperture: f/5.6 — fence in sharp focus, background with gentle bokeh\n' +
+          '- Depth of field: first 2–3 panels tack-sharp, gentle falloff toward the far end of the fence\n' +
+          '- Lighting: late afternoon golden hour (Perth summer, ~5:30pm WST), warm directional light from the west\n' +
+          '- Shadows: long warm shadows cast by the fence and posts onto the lawn, some dappled tree shadow on panels\n' +
+          '- Sky: clear blue Perth sky with a few wispy cirrus clouds catching golden light\n\n' +
+
+          'PHOTOREALISM REQUIREMENTS:\n' +
+          '- Must look like an ACTUAL PHOTOGRAPH taken with a Canon EOS R5 or Sony A7 IV, NOT a 3D render or CGI\n' +
+          '- Style: professional architectural/home renovation photography — like an Australian Outdoor Living magazine feature\n' +
+          '- Show natural imperfections: slight grass overgrowth near fence base, a garden hose, a wheelie bin in background\n' +
+          '- The fence should look BRAND NEW — clean panels, no marks, freshly installed\n' +
+          '- High resolution, sharp detail on the steel panel ribbing and cap rail\n' +
+          '- Natural colour grading — warm but not oversaturated';
+
+        // Copy to clipboard
+        navigator.clipboard.writeText(prompt).then(() => {
+          this.showToast('AI prompt copied — paste into Gemini or ChatGPT', 'success');
+        }).catch(() => {
+          // Fallback: textarea for manual copy
+          const ta = document.createElement('textarea');
+          ta.value = prompt;
+          ta.style.cssText = 'position:fixed;top:10%;left:10%;width:80%;height:60%;z-index:99999;font-size:12px;padding:12px;border-radius:8px;border:2px solid #F15A29;';
+          document.body.appendChild(ta);
+          ta.select();
+          this.showToast('Prompt shown in text box — select all and copy manually', 'warning');
+          ta.addEventListener('blur', () => ta.remove());
+        });
+      },
+
       // Track the last run ID we auto-fitted, so we re-fit when switching runs
       _lastFittedRunId: null,
 
@@ -6549,6 +7014,7 @@
           <div class="section">
             <h2>Scope of Works</h2>
             <p>${scopeDesc}</p>
+            ${(d.job.quote && d.job.quote.customDescription) ? '<p style="margin-top:8px;">' + this._esc(d.job.quote.customDescription) + '</p>' : ''}
           </div>
           <div class="section">
             <h2>Pricing</h2>
@@ -6884,7 +7350,13 @@
         scopeDesc += '. All posts set in concrete. Site clean-up included.';
         const scopeLines = doc.splitTextToSize(scopeDesc, pw - mx * 2);
         doc.text(scopeLines, mx, y);
-        y += scopeLines.length * 4 + 6;
+        y += scopeLines.length * 4 + 2;
+        if (d.job.quote && d.job.quote.customDescription) {
+          const customDescLines = doc.splitTextToSize(d.job.quote.customDescription, pw - mx * 2);
+          doc.text(customDescLines, mx, y);
+          y += customDescLines.length * 4 + 4;
+        }
+        y += 4;
 
         // Pricing table
         doc.setFont('helvetica', 'bold');
@@ -7057,6 +7529,8 @@
         this.job.quote[key] = parseFloat(val) || 0;
         this.save();
         this.updateStats();
+        this.renderQuoteBreakdown();
+        this.renderProfitOrders();
       },
 
       updateAddon(key, val) {
@@ -7065,6 +7539,8 @@
         this.job.quote.addons[key] = parseFloat(val) || 0;
         this.save();
         this.updateStats();
+        this.renderQuoteBreakdown();
+        this.renderProfitOrders();
       },
 
       // ── Export / Import job data ──
