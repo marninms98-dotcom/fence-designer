@@ -4252,7 +4252,10 @@
       // THREE.JS 3D FENCE VISUALIZER
       // ══════════════════════════════════════════════════════════════
       _fence3DReady: false,
-      _f3d: {}, // scene, camera, renderer, controls, groups, etc.
+      _f3d: {},
+      _f3dSelected: null,
+      _f3dOrigMats: new Map(),
+      _f3dFocusAnim: null,
 
       initFence3D() {
         const container = document.getElementById('fence3DViewport');
@@ -4265,7 +4268,7 @@
         // Scene
         f.scene = new THREE.Scene();
 
-        // Sky gradient background — Perth afternoon
+        // Sky gradient — Perth afternoon
         (function() {
           const c = document.createElement('canvas');
           c.width = 2; c.height = 512;
@@ -4323,8 +4326,8 @@
         const sun = new THREE.DirectionalLight(0xFFF0D0, 1.0);
         sun.position.set(6, 8, 5);
         sun.castShadow = true;
-        sun.shadow.mapSize.width = 1024;
-        sun.shadow.mapSize.height = 1024;
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
         sun.shadow.camera.near = 0.5;
         sun.shadow.camera.far = 50;
         sun.shadow.camera.left = -15;
@@ -4340,10 +4343,7 @@
         f.scene.add(fill);
 
         // Shadow-receiving ground
-        const shadowPlane = new THREE.Mesh(
-          new THREE.PlaneGeometry(40, 40),
-          new THREE.ShadowMaterial({ opacity: 0.15 })
-        );
+        const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.15 }));
         shadowPlane.rotation.x = -Math.PI / 2;
         shadowPlane.receiveShadow = true;
         f.scene.add(shadowPlane);
@@ -4354,8 +4354,14 @@
         // Scene groups
         f.fenceGrp = new THREE.Group();
         f.envGrp = new THREE.Group();
+        f.dimGrp = new THREE.Group();
         f.scene.add(f.fenceGrp);
         f.scene.add(f.envGrp);
+        f.scene.add(f.dimGrp);
+
+        // Raycaster for click-to-select
+        f.raycaster = new THREE.Raycaster();
+        f.mouse = new THREE.Vector2();
 
         // OrbitControls
         f.controls = new THREE.OrbitControls(f.camera, canvas);
@@ -4367,11 +4373,39 @@
         f.controls.panSpeed = 0.5;
         f.controls.target.set(0, 1, 0);
 
-        // Render loop
+        // Click-to-select
+        let clickTimer = null;
+        canvas.addEventListener('click', (e) => {
+          clearTimeout(clickTimer);
+          clickTimer = setTimeout(() => this._onFence3DClick(e), 220);
+        });
+        canvas.addEventListener('dblclick', (e) => {
+          clearTimeout(clickTimer);
+          this._onFence3DDblClick(e);
+        });
+
+        // Hover cursor
+        canvas.addEventListener('mousemove', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          f.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          f.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          f.raycaster.setFromCamera(f.mouse, f.activeCamera);
+          const hits = f.raycaster.intersectObjects(f.fenceGrp.children, false);
+          canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+        });
+
+        // Render loop with focus animation
         f._animating = true;
         const animate = () => {
           if (!f._animating) return;
           requestAnimationFrame(animate);
+          // Focus animation lerp
+          if (this._f3dFocusAnim) {
+            const a = this._f3dFocusAnim;
+            f.camera.position.lerp(a.targetPos, 0.08);
+            f.controls.target.lerp(a.targetLook, 0.08);
+            if (f.camera.position.distanceTo(a.targetPos) < 0.01) this._f3dFocusAnim = null;
+          }
           f.controls.update();
           f.renderer.render(f.scene, f.activeCamera);
         };
@@ -4394,28 +4428,165 @@
         f.orthoCam.updateProjectionMatrix();
       },
 
-      // ── Corrugated fence sheet geometry (vertical orientation) ──
+      // ── Click-to-select panel ──
+      _onFence3DClick(e) {
+        const f = this._f3d;
+        const canvas = document.getElementById('fence3DCanvas');
+        const rect = canvas.getBoundingClientRect();
+        f.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        f.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        f.raycaster.setFromCamera(f.mouse, f.activeCamera);
+        const hits = f.raycaster.intersectObjects(f.fenceGrp.children, false);
+
+        // Deselect previous
+        if (this._f3dSelected) {
+          const orig = this._f3dOrigMats.get(this._f3dSelected);
+          if (orig) this._f3dSelected.material = orig;
+          this._f3dSelected = null;
+          this._hideF3DPanel();
+        }
+
+        if (hits.length > 0) {
+          const obj = hits[0].object;
+          if (obj.userData && obj.userData.info) {
+            this._f3dOrigMats.set(obj, obj.material);
+            obj.material = new THREE.MeshStandardMaterial({
+              color: 0xF15A29, metalness: 0.1, roughness: 0.4,
+              emissive: 0xF15A29, emissiveIntensity: 0.15, side: THREE.DoubleSide
+            });
+            this._f3dSelected = obj;
+            this._showF3DPanel(obj.userData.info);
+          }
+        }
+      },
+
+      // ── Double-click focus animation ──
+      _onFence3DDblClick(e) {
+        const f = this._f3d;
+        const canvas = document.getElementById('fence3DCanvas');
+        const rect = canvas.getBoundingClientRect();
+        f.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        f.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        f.raycaster.setFromCamera(f.mouse, f.activeCamera);
+        const hits = f.raycaster.intersectObjects(f.fenceGrp.children, false);
+
+        if (hits.length > 0) {
+          const obj = hits[0].object;
+          const box = new THREE.Box3().setFromObject(obj);
+          const centre = new THREE.Vector3();
+          const sz = new THREE.Vector3();
+          box.getCenter(centre);
+          box.getSize(sz);
+          const radius = Math.max(sz.x, sz.y, sz.z) * 3.5;
+          this._f3dFocusAnim = {
+            targetPos: new THREE.Vector3(centre.x + radius * 0.5, centre.y + radius * 0.3, centre.z + radius),
+            targetLook: centre.clone()
+          };
+          f.activeCamera = f.camera;
+          f.controls.object = f.camera;
+        } else {
+          // Double-click empty → reset to full fence view
+          const box = new THREE.Box3().setFromObject(f.fenceGrp);
+          const centre = new THREE.Vector3();
+          box.getCenter(centre);
+          const sz = new THREE.Vector3();
+          box.getSize(sz);
+          const maxDim = Math.max(sz.x, sz.y, sz.z);
+          this._f3dFocusAnim = {
+            targetPos: new THREE.Vector3(centre.x + maxDim * 0.8, centre.y + maxDim * 0.5, maxDim * 1.2),
+            targetLook: centre.clone()
+          };
+        }
+      },
+
+      // ── Properties panel ──
+      _showF3DPanel(info) {
+        let panel = document.getElementById('fence3DInfoPanel');
+        if (!panel) {
+          panel = document.createElement('div');
+          panel.id = 'fence3DInfoPanel';
+          panel.style.cssText = 'position:absolute;top:12px;right:12px;background:rgba(41,60,70,0.92);color:#fff;padding:14px 18px;border-radius:8px;font-size:13px;line-height:1.6;z-index:20;max-width:260px;pointer-events:auto;';
+          document.getElementById('fence3DViewport').appendChild(panel);
+        }
+        panel.innerHTML = info;
+        panel.style.display = 'block';
+      },
+      _hideF3DPanel() {
+        const p = document.getElementById('fence3DInfoPanel');
+        if (p) p.style.display = 'none';
+      },
+
+      // ── Dimension sprite creator ──
+      _createDimSprite(text) {
+        const c = document.createElement('canvas');
+        const ctx = c.getContext('2d');
+        ctx.font = 'bold 28px Arial, sans-serif';
+        const tw = ctx.measureText(text).width;
+        c.width = Math.ceil(tw + 20);
+        c.height = 36;
+        // Background pill
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.strokeStyle = '#bbb';
+        ctx.lineWidth = 1.5;
+        const r = 6;
+        ctx.beginPath();
+        ctx.moveTo(r, 0); ctx.lineTo(c.width - r, 0); ctx.quadraticCurveTo(c.width, 0, c.width, r);
+        ctx.lineTo(c.width, c.height - r); ctx.quadraticCurveTo(c.width, c.height, c.width - r, c.height);
+        ctx.lineTo(r, c.height); ctx.quadraticCurveTo(0, c.height, 0, c.height - r);
+        ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        // Text
+        ctx.fillStyle = '#1a365d';
+        ctx.font = 'bold 28px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, c.width / 2, c.height / 2);
+        const tex = new THREE.CanvasTexture(c);
+        const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(c.width * 0.004, c.height * 0.004, 1);
+        return sprite;
+      },
+
+      // ── Dimension line with label ──
+      _createDimLine(start, end, offset, label) {
+        const grp = new THREE.Group();
+        const dir = new THREE.Vector3().subVectors(end, start);
+        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5).add(offset);
+        // Main line
+        const pts = [start.clone().add(offset), end.clone().add(offset)];
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x1a365d, depthTest: false });
+        grp.add(new THREE.Line(lineGeo, lineMat));
+        // Extension lines
+        const ext1Geo = new THREE.BufferGeometry().setFromPoints([start, start.clone().add(offset)]);
+        const ext2Geo = new THREE.BufferGeometry().setFromPoints([end, end.clone().add(offset)]);
+        const extMat = new THREE.LineBasicMaterial({ color: 0x999999, depthTest: false });
+        grp.add(new THREE.Line(ext1Geo, extMat));
+        grp.add(new THREE.Line(ext2Geo, extMat));
+        // Label
+        const sprite = this._createDimSprite(label);
+        sprite.position.copy(mid);
+        grp.add(sprite);
+        return grp;
+      },
+
+      // ── Corrugated fence sheet geometry ──
       _createFenceSheetGeo(widthM, heightM, profile) {
-        // Sheet is in XY plane — X = width, Y = height, Z = depth (corrugation)
         const segs = profile === 'Harmony' ? 80 : 60;
         const geo = new THREE.PlaneGeometry(widthM, heightM, segs, 1);
         const pos = geo.attributes.position;
-
         if (profile === 'Harmony' || profile === 'Corodek') {
-          // Sinusoidal corrugation
           const waveH = 0.008;
           const freq = profile === 'Harmony' ? 14 : 10;
           for (let i = 0; i < pos.count; i++) {
-            const x = pos.getX(i);
-            pos.setZ(i, Math.sin(x * freq * Math.PI) * waveH);
+            pos.setZ(i, Math.sin(pos.getX(i) * freq * Math.PI) * waveH);
           }
         } else {
-          // Trimclad / Trimdek — trapezoidal ribs
-          const ribH = 0.012;
-          const ribW = 0.04;
+          const ribH = 0.012, ribW = 0.04;
           for (let i = 0; i < pos.count; i++) {
-            const x = pos.getX(i);
-            const phase = ((x / ribW) % 1 + 1) % 1;
+            const phase = ((pos.getX(i) / ribW) % 1 + 1) % 1;
             let z = 0;
             if (phase < 0.08) z = ribH * (phase / 0.08);
             else if (phase < 0.38) z = ribH;
@@ -4427,7 +4598,7 @@
         return geo;
       },
 
-      // ── Procedural grass texture ──
+      // ── Procedural textures ──
       _createGrassTexture() {
         const c = document.createElement('canvas');
         c.width = 256; c.height = 256;
@@ -4437,20 +4608,68 @@
         for (let i = 0; i < 2000; i++) {
           const bx = Math.random() * 256, by = Math.random() * 256;
           const v = Math.floor(Math.random() * 30) - 15;
-          ctx.strokeStyle = `rgba(${92 + v},${138 + v},${60 + v},0.6)`;
+          ctx.strokeStyle = `rgba(${92+v},${138+v},${60+v},0.6)`;
           ctx.lineWidth = 0.5 + Math.random();
-          ctx.beginPath();
-          ctx.moveTo(bx, by);
-          ctx.lineTo(bx + (Math.random() - 0.5) * 3, by - 2 - Math.random() * 4);
-          ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + (Math.random()-0.5)*3, by - 2 - Math.random()*4); ctx.stroke();
         }
         for (let p = 0; p < 40; p++) {
           ctx.fillStyle = 'rgba(140,130,80,0.15)';
-          ctx.fillRect(Math.random() * 256, Math.random() * 256, 3 + Math.random() * 8, 2 + Math.random() * 5);
+          ctx.fillRect(Math.random()*256, Math.random()*256, 3+Math.random()*8, 2+Math.random()*5);
         }
         const tex = new THREE.CanvasTexture(c);
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
         tex.repeat.set(20, 20);
+        return tex;
+      },
+
+      _createPaverTexture() {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 512;
+        const ctx = c.getContext('2d');
+        // Grout base
+        ctx.fillStyle = '#A89878';
+        ctx.fillRect(0, 0, 512, 512);
+        // Paver palette — WA limestone tones
+        const palette = [[210,195,168],[200,186,160],[218,202,176],[192,178,154],[205,190,162],[188,174,150]];
+        const pw = 80, ph = 40, gap = 3;
+        for (let row = 0; row < Math.ceil(512/ph); row++) {
+          const offset = (row % 2) * (pw / 2);
+          for (let col = -1; col < Math.ceil(512/pw) + 1; col++) {
+            const x = col * pw + offset;
+            const y = row * ph;
+            const base = palette[Math.floor(Math.random() * palette.length)];
+            const jit = Math.floor(Math.random() * 10) - 5;
+            ctx.fillStyle = `rgb(${base[0]+jit},${base[1]+jit},${base[2]+jit})`;
+            ctx.fillRect(x + gap/2, y + gap/2, pw - gap, ph - gap);
+            // Stone speckle
+            for (let s = 0; s < 4; s++) {
+              const sv = Math.floor(Math.random() * 16) - 8;
+              ctx.fillStyle = `rgba(${base[0]+sv},${base[1]+sv},${base[2]+sv},0.35)`;
+              ctx.fillRect(x + gap + Math.random()*(pw-gap*2), y + gap + Math.random()*(ph-gap*2), 2+Math.random()*3, 1+Math.random()*2);
+            }
+          }
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(4, 4);
+        return tex;
+      },
+
+      _createMulchTexture() {
+        const c = document.createElement('canvas');
+        c.width = 256; c.height = 256;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#6B4D3A';
+        ctx.fillRect(0, 0, 256, 256);
+        for (let i = 0; i < 800; i++) {
+          const mx = Math.random()*256, my = Math.random()*256;
+          const v = Math.floor(Math.random()*40)-20;
+          ctx.fillStyle = `rgba(${107+v},${77+v},${58+v},0.7)`;
+          ctx.fillRect(mx, my, 3+Math.random()*8, 1+Math.random()*3);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(6, 6);
         return tex;
       },
 
@@ -4459,18 +4678,20 @@
         const f = this._f3d;
         if (!f.fenceGrp) return;
 
-        // Clear old geometry
-        [f.fenceGrp, f.envGrp].forEach(grp => {
-          while (grp.children.length) {
-            const child = grp.children[0];
+        // Clear old geometry (deep dispose)
+        [f.fenceGrp, f.envGrp, f.dimGrp].forEach(grp => {
+          grp.traverse(child => {
             if (child.geometry) child.geometry.dispose();
             if (child.material) {
-              if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-              else child.material.dispose();
+              if (Array.isArray(child.material)) child.material.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+              else { if (child.material.map) child.material.map.dispose(); child.material.dispose(); }
             }
-            grp.remove(child);
-          }
+          });
+          while (grp.children.length) grp.remove(grp.children[0]);
         });
+        this._f3dSelected = null;
+        this._f3dOrigMats.clear();
+        this._hideF3DPanel();
 
         const job = this.job;
         const run = job.runs.find(r => r.id === this.currentRunId) || job.runs[0];
@@ -4479,321 +4700,448 @@
         // Colour lookup
         const allColours = [...(COLOURS_STOCK || []), ...(COLOURS_SPECIAL || [])];
         const colourEntry = allColours.find(c => c.name === job.colour);
-        const colourHex = colourEntry ? colourEntry.hex : '#C4C0B6'; // default Surfmist
+        const colourHex = colourEntry ? colourEntry.hex : '#C4C0B6';
         const fenceCol = new THREE.Color(colourHex).convertSRGBToLinear();
 
-        // Materials
+        // Materials — PBR Colorbond
         const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol, metalness: 0.1, roughness: 0.4, side: THREE.DoubleSide });
         const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.85), metalness: 0.1, roughness: 0.45 });
         const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.9), metalness: 0.1, roughness: 0.35 });
         const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.8), metalness: 0.05, roughness: 0.5 });
+        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.95), metalness: 0.15, roughness: 0.3 });
         const earthMat = new THREE.MeshStandardMaterial({ color: 0xC4A882, roughness: 0.85, metalness: 0.0 });
+        const galvMat = new THREE.MeshStandardMaterial({ color: 0xB0B0B0, metalness: 0.5, roughness: 0.45 });
+        const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
 
-        // Dimensions (convert mm to metres)
+        // Dimensions
         const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
         const panelWidthMm = supplier.panelWidth;
         const panelWidthM = panelWidthMm / 1000;
-        const postW = 0.05; // 50mm C-channel
+        const postW = 0.05;
         const railH = 0.025;
         const plinthH = 0.15;
         const embedDepth = 0.6;
+        const profile = job.profile || 'Trimclad';
 
-        // Compute slope-derived data
+        // Compute slope data
         this._calcSlopePlinths(run);
         const panelCount = run.panels.length;
 
-        // Calculate ground offsets from slope (same logic as 2D view)
+        // Ground offsets from slope
         const groundOffsets = new Array(panelCount + 1).fill(0);
         if (run.slope && run.slope.points && run.slope.points.length >= 2) {
           const pts = run.slope.points;
           const totalLen = run.length || (panelCount * panelWidthMm / 1000);
           for (let pi = 0; pi <= panelCount; pi++) {
-            const x = pi * (panelWidthMm / 1000);
-            const frac = totalLen > 0 ? x / totalLen : 0;
-            // Linear interpolation through slope points
+            const xM = pi * panelWidthM;
             let hMm = 0;
             for (let si = 0; si < pts.length - 1; si++) {
-              const dStart = pts[si].distanceM || 0;
-              const dEnd = pts[si + 1].distanceM || totalLen;
-              const xM = frac * totalLen;
-              if (xM >= dStart && xM <= dEnd) {
-                const t = dEnd > dStart ? (xM - dStart) / (dEnd - dStart) : 0;
-                hMm = (pts[si].heightMm || 0) + t * ((pts[si + 1].heightMm || 0) - (pts[si].heightMm || 0));
+              const dS = pts[si].distanceM || 0;
+              const dE = pts[si+1].distanceM || totalLen;
+              if (xM >= dS && xM <= dE) {
+                const t = dE > dS ? (xM - dS) / (dE - dS) : 0;
+                hMm = (pts[si].heightMm||0) + t * ((pts[si+1].heightMm||0) - (pts[si].heightMm||0));
                 break;
               }
             }
-            groundOffsets[pi] = hMm / 1000; // metres
+            groundOffsets[pi] = hMm / 1000;
           }
         }
-
-        // Normalize ground offsets so minimum is 0
         const minGnd = Math.min(...groundOffsets);
         for (let i = 0; i < groundOffsets.length; i++) groundOffsets[i] -= minGnd;
 
-        // ── Build fence geometry ──
+        // Track panel positions for dimensions
+        const panelPositions = [];
         let cursorX = 0;
-        const profile = job.profile || 'Trimclad';
+        let maxFenceTop = 0;
 
+        // ══ BUILD FENCE ══
         for (let pi = 0; pi <= panelCount; pi++) {
           const gndY = groundOffsets[pi];
 
           // ── POST ──
-          if (pi <= panelCount) {
-            // Determine post height from adjacent panels
-            let postH = 2.4; // default
-            const leftPanel = pi > 0 ? run.panels[pi - 1] : null;
-            const rightPanel = pi < panelCount ? run.panels[pi] : null;
+          let postH = 2.4;
+          const leftPanel = pi > 0 ? run.panels[pi-1] : null;
+          const rightPanel = pi < panelCount ? run.panels[pi] : null;
+          if (leftPanel) {
+            const lk = lookupPost(leftPanel.height, Math.min(4, (leftPanel.slopePlinths||0) + leftPanel.retaining/150) * 150);
+            postH = Math.max(postH, lk.post / 1000);
+          }
+          if (rightPanel) {
+            const rk = lookupPost(rightPanel.height, Math.min(4, (rightPanel.slopePlinths||0) + rightPanel.retaining/150) * 150);
+            postH = Math.max(postH, rk.post / 1000);
+          }
+          const aboveGnd = postH - embedDepth;
+          maxFenceTop = Math.max(maxFenceTop, gndY + aboveGnd);
 
-            const calcPanelTop = (p, gnd) => {
-              const slopePl = p.slopePlinths || 0;
-              const manualPl = p.retaining / 150;
-              const totalPl = Math.min(4, slopePl + manualPl);
-              const retH = totalPl * 0.15;
-              return gnd + retH + railH + (p.height / 1000) + railH;
-            };
+          // Post body
+          const postGeo = new THREE.BoxGeometry(postW, aboveGnd, postW);
+          const post = new THREE.Mesh(postGeo, postMat);
+          post.position.set(cursorX, gndY + aboveGnd/2, 0);
+          post.castShadow = true; post.receiveShadow = true;
+          post.userData = { info: `<b>Post ${pi+1}</b><br>Height: ${postH*1000}mm<br>Above ground: ${Math.round(aboveGnd*1000)}mm<br>Embed: ${embedDepth*1000}mm` };
+          f.fenceGrp.add(post);
 
-            if (leftPanel) {
-              const lt = calcPanelTop(leftPanel, groundOffsets[pi - 1]);
-              const lk = lookupPost(leftPanel.height, Math.min(4, (leftPanel.slopePlinths || 0) + leftPanel.retaining / 150) * 150);
-              postH = Math.max(postH, lk.post / 1000);
-            }
-            if (rightPanel) {
-              const rk = lookupPost(rightPanel.height, Math.min(4, (rightPanel.slopePlinths || 0) + rightPanel.retaining / 150) * 150);
-              postH = Math.max(postH, rk.post / 1000);
-            }
+          // Post cap (small square on top)
+          const postCapGeo = new THREE.BoxGeometry(postW + 0.008, 0.006, postW + 0.008);
+          const postCap = new THREE.Mesh(postCapGeo, capMat);
+          postCap.position.set(cursorX, gndY + aboveGnd + 0.003, 0);
+          f.fenceGrp.add(postCap);
 
-            // Post above ground
-            const aboveGround = postH - embedDepth;
-            const postGeo = new THREE.BoxGeometry(postW, aboveGround, postW);
-            const post = new THREE.Mesh(postGeo, postMat);
-            post.position.set(cursorX, gndY + aboveGround / 2, 0);
-            post.castShadow = true;
-            post.receiveShadow = true;
-            f.fenceGrp.add(post);
+          // Embed (underground)
+          const embedGeo = new THREE.BoxGeometry(postW, embedDepth, postW);
+          const eMat = postMat.clone(); eMat.transparent = true; eMat.opacity = 0.3;
+          const embed = new THREE.Mesh(embedGeo, eMat);
+          embed.position.set(cursorX, gndY - embedDepth/2, 0);
+          f.fenceGrp.add(embed);
 
-            // Post embed (underground, semi-transparent)
-            const embedGeo = new THREE.BoxGeometry(postW, embedDepth, postW);
-            const embedMat = postMat.clone();
-            embedMat.transparent = true; embedMat.opacity = 0.3;
-            const embed = new THREE.Mesh(embedGeo, embedMat);
-            embed.position.set(cursorX, gndY - embedDepth / 2, 0);
-            f.fenceGrp.add(embed);
+          // Concrete footing
+          const footGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.5, 8);
+          const foot = new THREE.Mesh(footGeo, concreteMat.clone());
+          foot.material.transparent = true; foot.material.opacity = 0.4;
+          foot.position.set(cursorX, gndY - 0.35, 0);
+          f.fenceGrp.add(foot);
 
-            // Concrete footing
-            const footGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.5, 8);
-            const footMat = new THREE.MeshStandardMaterial({ color: 0xA0A0A0, roughness: 0.9, metalness: 0.0, transparent: true, opacity: 0.4 });
-            const foot = new THREE.Mesh(footGeo, footMat);
-            foot.position.set(cursorX, gndY - 0.35, 0);
-            f.fenceGrp.add(foot);
-
-            // Patio tube behind post if needed
-            if (leftPanel || rightPanel) {
-              const checkP = rightPanel || leftPanel;
-              const totalPl = Math.min(4, (checkP.slopePlinths || 0) + checkP.retaining / 150);
-              if (totalPl >= 3 && totalPl <= 4) {
-                const tubeGeo = new THREE.BoxGeometry(0.076, aboveGround, 0.038);
-                const tubeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.4, roughness: 0.45 });
-                const tube = new THREE.Mesh(tubeGeo, tubeMat);
-                tube.position.set(cursorX, gndY + aboveGround / 2, -0.04);
-                tube.castShadow = true;
-                f.fenceGrp.add(tube);
-              }
+          // Patio tube if needed
+          if (leftPanel || rightPanel) {
+            const checkP = rightPanel || leftPanel;
+            const totalPl = Math.min(4, (checkP.slopePlinths||0) + checkP.retaining/150);
+            if (totalPl >= 3 && totalPl <= 4) {
+              const tube = new THREE.Mesh(new THREE.BoxGeometry(0.076, aboveGnd, 0.038), galvMat);
+              tube.position.set(cursorX, gndY + aboveGnd/2, -0.04);
+              tube.castShadow = true;
+              tube.userData = { info: '<b>Patio Tube</b><br>76×38mm RHS<br>Galvanised steel<br>Reinforcement for high retaining' };
+              f.fenceGrp.add(tube);
             }
           }
 
-          // ── PANEL (between post pi and pi+1) ──
+          // ── PANEL ──
           if (pi < panelCount) {
             const panel = run.panels[pi];
-            const panelX = cursorX + postW / 2 + panelWidthM / 2;
-            const gndL = groundOffsets[pi];
-            const gndR = groundOffsets[pi + 1];
-            const panelGnd = Math.min(gndL, gndR); // low-side ground
+            const panelX = cursorX + postW/2 + panelWidthM/2;
+            const panelGnd = Math.min(groundOffsets[pi], groundOffsets[pi+1]);
 
-            // Plinths
             const slopePl = panel.slopePlinths || 0;
             const manualPl = panel.retaining / 150;
             const totalPl = Math.min(4, slopePl + manualPl);
             const retH = totalPl * plinthH;
             let stackY = panelGnd;
 
+            // Plinths
             for (let pli = 0; pli < totalPl; pli++) {
               const plGeo = new THREE.BoxGeometry(panelWidthM, plinthH - 0.002, 0.008);
               const pl = new THREE.Mesh(plGeo, plinthMat);
-              pl.position.set(panelX, stackY + plinthH / 2, 0);
-              pl.castShadow = true;
-              pl.receiveShadow = true;
+              pl.position.set(panelX, stackY + plinthH/2, 0);
+              pl.castShadow = true; pl.receiveShadow = true;
+              pl.userData = { info: `<b>Plinth ${pli+1}/${Math.round(totalPl)}</b><br>Panel ${pi+1}<br>150mm COLORBOND<br>${job.colour}` };
               f.fenceGrp.add(pl);
-
-              // Horizontal rib lines on plinth
+              // Horizontal ribs
               for (let ri = 1; ri <= 3; ri++) {
-                const ribGeo = new THREE.BoxGeometry(panelWidthM, 0.002, 0.001);
-                const ribMesh = new THREE.Mesh(ribGeo, postMat); // darker
-                ribMesh.position.set(panelX, stackY + (plinthH * ri / 4), 0.005);
-                f.fenceGrp.add(ribMesh);
+                const rib = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.002, 0.001), postMat);
+                rib.position.set(panelX, stackY + (plinthH*ri/4), 0.005);
+                f.fenceGrp.add(rib);
               }
-
               stackY += plinthH;
             }
 
-            // Retaining earth behind plinths
+            // Retaining earth
             if (totalPl > 0) {
-              const earthGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.4);
+              const earthGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.5);
               const earth = new THREE.Mesh(earthGeo, earthMat);
-              earth.position.set(panelX, panelGnd + retH / 2, -0.25);
+              earth.position.set(panelX, panelGnd + retH/2, -0.3);
               earth.receiveShadow = true;
               f.fenceGrp.add(earth);
-
-              // Grass strip on top of earth
-              const grassStripGeo = new THREE.BoxGeometry(panelWidthM, 0.01, 0.4);
-              const grassStripMat = new THREE.MeshStandardMaterial({ color: 0x5C8A3C, roughness: 0.9 });
-              const grassStrip = new THREE.Mesh(grassStripGeo, grassStripMat);
-              grassStrip.position.set(panelX, panelGnd + retH + 0.005, -0.25);
-              f.fenceGrp.add(grassStrip);
+              // Grass on top of earth
+              const gsGeo = new THREE.BoxGeometry(panelWidthM, 0.01, 0.5);
+              const gs = new THREE.Mesh(gsGeo, new THREE.MeshStandardMaterial({ color: 0x5C8A3C, roughness: 0.9 }));
+              gs.position.set(panelX, panelGnd + retH + 0.005, -0.3);
+              f.fenceGrp.add(gs);
             }
 
             // Bottom rail
-            const bottomRailGeo = new THREE.BoxGeometry(panelWidthM, railH, 0.04);
-            const bottomRail = new THREE.Mesh(bottomRailGeo, railMat);
-            bottomRail.position.set(panelX, stackY + railH / 2, 0);
-            bottomRail.castShadow = true;
-            f.fenceGrp.add(bottomRail);
+            const bRail = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, railH, 0.04), railMat);
+            bRail.position.set(panelX, stackY + railH/2, 0);
+            bRail.castShadow = true;
+            f.fenceGrp.add(bRail);
             stackY += railH;
 
-            // Sheet panel (corrugated)
+            // Sheet (corrugated)
             const sheetH = panel.height / 1000;
             const sheetGeo = this._createFenceSheetGeo(panelWidthM, sheetH, profile);
             const sheet = new THREE.Mesh(sheetGeo, panelMat);
-            sheet.position.set(panelX, stackY + sheetH / 2, 0);
-            sheet.castShadow = true;
-            sheet.receiveShadow = true;
+            sheet.position.set(panelX, stackY + sheetH/2, 0);
+            sheet.castShadow = true; sheet.receiveShadow = true;
+            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${panelWidthMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
             f.fenceGrp.add(sheet);
             stackY += sheetH;
 
             // Cap rail
-            const capRailGeo = new THREE.BoxGeometry(panelWidthM, railH, 0.045);
-            const capRail = new THREE.Mesh(capRailGeo, railMat);
-            capRail.position.set(panelX, stackY + railH / 2, 0);
-            capRail.castShadow = true;
-            f.fenceGrp.add(capRail);
+            const cRail = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, railH, 0.045), capMat);
+            cRail.position.set(panelX, stackY + railH/2, 0);
+            cRail.castShadow = true;
+            f.fenceGrp.add(cRail);
+
+            // Track panel position
+            const panelTop = stackY + railH;
+            maxFenceTop = Math.max(maxFenceTop, panelTop);
+            panelPositions.push({ x: panelX, gnd: panelGnd, top: panelTop, retH, sheetH, panelIdx: pi });
 
             cursorX += postW + panelWidthM;
           }
         }
 
-        // ── GATES ──
+        // ══ GATES ══
         if (job.gates && job.gates.length > 0) {
-          const lastPostX = cursorX;
-          let gateX = lastPostX + 0.3;
-          job.gates.forEach(gate => {
+          let gateX = cursorX + 0.3;
+          job.gates.forEach((gate, gi) => {
             const gateW = gate.type === 'double' ? 3.255 : 0.9;
             const gateH = 1.75;
             const gatePostH = 2.4;
             const gpMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.5, roughness: 0.4 });
 
             // Gate posts (90x90mm SHS)
-            for (let gpi = 0; gpi < (gate.type === 'double' ? 2 : 2); gpi++) {
-              const gpGeo = new THREE.BoxGeometry(0.09, gatePostH - embedDepth, 0.09);
-              const gp = new THREE.Mesh(gpGeo, gpMat);
-              gp.position.set(gateX + gpi * gateW, (gatePostH - embedDepth) / 2, 0);
+            for (let gpi = 0; gpi < 2; gpi++) {
+              const gp = new THREE.Mesh(new THREE.BoxGeometry(0.09, gatePostH - embedDepth, 0.09), gpMat);
+              gp.position.set(gateX + gpi * gateW, (gatePostH - embedDepth)/2, 0);
               gp.castShadow = true;
+              gp.userData = { info: `<b>Gate Post</b><br>90×90mm SHS<br>${gate.type === 'double' ? 'Double' : 'Pedestrian'} gate` };
               f.fenceGrp.add(gp);
+              // Post cap
+              const gc = new THREE.Mesh(new THREE.BoxGeometry(0.098, 0.006, 0.098), capMat);
+              gc.position.set(gateX + gpi * gateW, (gatePostH - embedDepth) + 0.003, 0);
+              f.fenceGrp.add(gc);
             }
 
-            // Gate panel(s)
+            // Gate panels
             if (gate.type === 'double') {
               for (let leaf = 0; leaf < 2; leaf++) {
-                const leafW = gateW / 2 - 0.02;
-                const leafGeo = this._createFenceSheetGeo(leafW, gateH, profile);
-                const leafMesh = new THREE.Mesh(leafGeo, panelMat);
-                leafMesh.position.set(gateX + leaf * (gateW / 2) + leafW / 2 + 0.01, gateH / 2, 0);
-                leafMesh.castShadow = true;
-                f.fenceGrp.add(leafMesh);
+                const lW = gateW/2 - 0.03;
+                const lMesh = new THREE.Mesh(this._createFenceSheetGeo(lW, gateH, profile), panelMat);
+                lMesh.position.set(gateX + leaf*(gateW/2) + lW/2 + 0.015, gateH/2 + railH, 0);
+                lMesh.castShadow = true;
+                lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${job.colour} ${profile}` };
+                f.fenceGrp.add(lMesh);
+              }
+              // Hinge cylinders
+              for (let hi = 0; hi < 2; hi++) {
+                const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.06, 6), galvMat);
+                hinge.position.set(gateX, 0.4 + hi * 0.95, 0.025);
+                f.fenceGrp.add(hinge);
+                const hinge2 = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.06, 6), galvMat);
+                hinge2.position.set(gateX + gateW, 0.4 + hi * 0.95, 0.025);
+                f.fenceGrp.add(hinge2);
               }
             } else {
-              const gPanelGeo = this._createFenceSheetGeo(gateW - 0.02, gateH, profile);
-              const gPanel = new THREE.Mesh(gPanelGeo, panelMat);
-              gPanel.position.set(gateX + gateW / 2, gateH / 2, 0);
-              gPanel.castShadow = true;
-              f.fenceGrp.add(gPanel);
+              const gP = new THREE.Mesh(this._createFenceSheetGeo(gateW - 0.03, gateH, profile), panelMat);
+              gP.position.set(gateX + gateW/2, gateH/2 + railH, 0);
+              gP.castShadow = true;
+              gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${job.colour} ${profile}` };
+              f.fenceGrp.add(gP);
+              // Hinges
+              for (let hi = 0; hi < 2; hi++) {
+                const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.06, 6), galvMat);
+                hinge.position.set(gateX, 0.4 + hi * 0.95, 0.025);
+                f.fenceGrp.add(hinge);
+              }
+              // Handle
+              const handle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.02), galvMat);
+              handle.position.set(gateX + gateW - 0.06, gateH/2 + railH, 0.025);
+              f.fenceGrp.add(handle);
             }
 
-            // Cap rail on gate
-            const gCapGeo = new THREE.BoxGeometry(gateW, railH, 0.045);
-            const gCap = new THREE.Mesh(gCapGeo, railMat);
-            gCap.position.set(gateX + gateW / 2, gateH + railH / 2, 0);
+            // Top rail on gate
+            const gCap = new THREE.Mesh(new THREE.BoxGeometry(gateW, railH, 0.045), capMat);
+            gCap.position.set(gateX + gateW/2, gateH + railH*1.5, 0);
             f.fenceGrp.add(gCap);
+            // Bottom rail on gate
+            const gBot = new THREE.Mesh(new THREE.BoxGeometry(gateW, railH, 0.04), railMat);
+            gBot.position.set(gateX + gateW/2, railH/2, 0);
+            f.fenceGrp.add(gBot);
 
             gateX += gateW + 0.3;
           });
         }
 
-        // ── ENVIRONMENT ──
-        // Lawn
+        // ══ DIMENSIONS ══
+        const totalLenM = run.length || (panelCount * panelWidthM);
+        // Run length dimension (along top)
+        const dimOffY = maxFenceTop + 0.3;
+        f.dimGrp.add(this._createDimLine(
+          new THREE.Vector3(0, dimOffY, 0),
+          new THREE.Vector3(cursorX, dimOffY, 0),
+          new THREE.Vector3(0, 0.15, 0),
+          `${totalLenM.toFixed(1)}m`
+        ));
+
+        // Fence height dimension (first panel)
+        if (panelPositions.length > 0) {
+          const pp = panelPositions[0];
+          f.dimGrp.add(this._createDimLine(
+            new THREE.Vector3(-0.3, pp.gnd, 0),
+            new THREE.Vector3(-0.3, pp.top, 0),
+            new THREE.Vector3(-0.2, 0, 0),
+            `${run.panels[0].height}mm`
+          ));
+          // Retaining height if present
+          if (pp.retH > 0) {
+            f.dimGrp.add(this._createDimLine(
+              new THREE.Vector3(-0.3, pp.gnd, 0),
+              new THREE.Vector3(-0.3, pp.gnd + pp.retH, 0),
+              new THREE.Vector3(-0.5, 0, 0),
+              `${Math.round(pp.retH*1000)}mm ret.`
+            ));
+          }
+        }
+
+        // Panel number labels
+        panelPositions.forEach((pp, i) => {
+          const lbl = this._createDimSprite(`P${i+1}`);
+          lbl.position.set(pp.x, pp.gnd + pp.retH + railH + pp.sheetH/2, 0.08);
+          f.dimGrp.add(lbl);
+        });
+
+        // ══ ENVIRONMENT ══
         const grassTex = this._createGrassTexture();
-        const lawn = new THREE.Mesh(
-          new THREE.PlaneGeometry(40, 40),
-          new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.92, metalness: 0.0 })
-        );
-        lawn.rotation.x = -Math.PI / 2;
-        lawn.position.y = -0.005;
-        lawn.receiveShadow = true;
+        const paverTex = this._createPaverTexture();
+        const mulchTex = this._createMulchTexture();
+        const fenceLen = Math.max(cursorX + 2, 10);
+        const cx = cursorX / 2;
+
+        // Lawn
+        const lawn = new THREE.Mesh(new THREE.PlaneGeometry(60, 60),
+          new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.92, metalness: 0.0 }));
+        lawn.rotation.x = -Math.PI/2; lawn.position.y = -0.005; lawn.receiveShadow = true;
         f.envGrp.add(lawn);
 
-        // Neighbour boundary fences (simple, muted)
-        const boundaryMat = new THREE.MeshStandardMaterial({ color: 0x8A8A80, roughness: 0.6, metalness: 0.05 });
-        const fenceLen = Math.max(cursorX + 2, 10);
-        // Back boundary
-        const backFence = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 4, 1.8, 0.01), boundaryMat);
-        backFence.position.set(cursorX / 2, 0.9, -6);
-        backFence.receiveShadow = true;
-        f.envGrp.add(backFence);
-        // Side boundaries
-        const sideFenceL = new THREE.Mesh(new THREE.BoxGeometry(0.01, 1.8, 12), boundaryMat);
-        sideFenceL.position.set(-2, 0.9, 0);
-        f.envGrp.add(sideFenceL);
-        const sideFenceR = new THREE.Mesh(new THREE.BoxGeometry(0.01, 1.8, 12), boundaryMat);
-        sideFenceR.position.set(cursorX + 2, 0.9, 0);
-        f.envGrp.add(sideFenceR);
+        // Concrete strip along fence base (front side)
+        const concreteStrip = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 0.5, 0.6),
+          concreteMat);
+        concreteStrip.rotation.x = -Math.PI/2;
+        concreteStrip.position.set(cx, -0.003, 0.35);
+        concreteStrip.receiveShadow = true;
+        f.envGrp.add(concreteStrip);
 
-        // Shrubs along back fence
-        const shrubMat = new THREE.MeshStandardMaterial({ color: 0x3D6B35, roughness: 0.9 });
-        for (let si = 0; si < 6; si++) {
-          const sx = -1 + si * (fenceLen / 5);
-          const sr = 0.3 + Math.random() * 0.4;
-          const shrub = new THREE.Mesh(new THREE.SphereGeometry(sr, 6, 5), shrubMat.clone());
-          shrub.material.color.setHex(0x3D6B35 + Math.floor(Math.random() * 0x101010));
-          shrub.position.set(sx, sr * 0.7, -5.3 + Math.random() * 0.5);
-          shrub.castShadow = true;
-          f.envGrp.add(shrub);
+        // Paver path (behind fence, neighbour side)
+        const paverPath = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 1, 1.5),
+          new THREE.MeshStandardMaterial({ map: paverTex, roughness: 0.8, metalness: 0.0 }));
+        paverPath.rotation.x = -Math.PI/2;
+        paverPath.position.set(cx, -0.004, -0.9);
+        paverPath.receiveShadow = true;
+        f.envGrp.add(paverPath);
+
+        // House wall (behind fence, client side)
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0xD4C8B0, roughness: 0.75, metalness: 0.0 });
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 6, 3.0, 0.25), wallMat);
+        wall.position.set(cx, 1.5, 5);
+        wall.receiveShadow = true; wall.castShadow = true;
+        f.envGrp.add(wall);
+        // House roof edge
+        const roofEdge = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.08, 0.8),
+          new THREE.MeshStandardMaterial({ color: 0x5A4A3A, roughness: 0.7, metalness: 0.1 }));
+        roofEdge.position.set(cx, 3.04, 5.3);
+        f.envGrp.add(roofEdge);
+        // Fascia
+        const fascia = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.2, 0.03),
+          new THREE.MeshStandardMaterial({ color: 0xE8E0D0, roughness: 0.6 }));
+        fascia.position.set(cx, 2.9, 4.86);
+        f.envGrp.add(fascia);
+        // Gutter
+        const gutter = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.08, 0.12),
+          new THREE.MeshStandardMaterial({ color: fenceCol.clone(), metalness: 0.1, roughness: 0.4 }));
+        gutter.position.set(cx, 2.86, 4.8);
+        f.envGrp.add(gutter);
+
+        // Neighbour boundary fences (Colorbond, with posts)
+        const boundaryCol = new THREE.Color('#C4C0B6').convertSRGBToLinear();
+        const boundaryMat = new THREE.MeshStandardMaterial({ color: boundaryCol, metalness: 0.1, roughness: 0.45 });
+        const boundaryPostMat = new THREE.MeshStandardMaterial({ color: boundaryCol.clone().multiplyScalar(0.85), metalness: 0.1, roughness: 0.45 });
+
+        const addBoundaryFence = (x1, z1, x2, z2) => {
+          const dx = x2-x1, dz = z2-z1;
+          const len = Math.sqrt(dx*dx + dz*dz);
+          const angle = Math.atan2(dx, dz);
+          // Panels
+          const bf = new THREE.Mesh(this._createFenceSheetGeo(len, 1.8, 'Trimclad'), boundaryMat);
+          bf.position.set((x1+x2)/2, 0.9, (z1+z2)/2);
+          bf.rotation.y = angle;
+          bf.receiveShadow = true;
+          f.envGrp.add(bf);
+          // Posts every ~2.4m
+          const postCount = Math.ceil(len / 2.4) + 1;
+          for (let bp = 0; bp < postCount; bp++) {
+            const t = bp / (postCount - 1);
+            const bPost = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 0.05), boundaryPostMat);
+            bPost.position.set(x1 + dx*t, 1.0, z1 + dz*t);
+            bPost.castShadow = true;
+            f.envGrp.add(bPost);
+          }
+        };
+        addBoundaryFence(-3, -4, -3, 6);
+        addBoundaryFence(cursorX + 3, -4, cursorX + 3, 6);
+        addBoundaryFence(-3, -4, cursorX + 3, -4);
+
+        // Garden beds with mulch
+        const mulchMat = new THREE.MeshStandardMaterial({ map: mulchTex, roughness: 0.9, metalness: 0.0 });
+        // Along back boundary
+        const bedBack = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 4, 0.08, 1.5), mulchMat);
+        bedBack.position.set(cx, 0.04, -3.5);
+        bedBack.receiveShadow = true;
+        f.envGrp.add(bedBack);
+        // Along side boundaries
+        const bedL = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 10), mulchMat.clone());
+        bedL.position.set(-2.4, 0.04, 1);
+        bedL.receiveShadow = true;
+        f.envGrp.add(bedL);
+        const bedR = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 10), mulchMat.clone());
+        bedR.position.set(cursorX + 2.4, 0.04, 1);
+        bedR.receiveShadow = true;
+        f.envGrp.add(bedR);
+
+        // Paver edging
+        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x8C7A68, roughness: 0.85 });
+        const edgeF = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 4, 0.1, 0.12), edgeMat);
+        edgeF.position.set(cx, 0.05, -2.76);
+        f.envGrp.add(edgeF);
+
+        // Shrubs
+        const shrubCols = [0x3D6B35, 0x4A7D42, 0x356130, 0x508A48, 0x2D5A28];
+        const addShrub = (x, z, scale) => {
+          const col = shrubCols[Math.floor(Math.random() * shrubCols.length)];
+          const s = new THREE.Mesh(new THREE.SphereGeometry(scale, 7, 5),
+            new THREE.MeshStandardMaterial({ color: col, roughness: 0.9 }));
+          s.position.set(x, scale * 0.7, z);
+          s.castShadow = true;
+          f.envGrp.add(s);
+        };
+        // Along back fence
+        for (let i = 0; i < 8; i++) addShrub(-2 + i * (fenceLen/7), -3.8 + Math.random()*0.4, 0.3 + Math.random()*0.35);
+        // Along sides
+        for (let i = 0; i < 4; i++) {
+          addShrub(-2.5, -2 + i * 2, 0.25 + Math.random()*0.3);
+          addShrub(cursorX + 2.5, -2 + i * 2, 0.25 + Math.random()*0.3);
         }
 
         // Trees
         const addTree = (x, z, trunkH, foliageR) => {
-          const trunk = new THREE.Mesh(
-            new THREE.BoxGeometry(0.15, trunkH, 0.15),
-            new THREE.MeshStandardMaterial({ color: 0x6B4226, roughness: 0.85 })
-          );
-          trunk.position.set(x, trunkH / 2, z);
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, trunkH, 6),
+            new THREE.MeshStandardMaterial({ color: 0x6B4226, roughness: 0.85 }));
+          trunk.position.set(x, trunkH/2, z);
           trunk.castShadow = true;
           f.envGrp.add(trunk);
-
-          const foliage = new THREE.Mesh(
-            new THREE.SphereGeometry(foliageR, 8, 6),
-            new THREE.MeshStandardMaterial({ color: 0x2D5A1E, roughness: 0.9 })
-          );
-          foliage.position.set(x, trunkH + foliageR * 0.6, z);
+          const foliage = new THREE.Mesh(new THREE.SphereGeometry(foliageR, 8, 6),
+            new THREE.MeshStandardMaterial({ color: 0x2D5A1E + Math.floor(Math.random()*0x101010), roughness: 0.9 }));
+          foliage.position.set(x, trunkH + foliageR*0.6, z);
           foliage.castShadow = true;
           f.envGrp.add(foliage);
         };
-        addTree(-1.5, -5, 3, 1.5);
-        addTree(cursorX + 1.5, -4.5, 2.5, 1.2);
+        addTree(-2.2, -3.2, 3.5, 1.6);
+        addTree(cursorX + 2.2, -3, 3, 1.3);
+        addTree(cx + 2, 4.5, 2.5, 1.0);
 
-        // ── Centre camera on fence ──
-        const fenceCentreX = cursorX / 2;
-        const fenceTopY = 2.0; // approximate
-        f.controls.target.set(fenceCentreX, fenceTopY / 2, 0);
+        // ── Camera ──
+        f.controls.target.set(cx, maxFenceTop * 0.4, 0);
         if (!this._fence3DUserMoved) {
-          f.camera.position.set(fenceCentreX + 4, 2.5, 6);
+          f.camera.position.set(cx + cursorX * 0.4, maxFenceTop * 0.7, cursorX * 0.6 + 3);
           this._fence3DUserMoved = false;
           f.controls.addEventListener('start', () => { this._fence3DUserMoved = true; }, { once: true });
         }
@@ -4805,12 +5153,10 @@
         const f = this._f3d;
         if (!f.scene) return;
 
-        // Update button active states
         document.querySelectorAll('.fence-3d-view-btns button').forEach(btn => {
           btn.classList.toggle('active', btn.textContent.trim().toLowerCase() === view);
         });
 
-        // Compute bounding box
         const box = new THREE.Box3().setFromObject(f.fenceGrp);
         const centre = new THREE.Vector3();
         const size = new THREE.Vector3();
@@ -4822,12 +5168,12 @@
         if (view === '3d') {
           f.activeCamera = f.camera;
           f.controls.object = f.camera;
-          f.camera.position.set(centre.x + maxDim * 0.8, centre.y + maxDim * 0.5, maxDim * 1.2);
-          f.controls.target.copy(centre);
+          this._f3dFocusAnim = {
+            targetPos: new THREE.Vector3(centre.x + maxDim * 0.8, centre.y + maxDim * 0.5, maxDim * 1.2),
+            targetLook: centre.clone()
+          };
           f.controls.enableRotate = true;
-          f.controls.update();
         } else {
-          // Orthographic views
           const aspect = (document.getElementById('fence3DViewport').clientWidth || 600) /
                          (document.getElementById('fence3DViewport').clientHeight || 400);
           const frustum = maxDim * padding;
@@ -4841,19 +5187,17 @@
 
           if (view === 'front') {
             f.orthoCam.position.set(centre.x, centre.y, centre.z + 20);
-            f.orthoCam.lookAt(centre);
           } else if (view === 'side') {
             f.orthoCam.position.set(centre.x - 20, centre.y, centre.z);
-            f.orthoCam.lookAt(centre);
           } else if (view === 'top') {
             f.orthoCam.position.set(centre.x, centre.y + 20, centre.z);
-            f.orthoCam.lookAt(centre);
           }
+          f.orthoCam.lookAt(centre);
 
           f.activeCamera = f.orthoCam;
           f.controls.object = f.orthoCam;
           f.controls.target.copy(centre);
-          f.controls.enableRotate = view === '3d';
+          f.controls.enableRotate = false;
           f.controls.update();
         }
       },
