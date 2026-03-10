@@ -519,7 +519,7 @@
 
       var meta = {};
       if (state.job) {
-        meta.client_name = state.job.clientName || state.job.client || '';
+        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
         meta.site_suburb = state.job.suburb || '';
         meta.client_phone = state.job.phone || '';
         meta.client_email = state.job.email || '';

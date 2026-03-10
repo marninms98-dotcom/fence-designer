@@ -7790,7 +7790,7 @@
       var margin_pct = d.subtotal > 0 ? Math.round(((d.subtotal - totalCostEstimate) / d.subtotal) * 1000) / 10 : 0;
 
       // Auto-generate job description from scope data
-      var heights = (d.runDetails || []).map(function(r) { return r.sheetH; }).filter(Boolean);
+      var heights = (d.runDetails || []).map(function(r) { return r.panels && r.panels[0] ? r.panels[0].height : null; }).filter(Boolean);
       var dominantHeight = heights.length > 0 ? heights[0] : '';
       var job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
         + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
