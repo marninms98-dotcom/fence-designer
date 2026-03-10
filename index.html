@@ -2487,7 +2487,7 @@
           ${r.existingFenceType === 'asbestos' ? `
           <div class="form-row">
             <div class="form-group">
-              <label>Number of Sheets</label>
+              <label>Sheets to Remove (1 per metre)</label>
               <input type="number" value="${r.asbestosSheetCount != null ? r.asbestosSheetCount : Math.ceil(r.existingFenceLength || 0)}" min="0" step="1"
                 onchange="app.updateRemoval('asbestosSheetCount', parseInt(this.value) || 0)">
             </div>
@@ -2745,7 +2745,7 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Hardie Removal ($/sheet)</label>
+              <label>Hardie Removal ($/m)</label>
               <input type="number" value="${q.hardiePrice || 36}" min="0" step="1"
                 onchange="app.updateQuote('hardiePrice', parseFloat(this.value) || 0)">
             </div>
@@ -2757,7 +2757,7 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Asbestos Removal ($/sheet)</label>
+              <label>Asbestos Removal ($/m)</label>
               <input type="number" value="${q.asbestosPrice || 90}" min="0" step="1"
                 onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
             </div>
@@ -4897,7 +4897,7 @@
           urgency: q.urgency || 'standard',
           delivery: q.deliveryFee != null ? q.deliveryFee : 250,
           removeHardie: rem.existingFenceType === 'hardie',
-          removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil((rem.existingFenceLength || 0) / 2.4) : 0,
+          removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil(rem.existingFenceLength || 0) : 0,
           removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
           removeTimberQty: (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
           removeAsbestos: rem.existingFenceType === 'asbestos',
@@ -5045,7 +5045,7 @@
           const hardiePerSheet = q.hardiePrice || 36;
           const t = js.removeHardieQty * hardiePerSheet;
           removalTotal += t;
-          removalItems.push({ desc: 'Remove Hardie sheets', qty: js.removeHardieQty, unit: 'sheets', total: t });
+          removalItems.push({ desc: 'Remove Hardie fence', qty: js.removeHardieQty, unit: 'm', total: t });
         }
         if (js.removeTimber && js.removeTimberQty > 0) {
           const timberPerM = q.timberPrice || 22;
@@ -5057,7 +5057,7 @@
           const asbestosPerSheet = q.asbestosPrice || 90;
           const t = js.removeAsbestosQty * asbestosPerSheet;
           removalTotal += t;
-          removalItems.push({ desc: 'Remove asbestos sheets (licenced)', qty: js.removeAsbestosQty, unit: 'sheets', total: t });
+          removalItems.push({ desc: 'Remove asbestos fence (licenced)', qty: js.removeAsbestosQty, unit: 'm', total: t });
         }
         // Asbestos removal certificate (auto-included when asbestos selected)
         if (js.removeAsbestos && rem.asbestosCert !== false) {
