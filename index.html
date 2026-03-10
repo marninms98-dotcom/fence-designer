@@ -2484,6 +2484,22 @@
                 onchange="app.updateRemoval('existingFenceLength', this.value)">
             </div>
           </div>
+          ${r.existingFenceType === 'asbestos' ? `
+          <div class="form-row">
+            <div class="form-group">
+              <label>Number of Sheets</label>
+              <input type="number" value="${r.asbestosSheetCount != null ? r.asbestosSheetCount : Math.ceil(r.existingFenceLength || 0)}" min="0" step="1"
+                onchange="app.updateRemoval('asbestosSheetCount', parseInt(this.value) || 0)">
+            </div>
+            <div class="form-group">
+              <label>Asbestos Removal Certificate</label>
+              <div class="toggle-group">
+                <button class="toggle-btn ${r.asbestosCert !== false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', true)">Include in Quote</button>
+                <button class="toggle-btn ${r.asbestosCert === false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', false)">Exclude</button>
+              </div>
+            </div>
+          </div>
+          ` : ''}
           <div class="form-row">
             <div class="form-group">
               <label>Disposal</label>
@@ -2713,6 +2729,52 @@
               </select>
             </div>
           </div>
+          <div class="section-label" style="margin-top:16px;">Price Adjustments</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Override sell prices for each line item (excl. GST)</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Plinth ($/each)</label>
+              <input type="number" value="${q.plinthPrice || 80}" min="0" step="1"
+                onchange="app.updateQuote('plinthPrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group">
+              <label>Patio Tube ($/each)</label>
+              <input type="number" value="${q.patioTubePrice || 65}" min="0" step="1"
+                onchange="app.updateQuote('patioTubePrice', parseFloat(this.value) || 0)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Hardie Removal ($/sheet)</label>
+              <input type="number" value="${q.hardiePrice || 36}" min="0" step="1"
+                onchange="app.updateQuote('hardiePrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group">
+              <label>Timber Removal ($/m)</label>
+              <input type="number" value="${q.timberPrice || 22}" min="0" step="1"
+                onchange="app.updateQuote('timberPrice', parseFloat(this.value) || 0)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Asbestos Removal ($/sheet)</label>
+              <input type="number" value="${q.asbestosPrice || 90}" min="0" step="1"
+                onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group">
+              <label>Asbestos Cert Fee ($)</label>
+              <input type="number" value="${q.asbestosCertFee || 300}" min="0" step="10"
+                onchange="app.updateQuote('asbestosCertFee', parseFloat(this.value) || 0)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Veg/Site Clear ($)</label>
+              <input type="number" value="${q.vegClearPrice || 215}" min="0" step="10"
+                onchange="app.updateQuote('vegClearPrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group"></div>
+          </div>
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
           ${items.map((c, i) => `
             <div class="form-row" style="margin-bottom:8px;">
@@ -2925,7 +2987,17 @@
       updateRemoval(field, value) {
         if (!this.job.removal) this.job.removal = {};
         if (field === 'existingFenceLength') value = parseFloat(value) || 0;
+        if (field === 'asbestosSheetCount') value = parseInt(value) || 0;
         this.job.removal[field] = value;
+        // Auto-set asbestos defaults when type changes to asbestos
+        if (field === 'existingFenceType' && value === 'asbestos') {
+          if (this.job.removal.asbestosCert === undefined) this.job.removal.asbestosCert = true;
+          this.job.removal.asbestosSheetCount = Math.ceil(this.job.removal.existingFenceLength || 0);
+        }
+        // Re-calc sheet count when length changes and type is asbestos
+        if (field === 'existingFenceLength' && this.job.removal.existingFenceType === 'asbestos') {
+          this.job.removal.asbestosSheetCount = Math.ceil(value || 0);
+        }
         this.save();
         this.updateSectionStatuses();
         this.renderRemoval();
@@ -4829,7 +4901,7 @@
           removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
           removeTimberQty: (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
           removeAsbestos: rem.existingFenceType === 'asbestos',
-          removeAsbestosQty: rem.existingFenceType === 'asbestos' ? Math.ceil((rem.existingFenceLength || 0) / 2.4) : 0,
+          removeAsbestosQty: rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: rem.vegetation,
           groundFinish: q.groundFinish || 'none',
           custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 })),
@@ -4941,12 +5013,12 @@
         // Fencing line item
         const fencingTotal = totalMetres * pricePerMetre;
 
-        // Plinths: sell price using margin formula
-        const plinthSell = COST_PRICES.plinth / (1 - MARGIN);
+        // Plinths: use override price or default $80
+        const plinthSell = q.plinthPrice || 80;
         const plinthsTotal = totalPlinths * plinthSell;
 
-        // Patio tubes
-        const patioSell = COST_PRICES.patioTube / (1 - MARGIN);
+        // Patio tubes: use override price or default $65
+        const patioSell = q.patioTubePrice || 65;
         const patioTotal = totalPatioTubes * patioSell;
 
         // Gates
@@ -4970,24 +5042,33 @@
         let removalTotal = 0;
         const removalItems = [];
         if (js.removeHardie && js.removeHardieQty > 0) {
-          const t = js.removeHardieQty * (COST_PRICES.removeHardieSheet / (1 - MARGIN));
+          const hardiePerSheet = q.hardiePrice || 36;
+          const t = js.removeHardieQty * hardiePerSheet;
           removalTotal += t;
           removalItems.push({ desc: 'Remove Hardie sheets', qty: js.removeHardieQty, unit: 'sheets', total: t });
         }
         if (js.removeTimber && js.removeTimberQty > 0) {
-          const t = js.removeTimberQty * (COST_PRICES.removeTimberLap / (1 - MARGIN));
+          const timberPerM = q.timberPrice || 22;
+          const t = js.removeTimberQty * timberPerM;
           removalTotal += t;
           removalItems.push({ desc: 'Remove timber lap fence', qty: js.removeTimberQty, unit: 'm', total: t });
         }
         if (js.removeAsbestos && js.removeAsbestosQty > 0) {
-          const t = js.removeAsbestosQty * (COST_PRICES.removeAsbestosSheet / (1 - MARGIN));
+          const asbestosPerSheet = q.asbestosPrice || 90;
+          const t = js.removeAsbestosQty * asbestosPerSheet;
           removalTotal += t;
           removalItems.push({ desc: 'Remove asbestos sheets (licenced)', qty: js.removeAsbestosQty, unit: 'sheets', total: t });
         }
+        // Asbestos removal certificate (auto-included when asbestos selected)
+        if (js.removeAsbestos && rem.asbestosCert !== false) {
+          const certFee = q.asbestosCertFee || 300;
+          removalTotal += certFee;
+          removalItems.push({ desc: 'Asbestos removal certificate', qty: 1, unit: 'job', total: certFee });
+        }
         if (js.vegClear) {
-          const t = COST_PRICES.vegClear / (1 - MARGIN);
-          removalTotal += t;
-          removalItems.push({ desc: 'Vegetation / site clear', qty: 1, unit: 'lot', total: t });
+          const vegPrice = q.vegClearPrice || 215;
+          removalTotal += vegPrice;
+          removalItems.push({ desc: 'Vegetation / site clear', qty: 1, unit: 'lot', total: vegPrice });
         }
 
         // Ground finish
