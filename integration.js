@@ -585,11 +585,16 @@
         console.log('[Integration] Scope saved successfully');
 
         // Upload site photos via signed URLs (handles large photos, no size limit)
-        // Fencing v2: photos are in app.job.checklist.photos with base64 dataUrls
+        // Fencing v2: photos stored as tiny thumbnails in localStorage, upload-quality in window._photoFiles
         var sitePhotos = (_toolType === 'fencing' && window.app && window.app.job && window.app.job.checklist)
           ? (window.app.job.checklist.photos || [])
           : (window.sitePhotos || []);
-        var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl && p.dataUrl.startsWith('data:'); });
+        var memPhotos = window._photoFiles || {};
+        var photosToUpload = sitePhotos.filter(function(p) {
+          if (p.cloudUrl) return false;
+          // Has upload-quality image in memory, or has a dataUrl to fall back on
+          return memPhotos[p.id] || (p.dataUrl && p.dataUrl.startsWith('data:'));
+        });
         if (photosToUpload.length > 0) {
           console.log('[Integration] Uploading', photosToUpload.length, 'photos via signed URLs...');
           cloud.ui.showSaveStatus('saving', 'Uploading photos 0/' + photosToUpload.length);
@@ -598,11 +603,12 @@
             try {
               cloud.ui.showSaveStatus('saving', 'Uploading photo ' + (i + 1) + '/' + photosToUpload.length);
 
-              // Convert dataUrl to Blob for direct upload
-              var mimeMatch = photo.dataUrl.match(/data:([^;]+);/);
+              // Use upload-quality image from memory, fall back to thumbnail dataUrl
+              var uploadDataUrl = memPhotos[photo.id] || photo.dataUrl;
+              var mimeMatch = uploadDataUrl.match(/data:([^;]+);/);
               var mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
               var ext = mime.includes('png') ? 'png' : 'jpg';
-              var b64 = photo.dataUrl.split(',')[1];
+              var b64 = uploadDataUrl.split(',')[1];
               var binary = atob(b64);
               var bytes = new Uint8Array(binary.length);
               for (var j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
@@ -637,12 +643,14 @@
                   jobId: _jobId,
                   storageUrl: urlData.publicUrl,
                   type: 'photo',
-                  label: photo.label || 'Photo ' + (i + 1)
+                  label: photo.name || photo.label || 'Photo ' + (i + 1)
                 })
               });
 
               photo.cloudUrl = urlData.publicUrl;
-              console.log('[Integration] Photo uploaded:', photo.label, (blob.size / 1024).toFixed(0) + 'KB');
+              // Free upload-quality image from memory after successful upload
+              if (memPhotos[photo.id]) delete memPhotos[photo.id];
+              console.log('[Integration] Photo uploaded:', (photo.name || photo.label), (blob.size / 1024).toFixed(0) + 'KB');
             } catch(photoErr) {
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
@@ -710,6 +718,11 @@
               });
 
               siteVideo.cloudUrl = urlData.publicUrl;
+              // Mark video as uploaded in job state so QA check knows
+              if (window.app && window.app.job && window.app.job.checklist) {
+                window.app.job.checklist.videoCloudUrl = urlData.publicUrl;
+                window.app.save();
+              }
               console.log('[Integration] Video uploaded:', urlData.publicUrl);
             } catch(vidErr) {
               console.warn('[Integration] Video upload failed:', vidErr);

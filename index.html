@@ -1231,7 +1231,8 @@
     <div class="header-fields">
       <div class="header-group">
         <label>Job Ref</label>
-        <input type="text" id="jobRef" placeholder="SW9248">
+        <input type="text" id="jobRef" placeholder="Auto-assigned on scope complete" readonly
+          style="background:#f0f0f0;color:#6b7280;cursor:not-allowed;">
       </div>
       <div class="header-group">
         <label>Date</label>
@@ -1628,11 +1629,6 @@
               deliveryFee: 250,
               groundFinish: 'none',
               customLineItems: [{}, {}, {}],
-              // Labour (default 0 — work cost included in per-metre rate)
-              tradeDays: 0,
-              tradeRate: 450,
-              labourerDays: 0,
-              labourerRate: 300,
               // Scope add-ons (use custom line items instead)
               addons: {}
             },
@@ -1710,11 +1706,7 @@
       },
 
       bindHeaderInputs() {
-        document.getElementById('jobRef').addEventListener('input', (e) => {
-          this.job.ref = e.target.value;
-          this._updateHeaderBadge();
-          this.save();
-        });
+        // jobRef is read-only — auto-assigned on scope complete
         document.getElementById('jobDate').addEventListener('change', (e) => {
           this.job.date = e.target.value;
           this.save();
@@ -2503,13 +2495,6 @@
           });
         }
 
-        // ── Labour ──
-        if (d.labourTotal > 0) {
-          rows += `<tr class="qb-cat"><td colspan="3">Labour</td></tr>`;
-          if (d.tradeDays > 0) rows += `<tr><td>Tradesperson</td><td class="r">${d.tradeDays}d × $${d.tradeRate}</td><td class="r">$${f(d.tradeDays * d.tradeRate)}</td></tr>`;
-          if (d.labourerDays > 0) rows += `<tr><td>Labourer</td><td class="r">${d.labourerDays}d × $${d.labourerRate}</td><td class="r">$${f(d.labourerDays * d.labourerRate)}</td></tr>`;
-        }
-
         // ── Custom Items ──
         if (d.customItems.length > 0) {
           rows += `<tr class="qb-cat"><td colspan="3">Custom Items</td></tr>`;
@@ -2547,7 +2532,7 @@
       },
 
       // ── Profit & Orders (GP breakdown + draft PO approval) ──
-      _poApproved: { materials: false, labour: false },
+      _poApproved: { materials: false },
 
       renderProfitOrders() {
         const el = document.getElementById('bodyProfitOrders');
@@ -2634,32 +2619,6 @@
           </div>
         </div>`;
 
-        // ── Labour PO Card ──
-        const labApproved = this._poApproved.labour;
-        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
-        let labRows = `<tr><td>Base labour (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m)</td><td class="r">$${f(labBase)}</td></tr>`;
-        if (d.accessSurcharge > 0) labRows += `<tr><td>Access difficulty (${d.js.access}: +${Math.round(d.accessRate * 100)}%)</td><td class="r">$${f(labBase * d.accessRate)}</td></tr>`;
-        labRows += `<tr class="po-total"><td>Labour Cost Total</td><td class="r">$${f(d.internalLabour)}</td></tr>`;
-        labRows += `<tr><td style="padding-top:8px;font-size:12px;color:#4C6A70;">Scoper allowed: ${d.tradeDays}d trade ($${d.tradeRate}/d) + ${d.labourerDays}d labourer ($${d.labourerRate}/d)</td><td class="r" style="padding-top:8px;font-weight:700;">$${f(d.labourTotal)} sell</td></tr>`;
-        const labMargin = d.labourTotal - d.internalLabour;
-        const labMarginPct = d.labourTotal > 0 ? (labMargin / d.labourTotal * 100) : 0;
-        const labMarginCol = labMarginPct < 0 ? '#dc2626' : labMarginPct < 20 ? '#d97706' : '#16a34a';
-        labRows += `<tr><td style="font-size:12px;color:${labMarginCol};">Labour margin</td><td class="r" style="color:${labMarginCol};font-weight:700;">$${f(labMargin)} (${labMarginPct.toFixed(0)}%)</td></tr>`;
-
-        html += `<div class="po-card">
-          <div class="po-card-header" style="background:${labApproved ? '#dcfce7' : '#fef3c7'};color:${labApproved ? '#16a34a' : '#92400e'};">
-            Draft Labour Purchase Order
-            <button class="po-approve-btn" style="background:${labApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('labour')">
-              ${labApproved ? 'Approved' : 'Approve'}
-            </button>
-          </div>
-          <div class="po-card-body">
-            <table>
-              <tbody>${labRows}</tbody>
-            </table>
-          </div>
-        </div>`;
-
         // ── Revenue Split Summary ──
         const matSell = d.fencingTotal + d.plinthsTotal + d.patioTotal + d.gatesTotal + d.deliveryFee;
         const matMargin = matSell - d.internalCost;
@@ -2669,7 +2628,7 @@
           <div style="font-weight:700;text-transform:uppercase;margin-bottom:8px;font-size:11px;">Revenue Split</div>
           <table style="width:100%;font-size:12px;">
             <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matMargin)} (${matMarginPct.toFixed(0)}%)</td></tr>
-            <tr><td>Labour: sell $${f(d.labourTotal)}, cost $${f(d.internalLabour)}</td><td class="r" style="color:${labMarginCol};font-weight:700;">GP $${f(labMargin)} (${labMarginPct.toFixed(0)}%)</td></tr>
+            <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
             <tr><td>Other (removal, addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.removalTotal + d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
             <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">Total GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(gp)} (${gpPct.toFixed(1)}%)</td></tr>
           </table>
@@ -2677,7 +2636,7 @@
 
         el.innerHTML = html;
         if (statusEl) {
-          statusEl.className = 'section-status ' + (matApproved && labApproved ? 'done' : 'partial');
+          statusEl.className = 'section-status ' + (matApproved ? 'done' : 'partial');
         }
       },
 
@@ -3281,32 +3240,6 @@
             </div>
             <div class="form-group"></div>
           </div>
-          <div class="section-label" style="margin-top:16px;">Extra Labour (Optional)</div>
-          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Only add if work requires extra beyond standard install (e.g. difficult access, extra earthworks). Standard labour is included in per-metre rate.</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Extra Trade Days</label>
-              <input type="number" value="${q.tradeDays || 0}" min="0" step="0.5"
-                onchange="app.updateLabour('tradeDays', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Trade Rate ($/day)</label>
-              <input type="number" value="${q.tradeRate || 450}" min="0" step="10"
-                onchange="app.updateLabour('tradeRate', this.value)">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Extra Labourer Days</label>
-              <input type="number" value="${q.labourerDays || 0}" min="0" step="0.5"
-                onchange="app.updateLabour('labourerDays', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Labourer Rate ($/day)</label>
-              <input type="number" value="${q.labourerRate || 300}" min="0" step="10"
-                onchange="app.updateLabour('labourerRate', this.value)">
-            </div>
-          </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Quote Description</div>
           <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Optional — appears on the quote below the auto-generated scope description</div>
@@ -3356,6 +3289,7 @@
               <img src="${p.dataUrl}" alt="${this._esc(p.name)}">
               <button class="photo-thumb-delete" onclick="app.deletePhoto('${p.id}')" title="Delete">&times;</button>
               <div class="photo-thumb-name">${this._esc(p.name)}</div>
+              ${p.cloudUrl ? '<div style="position:absolute;top:2px;left:2px;background:#16a34a;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">&#9989;</div>' : '<div style="position:absolute;top:2px;left:2px;background:#d97706;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">pending</div>'}
             </div>
           `).join('') + '</div>';
         }
@@ -4129,32 +4063,35 @@
       async _processPhotoFiles(files) {
         if (!this.job.checklist) this.job.checklist = {};
         if (!this.job.checklist.photos) this.job.checklist.photos = [];
+        if (!window._photoFiles) window._photoFiles = {};
 
+        let added = 0;
         for (const file of files) {
           if (!file.type.startsWith('image/')) continue;
           try {
-            const dataUrl = await this._compressImage(file, 800, 0.7);
-            // Check localStorage budget (~4.5MB cap)
-            const currentSize = JSON.stringify(this.job).length;
-            if (currentSize + dataUrl.length > 4500000) {
-              app.showToast('Storage almost full — delete some photos', 'warning');
-              break;
-            }
+            // Small thumbnail for display only (~3-5KB each, localStorage friendly)
+            const thumbUrl = await this._compressImage(file, 200, 0.5);
+            // Medium resolution for cloud upload (~50-100KB each)
+            const uploadUrl = await this._compressImage(file, 1200, 0.8);
+            const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            // Keep upload-quality image in memory (not localStorage)
+            window._photoFiles[id] = uploadUrl;
             this.job.checklist.photos.push({
-              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              id: id,
               name: file.name,
-              dataUrl: dataUrl,
+              dataUrl: thumbUrl,
               timestamp: Date.now()
             });
+            added++;
           } catch (e) {
             console.warn('Failed to process photo:', file.name, e);
           }
         }
-        // Keep photosTaken in sync for backwards compatibility
         this.job.checklist.photosTaken = this.job.checklist.photos.length;
         this.save();
         this.renderChecklist();
         this.updateSectionStatuses();
+        if (added > 0) this.showToast(added + ' photo' + (added > 1 ? 's' : '') + ' added — will upload on Cloud Save', 'success');
       },
 
       _compressImage(file, maxDim, quality) {
@@ -4705,10 +4642,19 @@
         document.getElementById('profileViewContainer').style.display = view === 'profile' ? '' : 'none';
         document.getElementById('fence3DViewport').style.display = view === '3d' ? '' : 'none';
         if (view === '3d') {
-          if (!this._fence3DReady) this.initFence3D();
-          // Ensure correct sizing after viewport becomes visible
-          requestAnimationFrame(() => this._resizeFence3D());
-          this.buildFence3D();
+          if (!this._fence3DReady) {
+            // Delay init to ensure viewport has layout dimensions
+            setTimeout(() => {
+              this.initFence3D();
+              this._resizeFence3D();
+              this.buildFence3D();
+            }, 100);
+          } else {
+            requestAnimationFrame(() => {
+              this._resizeFence3D();
+              this.buildFence3D();
+            });
+          }
         }
       },
 
@@ -7310,17 +7256,6 @@
           }
         });
 
-        // Labour
-        const tradeDays = q.tradeDays || 0;
-        const tradeRate = q.tradeRate || 450;
-        const labourerDays = q.labourerDays || 0;
-        const labourerRate = q.labourerRate || 300;
-        const labourTotal = (tradeDays * tradeRate) + (labourerDays * labourerRate);
-        let labourDesc = '';
-        if (tradeDays > 0) labourDesc += `${tradeDays}d trade`;
-        if (labourerDays > 0) labourDesc += `${labourDesc ? ' + ' : ''}${labourerDays}d labourer`;
-        if (!labourDesc) labourDesc = 'None';
-
         // Scope add-ons
         const addons = q.addons || {};
         let addonsTotal = 0;
@@ -7343,7 +7278,7 @@
         const deliveryFee = js.delivery || 250;
 
         // Subtotal before urgency
-        const subtotalBeforeUrgency = fencingTotal + plinthsTotal + patioTotal + gatesTotal + removalTotal + groundFinishTotal + labourTotal + addonsTotal + customTotal + accessSurcharge + deliveryFee;
+        const subtotalBeforeUrgency = fencingTotal + plinthsTotal + patioTotal + gatesTotal + removalTotal + groundFinishTotal + addonsTotal + customTotal + accessSurcharge + deliveryFee;
 
         // Urgency surcharge (on subtotal)
         const urgencyRate = URGENCY_SURCHARGE[js.urgency] || 0;
@@ -7391,7 +7326,6 @@
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
           gatesTotal, removalTotal, removalItems,
           groundFinishTotal, groundFinishDesc, customTotal, customItems,
-          labourTotal, labourDesc, tradeDays, tradeRate, labourerDays, labourerRate,
           addonsTotal, addonItems,
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
@@ -7485,7 +7419,6 @@
         d.gateLineItems.forEach(g => { lineItemsHtml += `<tr><td>${g.desc}${g.qty > 1 ? ' × ' + g.qty : ''}</td><td class="text-right">$${this._fmt(g.total)}</td></tr>`; });
         d.removalItems.forEach(r => { lineItemsHtml += `<tr><td>${r.desc} (${r.qty} ${r.unit})</td><td class="text-right">$${this._fmt(r.total)}</td></tr>`; });
         if (d.groundFinishTotal > 0) lineItemsHtml += `<tr><td>${d.groundFinishDesc} (${d.totalMetres.toFixed(1)}m)</td><td class="text-right">$${this._fmt(d.groundFinishTotal)}</td></tr>`;
-        if (d.labourTotal > 0) lineItemsHtml += `<tr><td>Labour (${d.labourDesc})</td><td class="text-right">$${this._fmt(d.labourTotal)}</td></tr>`;
         d.addonItems.forEach(a => { lineItemsHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         d.customItems.forEach(c => { lineItemsHtml += `<tr><td>${c.desc} (${c.qty} ${c.unit} @ $${this._fmt(c.unitPrice)})</td><td class="text-right">$${this._fmt(c.total)}</td></tr>`; });
         if (d.accessSurcharge > 0) lineItemsHtml += `<tr><td>Access difficulty surcharge (${d.js.access})</td><td class="text-right">$${this._fmt(d.accessSurcharge)}</td></tr>`;
@@ -7660,7 +7593,6 @@
         let costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
         costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost)}</td></tr>`;
         costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
-        if (d.labourTotal > 0) costHtml += `<tr><td>Labour quoted (${d.labourDesc})</td><td class="text-right">$${this._fmt(d.labourTotal)}</td></tr>`;
         if (d.addonsTotal > 0) {
           d.addonItems.forEach(a => { costHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         }
@@ -7757,13 +7689,6 @@
                 '<div style="font-size:10px;color:#4C6A70;margin-top:2px;">' + (p.name || '') + '</div></div>').join('') +
               '</div></div>';
           })()}
-          <div class="section">
-            <h2>Labour Allocation</h2>
-            <div class="info-grid">
-              <div><span class="label">Trade:</span> <span class="value">${d.tradeDays || 0} days @ $${d.tradeRate || 0}/day = $${this._fmt((d.tradeDays || 0) * (d.tradeRate || 0))}</span></div>
-              <div><span class="label">Labourer:</span> <span class="value">${d.labourerDays || 0} days @ $${d.labourerRate || 0}/day = $${this._fmt((d.labourerDays || 0) * (d.labourerRate || 0))}</span></div>
-            </div>
-          </div>
           <div class="section" style="border-top:2px solid #293C46;padding-top:16px;">
             <h2>Internal Cost Breakdown (CONFIDENTIAL)</h2>
             ${costHtml}
@@ -7895,7 +7820,6 @@
         d.gateLineItems.forEach(g => addLine(g.desc, g.total));
         d.removalItems.forEach(r => addLine(`${r.desc} (${r.qty} ${r.unit})`, r.total));
         if (d.groundFinishTotal > 0) addLine(`${d.groundFinishDesc} (${d.totalMetres.toFixed(1)}m)`, d.groundFinishTotal);
-        if (d.labourTotal > 0) addLine(`Labour (${d.labourDesc})`, d.labourTotal);
         d.customItems.forEach(c => addLine(`${c.desc} (${c.qty} ${c.unit})`, c.total));
         // Scope add-ons
         if (d.addonsTotal > 0) {
@@ -8032,15 +7956,7 @@
         return missing;
       },
 
-      // ── Labour & add-on update helpers ──
-      updateLabour(key, val) {
-        if (!this.job.quote) this.job.quote = {};
-        this.job.quote[key] = parseFloat(val) || 0;
-        this.save();
-        this.updateStats();
-        this.renderQuoteBreakdown();
-        this.renderProfitOrders();
-      },
+      // ── Add-on update helpers ──
 
       updateAddon(key, val) {
         if (!this.job.quote) this.job.quote = {};
@@ -8228,11 +8144,7 @@
                   : [{}, {}, {}]
               };
             }
-            // Migration: ensure labour & addon fields exist
-            if (this.job.quote.tradeDays === undefined) this.job.quote.tradeDays = 1;
-            if (this.job.quote.tradeRate === undefined) this.job.quote.tradeRate = 450;
-            if (this.job.quote.labourerDays === undefined) this.job.quote.labourerDays = 1;
-            if (this.job.quote.labourerRate === undefined) this.job.quote.labourerRate = 300;
+            // Migration: ensure addon fields exist
             if (!this.job.quote.addons) this.job.quote.addons = {};
 
             if (!this.job.checklist) {
@@ -8305,9 +8217,6 @@
       });
       if (d.groundFinishTotal > 0) {
         lineItems.push({ description: d.groundFinishDesc, quantity: d.totalMetres, unit: 'm', total_sell: d.groundFinishTotal, category: 'ground_finish' });
-      }
-      if (d.labourTotal > 0) {
-        lineItems.push({ description: 'Labour (' + d.labourDesc + ')', quantity: 1, unit: 'lot', total_sell: d.labourTotal, category: 'labour' });
       }
       (d.addonItems || []).forEach(function(a) {
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
@@ -8555,6 +8464,8 @@
         if (photos.length === 0) flag('Photos & Checklist', 'red', 'No site photos uploaded');
         else if (photos.length < 5) flag('Photos & Checklist', 'amber', `Only ${photos.length} photos — recommend at least 5`);
         if (!(j.checklist && j.checklist.videoWalkthrough)) flag('Photos & Checklist', 'amber', 'Video walkthrough not marked done');
+        if (j.checklist && j.checklist.videoWalkthrough && !window.siteVideo && !(j.checklist.videoCloudUrl)) flag('Photos & Checklist', 'amber', 'Video marked done but no file attached — re-select video or do Cloud Save');
+        if (window.siteVideo && !window.siteVideo.cloudUrl) flag('Photos & Checklist', 'amber', 'Video attached but not yet uploaded — do Cloud Save');
 
         // Compliance
         const comp = app._runComplianceChecks();
