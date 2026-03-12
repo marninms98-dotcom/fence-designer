@@ -390,62 +390,42 @@
 
     if (_toolType === 'fencing' && window.app && window.app.job) {
       // ── Fencing tool ──
-      // Always flush DOM values → job object (onchange only fires on blur,
-      // so if scoper taps Cloud Save without blurring, job fields are stale)
-      var _flushInput = function(id, field) {
-        var el = document.getElementById(id);
-        if (el && el.value.trim()) {
-          window.app.job[field] = el.value.trim();
-        }
-      };
-      _flushInput('clientFirstNameInput', 'clientFirstName');
-      _flushInput('clientLastNameInput', 'clientLastName');
-      _flushInput('addressInput', 'address');
-      _flushInput('clientSuburb', 'suburb');
-      // Phone/email — find by type then also try by ID patterns
-      var phoneEl = document.querySelector('input[type="tel"]') || document.getElementById('clientPhone');
-      if (phoneEl && phoneEl.value.trim()) window.app.job.phone = phoneEl.value.trim();
-      var emailEl = document.querySelector('input[type="email"]') || document.getElementById('clientEmail');
-      if (emailEl && emailEl.value.trim()) window.app.job.email = emailEl.value.trim();
-      // Always rebuild derived client name
-      window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
-
       var j = window.app.job;
 
-      // Read from BOTH job object AND DOM — use whichever has data
-      var domFirst = document.getElementById('clientFirstNameInput');
-      var domLast = document.getElementById('clientLastNameInput');
-      var domPhone = document.getElementById('clientPhone') || document.querySelector('input[type="tel"]');
-      var domEmail = document.getElementById('clientEmail') || document.querySelector('input[type="email"]');
-      var domAddr = document.getElementById('addressInput');
-      var domSub = document.getElementById('clientSuburb');
+      // Step 1: Try to flush DOM → job (catches case where user typed but didn't blur)
+      var domIds = {
+        clientFirstNameInput: 'clientFirstName',
+        clientLastNameInput: 'clientLastName',
+        clientPhone: 'phone',
+        clientEmail: 'email',
+        addressInput: 'address',
+        clientSuburb: 'suburb'
+      };
+      for (var id in domIds) {
+        var el = document.getElementById(id);
+        if (el && el.value && el.value.trim()) {
+          j[domIds[id]] = el.value.trim();
+        }
+      }
+      // Also try querySelector for phone/email (they may not have IDs in cached HTML)
+      if (!j.phone) {
+        var telEl = document.getElementById('clientPhone') || document.querySelector('#bodySiteInfo input[type="tel"]');
+        if (telEl && telEl.value && telEl.value.trim()) j.phone = telEl.value.trim();
+      }
+      if (!j.email) {
+        var emlEl = document.getElementById('clientEmail') || document.querySelector('#bodySiteInfo input[type="email"]');
+        if (emlEl && emlEl.value && emlEl.value.trim()) j.email = emlEl.value.trim();
+      }
 
-      // Log everything for debugging
-      console.log('[Validation] DOM values:', {
-        firstName: domFirst && domFirst.value,
-        lastName: domLast && domLast.value,
-        phone: domPhone && domPhone.value,
-        email: domEmail && domEmail.value,
-        address: domAddr && domAddr.value,
-        suburb: domSub && domSub.value
-      });
-      console.log('[Validation] Job values:', {
-        clientFirstName: j.clientFirstName,
-        clientLastName: j.clientLastName,
-        client: j.client,
-        phone: j.phone,
-        email: j.email,
-        address: j.address,
-        suburb: j.suburb,
-        runsCount: j.runs ? j.runs.length : 0
-      });
+      // Step 2: Build client name
+      j.client = [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ');
 
-      var domName = ((domFirst && domFirst.value || '') + ' ' + (domLast && domLast.value || '')).trim();
-      data.name = domName || j.client || ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim();
-      data.phone = j.phone || (domPhone && domPhone.value && domPhone.value.trim()) || '';
-      data.email = j.email || (domEmail && domEmail.value && domEmail.value.trim()) || '';
-      data.address = j.address || (domAddr && domAddr.value && domAddr.value.trim()) || '';
-      data.suburb = j.suburb || (domSub && domSub.value && domSub.value.trim()) || '';
+      // Step 3: Read DIRECTLY from app.job — this is the source of truth
+      data.name = j.client || ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim();
+      data.phone = j.phone || '';
+      data.email = j.email || '';
+      data.address = j.address || '';
+      data.suburb = j.suburb || '';
       data.hasItems = Array.isArray(j.runs) && j.runs.length > 0;
 
       // Get pricing from _collectOutputData if available
@@ -520,8 +500,9 @@
       errors.push('Sell price ($' + Math.round(d.sellPrice) + ') is less than cost ($' + Math.round(d.costPrice) + ') — negative margin');
     }
 
-    console.log('[Validation]', JSON.stringify(d));
-    if (errors.length > 0) console.warn('[Validation] Errors:', errors);
+    console.log('[Validation] toolType=' + _toolType + ' | data:', JSON.stringify(d));
+    console.log('[Validation] app.job keys:', window.app && window.app.job ? Object.keys(window.app.job).filter(function(k) { return window.app.job[k]; }).join(', ') : 'NO JOB');
+    if (errors.length > 0) console.warn('[Validation] BLOCKED:', errors);
 
     return { valid: errors.length === 0, errors: errors };
   }
