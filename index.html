@@ -1211,6 +1211,7 @@
     /* Progressive disclosure — hide all stage buttons by default, JS shows the right ones */
     .btn-stage, .gen-stage { display: none !important; }
     .btn-stage.stage-active, .gen-stage.stage-active { display: inline-flex !important; }
+    div.gen-stage.stage-active { display: block !important; }
   </style>
 </head>
 <body>
@@ -1429,10 +1430,14 @@
     <!-- Stage 2: Scoping -->
     <button class="gen-btn gen-btn-qa gen-stage gen-stage-2" onclick="fenceQA.showScopeVerification()">QA Check</button>
     <!-- Stage 3: Output -->
-    <button class="gen-btn gen-stage gen-stage-3" id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="background:#F15A29;color:#fff;">Send Quote</button>
-    <button class="gen-btn gen-btn-quote gen-stage gen-stage-3" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
-    <button class="gen-btn gen-btn-material gen-stage gen-stage-3" id="btnMaterialOrder" onclick="app.generateMaterialOrder()">Material Order</button>
-    <button class="gen-btn gen-btn-workorder gen-stage gen-stage-3" id="btnWorkOrder" onclick="app.generateWorkOrder()">Work Order</button>
+    <div class="gen-stage gen-stage-3" style="display:none;width:100%;text-align:center;">
+      <button id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="width:100%;max-width:400px;padding:14px 24px;border:none;border-radius:8px;font-weight:700;font-size:16px;cursor:pointer;min-height:48px;background:#F15A29;color:#fff;margin-bottom:8px;transition:transform 0.15s,box-shadow 0.15s;" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform=''">Send Quote</button>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button class="gen-btn gen-btn-quote" id="btnQuotePDF" onclick="app.generateQuotePDF()" style="font-size:12px;padding:8px 14px;min-height:36px;">Quote PDF</button>
+        <button class="gen-btn gen-btn-material" id="btnMaterialOrder" onclick="app.generateMaterialOrder()" style="font-size:12px;padding:8px 14px;min-height:36px;">Material Order</button>
+        <button class="gen-btn gen-btn-workorder" id="btnWorkOrder" onclick="app.generateWorkOrder()" style="font-size:12px;padding:8px 14px;min-height:36px;">Work Order</button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast Container -->
@@ -2842,12 +2847,12 @@
             <div class="form-row">
               <div class="form-group">
                 <label>Phone *</label>
-                <input type="tel" value="${this._esc(j.phone)}" placeholder="+61 400 000 000"
+                <input type="tel" id="clientPhone" value="${this._esc(j.phone)}" placeholder="+61 400 000 000"
                   onchange="app.updateField('phone', this.value)">
               </div>
               <div class="form-group">
                 <label>Email *</label>
-                <input type="email" value="${this._esc(j.email)}" placeholder="client@example.com"
+                <input type="email" id="clientEmail" value="${this._esc(j.email)}" placeholder="client@example.com"
                   onchange="app.updateField('email', this.value)">
               </div>
             </div>
@@ -9275,7 +9280,7 @@
   window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
 </script>
 <script src="cloud.js?v=20260312b"></script>
-<script src="integration.js?v=20260312c"></script>
+<script src="integration.js?v=20260312d"></script>
 
 </body>
 </html>

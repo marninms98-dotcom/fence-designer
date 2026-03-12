@@ -390,34 +390,62 @@
 
     if (_toolType === 'fencing' && window.app && window.app.job) {
       // ── Fencing tool ──
-      // Flush any pending input values to job object first
-      // (onchange doesn't fire until blur — user may tap Cloud Save before blurring)
+      // Always flush DOM values → job object (onchange only fires on blur,
+      // so if scoper taps Cloud Save without blurring, job fields are stale)
       var _flushInput = function(id, field) {
         var el = document.getElementById(id);
-        if (el && el.value && !window.app.job[field]) {
+        if (el && el.value.trim()) {
           window.app.job[field] = el.value.trim();
         }
       };
       _flushInput('clientFirstNameInput', 'clientFirstName');
       _flushInput('clientLastNameInput', 'clientLastName');
-      // Phone/email don't have IDs — find by type
-      var phoneEl = document.querySelector('input[type="tel"]');
-      if (phoneEl && phoneEl.value && !window.app.job.phone) window.app.job.phone = phoneEl.value.trim();
-      var emailEl = document.querySelector('input[type="email"]');
-      if (emailEl && emailEl.value && !window.app.job.email) window.app.job.email = emailEl.value.trim();
       _flushInput('addressInput', 'address');
       _flushInput('clientSuburb', 'suburb');
-      // Update derived client field
-      if (!window.app.job.client) {
-        window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
-      }
+      // Phone/email — find by type then also try by ID patterns
+      var phoneEl = document.querySelector('input[type="tel"]') || document.getElementById('clientPhone');
+      if (phoneEl && phoneEl.value.trim()) window.app.job.phone = phoneEl.value.trim();
+      var emailEl = document.querySelector('input[type="email"]') || document.getElementById('clientEmail');
+      if (emailEl && emailEl.value.trim()) window.app.job.email = emailEl.value.trim();
+      // Always rebuild derived client name
+      window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
 
       var j = window.app.job;
-      data.name = ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim() || j.client || '';
-      data.phone = j.phone || '';
-      data.email = j.email || '';
-      data.address = j.address || '';
-      data.suburb = j.suburb || '';
+
+      // Read from BOTH job object AND DOM — use whichever has data
+      var domFirst = document.getElementById('clientFirstNameInput');
+      var domLast = document.getElementById('clientLastNameInput');
+      var domPhone = document.getElementById('clientPhone') || document.querySelector('input[type="tel"]');
+      var domEmail = document.getElementById('clientEmail') || document.querySelector('input[type="email"]');
+      var domAddr = document.getElementById('addressInput');
+      var domSub = document.getElementById('clientSuburb');
+
+      // Log everything for debugging
+      console.log('[Validation] DOM values:', {
+        firstName: domFirst && domFirst.value,
+        lastName: domLast && domLast.value,
+        phone: domPhone && domPhone.value,
+        email: domEmail && domEmail.value,
+        address: domAddr && domAddr.value,
+        suburb: domSub && domSub.value
+      });
+      console.log('[Validation] Job values:', {
+        clientFirstName: j.clientFirstName,
+        clientLastName: j.clientLastName,
+        client: j.client,
+        phone: j.phone,
+        email: j.email,
+        address: j.address,
+        suburb: j.suburb,
+        runsCount: j.runs ? j.runs.length : 0
+      });
+
+      var domName = ((domFirst && domFirst.value || '') + ' ' + (domLast && domLast.value || '')).trim();
+      data.name = domName || j.client || ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim();
+      data.phone = j.phone || (domPhone && domPhone.value && domPhone.value.trim()) || '';
+      data.email = j.email || (domEmail && domEmail.value && domEmail.value.trim()) || '';
+      data.address = j.address || (domAddr && domAddr.value && domAddr.value.trim()) || '';
+      data.suburb = j.suburb || (domSub && domSub.value && domSub.value.trim()) || '';
       data.hasItems = Array.isArray(j.runs) && j.runs.length > 0;
 
       // Get pricing from _collectOutputData if available
