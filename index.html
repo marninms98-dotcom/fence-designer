@@ -1479,23 +1479,26 @@
 
     // ── Section 6.3: Post height lookup tables ──
     // Key: sheetHeight, Value: array of { maxRetaining, postSize, patioTube }
+    // Post height = sheet + retaining + 600mm embed, rounded up to standard size
+    // Standard post lengths: 1500, 1800, 2100, 2400, 2700, 3000
+    // Patio tube required when retaining >= 450mm (3+ plinths)
     const POST_LOOKUP = {
       900: [
-        { ret: 0,   post: 2400, patio: false },
-        { ret: 150, post: 2400, patio: false },
-        { ret: 300, post: 2400, patio: false },
-        { ret: 450, post: 2400, patio: true },
-        { ret: 600, post: 2400, patio: true }
+        { ret: 0,   post: 1500, patio: false },
+        { ret: 150, post: 1800, patio: false },
+        { ret: 300, post: 1800, patio: false },
+        { ret: 450, post: 2100, patio: true },
+        { ret: 600, post: 2100, patio: true }
       ],
       1200: [
-        { ret: 0,   post: 2400, patio: false },
-        { ret: 150, post: 2400, patio: false },
-        { ret: 300, post: 2400, patio: false },
+        { ret: 0,   post: 1800, patio: false },
+        { ret: 150, post: 2100, patio: false },
+        { ret: 300, post: 2100, patio: false },
         { ret: 450, post: 2400, patio: true },
         { ret: 600, post: 2400, patio: true }
       ],
       1500: [
-        { ret: 0,   post: 2400, patio: false },
+        { ret: 0,   post: 2100, patio: false },
         { ret: 150, post: 2400, patio: false },
         { ret: 300, post: 2400, patio: false },
         { ret: 450, post: 2700, patio: true },
@@ -1575,13 +1578,14 @@
       const table = POST_LOOKUP[sheetHeight] || POST_LOOKUP[1800];
       const entry = table.find(e => e.ret === retaining);
       if (entry) return entry;
-      // Fallback: use the formula from Section 6.3
-      const totalFence = sheetHeight + retaining;
-      const required = totalFence + 600;
+      // Fallback: post = sheet + retaining + 600mm embed, round up to standard size
+      const required = sheetHeight + retaining + 600;
       let postSize;
-      if (required <= 2400) postSize = 2400;
+      if (required <= 1500) postSize = 1500;
+      else if (required <= 1800) postSize = 1800;
+      else if (required <= 2100) postSize = 2100;
+      else if (required <= 2400) postSize = 2400;
       else if (required <= 2700) postSize = 2700;
-      else if (required <= 3000) postSize = 3000;
       else postSize = 3000;
       const plinths = retaining / 150;
       return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 4 };
@@ -5868,7 +5872,7 @@
           const gndY = groundOffsets[pi];
 
           // ── POST ──
-          let postH = 2.4;
+          let postH = 0;
           const leftPanel = pi > 0 ? run.panels[pi-1] : null;
           const rightPanel = pi < panelCount ? run.panels[pi] : null;
           if (leftPanel) {
@@ -5879,6 +5883,7 @@
             const rk = lookupPost(rightPanel.height, Math.min(4, (rightPanel.slopePlinths||0) + rightPanel.retaining/150) * 150);
             postH = Math.max(postH, rk.post / 1000);
           }
+          if (postH === 0) postH = (run.sheetHeight + 600) / 1000; // fallback
           const aboveGnd = postH - embedDepth;
           maxFenceTop = Math.max(maxFenceTop, gndY + aboveGnd);
 
@@ -5978,8 +5983,9 @@
           let gateX = cursorX + 0.3;
           job.gates.forEach((gate, gi) => {
             const gateW = gate.type === 'double' ? 3.255 : 0.9;
-            const gateH = 1.75;
-            const gatePostH = 2.4;
+            const gateH = (gate.height || run.sheetHeight || 1800) / 1000;
+            const gateLk = lookupPost(gate.height || run.sheetHeight || 1800, 0);
+            const gatePostH = gateLk.post / 1000;
             const gpMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.5, roughness: 0.4 });
 
             // Gate posts (90x90mm SHS)
