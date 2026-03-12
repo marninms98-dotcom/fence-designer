@@ -3363,7 +3363,7 @@
                   <div style="font-size:13px;margin-top:4px;opacity:0.8;">Camera or gallery — select multiple from photo library</div>
                 </div>
               </div>
-              <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/heic,image/heif,image/webp" multiple
+              <input type="file" id="photoFileInput" accept="image/*,.heic,.heif" multiple
                 style="display:none" onchange="app.handlePhotoSelect(event)">
               ${thumbsHtml}
               <div style="margin-top:8px;font-size:14px;font-weight:600;color:${photoColor};">${photoMsg}</div>
@@ -4121,7 +4121,10 @@
 
         let added = 0;
         for (const file of files) {
-          if (!file.type.startsWith('image/')) continue;
+          // Accept image/* types and also files with image extensions (HEIC/HEIF may have empty type)
+          const ext = (file.name || '').split('.').pop().toLowerCase();
+          const imgExts = ['jpg','jpeg','png','gif','webp','heic','heif','bmp','tiff'];
+          if (!file.type.startsWith('image/') && !imgExts.includes(ext)) continue;
           try {
             // Small thumbnail for display only (~3-5KB each, localStorage friendly)
             const thumbUrl = await this._compressImage(file, 200, 0.5);
