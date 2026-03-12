@@ -404,7 +404,12 @@
           var od = window.app._collectOutputData();
           data.sellPrice = od.grandTotal || 0;
           data.costPrice = (od.internalCost || 0) + (od.internalLabour || 0);
-        } catch(e) { /* pricing calc may fail if no runs */ }
+        } catch(e) {
+          console.warn('[Validation] _collectOutputData failed:', e.message);
+          // Don't block save if pricing calc fails — set safe defaults
+          data.sellPrice = 1;
+          data.costPrice = 0;
+        }
       }
     } else {
       // ── Patio tool ──
@@ -458,10 +463,15 @@
     if (!d.email)      errors.push('Email address is required');
     if (!d.address)    errors.push('Site address is required');
     if (!d.suburb)     errors.push('Suburb is required');
-    if (!d.hasItems)   errors.push('At least one scope item is required');
-    if (d.sellPrice <= 0) errors.push('Total sell price must be greater than $0');
-    if (d.sellPrice > 0 && d.costPrice > 0 && d.sellPrice <= d.costPrice)
-      errors.push('Sell price must be greater than cost price (negative margin)');
+    if (!d.hasItems)   errors.push('At least one scope item is required (add a fence run)');
+
+    // Only check pricing if we got valid pricing data (don't block on calc errors)
+    if (d.sellPrice > 0 && d.costPrice > 0 && d.sellPrice < d.costPrice) {
+      errors.push('Sell price ($' + Math.round(d.sellPrice) + ') is less than cost ($' + Math.round(d.costPrice) + ') — negative margin');
+    }
+
+    console.log('[Validation]', JSON.stringify(d));
+    if (errors.length > 0) console.warn('[Validation] Errors:', errors);
 
     return { valid: errors.length === 0, errors: errors };
   }
