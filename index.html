@@ -3363,7 +3363,7 @@
                   <div style="font-size:13px;margin-top:4px;opacity:0.8;">Camera or gallery — select multiple from photo library</div>
                 </div>
               </div>
-              <input type="file" id="photoFileInput" accept="image/*" multiple
+              <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/heic,image/heif,image/webp" multiple
                 style="display:none" onchange="app.handlePhotoSelect(event)">
               ${thumbsHtml}
               <div style="margin-top:8px;font-size:14px;font-weight:600;color:${photoColor};">${photoMsg}</div>
