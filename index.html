@@ -8909,14 +8909,18 @@
         if (j.materialVerification && j.materialVerification.verified) return 3; // verified but not yet linked
       }
 
-      // Stage 3: Has runs with panels AND pricing is non-zero — ready for output
+      // Stage 3: Has runs + client + pricing + checklist complete — ready for output
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
       var hasClient = !!(j.clientFirstName && j.address && j.email);
+      var cl = j.checklist || {};
+      var checklistDone = (cl.photos && cl.photos.length >= 5) && cl.videoWalkthrough;
       if (hasRuns && hasClient) {
-        try {
-          var d = app._collectOutputData();
-          if (d.grandTotal > 0) return 3;
-        } catch(e) { /* pricing failed, stay at 2 */ }
+        if (checklistDone) {
+          try {
+            var d = app._collectOutputData();
+            if (d.grandTotal > 0) return 3;
+          } catch(e) { /* pricing failed, stay at 2 */ }
+        }
         return 2;
       }
 
