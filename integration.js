@@ -312,6 +312,10 @@
           return { id: p.id, name: p.name, label: p.label, timestamp: p.timestamp, cloudUrl: p.cloudUrl || null };
         });
       }
+      // Strip video dataUrl to keep scope_json small
+      if (job.checklist && job.checklist.videoFile) {
+        delete job.checklist.videoFile;
+      }
       return {
         tool: 'fencing',
         version: '2.0',
@@ -567,6 +571,13 @@
         meta.pricing_json = state._pricing_json;
       }
 
+      // Include material verification metadata if present
+      if (state.job && state.job.materialVerification) {
+        meta.material_verified = true;
+        meta.material_verified_at = state.job.materialVerification.timestamp;
+        meta.material_verified_by = state.job.materialVerification.verifier;
+      }
+
       try {
         cloud.ui.showSaveStatus('saving');
 
@@ -652,6 +663,14 @@
             } catch(photoErr) {
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
+          }
+        }
+
+        // Bridge fencing tool video to window.siteVideo for upload
+        if (window.app && window.app.job && window.app.job.checklist) {
+          var cl = window.app.job.checklist;
+          if (cl.videoFile && !window.siteVideo) {
+            window.siteVideo = { dataUrl: cl.videoFile, label: cl.videoFileName || 'Site Walkthrough', file: null };
           }
         }
 

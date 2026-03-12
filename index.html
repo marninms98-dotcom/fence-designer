@@ -2833,6 +2833,21 @@
                   onchange="app.updateField('suburb', this.value)">
               </div>
             </div>
+            <div class="form-row full-width" id="addressMapPreviewRow" style="display:${j._latlng ? '' : 'none'}">
+              <div class="form-group">
+                <img id="addressMapPreview" src="${j._latlng && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE' ? 'https://maps.googleapis.com/maps/api/staticmap?center=' + j._latlng.lat + ',' + j._latlng.lng + '&zoom=18&size=300x150&maptype=satellite&key=' + GOOGLE_MAPS_API_KEY : ''}"
+                  style="border-radius:4px;width:100%;max-width:300px;${j._latlng ? '' : 'display:none'}" alt="Property satellite view">
+              </div>
+            </div>
+            <div class="form-row full-width">
+              <div class="form-group">
+                <label>Site Plan</label>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                  <button class="btn-orange" onclick="app.showSitePlanModal()" style="padding:10px 20px;background:#F15A29;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Load Satellite View</button>
+                  ${j.sitePlanImage ? '<img src="' + j.sitePlanImage + '" onclick="app.showSitePlanEnlarged()" style="height:60px;border-radius:4px;cursor:pointer;border:2px solid #D4DEE4;" title="Tap to enlarge">' : '<span style="font-size:13px;color:#6b7280;">No site plan captured yet</span>'}
+                </div>
+              </div>
+            </div>
             <div class="form-row full-width">
               <div class="form-group">
                 <label>Site Notes</label>
@@ -3412,10 +3427,16 @@
         }
       },
 
-      // ── Address autocomplete ──
+      // ── Address autocomplete (Google Places with addressr.io fallback) ──
       _addressDebounceTimer: null,
       _addressResults: [],
       _addressActiveIdx: -1,
+      _placesAutocomplete: null,
+      _placesService: null,
+
+      _isGooglePlacesAvailable() {
+        return window.google && google.maps && google.maps.places && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE';
+      },
 
       onAddressInput(query) {
         clearTimeout(this._addressDebounceTimer);
@@ -3427,14 +3448,44 @@
       },
 
       async fetchAddresses(query) {
+        if (this._isGooglePlacesAvailable()) {
+          this._fetchGooglePlaces(query);
+        } else {
+          this._fetchAddressrFallback(query);
+        }
+      },
+
+      _fetchGooglePlaces(query) {
+        if (!this._placesAutocomplete) {
+          this._placesAutocomplete = new google.maps.places.AutocompleteService();
+        }
+        this._placesAutocomplete.getPlacePredictions({
+          input: query,
+          componentRestrictions: { country: 'au' },
+          types: ['address']
+        }, (predictions, status) => {
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+            this._addressResults = [];
+            this.renderAddressDropdown(query);
+            return;
+          }
+          this._addressResults = predictions.map(p => ({
+            sla: p.description,
+            placeId: p.place_id,
+            _isGoogle: true
+          }));
+          this.renderAddressDropdown(query);
+        });
+      },
+
+      async _fetchAddressrFallback(query) {
+        console.log('[Address] Google Places not available, using addressr.io fallback');
         try {
-          // Append WA to bias results toward Western Australia
           const biased = /\bWA\b/i.test(query) ? query : query + ' WA';
           const res = await fetch('https://api.addressr.io/addresses?q=' + encodeURIComponent(biased));
           if (!res.ok) return;
           const data = await res.json();
           const all = Array.isArray(data) ? data : [];
-          // Prioritise WA results, then show others
           this._addressResults = [
             ...all.filter(r => /\bWA\b/.test(r.sla)),
             ...all.filter(r => !/\bWA\b/.test(r.sla))
@@ -3467,9 +3518,88 @@
         const r = this._addressResults[idx];
         if (!r) return;
         const input = document.getElementById('addressInput');
-        if (input) input.value = r.sla;
-        this.updateField('address', r.sla);
-        this.hideAddressDropdown();
+
+        if (r._isGoogle && r.placeId) {
+          // Google Places: get full details
+          if (!this._placesService) {
+            const div = document.createElement('div');
+            this._placesService = new google.maps.places.PlacesService(div);
+          }
+          this._placesService.getDetails({
+            placeId: r.placeId,
+            fields: ['formatted_address', 'address_components', 'geometry', 'place_id']
+          }, (place, status) => {
+            if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
+              // Fallback: just use the prediction text
+              if (input) input.value = r.sla;
+              this.updateField('address', r.sla);
+              this.hideAddressDropdown();
+              return;
+            }
+
+            const fullAddress = place.formatted_address || r.sla;
+            if (input) input.value = fullAddress;
+            this.updateField('address', fullAddress);
+
+            // Store Place ID and coordinates
+            this.job._placeId = place.place_id;
+            if (place.geometry && place.geometry.location) {
+              this.job._latlng = {
+                lat: place.geometry.location.lat(),
+                lng: place.geometry.location.lng()
+              };
+            }
+
+            // Parse structured address components
+            const components = {};
+            (place.address_components || []).forEach(c => {
+              if (c.types.includes('street_number')) components.street_number = c.long_name;
+              if (c.types.includes('route')) components.route = c.long_name;
+              if (c.types.includes('locality')) components.suburb = c.long_name;
+              if (c.types.includes('administrative_area_level_1')) components.state = c.short_name;
+              if (c.types.includes('postal_code')) components.postcode = c.long_name;
+            });
+            const street = [components.street_number, components.route].filter(Boolean).join(' ');
+            this.job._addressComponents = {
+              street: street,
+              suburb: components.suburb || '',
+              state: components.state || '',
+              postcode: components.postcode || ''
+            };
+
+            // Auto-fill suburb from structured data
+            if (components.suburb) {
+              this.job.suburb = components.suburb;
+              const suburbInput = document.getElementById('clientSuburb');
+              if (suburbInput) suburbInput.value = components.suburb;
+            }
+
+            // Show static map preview
+            this._showAddressMapPreview();
+
+            this.save();
+            this.updateSectionStatuses();
+            this.hideAddressDropdown();
+          });
+        } else {
+          // addressr.io fallback — just use the text
+          if (input) input.value = r.sla;
+          this.updateField('address', r.sla);
+          this.hideAddressDropdown();
+        }
+      },
+
+      _showAddressMapPreview() {
+        if (!this.job._latlng || GOOGLE_MAPS_API_KEY === 'YOUR_API_KEY_HERE') return;
+        const row = document.getElementById('addressMapPreviewRow');
+        const img = document.getElementById('addressMapPreview');
+        if (row && img) {
+          img.src = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
+            this.job._latlng.lat + ',' + this.job._latlng.lng +
+            '&zoom=18&size=300x150&maptype=satellite&key=' + GOOGLE_MAPS_API_KEY;
+          img.style.display = '';
+          row.style.display = '';
+        }
       },
 
       hideAddressDropdown() {
@@ -3506,6 +3636,238 @@
           el.classList.toggle('active', i === this._addressActiveIdx);
           if (i === this._addressActiveIdx) el.scrollIntoView({ block: 'nearest' });
         });
+      },
+
+      // ── Site Plan Modal (satellite + drawing canvas) ──
+      showSitePlanModal() {
+        if (!this.job._latlng) {
+          this.showToast('Enter a site address first to load the satellite view', 'error');
+          return;
+        }
+        if (!this._isGooglePlacesAvailable()) {
+          this.showToast('Google Maps API key not configured', 'error');
+          return;
+        }
+
+        var existing = document.getElementById('sitePlanModal');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'sitePlanModal';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:10000;display:flex;flex-direction:column;';
+
+        overlay.innerHTML =
+          '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#293C46;">' +
+            '<span style="color:#fff;font-weight:700;font-size:16px;">Site Plan — Draw Fence Lines</span>' +
+            '<button onclick="document.getElementById(\'sitePlanModal\').remove()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;">&times;</button>' +
+          '</div>' +
+          '<div id="spMapContainer" style="flex:1;position:relative;overflow:hidden;">' +
+            '<div id="spMap" style="width:100%;height:100%;"></div>' +
+            '<canvas id="spCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;touch-action:none;"></canvas>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;padding:8px 16px;background:#293C46;justify-content:center;flex-wrap:wrap;">' +
+            '<button id="spDrawBtn" onclick="app._spToggleDraw()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Draw</button>' +
+            '<button onclick="app._spUndo()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Undo</button>' +
+            '<button onclick="app._spClear()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Clear</button>' +
+            '<button onclick="app._spCapture()" style="padding:10px 20px;background:#F15A29;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Capture Site Plan</button>' +
+          '</div>';
+
+        document.body.appendChild(overlay);
+
+        // Init map
+        var self = this;
+        var latlng = this.job._latlng;
+        setTimeout(function() {
+          var mapDiv = document.getElementById('spMap');
+          var canvas = document.getElementById('spCanvas');
+          if (!mapDiv || !canvas) return;
+
+          self._spMap = new google.maps.Map(mapDiv, {
+            center: latlng,
+            zoom: 19,
+            mapTypeId: 'satellite',
+            disableDefaultUI: true,
+            zoomControl: true,
+            gestureHandling: 'greedy'
+          });
+
+          // Size canvas
+          var rect = mapDiv.getBoundingClientRect();
+          canvas.width = rect.width * (window.devicePixelRatio || 1);
+          canvas.height = rect.height * (window.devicePixelRatio || 1);
+          canvas.style.width = rect.width + 'px';
+          canvas.style.height = rect.height + 'px';
+
+          var ctx = canvas.getContext('2d');
+          ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+          self._spCtx = ctx;
+          self._spCanvas = canvas;
+          self._spStrokes = [];
+          self._spCurrentStroke = null;
+          self._spDrawing = false;
+          self._spDrawMode = false;
+          self._spCanvasW = rect.width;
+          self._spCanvasH = rect.height;
+        }, 300);
+      },
+
+      _spToggleDraw() {
+        this._spDrawMode = !this._spDrawMode;
+        var btn = document.getElementById('spDrawBtn');
+        var canvas = this._spCanvas;
+        if (this._spDrawMode) {
+          btn.style.background = '#F15A29';
+          btn.textContent = 'Drawing ON';
+          canvas.style.pointerEvents = 'all';
+          // Touch/mouse handlers
+          var self = this;
+          canvas.onmousedown = function(e) { self._spStartStroke(e.offsetX, e.offsetY); };
+          canvas.onmousemove = function(e) { if (self._spDrawing) self._spAddPoint(e.offsetX, e.offsetY); };
+          canvas.onmouseup = function() { self._spEndStroke(); };
+          canvas.ontouchstart = function(e) {
+            e.preventDefault();
+            var t = e.touches[0]; var r = canvas.getBoundingClientRect();
+            self._spStartStroke(t.clientX - r.left, t.clientY - r.top);
+          };
+          canvas.ontouchmove = function(e) {
+            e.preventDefault();
+            if (!self._spDrawing) return;
+            var t = e.touches[0]; var r = canvas.getBoundingClientRect();
+            self._spAddPoint(t.clientX - r.left, t.clientY - r.top);
+          };
+          canvas.ontouchend = function(e) { e.preventDefault(); self._spEndStroke(); };
+        } else {
+          btn.style.background = '#4C6A7C';
+          btn.textContent = 'Draw';
+          canvas.style.pointerEvents = 'none';
+          canvas.onmousedown = canvas.onmousemove = canvas.onmouseup = null;
+          canvas.ontouchstart = canvas.ontouchmove = canvas.ontouchend = null;
+        }
+      },
+
+      _spStartStroke(x, y) {
+        this._spDrawing = true;
+        this._spCurrentStroke = [{ x, y }];
+      },
+
+      _spAddPoint(x, y) {
+        if (!this._spCurrentStroke) return;
+        this._spCurrentStroke.push({ x, y });
+        this._spRedraw();
+      },
+
+      _spEndStroke() {
+        if (this._spCurrentStroke && this._spCurrentStroke.length > 1) {
+          this._spStrokes.push(this._spCurrentStroke);
+        }
+        this._spCurrentStroke = null;
+        this._spDrawing = false;
+        this._spRedraw();
+      },
+
+      _spRedraw() {
+        var ctx = this._spCtx;
+        ctx.clearRect(0, 0, this._spCanvasW, this._spCanvasH);
+        var allStrokes = this._spStrokes.concat(this._spCurrentStroke ? [this._spCurrentStroke] : []);
+        ctx.strokeStyle = '#F15A29';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        allStrokes.forEach(function(stroke) {
+          if (stroke.length < 2) return;
+          ctx.beginPath();
+          ctx.moveTo(stroke[0].x, stroke[0].y);
+          for (var i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x, stroke[i].y);
+          ctx.stroke();
+        });
+      },
+
+      _spUndo() {
+        if (this._spStrokes.length > 0) {
+          this._spStrokes.pop();
+          this._spRedraw();
+        }
+      },
+
+      _spClear() {
+        this._spStrokes = [];
+        this._spCurrentStroke = null;
+        this._spRedraw();
+      },
+
+      _spCapture() {
+        if (!this._spMap || !this._spCanvas) return;
+        var self = this;
+        var center = this._spMap.getCenter();
+        var zoom = this._spMap.getZoom();
+        var w = this._spCanvasW;
+        var h = this._spCanvasH;
+
+        // Use Static Maps API for the background (avoids CORS issues with tile rendering)
+        var staticUrl = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
+          center.lat() + ',' + center.lng() + '&zoom=' + zoom +
+          '&size=' + Math.round(w) + 'x' + Math.round(h) + '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+
+        var bgImg = new Image();
+        bgImg.crossOrigin = 'anonymous';
+        bgImg.onload = function() {
+          var outCanvas = document.createElement('canvas');
+          outCanvas.width = w * 2;
+          outCanvas.height = h * 2;
+          var outCtx = outCanvas.getContext('2d');
+
+          // Draw satellite background
+          outCtx.drawImage(bgImg, 0, 0, outCanvas.width, outCanvas.height);
+
+          // Draw user strokes on top
+          outCtx.strokeStyle = '#F15A29';
+          outCtx.lineWidth = 8;
+          outCtx.lineCap = 'round';
+          outCtx.lineJoin = 'round';
+          self._spStrokes.forEach(function(stroke) {
+            if (stroke.length < 2) return;
+            outCtx.beginPath();
+            outCtx.moveTo(stroke[0].x * 2, stroke[0].y * 2);
+            for (var i = 1; i < stroke.length; i++) outCtx.lineTo(stroke[i].x * 2, stroke[i].y * 2);
+            outCtx.stroke();
+          });
+
+          var dataUrl = outCanvas.toDataURL('image/png');
+          self.job.sitePlanImage = dataUrl;
+
+          // Also push to checklist photos for cloud upload
+          if (!self.job.checklist) self.job.checklist = {};
+          if (!self.job.checklist.photos) self.job.checklist.photos = [];
+          // Remove any previous site plan photo
+          self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+          self.job.checklist.photos.push({
+            id: 'siteplan-' + Date.now(),
+            name: 'Site Plan',
+            label: 'Site Plan',
+            dataUrl: dataUrl,
+            timestamp: Date.now()
+          });
+
+          self.save();
+          self.showToast('Site plan captured', 'success');
+          var modal = document.getElementById('sitePlanModal');
+          if (modal) modal.remove();
+          self.renderSiteInfo();
+        };
+        bgImg.onerror = function() {
+          self.showToast('Failed to capture map image — check API key', 'error');
+        };
+        bgImg.src = staticUrl;
+      },
+
+      showSitePlanEnlarged() {
+        if (!this.job.sitePlanImage) return;
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:10001;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:20px;';
+        overlay.innerHTML = '<img src="' + this.job.sitePlanImage + '" style="max-width:100%;max-height:100%;border-radius:8px;">';
+        overlay.onclick = function() { overlay.remove(); };
+        document.body.appendChild(overlay);
       },
 
       updateRemoval(field, value) {
@@ -8049,9 +8411,208 @@
     };
 
     // ════════════════════════════════════════════════════════
-    // SEND QUOTE — Modal + Upload + Email via Edge Functions
+    // MATERIAL VERIFICATION GATE
+    // ════════════════════════════════════════════════════════
+    function showMaterialVerificationModal(d) {
+      var existing = document.getElementById('materialVerifyModal');
+      if (existing) existing.remove();
+
+      // Get pricing JSON for cross-check
+      var pricing = app.buildPricingJson();
+      var pricingItems = pricing.line_items || [];
+
+      // Helper to find pricing quantity for a category
+      function pricingQty(category, descMatch) {
+        var found = pricingItems.filter(function(li) {
+          if (li.category !== category) return false;
+          if (descMatch) return li.description && li.description.toLowerCase().includes(descMatch.toLowerCase());
+          return true;
+        });
+        var total = 0;
+        found.forEach(function(li) { total += (li.quantity || 0); });
+        return { qty: total, count: found.length };
+      }
+
+      // Build checklist sections
+      var sections = [];
+      var checkIdx = 0;
+
+      // ── Section 1: Panels & Posts ──
+      var panelRows = [];
+      Object.values(d.postGroups).forEach(function(g) {
+        var desc = g.count + ' &times; ' + g.sheetH + 'H &times; ' + d.panelWidthMm + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + (d.colour || 'Shale Grey');
+        panelRows.push({ idx: checkIdx++, desc: desc, matQty: g.count });
+      });
+      // Cross-check total panels vs pricing fencing line
+      var pricingFencing = pricingQty('fencing');
+      var panelMismatch = d.totalPanels !== Math.round(pricingFencing.qty / d.panelWidthM);
+
+      sections.push({
+        title: 'Panels & Posts',
+        rows: panelRows,
+        mismatch: panelMismatch ? 'Material panels: ' + d.totalPanels + ' | Pricing metres: ' + pricingFencing.qty.toFixed(1) + 'm (' + Math.round(pricingFencing.qty / d.panelWidthM) + ' panels)' : null
+      });
+
+      // ── Section 2: Plinths & Tubing ──
+      var plinthRows = [];
+      if (d.totalPlinths > 0) {
+        plinthRows.push({ idx: checkIdx++, desc: d.totalPlinths + ' &times; 150mm Plinths &mdash; ' + (d.colour || 'Shale Grey'), matQty: d.totalPlinths });
+      }
+      if (d.totalPatioTubes > 0) {
+        var tubeBreakdown = (d.runDetails || []).filter(function(r) { return r.patioTubes > 0; }).map(function(r) { return r.name + ': ' + r.patioTubes; }).join(', ');
+        plinthRows.push({ idx: checkIdx++, desc: d.totalPatioTubes + ' &times; 76&times;38 RHS Patio Tube @ 3000mm' + (tubeBreakdown ? ' (' + tubeBreakdown + ')' : ''), matQty: d.totalPatioTubes });
+      }
+      // Cross-check plinths
+      var pricingPlinths = pricingQty('materials', 'plinth');
+      var plinthMismatch = d.totalPlinths > 0 && pricingPlinths.qty !== d.totalPlinths;
+      var pricingTubes = pricingQty('materials', 'patio');
+      var tubeMismatch = d.totalPatioTubes > 0 && pricingTubes.qty !== d.totalPatioTubes;
+
+      if (plinthRows.length > 0) {
+        var mismatchMsg = null;
+        if (plinthMismatch) mismatchMsg = 'Plinth mismatch — Material: ' + d.totalPlinths + ' | Pricing: ' + pricingPlinths.qty;
+        if (tubeMismatch) mismatchMsg = (mismatchMsg ? mismatchMsg + '<br>' : '') + 'Patio tube mismatch — Material: ' + d.totalPatioTubes + ' | Pricing: ' + pricingTubes.qty;
+        sections.push({ title: 'Plinths & Tubing', rows: plinthRows, mismatch: mismatchMsg });
+      }
+
+      // ── Section 3: Gates ──
+      var gateRows = [];
+      if (d.gatePosts > 0) {
+        var totalGatePosts = 0;
+        (d.gateDetails || []).forEach(function(g) { totalGatePosts += g.posts; });
+        gateRows.push({ idx: checkIdx++, desc: totalGatePosts + ' &times; 90&times;90mm SHS Gate Posts', matQty: totalGatePosts });
+      }
+      (app.job.gates || []).forEach(function(g) {
+        var typeLabel = g.type === 'pedestrian' ? 'Pedestrian gate kit' : 'Double swing gate kit';
+        var panelH = (app.job.runs && app.job.runs[0] && app.job.runs[0].panels[0]) ? app.job.runs[0].panels[0].height : 1800;
+        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (d.colour || 'Shale Grey'), matQty: 1 });
+      });
+      // Cross-check gates
+      var pricingGates = pricingQty('gates');
+      var gateMismatch = gateRows.length > 0 && pricingGates.count !== (app.job.gates || []).length;
+
+      if (gateRows.length > 0) {
+        sections.push({
+          title: 'Gates',
+          rows: gateRows,
+          mismatch: gateMismatch ? 'Gate count mismatch — Material: ' + (app.job.gates || []).length + ' | Pricing line items: ' + pricingGates.count : null
+        });
+      }
+
+      // ── Section 4: Fixings ──
+      var fixingRows = [];
+      fixingRows.push({ idx: checkIdx++, desc: d.concreteBags + ' &times; Bags Quickset Concrete <span style="font-size:12px;color:#6b7280;">(posts &times; 2 &times; 1.1 = ' + d.allPosts + ' &times; 2 &times; 1.1)</span>', matQty: d.concreteBags });
+      fixingRows.push({ idx: checkIdx++, desc: d.tekBoxes + ' &times; Boxes Tek Screws', matQty: d.tekBoxes });
+      sections.push({ title: 'Fixings', rows: fixingRows, mismatch: null });
+
+      var totalChecks = checkIdx;
+
+      // Build HTML
+      var sectionsHtml = sections.map(function(sec) {
+        var rowsHtml = sec.rows.map(function(row) {
+          var borderStyle = 'border-left:3px solid #22C55E;';
+          return '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;margin-bottom:4px;background:#fff;border-radius:6px;cursor:pointer;' + borderStyle + '">' +
+            '<input type="checkbox" class="mv-check" data-idx="' + row.idx + '" style="margin-top:3px;min-width:18px;min-height:18px;accent-color:#F15A29;" onchange="window._mvCheckChanged()">' +
+            '<span style="font-size:14px;color:#293C46;line-height:1.4;">' + row.desc + '</span>' +
+          '</label>';
+        }).join('');
+
+        var mismatchHtml = sec.mismatch ?
+          '<div style="padding:8px 12px;background:#FEE2E2;border-left:3px solid #DC2626;border-radius:4px;margin-bottom:4px;font-size:13px;color:#991B1B;">' +
+            '<strong>Mismatch:</strong> ' + sec.mismatch +
+          '</div>' : '';
+
+        return '<div style="margin-bottom:16px;">' +
+          '<h4 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#4C6A7C;text-transform:uppercase;letter-spacing:0.5px;">' + sec.title + '</h4>' +
+          mismatchHtml + rowsHtml +
+        '</div>';
+      }).join('');
+
+      var overlay = document.createElement('div');
+      overlay.id = 'materialVerifyModal';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#F9FAFB;border-radius:12px;width:95%;max-width:560px;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;">' +
+          '<div style="background:#293C46;padding:16px 24px;flex-shrink:0;">' +
+            '<h3 style="margin:0;color:#fff;font-size:18px;font-weight:700;">Material Verification</h3>' +
+            '<p style="margin:4px 0 0;color:rgba(255,255,255,0.7);font-size:13px;">Check each item before sending quote</p>' +
+          '</div>' +
+          '<div style="padding:20px 24px;overflow-y:auto;flex:1;">' + sectionsHtml + '</div>' +
+          '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;">' +
+            '<button onclick="document.getElementById(\'materialVerifyModal\').remove()" style="padding:12px 20px;border:1px solid #D4DEE4;background:#fff;border-radius:6px;font-size:14px;cursor:pointer;min-height:44px;">Cancel</button>' +
+            '<button id="mvConfirmBtn" onclick="window._mvConfirm()" disabled style="padding:12px 24px;background:#ccc;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:not-allowed;min-height:44px;" title="Check all items first">Confirm Materials Correct</button>' +
+          '</div>' +
+        '</div>';
+
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+      // Checkbox tracking
+      window._mvCheckChanged = function() {
+        var checks = document.querySelectorAll('.mv-check');
+        var allChecked = true;
+        checks.forEach(function(cb) { if (!cb.checked) allChecked = false; });
+        var btn = document.getElementById('mvConfirmBtn');
+        if (allChecked) {
+          btn.disabled = false;
+          btn.style.background = '#F15A29';
+          btn.style.cursor = 'pointer';
+          btn.title = '';
+        } else {
+          btn.disabled = true;
+          btn.style.background = '#ccc';
+          btn.style.cursor = 'not-allowed';
+          btn.title = 'Check all items first';
+        }
+      };
+
+      window._mvConfirm = function() {
+        // Store verification metadata
+        var verifier = '';
+        if (window.SECUREWORKS_CLOUD && window.SECUREWORKS_CLOUD.auth.isLoggedIn()) {
+          var user = window.SECUREWORKS_CLOUD.auth.getUser();
+          verifier = (user && user.email) || '';
+        }
+        if (!verifier) verifier = app.job.scoper || 'unknown';
+
+        app.job.materialVerification = {
+          timestamp: new Date().toISOString(),
+          verifier: verifier,
+          verified: true
+        };
+        app.job._pricing_json = app.buildPricingJson();
+        app.save();
+
+        // Remove modal and proceed to send quote
+        document.getElementById('materialVerifyModal').remove();
+        _showSendQuoteModalInternal();
+      };
+    }
+
+    // ════════════════════════════════════════════════════════
+    // SEND QUOTE — Gate through Material Verification
     // ════════════════════════════════════════════════════════
     function showSendQuoteModal() {
+      // Step 1: Validate required fields
+      var missing = app._validateRequired();
+      if (missing.length > 0) {
+        app.showToast('Missing: ' + missing.join(', '), 'error');
+        return;
+      }
+      // Step 2: Collect output data
+      var d;
+      try { d = app._collectOutputData(); } catch(e) {
+        app.showToast('Error calculating output: ' + e.message, 'error');
+        return;
+      }
+      // Step 3: Show material verification modal (blocks until confirmed)
+      showMaterialVerificationModal(d);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // SEND QUOTE — Modal + Upload + Email via Edge Functions
+    // ════════════════════════════════════════════════════════
+    function _showSendQuoteModalInternal() {
       var existing = document.getElementById('sendQuoteModal');
       if (existing) existing.remove();
 
@@ -8173,6 +8734,23 @@
       if (!e.target.closest('.address-autocomplete-wrap')) app.hideAddressDropdown();
     });
   </script>
+
+<!-- ═══ Google Maps API (Places Autocomplete + Satellite View) ═══ -->
+<script>
+  const GOOGLE_MAPS_API_KEY = 'YOUR_API_KEY_HERE'; // Replace with actual key
+  function initGoogleMaps() { console.log('[Maps] Google Maps API loaded'); }
+</script>
+<script async defer id="googleMapsScript"></script>
+<script>
+  (function() {
+    if (GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
+      document.getElementById('googleMapsScript').src =
+        'https://maps.googleapis.com/maps/api/js?key=' + GOOGLE_MAPS_API_KEY + '&libraries=places&callback=initGoogleMaps';
+    } else {
+      console.warn('[Maps] Google Maps API key not set — using addressr.io fallback');
+    }
+  })();
+</script>
 
 <!-- ═══ Cloud Integration (Supabase) ═══ -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
