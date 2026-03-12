@@ -7591,6 +7591,13 @@
             <img src="${screenshot3D}" alt="3D Fence Preview" class="view-3d">
           </div>` : ''}
 
+          ${d.job._latlng ? `<div class="section">
+            <h2>Site Location</h2>
+            <img src="https://maps.googleapis.com/maps/api/staticmap?center=${d.job._latlng.lat},${d.job._latlng.lng}&zoom=19&size=600x300&maptype=satellite&scale=2&key=${GOOGLE_MAPS_API_KEY}"
+              alt="Site satellite view" style="width:100%;max-height:250px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
+            <p style="font-size:11px;color:#4C6A7C;margin-top:4px;">${this._esc(d.job.address || '')}</p>
+          </div>` : ''}
+
           <div class="section">
             <h2>Material Selection</h2>
             <div class="spec-grid">
