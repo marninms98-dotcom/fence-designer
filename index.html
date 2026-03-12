@@ -2533,7 +2533,7 @@
       },
 
       // ── Profit & Orders (GP breakdown + draft PO approval) ──
-      _poApproved: { materials: false },
+      _poApproved: { materials: false, labour: false },
 
       renderProfitOrders() {
         const el = document.getElementById('bodyProfitOrders');
@@ -2627,6 +2627,40 @@
           </div>
         </div>`;
 
+        // ── Labour PO Card ──
+        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
+        const accessPct = d.accessRate || 0;
+        const accessAmt = labBase * accessPct;
+        let labRows = '';
+        labRows += `<tr><td>Base labour (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m)</td><td class="r">$${f(labBase)}</td></tr>`;
+        if (accessPct > 0) {
+          labRows += `<tr><td>Access surcharge (${(accessPct * 100).toFixed(0)}%)</td><td class="r">$${f(accessAmt)}</td></tr>`;
+        }
+        // Removal labour costs
+        if (d.removalItems.length > 0) {
+          labRows += `<tr><td colspan="2" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
+          d.removalItems.forEach(r => {
+            if (r.costPrice) labRows += `<tr><td>${r.desc}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)} = $${f(r.qty * r.costPrice)}</td></tr>`;
+          });
+        }
+        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + (d.internalRemovalCost || 0))}</td></tr>`;
+
+        const labApproved = this._poApproved.labour;
+        html += `<div class="po-card" style="margin-top:8px;">
+          <div class="po-card-header" style="background:${labApproved ? '#dcfce7' : '#fef3c7'};color:${labApproved ? '#16a34a' : '#92400e'};">
+            Draft Labour Purchase Order
+            <button class="po-approve-btn" style="background:${labApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('labour')">
+              ${labApproved ? 'Approved' : 'Approve'}
+            </button>
+          </div>
+          <div class="po-card-body">
+            <table>
+              <thead><tr><th style="text-align:left;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Item</th><th style="text-align:right;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Cost</th></tr></thead>
+              <tbody>${labRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+
         // ── Revenue Split Summary ──
         const matSell = d.fencingTotal + d.plinthsTotal + d.patioTotal + d.gatesTotal + d.deliveryFee;
         const matMargin = matSell - d.internalCost;
@@ -2647,8 +2681,9 @@
         </div>`;
 
         el.innerHTML = html;
+        const bothApproved = matApproved && labApproved;
         if (statusEl) {
-          statusEl.className = 'section-status ' + (matApproved ? 'done' : 'partial');
+          statusEl.className = 'section-status ' + (bothApproved ? 'done' : 'partial');
         }
       },
 
@@ -3193,19 +3228,6 @@
               </select>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Delivery Fee ($)</label>
-              <input type="number" value="${q.deliveryFee != null ? q.deliveryFee : 250}" min="0" step="10"
-                onchange="app.updateQuote('deliveryFee', this.value)">
-            </div>
-            <div class="form-group">
-              <label>Ground Finish</label>
-              <select onchange="app.updateQuote('groundFinish', this.value)">
-                ${['none','mulch','stones','turf'].map(g => `<option value="${g}" ${q.groundFinish === g ? 'selected' : ''}>${g === 'none' ? 'None' : g.charAt(0).toUpperCase() + g.slice(1)}</option>`).join('')}
-              </select>
-            </div>
-          </div>
           <div class="section-label" style="margin-top:16px;">Price Adjustments</div>
           <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Override sell prices for each line item (excl. GST)</div>
           <div class="form-row">
@@ -3215,9 +3237,9 @@
                 onchange="app.updateQuote('plinthPrice', parseFloat(this.value) || 0)">
             </div>
             <div class="form-group">
-              <label>Patio Tube ($/each)</label>
-              <input type="number" value="${q.patioTubePrice || 65}" min="0" step="1"
-                onchange="app.updateQuote('patioTubePrice', parseFloat(this.value) || 0)">
+              <label>Delivery Fee ($)</label>
+              <input type="number" value="${q.deliveryFee != null ? q.deliveryFee : 250}" min="0" step="10"
+                onchange="app.updateQuote('deliveryFee', this.value)">
             </div>
           </div>
           <div class="form-row">
@@ -3244,8 +3266,15 @@
                 onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
             </div>
           </div>
+          <div style="margin:12px 0;border-top:1px dashed #d0d5dd;padding-top:10px;">
+            <div style="font-size:11px;color:#8899a6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Other Adjustments</div>
+          </div>
           <div class="form-row">
             <div class="form-group">
+              <label>Patio Tube ($/each)</label>
+              <input type="number" value="${q.patioTubePrice || 65}" min="0" step="1"
+                onchange="app.updateQuote('patioTubePrice', parseFloat(this.value) || 0)">
+            </div>
             <div class="form-group">
               <label>Asbestos Cert Fee ($)</label>
               <input type="number" value="${q.asbestosCertFee || 300}" min="0" step="10"
@@ -3258,7 +3287,12 @@
               <input type="number" value="${q.vegClearPrice || 215}" min="0" step="10"
                 onchange="app.updateQuote('vegClearPrice', parseFloat(this.value) || 0)">
             </div>
-            <div class="form-group"></div>
+            <div class="form-group">
+              <label>Ground Finish</label>
+              <select onchange="app.updateQuote('groundFinish', this.value)">
+                ${['none','mulch','stones','turf'].map(g => `<option value="${g}" ${q.groundFinish === g ? 'selected' : ''}>${g === 'none' ? 'None' : g.charAt(0).toUpperCase() + g.slice(1)}</option>`).join('')}
+              </select>
+            </div>
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Quote Description</div>
@@ -5687,6 +5721,18 @@
 
       // ── Build 3D fence scene from job data ──
       buildFence3D() {
+        try { this._buildFence3DInner(); } catch(e) {
+          console.error('[3D] buildFence3D error:', e);
+          // Show error on viewport
+          var vp = document.getElementById('fence3DViewport');
+          if (vp) {
+            var errDiv = vp.querySelector('.f3d-error');
+            if (!errDiv) { errDiv = document.createElement('div'); errDiv.className = 'f3d-error'; errDiv.style.cssText = 'position:absolute;top:10px;left:10px;right:10px;background:rgba(220,38,38,0.9);color:#fff;padding:10px;border-radius:6px;font-size:13px;z-index:10;'; vp.appendChild(errDiv); }
+            errDiv.textContent = '3D Error: ' + e.message;
+          }
+        }
+      },
+      _buildFence3DInner() {
         const f = this._f3d;
         if (!f.fenceGrp) return;
 
@@ -5736,7 +5782,7 @@
         const profile = job.profile || 'Trimclad';
 
         // Compute slope data
-        this._calcSlopePlinths(run);
+        this.calcSlopeForRun(run);
         const panelCount = run.panels.length;
 
         // Ground offsets from slope
