@@ -47,20 +47,32 @@
 
     // Fencing tool v2: set fields directly on app.job and re-render
     if (window.app && window.app.job && _toolType === 'fencing') {
-      var nameParts = (contact.name || '').split(' ');
-      if (nameParts.length >= 2) {
-        window.app.job.clientFirstName = nameParts[0];
-        window.app.job.clientLastName = nameParts.slice(1).join(' ');
+      // Use structured firstName/lastName from GHL if available, fall back to splitting name
+      if (contact.firstName) {
+        window.app.job.clientFirstName = contact.firstName;
+        window.app.job.clientLastName = contact.lastName || '';
       } else {
-        window.app.job.clientFirstName = contact.name || '';
+        var nameParts = (contact.name || '').split(' ');
+        if (nameParts.length >= 2) {
+          window.app.job.clientFirstName = nameParts[0];
+          window.app.job.clientLastName = nameParts.slice(1).join(' ');
+        } else {
+          window.app.job.clientFirstName = contact.name || '';
+        }
       }
-      window.app.job.client = contact.name || '';
+      window.app.job.client = contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' ');
       if (contact.email) window.app.job.email = contact.email;
       if (contact.phone) window.app.job.phone = contact.phone;
       if (fullAddress) window.app.job.address = fullAddress;
+      else if (contact.address) window.app.job.address = contact.address;
       if (contact.suburb) window.app.job.suburb = contact.suburb;
       window.app.save();
       if (typeof window.app.render === 'function') window.app.render();
+      // Also re-render site info specifically to update visible fields
+      if (typeof window.app.renderSiteInfo === 'function') window.app.renderSiteInfo();
+      if (typeof window.app.updateSectionStatuses === 'function') window.app.updateSectionStatuses();
+      if (typeof window.app._updateHeaderBadge === 'function') window.app._updateHeaderBadge();
+      console.log('[Integration] Contact prefilled:', window.app.job.clientFirstName, window.app.job.clientLastName, window.app.job.email, window.app.job.phone, window.app.job.address, window.app.job.suburb);
       return;
     }
 

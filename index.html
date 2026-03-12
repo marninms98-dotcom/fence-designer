@@ -2798,13 +2798,19 @@
           contentHtml = `
             <div class="form-row">
               <div class="form-group">
-                <label>First Name *</label>
-                <input type="text" value="${this._esc(j.clientFirstName)}" placeholder="Client first name"
-                  onchange="app.updateField('clientFirstName', this.value)">
+                <label>First Name * <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(type to search GHL)</span></label>
+                <div class="address-autocomplete-wrap">
+                  <input type="text" id="clientFirstNameInput" value="${this._esc(j.clientFirstName)}" placeholder="Client first name"
+                    oninput="app.onClientNameInput(this.value)"
+                    onchange="app.updateField('clientFirstName', this.value)"
+                    onkeydown="app.onClientNameKeydown(event)"
+                    autocomplete="off">
+                  <div class="address-dropdown" id="clientNameDropdown"></div>
+                </div>
               </div>
               <div class="form-group">
                 <label>Last Name *</label>
-                <input type="text" value="${this._esc(j.clientLastName)}" placeholder="Client last name"
+                <input type="text" id="clientLastNameInput" value="${this._esc(j.clientLastName)}" placeholder="Client last name"
                   onchange="app.updateField('clientLastName', this.value)">
               </div>
             </div>
@@ -3643,6 +3649,152 @@
           el.classList.toggle('active', i === this._addressActiveIdx);
           if (i === this._addressActiveIdx) el.scrollIntoView({ block: 'nearest' });
         });
+      },
+
+      // ── GHL Contact search from client name field ──
+      _clientNameDebounce: null,
+      _clientNameResults: [],
+      _clientNameActiveIdx: -1,
+
+      onClientNameInput(query) {
+        clearTimeout(this._clientNameDebounce);
+        if (query.length < 2) {
+          this.hideClientNameDropdown();
+          return;
+        }
+        this._clientNameDebounce = setTimeout(() => this._searchGHLContacts(query), 400);
+      },
+
+      async _searchGHLContacts(query) {
+        var cloud = window.SECUREWORKS_CLOUD;
+        if (!cloud || !cloud.auth.isLoggedIn()) return;
+        try {
+          var opps = await cloud.ghl.search(query);
+          this._clientNameResults = opps || [];
+          this._renderClientNameDropdown();
+        } catch(e) {
+          console.warn('[GHL Search] Failed:', e);
+        }
+      },
+
+      _renderClientNameDropdown() {
+        const dd = document.getElementById('clientNameDropdown');
+        if (!dd) return;
+        const results = this._clientNameResults;
+        if (results.length === 0) {
+          dd.innerHTML = '<div class="address-dropdown-item" style="color:#6b7280;cursor:default;">No contacts found in GHL</div>';
+          dd.classList.add('open');
+          this._clientNameActiveIdx = -1;
+          return;
+        }
+        dd.innerHTML = results.map((opp, i) => {
+          const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
+          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;">' +
+            '<div style="font-weight:600;color:#293C46;">' + this._esc(opp.contactName || opp.name || '') + '</div>' +
+            (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
+          '</div>';
+        }).join('');
+        dd.classList.add('open');
+        this._clientNameActiveIdx = -1;
+      },
+
+      async selectGHLContact(idx) {
+        const opp = this._clientNameResults[idx];
+        if (!opp) return;
+        this.hideClientNameDropdown();
+
+        // Trigger the full GHL load flow via integration
+        if (window._swIntegration && window._swIntegration.loadPicker) {
+          // Simulate the opportunity selection flow from integration.js
+          var cloud = window.SECUREWORKS_CLOUD;
+          if (!cloud) return;
+
+          this.showToast('Loading ' + (opp.contactName || opp.name) + ' from GHL...', 'info');
+
+          try {
+            // Fetch full contact from GHL
+            var contact = null;
+            if (opp.contactId) {
+              try {
+                contact = await cloud.ghl.getContact(opp.contactId);
+              } catch(e) {
+                contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+              }
+            } else {
+              contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+            }
+
+            // Prefill contact into the job
+            if (contact) {
+              if (contact.firstName) {
+                this.job.clientFirstName = contact.firstName;
+                this.job.clientLastName = contact.lastName || '';
+              } else {
+                var parts = (contact.name || '').split(' ');
+                this.job.clientFirstName = parts[0] || '';
+                this.job.clientLastName = parts.slice(1).join(' ');
+              }
+              this.job.client = contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' ');
+              if (contact.email) this.job.email = contact.email;
+              if (contact.phone) this.job.phone = contact.phone;
+              var fullAddr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
+              if (fullAddr) this.job.address = fullAddr;
+              else if (contact.address) this.job.address = contact.address;
+              if (contact.suburb) this.job.suburb = contact.suburb;
+            }
+
+            // Check for existing job linked to this opportunity
+            var existingJob = null;
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
+            } catch(e) { /* no existing job */ }
+
+            if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
+              if (confirm('Found existing scope for ' + (opp.contactName || opp.name) + '. Load it?')) {
+                window.app.job = existingJob.scope_json.job || window.app.job;
+                if (window.app.job.runs && window.app.job.runs.length > 0) {
+                  window.app.currentRunId = window.app.job.runs[0].id;
+                }
+              }
+            }
+
+            this.save();
+            this.render();
+            this.updateSectionStatuses();
+            this._updateHeaderBadge();
+            this.showToast('Loaded: ' + (contact.name || opp.contactName), 'success');
+          } catch(e) {
+            this.showToast('Failed to load contact: ' + e.message, 'error');
+          }
+        }
+      },
+
+      hideClientNameDropdown() {
+        const dd = document.getElementById('clientNameDropdown');
+        if (dd) { dd.classList.remove('open'); dd.innerHTML = ''; }
+        this._clientNameResults = [];
+        this._clientNameActiveIdx = -1;
+      },
+
+      onClientNameKeydown(e) {
+        const dd = document.getElementById('clientNameDropdown');
+        if (!dd || !dd.classList.contains('open')) return;
+        const items = dd.querySelectorAll('.address-dropdown-item[data-idx]');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this._clientNameActiveIdx = Math.min(this._clientNameActiveIdx + 1, items.length - 1);
+          items.forEach((el, i) => el.classList.toggle('active', i === this._clientNameActiveIdx));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this._clientNameActiveIdx = Math.max(this._clientNameActiveIdx - 1, 0);
+          items.forEach((el, i) => el.classList.toggle('active', i === this._clientNameActiveIdx));
+        } else if (e.key === 'Enter' && this._clientNameActiveIdx >= 0) {
+          e.preventDefault();
+          this.selectGHLContact(this._clientNameActiveIdx);
+        } else if (e.key === 'Escape') {
+          this.hideClientNameDropdown();
+        }
       },
 
       // ── Site Plan Modal (satellite + drawing canvas) ──
@@ -8822,7 +8974,7 @@
       setTimeout(hookStageUpdates, 500);
     });
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.address-autocomplete-wrap')) app.hideAddressDropdown();
+      if (!e.target.closest('.address-autocomplete-wrap')) { app.hideAddressDropdown(); app.hideClientNameDropdown(); }
     });
   </script>
 
