@@ -1204,6 +1204,10 @@
     .gen-btn-workorder { background: #293C46; color: #fff; border: 2px solid rgba(255,255,255,0.3); }
     .gen-btn-workorder:hover { border-color: #fff; }
     .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* Progressive disclosure — hide all stage buttons by default, JS shows the right ones */
+    .btn-stage, .gen-stage { display: none !important; }
+    .btn-stage.stage-active, .gen-stage.stage-active { display: inline-flex !important; }
   </style>
 </head>
 <body>
@@ -1212,15 +1216,19 @@
     <div class="header-top">
       <img src="logo.png" alt="SecureWorks WA" class="header-logo">
       <div class="job-badge" id="headerBadge" style="background:rgba(255,255,255,0.12);color:#fff;padding:4px 12px;border-radius:4px;font-size:13px;white-space:nowrap;display:none;"><strong>SW—</strong></div>
-      <div class="header-actions">
+      <div class="header-actions" id="headerActions">
         <span class="saved-indicator" id="savedIndicator">Saved</span>
-        <button class="btn-header" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
-        <button class="btn-header" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
-        <button class="btn-header" onclick="app.exportJobJSON()" style="background:#4C6A7C;">Export</button>
-        <button class="btn-header" onclick="document.getElementById('importJobInput').click()" style="background:#4C6A7C;">Import</button>
+        <!-- Stage 1: Empty/New -->
+        <button class="btn-header btn-stage btn-stage-1" onclick="window._swIntegration && window._swIntegration.loadPicker()" style="background:#4C6A7C;">Load Job</button>
+        <button class="btn-header btn-stage btn-stage-1" onclick="app.newJob()">New</button>
+        <!-- Stage 2: Scoping in progress -->
+        <button class="btn-header btn-stage btn-stage-2" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
+        <!-- Stage 3: Ready to output (shown via bottom bar) -->
+        <button class="btn-header btn-stage btn-stage-3" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
+        <!-- Stage 4: Scope complete -->
+        <button class="btn-header btn-stage btn-stage-4" onclick="window._swIntegration && window._swIntegration.openDashboard()" style="background:#4C6A7C;">Dashboard</button>
+        <button class="btn-header btn-stage btn-stage-4" onclick="app.exportJobJSON()" style="background:#4C6A7C;">Export</button>
         <input type="file" id="importJobInput" accept=".json" style="display:none" onchange="app.importJobJSON(event)">
-        <button class="btn-header" onclick="app.newJob()">New</button>
-        <button class="btn-header btn-header-reset" onclick="app.resetJob()">Reset</button>
       </div>
     </div>
     <div class="header-fields">
@@ -1415,13 +1423,15 @@
 
   </div>
 
-  <!-- Sticky Generate Bar -->
+  <!-- Sticky Generate Bar (stage-aware) -->
   <div class="generate-bar-multi" id="generateBar">
-    <button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>
-    <button class="gen-btn" id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="background:#F15A29;color:#fff;">Send Quote</button>
-    <button class="gen-btn gen-btn-quote" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
-    <button class="gen-btn gen-btn-material" id="btnMaterialOrder" onclick="app.generateMaterialOrder()">Material Order</button>
-    <button class="gen-btn gen-btn-workorder" id="btnWorkOrder" onclick="app.generateWorkOrder()">Work Order</button>
+    <!-- Stage 2: Scoping -->
+    <button class="gen-btn gen-btn-qa gen-stage gen-stage-2" onclick="fenceQA.showScopeVerification()">QA Check</button>
+    <!-- Stage 3: Output -->
+    <button class="gen-btn gen-stage gen-stage-3" id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="background:#F15A29;color:#fff;">Send Quote</button>
+    <button class="gen-btn gen-btn-quote gen-stage gen-stage-3" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
+    <button class="gen-btn gen-btn-material gen-stage gen-stage-3" id="btnMaterialOrder" onclick="app.generateMaterialOrder()">Material Order</button>
+    <button class="gen-btn gen-btn-workorder gen-stage gen-stage-3" id="btnWorkOrder" onclick="app.generateWorkOrder()">Work Order</button>
   </div>
 
   <!-- Toast Container -->
@@ -8729,7 +8739,95 @@
       }
     }
 
-    window.addEventListener('DOMContentLoaded', () => app.init());
+    // ════════════════════════════════════════════════════════
+    // PROGRESSIVE DISCLOSURE — Stage-based button visibility
+    // ════════════════════════════════════════════════════════
+    function detectJobStage() {
+      var j = app.job;
+      if (!j) return 1;
+
+      // Stage 4: Scope complete / linked to GHL
+      if (j.scopeComplete || (j.materialVerification && j.materialVerification.verified)) {
+        // Check if scope was actually linked (has a job number from GHL)
+        var badge = document.getElementById('headerBadge');
+        if (badge && badge.style.display !== 'none' && badge.textContent.includes('SWF')) return 4;
+        if (j.materialVerification && j.materialVerification.verified) return 3; // verified but not yet linked
+      }
+
+      // Stage 3: Has runs with panels AND pricing is non-zero — ready for output
+      var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
+      var hasClient = !!(j.clientFirstName && j.address && j.email);
+      if (hasRuns && hasClient) {
+        try {
+          var d = app._collectOutputData();
+          if (d.grandTotal > 0) return 3;
+        } catch(e) { /* pricing failed, stay at 2 */ }
+        return 2;
+      }
+
+      // Stage 2: Has some data entered (name, address, or any run)
+      if (j.clientFirstName || j.address || (j.runs && j.runs.length > 0 && j.runs[0].panels.length > 0)) return 2;
+
+      // Stage 1: Empty/new job
+      return 1;
+    }
+
+    function updateButtonStages() {
+      var stage = detectJobStage();
+      // Determine which stages to show buttons for
+      // Each stage includes its own buttons + logically needed ones
+      var visible = {};
+      if (stage === 1) {
+        visible = { 1: true };
+      } else if (stage === 2) {
+        visible = { 1: true, 2: true };
+      } else if (stage === 3) {
+        visible = { 2: true, 3: true };
+      } else if (stage === 4) {
+        visible = { 2: true, 3: true, 4: true };
+      }
+
+      // Header buttons
+      document.querySelectorAll('.btn-stage').forEach(function(btn) {
+        var match = false;
+        for (var s = 1; s <= 4; s++) {
+          if (btn.classList.contains('btn-stage-' + s) && visible[s]) match = true;
+        }
+        btn.classList.toggle('stage-active', match);
+      });
+
+      // Bottom bar buttons
+      document.querySelectorAll('.gen-stage').forEach(function(btn) {
+        var match = false;
+        for (var s = 1; s <= 4; s++) {
+          if (btn.classList.contains('gen-stage-' + s) && visible[s]) match = true;
+        }
+        btn.classList.toggle('stage-active', match);
+      });
+
+      // Hide bottom bar entirely in stage 1
+      var bar = document.getElementById('generateBar');
+      if (bar) bar.style.display = (stage === 1) ? 'none' : '';
+    }
+
+    // Hook into app.save() to update stages whenever data changes
+    var _origSave = null;
+    function hookStageUpdates() {
+      if (_origSave || !app || !app.save) return;
+      _origSave = app.save.bind(app);
+      app.save = function() {
+        _origSave();
+        updateButtonStages();
+      };
+      // Initial update
+      updateButtonStages();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      app.init();
+      // Hook stage updates after a tick so app is fully initialized
+      setTimeout(hookStageUpdates, 500);
+    });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.address-autocomplete-wrap')) app.hideAddressDropdown();
     });
