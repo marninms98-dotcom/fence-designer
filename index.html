@@ -7486,39 +7486,82 @@
         `;
       },
 
-      _generateQuoteHTML(d) {
-        const date = d.job.date || new Date().toISOString().slice(0, 10);
-        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+      // Capture 3D view as data URL (no download)
+      _get3DScreenshotDataUrl() {
+        const f = this._f3d;
+        if (!f || !f.renderer) return null;
+        try {
+          f.renderer.render(f.scene, f.activeCamera || f.camera);
+          return f.renderer.domElement.toDataURL('image/png');
+        } catch(e) { return null; }
+      },
 
-        // Auto-generate description
-        let scopeDesc = `Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour}`;
-        if (d.totalPlinths > 0) scopeDesc += `, including ${d.totalPlinths} retaining plinths`;
-        if (d.totalPatioTubes > 0) scopeDesc += ` with patio tube bracing`;
-        scopeDesc += '. All posts set in concrete. Site clean-up included.';
+      // Build a professional single-line scope description for client quote
+      _buildQuoteScopeDesc(d) {
+        const parts = [];
+        // Distinct heights
+        const heights = [...new Set(d.runDetails.map(r => r.panels.length > 0 ? r.panels[0].height : d.job.runs[0].sheetHeight))];
+        const heightStr = heights.length === 1 ? heights[0] + 'mm' : heights.map(h => h + 'mm').join(' / ');
+
+        parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
+        if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
+        if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
+        parts.push('All posts set in concrete with post caps fitted');
+        if (d.gateLineItems.length > 0) {
+          const gateDescs = d.gateLineItems.map(g => {
+            const qty = g.qty > 1 ? g.qty + ' \u00D7 ' : '';
+            return qty + g.desc;
+          });
+          parts.push('Gates: ' + gateDescs.join(', '));
+        }
         const rem = d.job.removal || {};
         if (rem.existingFenceType && rem.existingFenceType !== 'none') {
           const ftype = rem.existingFenceType.charAt(0).toUpperCase() + rem.existingFenceType.slice(1);
-          scopeDesc += ` Removal and disposal of existing ${ftype} fencing`;
-          if (rem.existingFenceLength > 0) scopeDesc += ` (approx. ${rem.existingFenceLength}m)`;
-          scopeDesc += rem.disposal === 'client' ? ' — client disposing.' : ' included.';
+          let remDesc = `Removal and disposal of existing ${ftype} fencing`;
+          if (rem.existingFenceLength > 0) remDesc += ` (approx. ${rem.existingFenceLength}m)`;
+          parts.push(remDesc);
         }
+        if (d.groundFinishDesc) parts.push(d.groundFinishDesc);
+        parts.push('Complete site clean-up included');
+        return parts.join('. ') + '.';
+      },
 
-        let lineItemsHtml = '';
-        lineItemsHtml += `<tr><td>COLORBOND\u00AE ${d.profile} fencing — ${d.colour} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="text-right">$${this._fmt(d.fencingTotal)}</td></tr>`;
-        if (d.totalPlinths > 0) lineItemsHtml += `<tr><td>Retaining plinths (${d.totalPlinths} × 150mm)</td><td class="text-right">$${this._fmt(d.plinthsTotal)}</td></tr>`;
-        if (d.totalPatioTubes > 0) lineItemsHtml += `<tr><td>Patio tube bracing (${d.totalPatioTubes} tubes)</td><td class="text-right">$${this._fmt(d.patioTotal)}</td></tr>`;
-        d.gateLineItems.forEach(g => { lineItemsHtml += `<tr><td>${g.desc}${g.qty > 1 ? ' × ' + g.qty : ''}</td><td class="text-right">$${this._fmt(g.total)}</td></tr>`; });
-        d.removalItems.forEach(r => { lineItemsHtml += `<tr><td>${r.desc} (${r.qty} ${r.unit})</td><td class="text-right">$${this._fmt(r.total)}</td></tr>`; });
-        if (d.groundFinishTotal > 0) lineItemsHtml += `<tr><td>${d.groundFinishDesc} (${d.totalMetres.toFixed(1)}m)</td><td class="text-right">$${this._fmt(d.groundFinishTotal)}</td></tr>`;
-        d.addonItems.forEach(a => { lineItemsHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
-        d.customItems.forEach(c => { lineItemsHtml += `<tr><td>${c.desc} (${c.qty} ${c.unit} @ $${this._fmt(c.unitPrice)})</td><td class="text-right">$${this._fmt(c.total)}</td></tr>`; });
-        if (d.accessSurcharge > 0) lineItemsHtml += `<tr><td>Access difficulty surcharge (${d.js.access})</td><td class="text-right">$${this._fmt(d.accessSurcharge)}</td></tr>`;
-        lineItemsHtml += `<tr><td>Delivery</td><td class="text-right">$${this._fmt(d.deliveryFee)}</td></tr>`;
-        if (d.urgencySurcharge > 0) lineItemsHtml += `<tr><td>Urgency surcharge (${d.js.urgency})</td><td class="text-right">$${this._fmt(d.urgencySurcharge)}</td></tr>`;
+      _generateQuoteHTML(d) {
+        const date = d.job.date || new Date().toISOString().slice(0, 10);
+        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+        const scopeDesc = this._buildQuoteScopeDesc(d);
+        const colourHex = this._getColourHex(d.colour);
+        const screenshot3D = this._get3DScreenshotDataUrl();
+
+        // Profile image URL
+        const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
+        const dimBase = 'https://steelselect.com.au/sites/default/files/images/products/dimensions/';
+        const profileUrls = {
+          'Ridgeside': dimBase + 'Ridgeside%20Front.jpg', 'Sameside': dimBase + 'Sameside%20Front.jpg',
+          'Trimclad': imgBase + 'Metroll%20Trimclad-%C2%AB%20Fencing.jpg',
+          'Metline Premium': imgBase + 'Metroll%20Metline%20Premium.jpg',
+          'Harmony': imgBase + 'Metroll%20Metline%20Harmony.jpg',
+          'Corodek': imgBase + 'Metroll%20Corodek-%C2%AB%20Fencing.jpg',
+          'Mini Corodek': imgBase + 'Metroll%20Mini%20Corodek-%C2%AB%20Fencing.jpg',
+          'Neetascreen': imgBase + 'LYSAGHT%20NEETASCREEN-%C2%AB%20Fencing.jpg',
+          'Good Neighbour': imgBase + 'stratco-good-neighbour-fencing.jpg'
+        };
+        const profileImgUrl = profileUrls[d.profile] || '';
+
+        // Single consolidated price (everything rolled in)
+        const fencingLineTotal = d.subtotal;
 
         const disclaimersHtml = DISCLAIMERS.map((d, i) => `<p class="disclaimer"><span class="disclaimer-num">${i+1}.</span> ${d}</p>`).join('');
 
-        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}
+          .spec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+          .spec-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; text-align: center; }
+          .spec-card img { max-height: 80px; max-width: 100%; object-fit: contain; margin-bottom: 8px; }
+          .colour-swatch { display: inline-block; width: 40px; height: 40px; border-radius: 4px; border: 1px solid #d1d5db; vertical-align: middle; }
+          .view-3d { width: 100%; max-height: 280px; object-fit: contain; border-radius: 6px; border: 1px solid #e5e7eb; }
+          .scope-list { margin: 0; padding: 0 0 0 18px; font-size: 12px; line-height: 1.7; color: #293C46; }
+          .scope-list li { margin-bottom: 2px; }
+        </style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
             <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
@@ -7527,27 +7570,56 @@
           </div>
           <div class="section">
             <div class="info-grid">
-              <div><span class="label">Client:</span> <span class="value">${d.job.client || '—'}</span></div>
-              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '—'}</span></div>
-              <div><span class="label">Address:</span> <span class="value">${d.job.address || '—'}</span></div>
+              <div><span class="label">Client:</span> <span class="value">${d.job.client || '\u2014'}</span></div>
+              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${d.job.address || '\u2014'}</span></div>
               <div><span class="label">Date:</span> <span class="value">${date}</span></div>
-              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '—'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '\u2014'}</span></div>
               <div><span class="label">Valid until:</span> <span class="value">${validUntil}</span></div>
-              <div><span class="label">Email:</span> <span class="value">${d.job.email || '—'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${d.job.email || '\u2014'}</span></div>
               <div></div>
             </div>
           </div>
+
+          ${screenshot3D ? `<div class="section">
+            <h2>Your Fence</h2>
+            <img src="${screenshot3D}" alt="3D Fence Preview" class="view-3d">
+          </div>` : ''}
+
+          <div class="section">
+            <h2>Material Selection</h2>
+            <div class="spec-grid">
+              <div class="spec-card">
+                <div style="font-size:11px;font-weight:700;color:#4C6A7C;text-transform:uppercase;margin-bottom:6px;">Profile</div>
+                ${profileImgUrl ? `<img src="${profileImgUrl}" alt="${this._esc(d.profile)}" onerror="this.style.display='none'">` : ''}
+                <div style="font-size:13px;font-weight:700;color:#293C46;">${this._esc(d.profile)}</div>
+              </div>
+              <div class="spec-card">
+                <div style="font-size:11px;font-weight:700;color:#4C6A7C;text-transform:uppercase;margin-bottom:6px;">Colour</div>
+                <div class="colour-swatch" style="background:${colourHex};"></div>
+                <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(d.colour)}</div>
+              </div>
+            </div>
+          </div>
+
           <div class="section">
             <h2>Scope of Works</h2>
-            <p>${scopeDesc}</p>
-            ${(d.job.quote && d.job.quote.customDescription) ? '<p style="margin-top:8px;">' + this._esc(d.job.quote.customDescription) + '</p>' : ''}
+            <p style="font-size:12px;line-height:1.6;">${scopeDesc}</p>
+            ${(d.job.quote && d.job.quote.customDescription) ? '<p style="margin-top:8px;font-size:12px;">' + this._esc(d.job.quote.customDescription) + '</p>' : ''}
           </div>
+
           <div class="section">
             <h2>Pricing</h2>
             <table>
-              <thead><tr><th>Item</th><th class="text-right">Amount</th></tr></thead>
+              <thead><tr><th>Description</th><th class="text-right">Amount</th></tr></thead>
               <tbody>
-                ${lineItemsHtml}
+                <tr>
+                  <td style="line-height:1.5;">
+                    <strong>COLORBOND\u00AE Fencing — Supply & Install</strong><br>
+                    <span style="font-size:11px;color:#4C6A7C;">${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}${d.totalPlinths > 0 ? ' | ' + d.totalPlinths + ' retaining plinths' : ''}${d.gateLineItems.length > 0 ? ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '') : ''}${d.removalTotal > 0 ? ' | Old fence removal' : ''}</span>
+                  </td>
+                  <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(d.subtotal)}</td>
+                </tr>
               </tbody>
               <tfoot>
                 <tr class="total-row"><td>Subtotal (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>
@@ -7840,6 +7912,9 @@
         const doc = new jsPDF({ unit: 'mm', format: 'a4' });
         const pw = 210, ph = 297, mx = 20;
         let y = 20;
+        const scopeDesc = this._buildQuoteScopeDesc(d);
+        const colourHex = this._getColourHex(d.colour);
+        const screenshot3D = this._get3DScreenshotDataUrl();
 
         // Header bar
         doc.setFillColor(41, 60, 70);
@@ -7863,10 +7938,10 @@
         const date = d.job.date || new Date().toISOString().slice(0, 10);
         const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
         const info = [
-          ['Client', d.job.client || '—'], ['Job Ref', d.job.ref || '—'],
-          ['Address', d.job.address || '—'], ['Date', date],
-          ['Phone', d.job.phone || '—'], ['Valid Until', validUntil],
-          ['Email', d.job.email || '—']
+          ['Client', d.job.client || '\u2014'], ['Job Ref', d.job.ref || '\u2014'],
+          ['Address', d.job.address || '\u2014'], ['Date', date],
+          ['Phone', d.job.phone || '\u2014'], ['Valid Until', validUntil],
+          ['Email', d.job.email || '\u2014']
         ];
         info.forEach((row, i) => {
           const col = i % 2;
@@ -7882,6 +7957,46 @@
         });
         y += Math.ceil(info.length / 2) * 7 + 6;
 
+        // 3D Screenshot
+        if (screenshot3D) {
+          try {
+            const imgW = pw - mx * 2;
+            const imgH = imgW * 0.5; // 2:1 aspect ratio
+            if (y + imgH + 10 > ph - 40) { doc.addPage(); y = 20; }
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.setTextColor(41, 60, 70);
+            doc.text('YOUR FENCE', mx, y);
+            doc.setDrawColor(76, 106, 124);
+            doc.line(mx, y + 1, pw - mx, y + 1);
+            y += 4;
+            doc.addImage(screenshot3D, 'PNG', mx, y, imgW, imgH);
+            y += imgH + 6;
+          } catch(e) { /* skip if image fails */ }
+        }
+
+        // Material selection — colour swatch + profile name
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
+        doc.text('MATERIAL SELECTION', mx, y);
+        doc.setDrawColor(76, 106, 124);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 7;
+        // Colour swatch
+        const hex = colourHex.replace('#', '');
+        const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
+        doc.setFillColor(cr, cg, cb);
+        doc.rect(mx, y - 3, 10, 10, 'F');
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(mx, y - 3, 10, 10, 'S');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(41, 60, 70);
+        doc.text(`COLORBOND ${d.colour}`, mx + 14, y + 1);
+        doc.text(`Profile: ${d.profile}`, mx + 14, y + 6);
+        y += 14;
+
         // Scope of works
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
@@ -7891,10 +8006,6 @@
         y += 6;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        let scopeDesc = `Supply and installation of ${d.totalMetres.toFixed(1)}m COLORBOND ${d.profile} fencing in ${d.colour}`;
-        if (d.totalPlinths > 0) scopeDesc += `, ${d.totalPlinths} retaining plinths`;
-        if (d.totalPatioTubes > 0) scopeDesc += ` with patio tube bracing`;
-        scopeDesc += '. All posts set in concrete. Site clean-up included.';
         const scopeLines = doc.splitTextToSize(scopeDesc, pw - mx * 2);
         doc.text(scopeLines, mx, y);
         y += scopeLines.length * 4 + 2;
@@ -7905,53 +8016,52 @@
         }
         y += 4;
 
-        // Pricing table
+        // Pricing — single line item
+        if (y > ph - 60) { doc.addPage(); y = 20; }
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
         doc.text('PRICING', mx, y);
+        doc.setDrawColor(76, 106, 124);
         doc.line(mx, y + 1, pw - mx, y + 1);
         y += 6;
         doc.setFillColor(245, 245, 245);
         doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
         doc.setFontSize(8);
         doc.setTextColor(76, 106, 124);
-        doc.text('ITEM', mx + 2, y);
+        doc.text('DESCRIPTION', mx + 2, y);
         doc.text('AMOUNT', pw - mx - 2, y, { align: 'right' });
-        y += 5;
+        y += 6;
 
+        // Single consolidated line
         doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
-        const addLine = (desc, amt) => {
-          if (y > ph - 40) { doc.addPage(); y = 20; }
-          doc.text(desc, mx + 2, y);
-          doc.text('$' + this._fmt(amt), pw - mx - 2, y, { align: 'right' });
-          doc.setDrawColor(229, 231, 235);
-          doc.line(mx, y + 2, pw - mx, y + 2);
-          y += 6;
-        };
-
-        addLine(`COLORBOND ${d.profile} fencing — ${d.colour} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)`, d.fencingTotal);
-        if (d.totalPlinths > 0) addLine(`Retaining plinths (${d.totalPlinths} x 150mm)`, d.plinthsTotal);
-        if (d.totalPatioTubes > 0) addLine(`Patio tube bracing (${d.totalPatioTubes} tubes)`, d.patioTotal);
-        d.gateLineItems.forEach(g => addLine(g.desc, g.total));
-        d.removalItems.forEach(r => addLine(`${r.desc} (${r.qty} ${r.unit})`, r.total));
-        if (d.groundFinishTotal > 0) addLine(`${d.groundFinishDesc} (${d.totalMetres.toFixed(1)}m)`, d.groundFinishTotal);
-        d.customItems.forEach(c => addLine(`${c.desc} (${c.qty} ${c.unit})`, c.total));
-        // Scope add-ons
-        if (d.addonsTotal > 0) {
-          d.addonItems.forEach(a => addLine(a.desc, a.total));
-        }
-        if (d.accessSurcharge > 0) addLine(`Access difficulty surcharge (${d.js.access})`, d.accessSurcharge);
-        addLine('Delivery', d.deliveryFee);
-        if (d.urgencySurcharge > 0) addLine(`Urgency surcharge (${d.js.urgency})`, d.urgencySurcharge);
+        doc.text('COLORBOND Fencing \u2014 Supply & Install', mx + 2, y);
+        doc.text('$' + this._fmt(d.subtotal), pw - mx - 2, y, { align: 'right' });
+        y += 4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(76, 106, 124);
+        let detailStr = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}`;
+        if (d.totalPlinths > 0) detailStr += ` | ${d.totalPlinths} retaining plinths`;
+        if (d.gateLineItems.length > 0) detailStr += ` | ${d.gateLineItems.length} gate${d.gateLineItems.length > 1 ? 's' : ''}`;
+        if (d.removalTotal > 0) detailStr += ' | Old fence removal';
+        const detailLines = doc.splitTextToSize(detailStr, pw - mx * 2 - 4);
+        doc.text(detailLines, mx + 2, y);
+        y += detailLines.length * 3.5 + 2;
+        doc.setDrawColor(229, 231, 235);
+        doc.line(mx, y, pw - mx, y);
+        y += 4;
 
         // Totals
         y += 2;
         doc.setDrawColor(41, 60, 70);
         doc.setLineWidth(0.5);
         doc.line(mx, y - 3, pw - mx, y - 3);
+        doc.setTextColor(41, 60, 70);
         doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
         doc.text('Subtotal (excl. GST)', mx + 2, y);
         doc.text('$' + this._fmt(d.subtotal), pw - mx - 2, y, { align: 'right' });
         y += 6;
@@ -8706,17 +8816,11 @@
       // ── Build quote preview summary ──
       var f = function(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
       var quoteLines = '';
-      quoteLines += '<tr><td>COLORBOND ' + (d.profile || 'Trimclad') + ' fencing — ' + (d.colour || '') + ' (' + d.totalMetres.toFixed(1) + 'm)</td><td style="text-align:right;">$' + f(d.fencingTotal) + '</td></tr>';
-      if (d.totalPlinths > 0) quoteLines += '<tr><td>Retaining plinths (' + d.totalPlinths + ' × 150mm)</td><td style="text-align:right;">$' + f(d.plinthsTotal) + '</td></tr>';
-      if (d.totalPatioTubes > 0) quoteLines += '<tr><td>Patio tube bracing (' + d.totalPatioTubes + ' tubes)</td><td style="text-align:right;">$' + f(d.patioTotal) + '</td></tr>';
-      (d.gateLineItems || []).forEach(function(g) { quoteLines += '<tr><td>' + g.desc + '</td><td style="text-align:right;">$' + f(g.total) + '</td></tr>'; });
-      (d.removalItems || []).forEach(function(r) { quoteLines += '<tr><td>' + r.desc + ' (' + r.qty + ' ' + r.unit + ')</td><td style="text-align:right;">$' + f(r.total) + '</td></tr>'; });
-      if (d.groundFinishTotal > 0) quoteLines += '<tr><td>' + d.groundFinishDesc + '</td><td style="text-align:right;">$' + f(d.groundFinishTotal) + '</td></tr>';
-      (d.addonItems || []).forEach(function(a) { quoteLines += '<tr><td>' + a.desc + '</td><td style="text-align:right;">$' + f(a.total) + '</td></tr>'; });
-      (d.customItems || []).forEach(function(c) { quoteLines += '<tr><td>' + c.desc + ' (' + c.qty + ' ' + c.unit + ')</td><td style="text-align:right;">$' + f(c.total) + '</td></tr>'; });
-      if (d.accessSurcharge > 0) quoteLines += '<tr><td>Access difficulty surcharge</td><td style="text-align:right;">$' + f(d.accessSurcharge) + '</td></tr>';
-      quoteLines += '<tr><td>Delivery</td><td style="text-align:right;">$' + f(d.deliveryFee) + '</td></tr>';
-      if (d.urgencySurcharge > 0) quoteLines += '<tr><td>Urgency surcharge</td><td style="text-align:right;">$' + f(d.urgencySurcharge) + '</td></tr>';
+      var detailParts = d.totalMetres.toFixed(1) + 'm ' + (d.profile || 'Trimclad') + ' in ' + (d.colour || '');
+      if (d.totalPlinths > 0) detailParts += ' | ' + d.totalPlinths + ' retaining plinths';
+      if ((d.gateLineItems || []).length > 0) detailParts += ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '');
+      if (d.removalTotal > 0) detailParts += ' | Old fence removal';
+      quoteLines += '<tr><td><strong>COLORBOND Fencing — Supply &amp; Install</strong><br><span style="font-size:11px;color:#4C6A7C;">' + detailParts + '</span></td><td style="text-align:right;vertical-align:top;font-weight:600;">$' + f(d.subtotal) + '</td></tr>';
 
       var quoteSummaryHtml =
         '<div style="margin-bottom:16px;">' +
