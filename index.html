@@ -5905,29 +5905,22 @@
             const retH = totalPl * plinthH;
             let stackY = panelGnd;
 
-            // Plinths
-            for (let pli = 0; pli < totalPl; pli++) {
-              const plGeo = new THREE.BoxGeometry(panelWidthM, plinthH - 0.002, 0.008);
-              const pl = new THREE.Mesh(plGeo, plinthMat);
-              pl.position.set(panelX, stackY + plinthH/2, 0);
-              pl.castShadow = true; pl.receiveShadow = true;
-              pl.userData = { info: `<b>Plinth ${pli+1}/${Math.round(totalPl)}</b><br>Panel ${pi+1}<br>150mm COLORBOND<br>${job.colour}` };
-              f.fenceGrp.add(pl);
-              // Horizontal ribs
-              for (let ri = 1; ri <= 3; ri++) {
-                const rib = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.002, 0.001), postMat);
-                rib.position.set(panelX, stackY + (plinthH*ri/4), 0.005);
-                f.fenceGrp.add(rib);
-              }
-              stackY += plinthH;
-            }
-
-            // Retaining soil (thin fill behind plinths, not a floating block)
+            // Plinths (single block, same depth as fence sheet)
             if (totalPl > 0) {
-              const soilGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.04);
-              const soilFill = new THREE.Mesh(soilGeo, earthMat);
-              soilFill.position.set(panelX, panelGnd + retH/2, -0.03);
-              f.fenceGrp.add(soilFill);
+              const plGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.015);
+              const pl = new THREE.Mesh(plGeo, plinthMat.clone());
+              pl.material.color = fenceCol.clone().multiplyScalar(0.75);
+              pl.position.set(panelX, panelGnd + retH/2, 0);
+              pl.castShadow = true; pl.receiveShadow = true;
+              pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${job.colour}` };
+              f.fenceGrp.add(pl);
+              // Horizontal lines to show plinth divisions
+              for (let pli = 1; pli < totalPl; pli++) {
+                const line = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.003, 0.017), postMat);
+                line.position.set(panelX, panelGnd + pli * plinthH, 0);
+                f.fenceGrp.add(line);
+              }
+              stackY = panelGnd + retH;
             }
 
             // Bottom rail
