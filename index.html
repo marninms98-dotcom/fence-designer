@@ -5878,19 +5878,7 @@
           postCap.position.set(cursorX, gndY + aboveGnd + 0.003, 0);
           f.fenceGrp.add(postCap);
 
-          // Embed (underground)
-          const embedGeo = new THREE.BoxGeometry(postW, embedDepth, postW);
-          const eMat = postMat.clone(); eMat.transparent = true; eMat.opacity = 0.3;
-          const embed = new THREE.Mesh(embedGeo, eMat);
-          embed.position.set(cursorX, gndY - embedDepth/2, 0);
-          f.fenceGrp.add(embed);
-
-          // Concrete footing
-          const footGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.5, 8);
-          const foot = new THREE.Mesh(footGeo, concreteMat.clone());
-          foot.material.transparent = true; foot.material.opacity = 0.4;
-          foot.position.set(cursorX, gndY - 0.35, 0);
-          f.fenceGrp.add(foot);
+          // Underground elements hidden — only visible in side/section view if needed
 
           // Patio tube if needed
           if (leftPanel || rightPanel) {
@@ -5934,18 +5922,12 @@
               stackY += plinthH;
             }
 
-            // Retaining earth
+            // Retaining soil (thin fill behind plinths, not a floating block)
             if (totalPl > 0) {
-              const earthGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.5);
-              const earth = new THREE.Mesh(earthGeo, earthMat);
-              earth.position.set(panelX, panelGnd + retH/2, -0.3);
-              earth.receiveShadow = true;
-              f.fenceGrp.add(earth);
-              // Grass on top of earth
-              const gsGeo = new THREE.BoxGeometry(panelWidthM, 0.01, 0.5);
-              const gs = new THREE.Mesh(gsGeo, new THREE.MeshStandardMaterial({ color: 0x5C8A3C, roughness: 0.9 }));
-              gs.position.set(panelX, panelGnd + retH + 0.005, -0.3);
-              f.fenceGrp.add(gs);
+              const soilGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.04);
+              const soilFill = new THREE.Mesh(soilGeo, earthMat);
+              soilFill.position.set(panelX, panelGnd + retH/2, -0.03);
+              f.fenceGrp.add(soilFill);
             }
 
             // Bottom rail
@@ -6121,26 +6103,6 @@
         mulchStrip.position.set(cx, -0.003, 0.35);
         mulchStrip.receiveShadow = true;
         f.envGrp.add(mulchStrip);
-
-        // Soil cross-section (visible where retaining is present)
-        if (panelPositions.some(pp => pp.retH > 0)) {
-          const soilCol = new THREE.Color(0x8B6F47);
-          const soilMat = new THREE.MeshStandardMaterial({ color: soilCol, roughness: 0.9, metalness: 0.0 });
-          panelPositions.forEach(pp => {
-            if (pp.retH > 0) {
-              // Soil behind retaining plinths
-              const soilBlock = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, pp.retH, 1.2), soilMat);
-              soilBlock.position.set(pp.x, pp.gnd + pp.retH/2, -0.7);
-              soilBlock.receiveShadow = true;
-              f.envGrp.add(soilBlock);
-              // Grass on top of soil
-              const grassTop = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.02, 1.2),
-                new THREE.MeshStandardMaterial({ color: 0x5C8A3C, roughness: 0.9 }));
-              grassTop.position.set(pp.x, pp.gnd + pp.retH + 0.01, -0.7);
-              f.envGrp.add(grassTop);
-            }
-          });
-        }
 
         // Small shrubs along neighbour side (subtle)
         const shrubCols = [0x3D6B35, 0x4A7D42, 0x356130];
