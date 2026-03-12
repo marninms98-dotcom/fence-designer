@@ -1750,7 +1750,12 @@
       calcPanelCount(lengthM) {
         if (!lengthM || lengthM <= 0) return 0;
         const lengthMm = lengthM * 1000;
-        return Math.ceil(lengthMm / this.getPanelWidthMm());
+        const panelW = this.getPanelWidthMm();
+        // Panels are cut to fit — only add another panel if overshoot > 50mm
+        // e.g. 2400mm run with 2380mm panels = 1 panel (trimmed), not 2
+        const raw = lengthMm / panelW;
+        const floored = Math.floor(raw);
+        return (raw - floored > 0.02) ? floored + 1 : Math.max(1, floored);
       },
 
       // ── Section 6.3: Post height per-post (between two panels) ──
