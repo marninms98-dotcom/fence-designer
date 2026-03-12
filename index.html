@@ -5645,11 +5645,11 @@
       },
 
       // ── Procedural textures ──
-      _createGrassTexture() {
+      _createGrassTexture(darken) {
         const c = document.createElement('canvas');
         c.width = 256; c.height = 256;
         const ctx = c.getContext('2d');
-        ctx.fillStyle = '#5C8A3C';
+        ctx.fillStyle = darken ? '#4E7A32' : '#5C8A3C';
         ctx.fillRect(0, 0, 256, 256);
         for (let i = 0; i < 2000; i++) {
           const bx = Math.random() * 256, by = Math.random() * 256;
@@ -5717,6 +5717,38 @@
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
         tex.repeat.set(6, 6);
         return tex;
+      },
+
+      // ── Create property label for 3D scene (flat on ground) ──
+      _create3DPropertyLabel(name, address, bgCol, accentCol) {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 120;
+        const ctx = c.getContext('2d');
+        // Background
+        ctx.fillStyle = bgCol;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.rect(0, 0, c.width, c.height);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // Accent bar
+        ctx.fillStyle = accentCol;
+        ctx.fillRect(0, 0, 6, c.height);
+        // Name
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px Arial, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(name, 24, 40);
+        // Address
+        if (address) {
+          ctx.font = '22px Arial, sans-serif';
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.fillText(address, 24, 82);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+        const labelMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 0.8), mat);
+        return labelMesh;
       },
 
       // ── Build 3D fence scene from job data ──
@@ -6060,141 +6092,99 @@
 
         // ══ ENVIRONMENT ══
         const grassTex = this._createGrassTexture();
-        const paverTex = this._createPaverTexture();
         const mulchTex = this._createMulchTexture();
         const fenceLen = Math.max(cursorX + 2, 10);
         const cx = cursorX / 2;
+        const envDepth = 6;
 
-        // Lawn
-        const lawn = new THREE.Mesh(new THREE.PlaneGeometry(60, 60),
+        // Client side lawn (front — lighter green)
+        const clientLawn = new THREE.Mesh(new THREE.PlaneGeometry(fenceLen + 4, envDepth),
           new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.92, metalness: 0.0 }));
-        lawn.rotation.x = -Math.PI/2; lawn.position.y = -0.005; lawn.receiveShadow = true;
-        f.envGrp.add(lawn);
+        clientLawn.rotation.x = -Math.PI/2;
+        clientLawn.position.set(cx, -0.005, envDepth/2 + 0.4);
+        clientLawn.receiveShadow = true;
+        f.envGrp.add(clientLawn);
 
-        // Concrete strip along fence base (front side)
-        const concreteStrip = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 0.5, 0.6),
-          concreteMat);
-        concreteStrip.rotation.x = -Math.PI/2;
-        concreteStrip.position.set(cx, -0.003, 0.35);
-        concreteStrip.receiveShadow = true;
-        f.envGrp.add(concreteStrip);
+        // Neighbour side lawn (back — slightly different tone)
+        const nbGrassTex = this._createGrassTexture(0.92);
+        const nbLawn = new THREE.Mesh(new THREE.PlaneGeometry(fenceLen + 4, envDepth),
+          new THREE.MeshStandardMaterial({ map: nbGrassTex, roughness: 0.92, metalness: 0.0, color: 0xD0DFC0 }));
+        nbLawn.rotation.x = -Math.PI/2;
+        nbLawn.position.set(cx, -0.006, -envDepth/2 - 0.4);
+        nbLawn.receiveShadow = true;
+        f.envGrp.add(nbLawn);
 
-        // Paver path (behind fence, neighbour side)
-        const paverPath = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 1, 1.5),
-          new THREE.MeshStandardMaterial({ map: paverTex, roughness: 0.8, metalness: 0.0 }));
-        paverPath.rotation.x = -Math.PI/2;
-        paverPath.position.set(cx, -0.004, -0.9);
-        paverPath.receiveShadow = true;
-        f.envGrp.add(paverPath);
-
-        // House wall (behind fence, client side)
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0xD4C8B0, roughness: 0.75, metalness: 0.0 });
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 6, 3.0, 0.25), wallMat);
-        wall.position.set(cx, 1.5, 5);
-        wall.receiveShadow = true; wall.castShadow = true;
-        f.envGrp.add(wall);
-        // House roof edge
-        const roofEdge = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.08, 0.8),
-          new THREE.MeshStandardMaterial({ color: 0x5A4A3A, roughness: 0.7, metalness: 0.1 }));
-        roofEdge.position.set(cx, 3.04, 5.3);
-        f.envGrp.add(roofEdge);
-        // Fascia
-        const fascia = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.2, 0.03),
-          new THREE.MeshStandardMaterial({ color: 0xE8E0D0, roughness: 0.6 }));
-        fascia.position.set(cx, 2.9, 4.86);
-        f.envGrp.add(fascia);
-        // Gutter
-        const gutter = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 7, 0.08, 0.12),
-          new THREE.MeshStandardMaterial({ color: fenceCol.clone(), metalness: 0.1, roughness: 0.4 }));
-        gutter.position.set(cx, 2.86, 4.8);
-        f.envGrp.add(gutter);
-
-        // Neighbour boundary fences (Colorbond, with posts)
-        const boundaryCol = new THREE.Color('#C4C0B6').convertSRGBToLinear();
-        const boundaryMat = new THREE.MeshStandardMaterial({ color: boundaryCol, metalness: 0.1, roughness: 0.45 });
-        const boundaryPostMat = new THREE.MeshStandardMaterial({ color: boundaryCol.clone().multiplyScalar(0.85), metalness: 0.1, roughness: 0.45 });
-
-        const addBoundaryFence = (x1, z1, x2, z2) => {
-          const dx = x2-x1, dz = z2-z1;
-          const len = Math.sqrt(dx*dx + dz*dz);
-          const angle = Math.atan2(dx, dz);
-          // Panels
-          const bf = new THREE.Mesh(this._createFenceSheetGeo(len, 1.8, 'Trimclad'), boundaryMat);
-          bf.position.set((x1+x2)/2, 0.9, (z1+z2)/2);
-          bf.rotation.y = angle;
-          bf.receiveShadow = true;
-          f.envGrp.add(bf);
-          // Posts every ~2.4m
-          const postCount = Math.ceil(len / 2.4) + 1;
-          for (let bp = 0; bp < postCount; bp++) {
-            const t = bp / (postCount - 1);
-            const bPost = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 0.05), boundaryPostMat);
-            bPost.position.set(x1 + dx*t, 1.0, z1 + dz*t);
-            bPost.castShadow = true;
-            f.envGrp.add(bPost);
-          }
-        };
-        addBoundaryFence(-3, -4, -3, 6);
-        addBoundaryFence(cursorX + 3, -4, cursorX + 3, 6);
-        addBoundaryFence(-3, -4, cursorX + 3, -4);
-
-        // Garden beds with mulch
+        // Mulch strip along fence base (client side)
         const mulchMat = new THREE.MeshStandardMaterial({ map: mulchTex, roughness: 0.9, metalness: 0.0 });
-        // Along back boundary
-        const bedBack = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 4, 0.08, 1.5), mulchMat);
-        bedBack.position.set(cx, 0.04, -3.5);
-        bedBack.receiveShadow = true;
-        f.envGrp.add(bedBack);
-        // Along side boundaries
-        const bedL = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 10), mulchMat.clone());
-        bedL.position.set(-2.4, 0.04, 1);
-        bedL.receiveShadow = true;
-        f.envGrp.add(bedL);
-        const bedR = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 10), mulchMat.clone());
-        bedR.position.set(cursorX + 2.4, 0.04, 1);
-        bedR.receiveShadow = true;
-        f.envGrp.add(bedR);
+        const mulchStrip = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 0.6, 0.5), mulchMat);
+        mulchStrip.rotation.x = -Math.PI/2;
+        mulchStrip.position.set(cx, -0.003, 0.35);
+        mulchStrip.receiveShadow = true;
+        f.envGrp.add(mulchStrip);
 
-        // Paver edging
-        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x8C7A68, roughness: 0.85 });
-        const edgeF = new THREE.Mesh(new THREE.BoxGeometry(fenceLen + 4, 0.1, 0.12), edgeMat);
-        edgeF.position.set(cx, 0.05, -2.76);
-        f.envGrp.add(edgeF);
-
-        // Shrubs
-        const shrubCols = [0x3D6B35, 0x4A7D42, 0x356130, 0x508A48, 0x2D5A28];
-        const addShrub = (x, z, scale) => {
-          const col = shrubCols[Math.floor(Math.random() * shrubCols.length)];
-          const s = new THREE.Mesh(new THREE.SphereGeometry(scale, 7, 5),
-            new THREE.MeshStandardMaterial({ color: col, roughness: 0.9 }));
-          s.position.set(x, scale * 0.7, z);
-          s.castShadow = true;
-          f.envGrp.add(s);
-        };
-        // Along back fence
-        for (let i = 0; i < 8; i++) addShrub(-2 + i * (fenceLen/7), -3.8 + Math.random()*0.4, 0.3 + Math.random()*0.35);
-        // Along sides
-        for (let i = 0; i < 4; i++) {
-          addShrub(-2.5, -2 + i * 2, 0.25 + Math.random()*0.3);
-          addShrub(cursorX + 2.5, -2 + i * 2, 0.25 + Math.random()*0.3);
+        // Soil cross-section (visible where retaining is present)
+        if (panelPositions.some(pp => pp.retH > 0)) {
+          const soilCol = new THREE.Color(0x8B6F47);
+          const soilMat = new THREE.MeshStandardMaterial({ color: soilCol, roughness: 0.9, metalness: 0.0 });
+          panelPositions.forEach(pp => {
+            if (pp.retH > 0) {
+              // Soil behind retaining plinths
+              const soilBlock = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, pp.retH, 1.2), soilMat);
+              soilBlock.position.set(pp.x, pp.gnd + pp.retH/2, -0.7);
+              soilBlock.receiveShadow = true;
+              f.envGrp.add(soilBlock);
+              // Grass on top of soil
+              const grassTop = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.02, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0x5C8A3C, roughness: 0.9 }));
+              grassTop.position.set(pp.x, pp.gnd + pp.retH + 0.01, -0.7);
+              f.envGrp.add(grassTop);
+            }
+          });
         }
 
-        // Trees
-        const addTree = (x, z, trunkH, foliageR) => {
-          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, trunkH, 6),
-            new THREE.MeshStandardMaterial({ color: 0x6B4226, roughness: 0.85 }));
-          trunk.position.set(x, trunkH/2, z);
-          trunk.castShadow = true;
-          f.envGrp.add(trunk);
-          const foliage = new THREE.Mesh(new THREE.SphereGeometry(foliageR, 8, 6),
-            new THREE.MeshStandardMaterial({ color: 0x2D5A1E + Math.floor(Math.random()*0x101010), roughness: 0.9 }));
-          foliage.position.set(x, trunkH + foliageR*0.6, z);
-          foliage.castShadow = true;
-          f.envGrp.add(foliage);
-        };
-        addTree(-2.2, -3.2, 3.5, 1.6);
-        addTree(cursorX + 2.2, -3, 3, 1.3);
-        addTree(cx + 2, 4.5, 2.5, 1.0);
+        // Small shrubs along neighbour side (subtle)
+        const shrubCols = [0x3D6B35, 0x4A7D42, 0x356130];
+        const shrubCount = Math.min(5, Math.floor(cursorX / 3));
+        for (let i = 0; i < shrubCount; i++) {
+          const sx = (i + 0.5) * (cursorX / shrubCount);
+          const sz = -1.5 - Math.random() * 0.5;
+          const scale = 0.2 + Math.random() * 0.15;
+          const col = shrubCols[i % shrubCols.length];
+          const shrub = new THREE.Mesh(new THREE.SphereGeometry(scale, 6, 5),
+            new THREE.MeshStandardMaterial({ color: col, roughness: 0.9 }));
+          shrub.position.set(sx, scale * 0.6, sz);
+          shrub.castShadow = true;
+          f.envGrp.add(shrub);
+        }
+
+        // ── Property boundary line (dashed on ground) ──
+        const boundaryLineMat = new THREE.MeshStandardMaterial({ color: 0xF15A29, roughness: 0.5, metalness: 0.0 });
+        const dashCount = Math.ceil(cursorX / 0.5);
+        for (let di = 0; di < dashCount; di++) {
+          const dx = di * 0.5 + 0.15;
+          if (dx > cursorX) break;
+          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.06), boundaryLineMat);
+          dash.rotation.x = -Math.PI/2;
+          dash.position.set(dx, 0.001, 0);
+          f.envGrp.add(dash);
+        }
+
+        // ── Property labels (client side / neighbour side) ──
+        const clientName = [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || 'Client';
+        const clientAddr = job.address || '';
+        const nbs = job.neighbours || [];
+        const nbName = [nbs[0]?.firstName, nbs[0]?.lastName].filter(Boolean).join(' ') || 'Neighbour';
+        const nbAddr = nbs[0]?.address || '';
+
+        const clientLabel = this._create3DPropertyLabel(clientName, clientAddr, '#293C46', '#F15A29');
+        clientLabel.position.set(cx, 0.01, 2.5);
+        clientLabel.rotation.x = -Math.PI/2;
+        f.envGrp.add(clientLabel);
+
+        const nbLabel = this._create3DPropertyLabel(nbName, nbAddr, '#4C6A7C', '#8FA4B2');
+        nbLabel.position.set(cx, 0.01, -2.5);
+        nbLabel.rotation.x = -Math.PI/2;
+        f.envGrp.add(nbLabel);
 
         // ── Camera ──
         f.controls.target.set(cx, maxFenceTop * 0.4, 0);
