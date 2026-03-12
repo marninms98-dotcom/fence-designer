@@ -3480,27 +3480,28 @@
         }
       },
 
-      _fetchGooglePlaces(query) {
-        if (!this._placesAutocomplete) {
-          this._placesAutocomplete = new google.maps.places.AutocompleteService();
-        }
-        this._placesAutocomplete.getPlacePredictions({
-          input: query,
-          componentRestrictions: { country: 'au' },
-          types: ['address']
-        }, (predictions, status) => {
-          if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+      async _fetchGooglePlaces(query) {
+        try {
+          const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+            input: query,
+            includedRegionCodes: ['au'],
+            includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route'],
+          });
+          if (!suggestions || suggestions.length === 0) {
             this._addressResults = [];
             this.renderAddressDropdown(query);
             return;
           }
-          this._addressResults = predictions.map(p => ({
-            sla: p.description,
-            placeId: p.place_id,
+          this._addressResults = suggestions.map(s => ({
+            sla: s.placePrediction.text.text,
+            placeId: s.placePrediction.placeId,
             _isGoogle: true
           }));
           this.renderAddressDropdown(query);
-        });
+        } catch(e) {
+          console.warn('[Address] Google Places autocomplete error:', e);
+          this._fetchAddressrFallback(query);
+        }
       },
 
       async _fetchAddressrFallback(query) {
@@ -3539,50 +3540,38 @@
         this._addressActiveIdx = -1;
       },
 
-      selectAddress(idx) {
+      async selectAddress(idx) {
         const r = this._addressResults[idx];
         if (!r) return;
         const input = document.getElementById('addressInput');
 
         if (r._isGoogle && r.placeId) {
-          // Google Places: get full details
-          if (!this._placesService) {
-            const div = document.createElement('div');
-            this._placesService = new google.maps.places.PlacesService(div);
-          }
-          this._placesService.getDetails({
-            placeId: r.placeId,
-            fields: ['formatted_address', 'address_components', 'geometry', 'place_id']
-          }, (place, status) => {
-            if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
-              // Fallback: just use the prediction text
-              if (input) input.value = r.sla;
-              this.updateField('address', r.sla);
-              this.hideAddressDropdown();
-              return;
-            }
+          // Google Places (New API): get full details
+          try {
+            const place = new google.maps.places.Place({ id: r.placeId });
+            await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
 
-            const fullAddress = place.formatted_address || r.sla;
+            const fullAddress = place.formattedAddress || r.sla;
             if (input) input.value = fullAddress;
             this.updateField('address', fullAddress);
 
             // Store Place ID and coordinates
-            this.job._placeId = place.place_id;
-            if (place.geometry && place.geometry.location) {
+            this.job._placeId = r.placeId;
+            if (place.location) {
               this.job._latlng = {
-                lat: place.geometry.location.lat(),
-                lng: place.geometry.location.lng()
+                lat: place.location.lat(),
+                lng: place.location.lng()
               };
             }
 
             // Parse structured address components
             const components = {};
-            (place.address_components || []).forEach(c => {
-              if (c.types.includes('street_number')) components.street_number = c.long_name;
-              if (c.types.includes('route')) components.route = c.long_name;
-              if (c.types.includes('locality')) components.suburb = c.long_name;
-              if (c.types.includes('administrative_area_level_1')) components.state = c.short_name;
-              if (c.types.includes('postal_code')) components.postcode = c.long_name;
+            (place.addressComponents || []).forEach(c => {
+              if (c.types.includes('street_number')) components.street_number = c.longText;
+              if (c.types.includes('route')) components.route = c.longText;
+              if (c.types.includes('locality')) components.suburb = c.longText;
+              if (c.types.includes('administrative_area_level_1')) components.state = c.shortText;
+              if (c.types.includes('postal_code')) components.postcode = c.longText;
             });
             const street = [components.street_number, components.route].filter(Boolean).join(' ');
             this.job._addressComponents = {
@@ -3604,8 +3593,12 @@
 
             this.save();
             this.updateSectionStatuses();
-            this.hideAddressDropdown();
-          });
+          } catch(e) {
+            console.warn('[Address] Place details error:', e);
+            if (input) input.value = r.sla;
+            this.updateField('address', r.sla);
+          }
+          this.hideAddressDropdown();
         } else {
           // addressr.io fallback — just use the text
           if (input) input.value = r.sla;
@@ -9233,7 +9226,7 @@
   window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
 </script>
 <script src="cloud.js?v=20260312c"></script>
-<script src="integration.js?v=20260312g"></script>
+<script src="integration.js?v=20260312h"></script>
 
 </body>
 </html>
