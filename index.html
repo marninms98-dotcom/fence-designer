@@ -7399,10 +7399,15 @@
 
       _fmt(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
 
+      _logoUrl() {
+        return window.location.origin + window.location.pathname.replace(/[^/]+$/, '') + 'logo.png';
+      },
+
       _outputCSS() {
         return `
           body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #293C46; margin: 0; padding: 30px 40px; font-size: 13px; line-height: 1.5; }
           .header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #293C46; padding-bottom: 16px; }
+          .header-logo { height: 40px; width: auto; margin-bottom: 8px; }
           .header h1 { font-size: 20px; margin: 0 0 4px 0; color: #293C46; }
           .header .company { font-size: 14px; font-weight: 700; color: #F15A29; margin-bottom: 2px; }
           .header .details { font-size: 11px; color: #4C6A70; }
@@ -7465,7 +7470,7 @@
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
             <div class="details">ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772</div>
             <h1>CLIENT QUOTE</h1>
           </div>
@@ -7552,7 +7557,12 @@
         }
         order += `\n${'═'.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'═'.repeat(50)}\n\n`;
         order += `CONCRETE:\n${d.concreteBags} \u00D7 Bags Quickset Concrete\n    (${d.allPosts} posts \u00D7 2 bags \u00D7 1.1 contingency = ${d.concreteBags})\n\n`;
-        order += `FIXINGS:\n${d.tekBoxes} \u00D7 Boxes Tek Screws (1 per 4 panels)\nFixings as required (rivets, brackets)\n\n`;
+        order += `FIXINGS & HARDWARE:\n${d.tekBoxes} \u00D7 Tek Screws & Fixings Pack (screws, rivets, brackets \u2014 1 pack per 4 panels)\n\n`;
+        // Supplier notes
+        if (d.job.supplierNotes) {
+          order += `\n${'═'.repeat(50)}\n  SUPPLIER NOTES\n${'═'.repeat(50)}\n\n`;
+          order += d.job.supplierNotes + '\n\n';
+        }
         // Per-run breakdown
         order += `\n${'═'.repeat(50)}\n  RUN BREAKDOWN\n${'═'.repeat(50)}\n\n`;
         d.runDetails.forEach(r => {
@@ -7566,7 +7576,7 @@
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
             <div class="details">fencing@secureworkswa.com.au | 0489 267 772</div>
             <h1>MATERIAL ORDER</h1>
           </div>
@@ -7641,7 +7651,7 @@
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <div class="company">SECUREWORKS WA PTY LTD</div>
+            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
             <h1>WORK ORDER \u2014 ${d.job.ref || '\u2014'}</h1>
           </div>
           <div class="section">
@@ -8601,13 +8611,57 @@
         });
       }
 
-      // ── Section 4: Fixings ──
+      // ── Section 4: Fixings & Hardware ──
       var fixingRows = [];
-      fixingRows.push({ idx: checkIdx++, desc: d.concreteBags + ' &times; Bags Quickset Concrete <span style="font-size:12px;color:#6b7280;">(posts &times; 2 &times; 1.1 = ' + d.allPosts + ' &times; 2 &times; 1.1)</span>', matQty: d.concreteBags });
-      fixingRows.push({ idx: checkIdx++, desc: d.tekBoxes + ' &times; Boxes Tek Screws', matQty: d.tekBoxes });
-      sections.push({ title: 'Fixings', rows: fixingRows, mismatch: null });
+      fixingRows.push({ idx: checkIdx++, desc: d.concreteBags + ' &times; Bags Quickset Concrete <span style="font-size:12px;color:#6b7280;">(' + d.allPosts + ' posts &times; 2 bags)</span>', matQty: d.concreteBags });
+      fixingRows.push({ idx: checkIdx++, desc: d.tekBoxes + ' &times; Tek Screws &amp; Fixings Pack <span style="font-size:12px;color:#6b7280;">(screws, rivets, brackets — 1 pack per 4 panels)</span>', matQty: d.tekBoxes });
+      sections.push({ title: 'Fixings & Hardware', rows: fixingRows, mismatch: null });
+
+      // ── Section 5: Removal (if applicable) ──
+      if (d.removalItems && d.removalItems.length > 0) {
+        var removalRows = [];
+        d.removalItems.forEach(function(r) {
+          if (r.desc.toLowerCase().includes('certificate')) return; // skip cert line — it's admin not materials
+          removalRows.push({ idx: checkIdx++, desc: r.qty + ' ' + r.unit + ' &mdash; ' + r.desc + ' <span style="font-size:12px;color:#6b7280;">($' + (r.unitPrice || 0) + '/' + r.unit + ' sell)</span>', matQty: r.qty });
+        });
+        if (removalRows.length > 0) sections.push({ title: 'Removal', rows: removalRows, mismatch: null });
+      }
 
       var totalChecks = checkIdx;
+
+      // ── Build quote preview summary ──
+      var f = function(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+      var quoteLines = '';
+      quoteLines += '<tr><td>COLORBOND ' + (d.profile || 'Trimclad') + ' fencing — ' + (d.colour || '') + ' (' + d.totalMetres.toFixed(1) + 'm)</td><td style="text-align:right;">$' + f(d.fencingTotal) + '</td></tr>';
+      if (d.totalPlinths > 0) quoteLines += '<tr><td>Retaining plinths (' + d.totalPlinths + ' × 150mm)</td><td style="text-align:right;">$' + f(d.plinthsTotal) + '</td></tr>';
+      if (d.totalPatioTubes > 0) quoteLines += '<tr><td>Patio tube bracing (' + d.totalPatioTubes + ' tubes)</td><td style="text-align:right;">$' + f(d.patioTotal) + '</td></tr>';
+      (d.gateLineItems || []).forEach(function(g) { quoteLines += '<tr><td>' + g.desc + '</td><td style="text-align:right;">$' + f(g.total) + '</td></tr>'; });
+      (d.removalItems || []).forEach(function(r) { quoteLines += '<tr><td>' + r.desc + ' (' + r.qty + ' ' + r.unit + ')</td><td style="text-align:right;">$' + f(r.total) + '</td></tr>'; });
+      if (d.groundFinishTotal > 0) quoteLines += '<tr><td>' + d.groundFinishDesc + '</td><td style="text-align:right;">$' + f(d.groundFinishTotal) + '</td></tr>';
+      (d.addonItems || []).forEach(function(a) { quoteLines += '<tr><td>' + a.desc + '</td><td style="text-align:right;">$' + f(a.total) + '</td></tr>'; });
+      (d.customItems || []).forEach(function(c) { quoteLines += '<tr><td>' + c.desc + ' (' + c.qty + ' ' + c.unit + ')</td><td style="text-align:right;">$' + f(c.total) + '</td></tr>'; });
+      if (d.accessSurcharge > 0) quoteLines += '<tr><td>Access difficulty surcharge</td><td style="text-align:right;">$' + f(d.accessSurcharge) + '</td></tr>';
+      quoteLines += '<tr><td>Delivery</td><td style="text-align:right;">$' + f(d.deliveryFee) + '</td></tr>';
+      if (d.urgencySurcharge > 0) quoteLines += '<tr><td>Urgency surcharge</td><td style="text-align:right;">$' + f(d.urgencySurcharge) + '</td></tr>';
+
+      var quoteSummaryHtml =
+        '<div style="margin-bottom:16px;">' +
+          '<button onclick="var el=document.getElementById(\'mvQuotePreview\');el.style.display=el.style.display===\'none\'?\'\':\'none\';this.textContent=el.style.display===\'none\'?\'▶ Show Quote Preview\':\'▼ Hide Quote Preview\'" ' +
+            'style="background:none;border:none;font-size:14px;font-weight:700;color:#293C46;cursor:pointer;padding:0;text-align:left;">▶ Show Quote Preview</button>' +
+          '<div id="mvQuotePreview" style="display:none;margin-top:10px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;font-size:13px;">' +
+            '<div style="font-weight:700;font-size:12px;color:#4C6A7C;text-transform:uppercase;margin-bottom:8px;">Client: ' + (d.job.client || '—') + ' | ' + (d.job.address || '—') + '</div>' +
+            '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+              '<thead><tr><th style="text-align:left;padding:4px 0;border-bottom:2px solid #293C46;font-size:11px;color:#4C6A7C;">Item</th><th style="text-align:right;padding:4px 0;border-bottom:2px solid #293C46;font-size:11px;color:#4C6A7C;">Amount</th></tr></thead>' +
+              '<tbody>' + quoteLines + '</tbody>' +
+              '<tfoot>' +
+                '<tr style="border-top:2px solid #293C46;"><td style="padding-top:6px;font-weight:700;">Subtotal (excl. GST)</td><td style="text-align:right;padding-top:6px;font-weight:700;">$' + f(d.subtotal) + '</td></tr>' +
+                '<tr><td>GST (10%)</td><td style="text-align:right;">$' + f(d.gst) + '</td></tr>' +
+                '<tr><td style="font-weight:700;font-size:16px;color:#F15A29;">TOTAL (incl. GST)</td><td style="text-align:right;font-weight:700;font-size:16px;color:#F15A29;">$' + f(d.grandTotal) + '</td></tr>' +
+              '</tfoot>' +
+            '</table>' +
+            '<div style="margin-top:10px;font-size:12px;color:#4C6A7C;">Deposit (50%): $' + f(d.grandTotal * 0.5) + ' | Balance on completion: $' + f(d.grandTotal * 0.5) + '</div>' +
+          '</div>' +
+        '</div>';
 
       // Build HTML
       var sectionsHtml = sections.map(function(sec) {
@@ -8630,19 +8684,33 @@
         '</div>';
       }).join('');
 
+      // Custom supplier notes section
+      var supplierNotesHtml =
+        '<div style="margin-bottom:16px;">' +
+          '<h4 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#4C6A7C;text-transform:uppercase;letter-spacing:0.5px;">Notes for Supplier</h4>' +
+          '<textarea id="mvSupplierNotes" rows="3" placeholder="e.g. Include saddle bracket, deliver to rear access, call before delivery..." ' +
+            'style="width:100%;padding:10px 12px;border:1px solid #D4DEE4;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;box-sizing:border-box;">' +
+            (app.job.supplierNotes || '') +
+          '</textarea>' +
+        '</div>';
+
       var overlay = document.createElement('div');
       overlay.id = 'materialVerifyModal';
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;';
       overlay.innerHTML =
-        '<div style="background:#F9FAFB;border-radius:12px;width:95%;max-width:560px;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;">' +
+        '<div style="background:#F9FAFB;border-radius:12px;width:95%;max-width:600px;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;">' +
           '<div style="background:#293C46;padding:16px 24px;flex-shrink:0;">' +
-            '<h3 style="margin:0;color:#fff;font-size:18px;font-weight:700;">Material Verification</h3>' +
-            '<p style="margin:4px 0 0;color:rgba(255,255,255,0.7);font-size:13px;">Check each item before sending quote</p>' +
+            '<h3 style="margin:0;color:#fff;font-size:18px;font-weight:700;">Review & Confirm</h3>' +
+            '<p style="margin:4px 0 0;color:rgba(255,255,255,0.7);font-size:13px;">Check materials, review quote, then confirm to send</p>' +
           '</div>' +
-          '<div style="padding:20px 24px;overflow-y:auto;flex:1;">' + sectionsHtml + '</div>' +
+          '<div style="padding:20px 24px;overflow-y:auto;flex:1;">' +
+            sectionsHtml +
+            supplierNotesHtml +
+            quoteSummaryHtml +
+          '</div>' +
           '<div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;">' +
             '<button onclick="document.getElementById(\'materialVerifyModal\').remove()" style="padding:12px 20px;border:1px solid #D4DEE4;background:#fff;border-radius:6px;font-size:14px;cursor:pointer;min-height:44px;">Cancel</button>' +
-            '<button id="mvConfirmBtn" onclick="window._mvConfirm()" disabled style="padding:12px 24px;background:#ccc;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:not-allowed;min-height:44px;" title="Check all items first">Confirm Materials Correct</button>' +
+            '<button id="mvConfirmBtn" onclick="window._mvConfirm()" disabled style="padding:12px 24px;background:#ccc;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:not-allowed;min-height:44px;" title="Check all items first">Confirm & Send Quote</button>' +
           '</div>' +
         '</div>';
 
@@ -8669,6 +8737,10 @@
       };
 
       window._mvConfirm = function() {
+        // Save supplier notes
+        var notesEl = document.getElementById('mvSupplierNotes');
+        if (notesEl) app.job.supplierNotes = notesEl.value.trim();
+
         // Store verification metadata
         var verifier = '';
         if (window.SECUREWORKS_CLOUD && window.SECUREWORKS_CLOUD.auth.isLoggedIn()) {
