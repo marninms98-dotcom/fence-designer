@@ -1480,6 +1480,13 @@
     // ── Section 6.3: Post height lookup tables ──
     // Key: sheetHeight, Value: array of { maxRetaining, postSize, patioTube }
     const POST_LOOKUP = {
+      900: [
+        { ret: 0,   post: 2400, patio: false },
+        { ret: 150, post: 2400, patio: false },
+        { ret: 300, post: 2400, patio: false },
+        { ret: 450, post: 2400, patio: true },
+        { ret: 600, post: 2400, patio: true }
+      ],
       1200: [
         { ret: 0,   post: 2400, patio: false },
         { ret: 150, post: 2400, patio: false },
@@ -1511,7 +1518,7 @@
     };
 
     const RETAINING_OPTIONS = [0, 150, 300, 450, 600];
-    const SHEET_HEIGHTS = [1200, 1500, 1800, 2100];
+    const SHEET_HEIGHTS = [900, 1200, 1500, 1800, 2100];
     const RUN_NAME_OPTIONS = ['', 'LHS', 'RHS', 'Rear', 'Front', 'LHS Rear', 'RHS Rear', 'LHS Front', 'RHS Front', 'Side Return', 'Other'];
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
 
