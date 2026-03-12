@@ -1528,9 +1528,10 @@
       gatePost90x90: 85,       // 90x90mm SHS gate post
       concrete: 9.50,          // per bag
       tekScrewBox: 18,         // per box
-      removeHardieSheet: 25,   // per sheet
-      removeTimberLap: 15,     // per metre
-      removeAsbestosSheet: 85, // per sheet (licenced disposal)
+      removeHardie: 15,        // per metre cost
+      removeTimberLap: 20,     // per metre cost
+      removeColorbond: 15,     // per metre cost
+      removeAsbestos: 65,      // per metre cost (licenced disposal)
       vegClear: 150,           // flat fee
       groundMulch: 12,         // per lineal metre
       groundStones: 18,        // per lineal metre
@@ -2601,12 +2602,19 @@
             matRows += `<tr><td>Double gate kit + 4× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90)}</td></tr>`;
           }
         });
-        matRows += `<tr class="po-total"><td colspan="2">Material Cost Total</td><td class="r">$${f(d.internalCost)}</td></tr>`;
+        // Removal costs in PO
+        if (d.removalItems.length > 0) {
+          matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
+          d.removalItems.forEach(r => {
+            if (r.costPrice) matRows += `<tr><td>${r.desc}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)}</td><td class="r">$${f(r.qty * r.costPrice)}</td></tr>`;
+          });
+        }
+        matRows += `<tr class="po-total"><td colspan="2">Total Cost (materials + removal)</td><td class="r">$${f(d.internalCost)}</td></tr>`;
 
         const matApproved = this._poApproved.materials;
         html += `<div class="po-card">
           <div class="po-card-header" style="background:${matApproved ? '#dcfce7' : '#fef3c7'};color:${matApproved ? '#16a34a' : '#92400e'};">
-            Draft Material Purchase Order
+            Draft Material & Removal Purchase Order
             <button class="po-approve-btn" style="background:${matApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('materials')">
               ${matApproved ? 'Approved' : 'Approve'}
             </button>
@@ -2624,12 +2632,16 @@
         const matMargin = matSell - d.internalCost;
         const matMarginPct = matSell > 0 ? (matMargin / matSell * 100) : 0;
         const matMCol = matMarginPct < 20 ? '#dc2626' : matMarginPct < 30 ? '#d97706' : '#16a34a';
+        const removalMargin = d.removalTotal - d.internalRemovalCost;
+        const removalMarginPct = d.removalTotal > 0 ? (removalMargin / d.removalTotal * 100) : 0;
+        const remMCol = removalMarginPct < 20 ? '#dc2626' : removalMarginPct < 30 ? '#d97706' : '#16a34a';
         html += `<div style="margin-top:4px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#4C6A70;">
           <div style="font-weight:700;text-transform:uppercase;margin-bottom:8px;font-size:11px;">Revenue Split</div>
           <table style="width:100%;font-size:12px;">
-            <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matMargin)} (${matMarginPct.toFixed(0)}%)</td></tr>
+            <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost - d.internalRemovalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matSell - (d.internalCost - d.internalRemovalCost))} (${(matSell > 0 ? ((matSell - (d.internalCost - d.internalRemovalCost)) / matSell * 100) : 0).toFixed(0)}%)</td></tr>
+            ${d.removalTotal > 0 ? `<tr><td>Removal: sell $${f(d.removalTotal)}, cost $${f(d.internalRemovalCost)}</td><td class="r" style="color:${remMCol};font-weight:700;">GP $${f(removalMargin)} (${removalMarginPct.toFixed(0)}%)</td></tr>` : ''}
             <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
-            <tr><td>Other (removal, addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.removalTotal + d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
+            <tr><td>Other (addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
             <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">Total GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(gp)} (${gpPct.toFixed(1)}%)</td></tr>
           </table>
         </div>`;
@@ -3211,21 +3223,29 @@
           <div class="form-row">
             <div class="form-group">
               <label>Hardie Removal ($/m)</label>
-              <input type="number" value="${q.hardiePrice || 36}" min="0" step="1"
+              <input type="number" value="${q.hardiePrice || 30}" min="0" step="1"
                 onchange="app.updateQuote('hardiePrice', parseFloat(this.value) || 0)">
             </div>
             <div class="form-group">
-              <label>Timber Removal ($/m)</label>
-              <input type="number" value="${q.timberPrice || 22}" min="0" step="1"
+              <label>Lap/Timber Removal ($/m)</label>
+              <input type="number" value="${q.timberPrice || 45}" min="0" step="1"
                 onchange="app.updateQuote('timberPrice', parseFloat(this.value) || 0)">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
+              <label>Colorbond Removal ($/m)</label>
+              <input type="number" value="${q.colorbondRemovalPrice || 30}" min="0" step="1"
+                onchange="app.updateQuote('colorbondRemovalPrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group">
               <label>Asbestos Removal ($/m)</label>
-              <input type="number" value="${q.asbestosPrice || 90}" min="0" step="1"
+              <input type="number" value="${q.asbestosPrice || 130}" min="0" step="1"
                 onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
             </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
             <div class="form-group">
               <label>Asbestos Cert Fee ($)</label>
               <input type="number" value="${q.asbestosCertFee || 300}" min="0" step="10"
@@ -7063,6 +7083,8 @@
           removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil(rem.existingFenceLength || 0) : 0,
           removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
           removeTimberQty: (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
+          removeColorbond: rem.existingFenceType === 'colourbond',
+          removeColorbondQty: rem.existingFenceType === 'colourbond' ? (rem.existingFenceLength || 0) : 0,
           removeAsbestos: rem.existingFenceType === 'asbestos',
           removeAsbestosQty: rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: rem.vegetation,
@@ -7205,22 +7227,28 @@
         let removalTotal = 0;
         const removalItems = [];
         if (js.removeHardie && js.removeHardieQty > 0) {
-          const hardiePerSheet = q.hardiePrice || 36;
-          const t = js.removeHardieQty * hardiePerSheet;
+          const hardiePerM = q.hardiePrice || 30;
+          const t = js.removeHardieQty * hardiePerM;
           removalTotal += t;
-          removalItems.push({ desc: 'Remove Hardie fence', qty: js.removeHardieQty, unit: 'm', total: t });
+          removalItems.push({ desc: 'Remove Hardie fence', qty: js.removeHardieQty, unit: 'm', unitPrice: hardiePerM, costPrice: COST_PRICES.removeHardie, total: t });
         }
         if (js.removeTimber && js.removeTimberQty > 0) {
-          const timberPerM = q.timberPrice || 22;
+          const timberPerM = q.timberPrice || 45;
           const t = js.removeTimberQty * timberPerM;
           removalTotal += t;
-          removalItems.push({ desc: 'Remove timber lap fence', qty: js.removeTimberQty, unit: 'm', total: t });
+          removalItems.push({ desc: 'Remove timber/lap fence', qty: js.removeTimberQty, unit: 'm', unitPrice: timberPerM, costPrice: COST_PRICES.removeTimberLap, total: t });
+        }
+        if (js.removeColorbond && js.removeColorbondQty > 0) {
+          const cbPerM = q.colorbondRemovalPrice || 30;
+          const t = js.removeColorbondQty * cbPerM;
+          removalTotal += t;
+          removalItems.push({ desc: 'Remove Colorbond fence', qty: js.removeColorbondQty, unit: 'm', unitPrice: cbPerM, costPrice: COST_PRICES.removeColorbond, total: t });
         }
         if (js.removeAsbestos && js.removeAsbestosQty > 0) {
-          const asbestosPerSheet = q.asbestosPrice || 90;
-          const t = js.removeAsbestosQty * asbestosPerSheet;
+          const asbestosPerM = q.asbestosPrice || 130;
+          const t = js.removeAsbestosQty * asbestosPerM;
           removalTotal += t;
-          removalItems.push({ desc: 'Remove asbestos fence (licenced)', qty: js.removeAsbestosQty, unit: 'm', total: t });
+          removalItems.push({ desc: 'Remove asbestos fence (licenced)', qty: js.removeAsbestosQty, unit: 'm', unitPrice: asbestosPerM, costPrice: COST_PRICES.removeAsbestos, total: t });
         }
         // Asbestos removal certificate (auto-included when asbestos selected)
         if (js.removeAsbestos && rem.asbestosCert !== false) {
@@ -7313,6 +7341,13 @@
           if (g.type === 'pedestrian') internalCost += COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90;
           else if (g.type === 'double') internalCost += COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90;
         });
+        // Removal costs
+        let internalRemovalCost = 0;
+        removalItems.forEach(r => {
+          if (r.costPrice) internalRemovalCost += r.qty * r.costPrice;
+        });
+        internalCost += internalRemovalCost;
+
         const labourCost = labourBase;
         const internalLabour = labourCost * (1 + accessRate);
         const materialMargin = subtotal - gst - internalCost - internalLabour;
@@ -7324,7 +7359,7 @@
           postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
-          gatesTotal, removalTotal, removalItems,
+          gatesTotal, removalTotal, removalItems, internalRemovalCost,
           groundFinishTotal, groundFinishDesc, customTotal, customItems,
           addonsTotal, addonItems,
           accessSurcharge, accessRate, deliveryFee,
@@ -7591,7 +7626,8 @@
 
         // Internal cost breakdown
         let costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
-        costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost)}</td></tr>`;
+        costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost - d.internalRemovalCost)}</td></tr>`;
+        if (d.internalRemovalCost > 0) costHtml += `<tr><td>Removal cost</td><td class="text-right">$${this._fmt(d.internalRemovalCost)}</td></tr>`;
         costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
         if (d.addonsTotal > 0) {
           d.addonItems.forEach(a => { costHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
