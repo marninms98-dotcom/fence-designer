@@ -217,46 +217,20 @@
     console.log('[Integration] Header found:', !!header);
     if (!header) return;
 
-    // Inject a <style> block for cloud bar + hover states
-    if (!document.getElementById('sw-cloud-styles')) {
-      var style = document.createElement('style');
-      style.id = 'sw-cloud-styles';
-      style.textContent =
-        '#sw-cloud-bar{display:flex;gap:6px;align-items:center;justify-content:flex-end;' +
-          'padding:4px 24px;background:#293C46;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;' +
-          'border-bottom:2px solid #F15A29;}' +
-        '#sw-cloud-bar .sw-status{font-size:11px;color:rgba(255,255,255,0.6);margin-right:auto;letter-spacing:0.3px;}' +
-        '#sw-cloud-bar .sw-btn{padding:3px 12px;border:1px solid rgba(255,255,255,0.25);color:#fff;' +
-          'background:transparent;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;' +
-          'letter-spacing:0.3px;transition:all 0.15s ease;text-transform:uppercase;}' +
-        '#sw-cloud-bar .sw-btn:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.4);}' +
-        '#sw-cloud-bar .sw-btn-primary{background:#F15A29;border-color:#F15A29;}' +
-        '#sw-cloud-bar .sw-btn-primary:hover{background:#d94d20;border-color:#d94d20;}' +
-        '#sw-cloud-bar .sw-btn-save{background:#34C759;border-color:#34C759;}' +
-        '#sw-cloud-bar .sw-btn-save:hover{background:#2ab348;}';
-      document.head.appendChild(style);
-    }
-
-    // Create a dedicated cloud bar that sits below the header
+    // Cloud bar removed — action buttons now live in the header.
+    // Create hidden placeholder elements so updateUI() doesn't error.
     var cloudBar = document.createElement('div');
     cloudBar.id = 'sw-cloud-bar';
-
-    // Only status + sign-in in cloud bar; action buttons live in the header
+    cloudBar.style.display = 'none';
     cloudBar.innerHTML =
-      '<span class="sw-status" id="sw-cloud-status"></span>' +
-      '<button id="sw-btn-login" class="sw-btn sw-btn-primary" onclick="window._swIntegration.login()" style="display:none;">Sign In</button>' +
+      '<span id="sw-cloud-status"></span>' +
+      '<button id="sw-btn-login" style="display:none;"></button>' +
       '<button id="sw-btn-save" style="display:none;"></button>' +
       '<button id="sw-btn-load" style="display:none;"></button>' +
       '<button id="sw-btn-dashboard" style="display:none;"></button>';
+    document.body.appendChild(cloudBar);
 
-    // Insert right after the header
-    if (header.nextSibling) {
-      header.parentNode.insertBefore(cloudBar, header.nextSibling);
-    } else {
-      header.parentNode.appendChild(cloudBar);
-    }
-
-    console.log('[Integration] Cloud bar injected');
+    console.log('[Integration] Cloud bar suppressed (buttons in header)');
   }
 
   // ── Update UI based on auth state ──

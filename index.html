@@ -4037,23 +4037,19 @@
         this.job.checklist.videoWalkthrough = true;
         this.job.checklist.videoFileName = file.name;
         this.job.checklist.videoSize = file.size;
-        // Store video as data URL only if < 50MB (localStorage limit)
-        if (file.size < 50 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            this.job.checklist.videoFile = e.target.result;
-            this.save();
-            this.renderChecklist();
-            this.updateSectionStatuses();
-            this.showToast('Video attached: ' + file.name, 'success');
-          };
-          reader.readAsDataURL(file);
-        } else {
-          this.save();
-          this.renderChecklist();
-          this.updateSectionStatuses();
-          this.showToast('Video recorded — too large for local storage, will upload to cloud', 'warning');
-        }
+
+        // Keep File object in memory for cloud upload — never store video in localStorage
+        // (even small videos exceed localStorage's ~5-10MB limit as base64)
+        window.siteVideo = {
+          file: file,
+          dataUrl: null,
+          label: file.name || 'Site Walkthrough'
+        };
+
+        this.save();
+        this.renderChecklist();
+        this.updateSectionStatuses();
+        this.showToast('Video attached: ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + 'MB) — will upload on Cloud Save', 'success');
       },
 
       deletePhoto(photoId) {
