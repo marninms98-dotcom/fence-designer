@@ -1214,20 +1214,17 @@
   <!-- Header Bar -->
   <div class="header" id="headerBar">
     <div class="header-top">
-      <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+        <a onclick="window._swIntegration && window._swIntegration.openDashboard()" title="Dashboard" style="cursor:pointer;color:rgba(255,255,255,0.5);font-size:18px;text-decoration:none;line-height:1;" aria-label="Dashboard">&#9776;</a>
+      </div>
       <div class="job-badge" id="headerBadge" style="background:rgba(255,255,255,0.12);color:#fff;padding:4px 12px;border-radius:4px;font-size:13px;white-space:nowrap;display:none;"><strong>SW—</strong></div>
       <div class="header-actions" id="headerActions">
         <span class="saved-indicator" id="savedIndicator">Saved</span>
-        <!-- Stage 1: Empty/New -->
         <button class="btn-header btn-stage btn-stage-1" onclick="window._swIntegration && window._swIntegration.loadPicker()" style="background:#4C6A7C;">Load Job</button>
         <button class="btn-header btn-stage btn-stage-1" onclick="app.newJob()">New</button>
-        <!-- Stage 2: Scoping in progress -->
-        <button class="btn-header btn-stage btn-stage-2" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
-        <!-- Stage 3: Ready to output (shown via bottom bar) -->
+        <button class="btn-header btn-stage btn-stage-2 btn-stage-3 btn-stage-4" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
         <button class="btn-header btn-stage btn-stage-3" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
-        <!-- Stage 4: Scope complete -->
-        <button class="btn-header btn-stage btn-stage-4" onclick="window._swIntegration && window._swIntegration.openDashboard()" style="background:#4C6A7C;">Dashboard</button>
-        <button class="btn-header btn-stage btn-stage-4" onclick="app.exportJobJSON()" style="background:#4C6A7C;">Export</button>
         <input type="file" id="importJobInput" accept=".json" style="display:none" onchange="app.importJobJSON(event)">
       </div>
     </div>

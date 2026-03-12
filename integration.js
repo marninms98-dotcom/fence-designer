@@ -241,12 +241,13 @@
     var cloudBar = document.createElement('div');
     cloudBar.id = 'sw-cloud-bar';
 
+    // Only status + sign-in in cloud bar; action buttons live in the header
     cloudBar.innerHTML =
       '<span class="sw-status" id="sw-cloud-status"></span>' +
       '<button id="sw-btn-login" class="sw-btn sw-btn-primary" onclick="window._swIntegration.login()" style="display:none;">Sign In</button>' +
-      '<button id="sw-btn-save" class="sw-btn sw-btn-save" onclick="window._swIntegration.save()" style="display:none;">Save</button>' +
-      '<button id="sw-btn-load" class="sw-btn" onclick="window._swIntegration.loadPicker()" style="display:none;">Load Job</button>' +
-      '<button id="sw-btn-dashboard" class="sw-btn" onclick="window._swIntegration.openDashboard()" style="display:none;">Dashboard</button>';
+      '<button id="sw-btn-save" style="display:none;"></button>' +
+      '<button id="sw-btn-load" style="display:none;"></button>' +
+      '<button id="sw-btn-dashboard" style="display:none;"></button>';
 
     // Insert right after the header
     if (header.nextSibling) {
