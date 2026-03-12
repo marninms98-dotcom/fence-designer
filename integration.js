@@ -390,6 +390,28 @@
 
     if (_toolType === 'fencing' && window.app && window.app.job) {
       // ── Fencing tool ──
+      // Flush any pending input values to job object first
+      // (onchange doesn't fire until blur — user may tap Cloud Save before blurring)
+      var _flushInput = function(id, field) {
+        var el = document.getElementById(id);
+        if (el && el.value && !window.app.job[field]) {
+          window.app.job[field] = el.value.trim();
+        }
+      };
+      _flushInput('clientFirstNameInput', 'clientFirstName');
+      _flushInput('clientLastNameInput', 'clientLastName');
+      // Phone/email don't have IDs — find by type
+      var phoneEl = document.querySelector('input[type="tel"]');
+      if (phoneEl && phoneEl.value && !window.app.job.phone) window.app.job.phone = phoneEl.value.trim();
+      var emailEl = document.querySelector('input[type="email"]');
+      if (emailEl && emailEl.value && !window.app.job.email) window.app.job.email = emailEl.value.trim();
+      _flushInput('addressInput', 'address');
+      _flushInput('clientSuburb', 'suburb');
+      // Update derived client field
+      if (!window.app.job.client) {
+        window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
+      }
+
       var j = window.app.job;
       data.name = ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim() || j.client || '';
       data.phone = j.phone || '';
