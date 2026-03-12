@@ -272,27 +272,23 @@
       return;
     }
 
+    // Save/Load/Dashboard buttons now live in the header — keep them hidden here
+    saveBtn.style.display = 'none';
+    loadBtn.style.display = 'none';
+    dashBtn.style.display = 'none';
+
     if (cloud && cloud.auth.isLoggedIn()) {
       var user = cloud.auth.getUser();
       var userName = (user && user.name) || (user && user.email) || '';
       loginBtn.style.display = 'none';
-      saveBtn.style.display = '';
-      loadBtn.style.display = '';
-      dashBtn.style.display = '';
       status.textContent = userName + (_jobId ? ' | Job loaded' : '');
       console.log('[Integration] UI updated: logged in as', userName);
     } else if (cloud) {
       loginBtn.style.display = '';
-      saveBtn.style.display = 'none';
-      loadBtn.style.display = 'none';
-      dashBtn.style.display = 'none';
       status.textContent = 'Not signed in';
       console.log('[Integration] UI updated: not signed in, showing Sign In button');
     } else {
       loginBtn.style.display = 'none';
-      saveBtn.style.display = 'none';
-      loadBtn.style.display = 'none';
-      dashBtn.style.display = 'none';
       status.textContent = '';
       console.log('[Integration] UI updated: no cloud module');
     }
