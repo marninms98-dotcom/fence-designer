@@ -6113,6 +6113,42 @@
         nbLawn.receiveShadow = true;
         f.envGrp.add(nbLawn);
 
+        // Raised ground on neighbour side where retaining is present
+        const nbEarthMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.9, metalness: 0.0 });
+        const nbGrassMat = new THREE.MeshStandardMaterial({ map: nbGrassTex.clone(), roughness: 0.92, metalness: 0.0, color: 0xC8D8B8 });
+        panelPositions.forEach((pp, pi) => {
+          const panel = run.panels[pi];
+          if (!panel) return;
+          const totalPl = Math.min(4, (panel.slopePlinths||0) + panel.retaining/150);
+          if (totalPl <= 0) return;
+          const retH = totalPl * plinthH;
+          const pX = pp.x;
+          const pGnd = pp.gnd;
+          // Earth bank behind fence — starts at fence line (z=0), slopes down over ~1.5m
+          const bankDepth = 1.5;
+          const bankShape = new THREE.Shape();
+          bankShape.moveTo(0, pGnd);
+          bankShape.lineTo(0, pGnd + retH);
+          bankShape.lineTo(-bankDepth * 0.3, pGnd + retH);
+          bankShape.lineTo(-bankDepth, pGnd + retH * 0.1);
+          bankShape.lineTo(-bankDepth, pGnd);
+          bankShape.closePath();
+          const bankGeo = new THREE.ExtrudeGeometry(bankShape, { depth: panelWidthM, bevelEnabled: false });
+          const bank = new THREE.Mesh(bankGeo, nbEarthMat);
+          bank.rotation.y = Math.PI/2;
+          bank.position.set(pX + panelWidthM/2, 0, -postW/2);
+          bank.castShadow = true; bank.receiveShadow = true;
+          bank.userData = { info: '<b>Neighbour Ground</b><br>Raised ' + Math.round(retH*1000) + 'mm<br>Retaining wall holds this earth back' };
+          f.envGrp.add(bank);
+          // Grass cap on top of bank
+          const grassCap = new THREE.Mesh(new THREE.PlaneGeometry(panelWidthM, bankDepth * 0.35),
+            nbGrassMat);
+          grassCap.rotation.x = -Math.PI/2;
+          grassCap.position.set(pX, pGnd + retH + 0.002, -postW/2 - bankDepth * 0.15);
+          grassCap.receiveShadow = true;
+          f.envGrp.add(grassCap);
+        });
+
         // Mulch strip along fence base (client side)
         const mulchMat = new THREE.MeshStandardMaterial({ map: mulchTex, roughness: 0.9, metalness: 0.0 });
         const mulchStrip = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 0.6, 0.5), mulchMat);
@@ -7571,8 +7607,15 @@
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
         order += `\n${'═'.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'═'.repeat(50)}\n\n`;
-        order += `CONCRETE:\n${d.concreteBags} \u00D7 Bags Quickset Concrete\n    (${d.allPosts} posts \u00D7 2 bags \u00D7 1.1 contingency = ${d.concreteBags})\n\n`;
-        order += `FIXINGS & HARDWARE:\n${d.tekBoxes} \u00D7 Tek Screws & Fixings Pack (screws, rivets, brackets \u2014 1 pack per 4 panels)\n\n`;
+        var ov = d.job._materialOverrides || {};
+        var concreteFinal = ov.concreteBags != null ? ov.concreteBags : d.concreteBags;
+        var tekFinal = ov.tekBoxes != null ? ov.tekBoxes : d.tekBoxes;
+        order += `CONCRETE:\n${concreteFinal} \u00D7 Bags Quickset Concrete\n    (${d.allPosts} posts \u00D7 2 bags \u00D7 1.1 contingency = ${d.concreteBags} calc)`;
+        if (ov.concreteBags != null && ov.concreteBags !== d.concreteBags) order += `\n    \u26A0 MANUALLY ADJUSTED by scoper (calc was ${d.concreteBags})`;
+        order += `\n\n`;
+        order += `FIXINGS & HARDWARE:\n${tekFinal} \u00D7 Tek Screws & Fixings Pack (screws, rivets, brackets \u2014 1 pack per 4 panels)`;
+        if (ov.tekBoxes != null && ov.tekBoxes !== d.tekBoxes) order += `\n    \u26A0 MANUALLY ADJUSTED by scoper (calc was ${d.tekBoxes})`;
+        order += `\n\n`;
         // Supplier notes
         if (d.job.supplierNotes) {
           order += `\n${'═'.repeat(50)}\n  SUPPLIER NOTES\n${'═'.repeat(50)}\n\n`;
@@ -7714,10 +7757,23 @@
               <div><span class="label">Gate posts:</span> <span class="value">${d.gatePosts} \u00D7 90x90mm SHS</span></div>
               <div><span class="label">Plinths:</span> <span class="value">${d.totalPlinths}</span></div>
               <div><span class="label">Patio tubes:</span> <span class="value">${d.totalPatioTubes}</span></div>
-              <div><span class="label">Concrete:</span> <span class="value">${d.concreteBags} bags</span></div>
-              <div><span class="label">Tek screws:</span> <span class="value">${d.tekBoxes} boxes</span></div>
+              <div><span class="label">Concrete:</span> <span class="value">${(d.job._materialOverrides && d.job._materialOverrides.concreteBags != null) ? d.job._materialOverrides.concreteBags + ' bags <span style="color:#F59E0B;font-weight:700;">\u26A0 MANUAL (calc: ' + d.concreteBags + ')</span>' : d.concreteBags + ' bags'}</span></div>
+              <div><span class="label">Tek screws:</span> <span class="value">${(d.job._materialOverrides && d.job._materialOverrides.tekBoxes != null) ? d.job._materialOverrides.tekBoxes + ' boxes <span style="color:#F59E0B;font-weight:700;">\u26A0 MANUAL (calc: ' + d.tekBoxes + ')</span>' : d.tekBoxes + ' boxes'}</span></div>
             </div>
           </div>
+          ${(() => {
+            const ov = d.job._materialOverrides || {};
+            const mv = d.job.materialVerification || {};
+            const items = [];
+            if (ov.concreteBags != null && ov.concreteBags !== d.concreteBags) items.push('Concrete bags: ' + ov.concreteBags + ' (calc was ' + d.concreteBags + ')');
+            if (ov.tekBoxes != null && ov.tekBoxes !== d.tekBoxes) items.push('Tek screws: ' + ov.tekBoxes + ' boxes (calc was ' + d.tekBoxes + ')');
+            if (items.length === 0) return '';
+            return '<div class="section" style="border:2px solid #F59E0B;background:#FEF3C7;border-radius:6px;padding:12px 16px;">' +
+              '<h2 style="color:#92400E;margin-top:0;">\u26A0 Scoper Manual Adjustments</h2>' +
+              '<p style="font-size:13px;color:#92400E;">The following quantities were manually adjusted by ' + (mv.verifier || 'scoper') + ' on ' + (mv.timestamp ? new Date(mv.timestamp).toLocaleDateString('en-AU') : 'unknown date') + ':</p>' +
+              '<ul style="color:#92400E;">' + items.map(i => '<li><strong>' + i + '</strong></li>').join('') + '</ul>' +
+            '</div>';
+          })()}
           <div class="section">
             <h2>Scope of Work</h2>
             ${scopeChecklist}
@@ -8626,10 +8682,13 @@
         });
       }
 
-      // ── Section 4: Fixings & Hardware ──
+      // ── Section 4: Fixings & Hardware (editable quantities) ──
       var fixingRows = [];
-      fixingRows.push({ idx: checkIdx++, desc: d.concreteBags + ' &times; Bags Quickset Concrete <span style="font-size:12px;color:#6b7280;">(' + d.allPosts + ' posts &times; 2 bags)</span>', matQty: d.concreteBags });
-      fixingRows.push({ idx: checkIdx++, desc: d.tekBoxes + ' &times; Tek Screws &amp; Fixings Pack <span style="font-size:12px;color:#6b7280;">(screws, rivets, brackets — 1 pack per 4 panels)</span>', matQty: d.tekBoxes });
+      var overrides = app.job._materialOverrides || {};
+      var concreteBagsActual = overrides.concreteBags != null ? overrides.concreteBags : d.concreteBags;
+      var tekBoxesActual = overrides.tekBoxes != null ? overrides.tekBoxes : d.tekBoxes;
+      fixingRows.push({ idx: checkIdx++, desc: 'Bags Quickset Concrete <span style="font-size:12px;color:#6b7280;">(' + d.allPosts + ' posts &times; 2 bags = ' + d.concreteBags + ' calc)</span>', matQty: d.concreteBags, editable: true, editKey: 'concreteBags', editVal: concreteBagsActual });
+      fixingRows.push({ idx: checkIdx++, desc: 'Tek Screws &amp; Fixings Pack <span style="font-size:12px;color:#6b7280;">(screws, rivets, brackets — 1 per 4 panels = ' + d.tekBoxes + ' calc)</span>', matQty: d.tekBoxes, editable: true, editKey: 'tekBoxes', editVal: tekBoxesActual });
       sections.push({ title: 'Fixings & Hardware', rows: fixingRows, mismatch: null });
 
       // ── Section 5: Removal (if applicable) ──
@@ -8682,6 +8741,28 @@
       var sectionsHtml = sections.map(function(sec) {
         var rowsHtml = sec.rows.map(function(row) {
           var borderStyle = 'border-left:3px solid #22C55E;';
+          var isOverridden = row.editable && row.editVal != row.matQty;
+          if (isOverridden) borderStyle = 'border-left:3px solid #F59E0B;';
+
+          if (row.editable) {
+            // Editable row with number input
+            return '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;margin-bottom:4px;background:#fff;border-radius:6px;cursor:pointer;' + borderStyle + '">' +
+              '<input type="checkbox" class="mv-check" data-idx="' + row.idx + '" style="margin-top:3px;min-width:18px;min-height:18px;accent-color:#F15A29;" onchange="window._mvCheckChanged()">' +
+              '<div style="flex:1;font-size:14px;color:#293C46;line-height:1.4;">' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                  '<span>' + row.desc + '</span>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">' +
+                  '<span style="font-size:12px;color:#6b7280;">Qty:</span>' +
+                  '<input type="number" min="0" value="' + row.editVal + '" data-edit-key="' + row.editKey + '" data-calc-val="' + row.matQty + '" ' +
+                    'style="width:60px;padding:4px 6px;border:1px solid #D4DEE4;border-radius:4px;font-size:14px;text-align:center;-webkit-appearance:none;" ' +
+                    'onchange="window._mvEditQty(this)" onclick="event.stopPropagation()">' +
+                  (isOverridden ? '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 6px;border-radius:100px;text-transform:uppercase;letter-spacing:0.5px;">Manual Edit</span>' : '') +
+                '</div>' +
+              '</div>' +
+            '</label>';
+          }
+
           return '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;margin-bottom:4px;background:#fff;border-radius:6px;cursor:pointer;' + borderStyle + '">' +
             '<input type="checkbox" class="mv-check" data-idx="' + row.idx + '" style="margin-top:3px;min-width:18px;min-height:18px;accent-color:#F15A29;" onchange="window._mvCheckChanged()">' +
             '<span style="font-size:14px;color:#293C46;line-height:1.4;">' + row.desc + '</span>' +
@@ -8751,6 +8832,55 @@
         }
       };
 
+      // Editable quantity handler with double-confirmation
+      window._mvEditQty = function(input) {
+        var key = input.getAttribute('data-edit-key');
+        var calcVal = parseInt(input.getAttribute('data-calc-val'));
+        var newVal = parseInt(input.value) || 0;
+        if (newVal < 0) { newVal = 0; input.value = 0; }
+
+        if (newVal !== calcVal) {
+          // Double-confirmation for manual edits
+          var confirmed = confirm(
+            'You are changing ' + key.replace(/([A-Z])/g, ' $1').toLowerCase() + ' from ' + calcVal + ' (calculated) to ' + newVal + '.\n\n' +
+            'This will be flagged as a manual edit and visible to Shaun on the material order.\n\nConfirm this change?'
+          );
+          if (!confirmed) {
+            input.value = calcVal;
+            // Remove override if reverting
+            if (app.job._materialOverrides) delete app.job._materialOverrides[key];
+            // Remove badge if present
+            var badge = input.parentElement.querySelector('span[style*="FEF3C7"]');
+            if (badge) badge.remove();
+            // Reset border
+            var label = input.closest('label');
+            if (label) label.style.borderLeft = '3px solid #22C55E';
+            return;
+          }
+          // Store override
+          if (!app.job._materialOverrides) app.job._materialOverrides = {};
+          app.job._materialOverrides[key] = newVal;
+          // Show badge if not already there
+          var parent = input.parentElement;
+          if (!parent.querySelector('span[style*="FEF3C7"]')) {
+            var badge = document.createElement('span');
+            badge.style.cssText = 'display:inline-block;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 6px;border-radius:100px;text-transform:uppercase;letter-spacing:0.5px;';
+            badge.textContent = 'Manual Edit';
+            parent.appendChild(badge);
+          }
+          // Orange border
+          var label = input.closest('label');
+          if (label) label.style.borderLeft = '3px solid #F59E0B';
+        } else {
+          // Reverted to calculated — remove override
+          if (app.job._materialOverrides) delete app.job._materialOverrides[key];
+          var badge = input.parentElement.querySelector('span[style*="FEF3C7"]');
+          if (badge) badge.remove();
+          var label = input.closest('label');
+          if (label) label.style.borderLeft = '3px solid #22C55E';
+        }
+      };
+
       window._mvConfirm = function() {
         // Save supplier notes
         var notesEl = document.getElementById('mvSupplierNotes');
@@ -8767,7 +8897,8 @@
         app.job.materialVerification = {
           timestamp: new Date().toISOString(),
           verifier: verifier,
-          verified: true
+          verified: true,
+          overrides: app.job._materialOverrides || null
         };
         app.job._pricing_json = app.buildPricingJson();
         app.save();
