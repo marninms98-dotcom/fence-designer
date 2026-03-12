@@ -190,7 +190,7 @@
   function _applyJobNumber(jobNumber) {
     if (!jobNumber) return;
     var refEl = document.getElementById('jobRef');
-    if (refEl) refEl.value = jobNumber;
+    if (refEl) refEl.textContent = jobNumber;
     // Update app.job.ref if fencing tool
     if (window.app && window.app.job) window.app.job.ref = jobNumber;
     // Update header badge

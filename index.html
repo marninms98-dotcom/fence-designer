@@ -1235,8 +1235,7 @@
     <div class="header-fields">
       <div class="header-group">
         <label>Job Ref</label>
-        <input type="text" id="jobRef" placeholder="Auto-assigned on scope complete" readonly
-          style="background:#f0f0f0;color:#6b7280;cursor:not-allowed;">
+        <span id="jobRef" style="font-size:14px;font-weight:700;color:#F15A29;line-height:36px;"></span>
       </div>
       <div class="header-group">
         <label>Date</label>
@@ -1740,7 +1739,7 @@
       },
 
       syncHeaderFromJob() {
-        document.getElementById('jobRef').value = this.job.ref || '';
+        document.getElementById('jobRef').textContent = this.job.ref || '';
         document.getElementById('jobDate').value = this.job.date || new Date().toISOString().slice(0, 10);
         document.getElementById('scoper').value = this.job.scoper || '';
         this._updateHeaderBadge();
@@ -9287,8 +9286,8 @@
   window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
   window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
 </script>
-<script src="cloud.js?v=20260312b"></script>
-<script src="integration.js?v=20260312f"></script>
+<script src="cloud.js?v=20260312c"></script>
+<script src="integration.js?v=20260312g"></script>
 
 </body>
 </html>
