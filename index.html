@@ -9374,13 +9374,12 @@
                   '</div>' +
                 '</button>';
       } else if (stage === 4) {
-        html += '<button class="gen-btn gen-btn-ops" onclick="window.open(\'https://secureworkswa.com.au/dashboard/ops.html\',\'_blank\')">View in Ops</button>';
+        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
         html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
                   '<div class="gen-more-menu" id="genMoreMenu">' +
                     '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
                     '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
-                    '<button class="gen-more-item" onclick="showSendQuoteModal()">Send Quote</button>' +
                   '</div>' +
                 '</button>';
       }
