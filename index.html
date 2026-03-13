@@ -9135,6 +9135,12 @@
     // SEND QUOTE — Gate through Material Verification
     // ════════════════════════════════════════════════════════
     async function showSendQuoteModal() {
+      // Step 0: Auto-trigger QA if not yet passed
+      if (!fenceQA.isSignedOff()) {
+        fenceQA.showScopeVerification();
+        return;
+      }
+
       // Step 1: Validate required fields
       var missing = app._validateRequired();
       if (missing.length > 0) {
@@ -9325,11 +9331,11 @@
       if (hasJobNumber) return 4;
       if (j.scopeComplete) return 4;
 
-      // Stage 3: Has runs + client + valid pricing + QA signed off — ready for output
-      var scopeOk = fenceQA.isSignedOff();
+      // Stage 3: Has runs + client + valid pricing — ready for output
+      // QA is enforced at action time (Send Quote auto-triggers it), not at stage level
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
       var hasClient = !!(j.clientFirstName && j.address && j.email);
-      if (hasRuns && hasClient && scopeOk) {
+      if (hasRuns && hasClient) {
         try {
           var d = app._collectOutputData();
           if (d.grandTotal > 0) return 3;
@@ -9361,27 +9367,22 @@
       var html = '';
 
       if (stage === 2) {
+        // Minimal — just cloud save while still entering data
         html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save()">Cloud Save</button>';
-        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
-      } else if (stage === 3) {
+      } else if (stage >= 3) {
+        // Send Quote is always the primary action — auto-triggers QA if not yet passed
         html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
-        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
-        html += '<button class="gen-btn gen-btn-scope" onclick="scopeComplete()">Scope Complete</button>';
-        html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
-                  '<div class="gen-more-menu" id="genMoreMenu">' +
-                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
-                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
-                  '</div>' +
-                '</button>';
-      } else if (stage === 4) {
-        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
-        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
-        html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
-                  '<div class="gen-more-menu" id="genMoreMenu">' +
-                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
-                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
-                  '</div>' +
-                '</button>';
+        // Additional tools only after QA passed
+        if (fenceQA.isSignedOff()) {
+          html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
+          html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
+                    '<div class="gen-more-menu" id="genMoreMenu">' +
+                      '<button class="gen-more-item" onclick="scopeComplete()">Scope Complete</button>' +
+                      '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
+                      '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
+                    '</div>' +
+                  '</button>';
+        }
       }
 
       inner.innerHTML = html;
