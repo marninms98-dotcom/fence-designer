@@ -9378,9 +9378,13 @@
 
       var hasJobNumber = !!(app.job.ref && app.job.ref.startsWith('SW')) || !!(window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber());
 
-      if (hasJobNumber) {
-        // Has job number — full toolkit
+      // Save & Continue always visible — peace of mind cloud sync
+      html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
+
+      if (stage >= 3) {
         html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
+      }
+      if (hasJobNumber) {
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
         html += '<div class="gen-more-wrap">' +
                   '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
@@ -9389,13 +9393,6 @@
                     '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
                   '</div>' +
                 '</div>';
-      } else if (stage >= 3) {
-        // Ready for quote — show Save & Continue + Send Quote
-        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
-        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
-      } else if (stage === 2) {
-        // Still entering data — just save
-        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
       }
 
       inner.innerHTML = html;
