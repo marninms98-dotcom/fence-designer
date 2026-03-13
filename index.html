@@ -2812,22 +2812,47 @@
       // ── New Job ──
       newJob() {
         if (!confirm('Start a new job? This will clear all current data.')) return;
+        // Stop cloud auto-save for old job
+        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+        // Clear integration state (jobId, GHL IDs, job number)
+        if (window._swIntegration) {
+          window._swIntegration._connectJob(null, null, null);
+        }
+        // Clear all local storage for this tool
         localStorage.removeItem('fenceJob');
+        localStorage.removeItem('fenceQA_verification');
+        // Reset QA state in memory
+        if (typeof fenceQA !== 'undefined') {
+          fenceQA._verificationState = {};
+        }
+        // Reset app state
         this.job = null;
         this.currentRunId = null;
         this._resetSections();
         this.init();
+        // Strip ?jobId= from URL so reload doesn't re-load old job
+        window.history.replaceState({}, '', window.location.pathname);
+        // Update header + toolbar to reflect empty state
+        this._updateHeaderStatus();
+        if (typeof updateButtonStages === 'function') updateButtonStages();
         window.scrollTo(0, 0);
       },
 
       resetJob() {
         if (!confirm('Reset everything? All data, photos, and runs will be permanently deleted.')) return;
+        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+        if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
         localStorage.removeItem('fenceJob');
+        localStorage.removeItem('fenceQA_verification');
+        if (typeof fenceQA !== 'undefined') fenceQA._verificationState = {};
         this.job = null;
         this.currentRunId = null;
         this._siteInfoTab = 'client';
         this._resetSections();
         this.init();
+        window.history.replaceState({}, '', window.location.pathname);
+        this._updateHeaderStatus();
+        if (typeof updateButtonStages === 'function') updateButtonStages();
         window.scrollTo(0, 0);
       },
 

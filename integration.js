@@ -1072,6 +1072,13 @@
         // No Supabase job yet — just store the GHL IDs so the next save creates one linked correctly
         if (typeof updateSyncDot === 'function') updateSyncDot('local');
         console.log('[Integration] _connectJob: GHL opportunity set, no cloud job yet', opportunityId);
+      } else {
+        // Full reset — no job, no opportunity
+        _jobId = null;
+        _jobLoaded = false;
+        if (cloud) cloud.stopAutoSave();
+        if (typeof updateSyncDot === 'function') updateSyncDot('local');
+        console.log('[Integration] _connectJob: fully cleared');
       }
       updateUI();
     },
