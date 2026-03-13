@@ -609,9 +609,9 @@
           if (!meta.client_name) meta.client_name = prompt('Client name for this job:');
           if (!meta.client_name) { cloud.ui.showSaveStatus('error'); return; }
 
-          // Create job via edge function (bypasses RLS)
+          // Create job via edge function (bypasses RLS) — opportunityId is optional for walk-up scopes
           var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
-          var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || '', _toolType, contact);
+          var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || null, _toolType, contact);
           _jobId = job.id;
 
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
@@ -978,7 +978,7 @@
       try {
         // Create job
         var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
-        var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || '', _toolType, contact);
+        var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || null, _toolType, contact);
         _jobId = job.id;
         var newUrl = window.location.pathname + '?jobId=' + _jobId;
         window.history.replaceState({}, '', newUrl);

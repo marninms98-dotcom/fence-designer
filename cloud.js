@@ -525,19 +525,21 @@
 
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
     async createJobForOpportunity(opportunityId, toolType, contact) {
-      console.log('[Cloud] createJobForOpportunity:', opportunityId, toolType);
+      console.log('[Cloud] createJobForOpportunity:', opportunityId || '(no GHL opp)', toolType);
+      var payload = {
+        toolType: toolType,
+        clientName: contact.name || '',
+        clientPhone: contact.phone || '',
+        clientEmail: contact.email || '',
+        siteAddress: contact.address || '',
+        siteSuburb: contact.suburb || ''
+      };
+      // GHL opportunity is optional — walk-up scopes may not have one
+      if (opportunityId) payload.opportunityId = opportunityId;
       var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          opportunityId: opportunityId,
-          toolType: toolType,
-          clientName: contact.name || '',
-          clientPhone: contact.phone || '',
-          clientEmail: contact.email || '',
-          siteAddress: contact.address || '',
-          siteSuburb: contact.suburb || ''
-        })
+        body: JSON.stringify(payload)
       });
       var data = await res.json();
       console.log('[Cloud] createJobForOpportunity result:', data);
