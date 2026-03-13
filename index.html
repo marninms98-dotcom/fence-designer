@@ -3461,12 +3461,6 @@
       _placesAutocomplete: null,
       _placesService: null,
 
-      _isGoogleAvailable() {
-        return window.google && google.maps && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE';
-      },
-
-      _placesLib: null,
-
       onAddressInput(query) {
         clearTimeout(this._addressDebounceTimer);
         if (query.length < 3) {
@@ -3477,83 +3471,45 @@
       },
 
       async fetchAddresses(query) {
-        if (this._isGoogleAvailable()) {
-          this._fetchGooglePlaces(query);
+        if (GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
+          this._fetchGooglePlacesREST(query);
         } else {
-          this._fetchAddressrFallback(query);
+          console.log('[Address] No Google API key, address field is manual entry only');
         }
       },
 
-      async _fetchGooglePlaces(query) {
+      async _fetchGooglePlacesREST(query) {
         try {
-          // Load Places library on demand (required for new API classes)
-          if (!this._placesLib) {
-            this._placesLib = await google.maps.importLibrary('places');
-            console.log('[Address] Places library loaded, classes:', Object.keys(this._placesLib).join(', '));
-          }
-          const PlacesLib = this._placesLib;
-
-          if (PlacesLib.AutocompleteSuggestion) {
-            // New Places API
-            const { suggestions } = await PlacesLib.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          const res = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY
+            },
+            body: JSON.stringify({
               input: query,
               includedRegionCodes: ['au'],
-              includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route'],
-            });
-            if (!suggestions || suggestions.length === 0) {
-              this._addressResults = [];
-              this.renderAddressDropdown(query);
-              return;
-            }
-            this._addressResults = suggestions.map(s => ({
-              sla: s.placePrediction.text.text,
-              placeId: s.placePrediction.placeId,
-              _isGoogle: true
-            }));
-          } else if (PlacesLib.AutocompleteService) {
-            // Legacy fallback
-            const svc = new PlacesLib.AutocompleteService();
-            const result = await new Promise((resolve) => {
-              svc.getPlacePredictions({ input: query, componentRestrictions: { country: 'au' }, types: ['address'] },
-                (predictions, status) => resolve({ predictions, status }));
-            });
-            if (!result.predictions || result.predictions.length === 0) {
-              this._addressResults = [];
-              this.renderAddressDropdown(query);
-              return;
-            }
-            this._addressResults = result.predictions.map(p => ({
-              sla: p.description,
-              placeId: p.place_id,
-              _isGoogle: true
-            }));
-          } else {
-            console.warn('[Address] No autocomplete class found in Places library');
-            this._fetchAddressrFallback(query);
+              includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route']
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            console.warn('[Address] Places API error:', data.error ? data.error.message : res.status);
             return;
           }
+          if (!data.suggestions || data.suggestions.length === 0) {
+            this._addressResults = [];
+            this.renderAddressDropdown(query);
+            return;
+          }
+          this._addressResults = data.suggestions.map(s => ({
+            sla: s.placePrediction.text.text,
+            placeId: s.placePrediction.placeId,
+            _isGoogle: true
+          }));
           this.renderAddressDropdown(query);
         } catch(e) {
-          console.warn('[Address] Google Places autocomplete error:', e);
-          this._fetchAddressrFallback(query);
-        }
-      },
-
-      async _fetchAddressrFallback(query) {
-        console.log('[Address] Google Places not available, using addressr.io fallback');
-        try {
-          const biased = /\bWA\b/i.test(query) ? query : query + ' WA';
-          const res = await fetch('https://api.addressr.io/addresses?q=' + encodeURIComponent(biased));
-          if (!res.ok) return;
-          const data = await res.json();
-          const all = Array.isArray(data) ? data : [];
-          this._addressResults = [
-            ...all.filter(r => /\bWA\b/.test(r.sla)),
-            ...all.filter(r => !/\bWA\b/.test(r.sla))
-          ];
-          this.renderAddressDropdown(query);
-        } catch (e) {
-          // API error — silently fail, input still works as normal text field
+          console.warn('[Address] Google Places fetch error:', e);
         }
       },
 
@@ -3581,13 +3537,24 @@
         const input = document.getElementById('addressInput');
 
         if (r._isGoogle && r.placeId) {
-          // Google Places: get full details
+          // Google Places REST API: get full details
           try {
-            const PlacesLib = this._placesLib || await google.maps.importLibrary('places');
-            const place = new PlacesLib.Place({ id: r.placeId });
-            await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
+            const detailRes = await fetch('https://places.googleapis.com/v1/places/' + r.placeId, {
+              headers: {
+                'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+                'X-Goog-FieldMask': 'formattedAddress,addressComponents,location'
+              }
+            });
+            const place = await detailRes.json();
 
-            const fullAddress = place.formattedAddress || r.sla;
+            if (!detailRes.ok || !place.formattedAddress) {
+              if (input) input.value = r.sla;
+              this.updateField('address', r.sla);
+              this.hideAddressDropdown();
+              return;
+            }
+
+            const fullAddress = place.formattedAddress;
             if (input) input.value = fullAddress;
             this.updateField('address', fullAddress);
 
@@ -3595,19 +3562,20 @@
             this.job._placeId = r.placeId;
             if (place.location) {
               this.job._latlng = {
-                lat: place.location.lat(),
-                lng: place.location.lng()
+                lat: place.location.latitude,
+                lng: place.location.longitude
               };
             }
 
             // Parse structured address components
             const components = {};
             (place.addressComponents || []).forEach(c => {
-              if (c.types.includes('street_number')) components.street_number = c.longText;
-              if (c.types.includes('route')) components.route = c.longText;
-              if (c.types.includes('locality')) components.suburb = c.longText;
-              if (c.types.includes('administrative_area_level_1')) components.state = c.shortText;
-              if (c.types.includes('postal_code')) components.postcode = c.longText;
+              var types = c.types || [];
+              if (types.includes('street_number')) components.street_number = c.longText;
+              if (types.includes('route')) components.route = c.longText;
+              if (types.includes('locality')) components.suburb = c.longText;
+              if (types.includes('administrative_area_level_1')) components.state = c.shortText;
+              if (types.includes('postal_code')) components.postcode = c.longText;
             });
             const street = [components.street_number, components.route].filter(Boolean).join(' ');
             this.job._addressComponents = {
@@ -9238,21 +9206,9 @@
     });
   </script>
 
-<!-- ═══ Google Maps API (Places Autocomplete + Satellite View) ═══ -->
+<!-- ═══ Google Maps API Key (REST calls for Places + Static Maps for satellite) ═══ -->
 <script>
   const GOOGLE_MAPS_API_KEY = 'AIzaSyBylb-lPc5q3Q9_Tapr4SJLmvfWtlulkAc';
-  function initGoogleMaps() { console.log('[Maps] Google Maps API loaded'); }
-</script>
-<script async defer id="googleMapsScript"></script>
-<script>
-  (function() {
-    if (GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
-      document.getElementById('googleMapsScript').src =
-        'https://maps.googleapis.com/maps/api/js?key=' + GOOGLE_MAPS_API_KEY + '&libraries=places&callback=initGoogleMaps';
-    } else {
-      console.warn('[Maps] Google Maps API key not set — using addressr.io fallback');
-    }
-  })();
 </script>
 
 <!-- ═══ Cloud Integration (Supabase) ═══ -->
