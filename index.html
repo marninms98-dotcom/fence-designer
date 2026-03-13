@@ -3461,9 +3461,11 @@
       _placesAutocomplete: null,
       _placesService: null,
 
-      _isGooglePlacesAvailable() {
-        return window.google && google.maps && google.maps.places && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE';
+      _isGoogleAvailable() {
+        return window.google && google.maps && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE';
       },
+
+      _placesLib: null,
 
       onAddressInput(query) {
         clearTimeout(this._addressDebounceTimer);
@@ -3475,7 +3477,7 @@
       },
 
       async fetchAddresses(query) {
-        if (this._isGooglePlacesAvailable()) {
+        if (this._isGoogleAvailable()) {
           this._fetchGooglePlaces(query);
         } else {
           this._fetchAddressrFallback(query);
@@ -3484,21 +3486,52 @@
 
       async _fetchGooglePlaces(query) {
         try {
-          const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-            input: query,
-            includedRegionCodes: ['au'],
-            includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route'],
-          });
-          if (!suggestions || suggestions.length === 0) {
-            this._addressResults = [];
-            this.renderAddressDropdown(query);
+          // Load Places library on demand (required for new API classes)
+          if (!this._placesLib) {
+            this._placesLib = await google.maps.importLibrary('places');
+            console.log('[Address] Places library loaded, classes:', Object.keys(this._placesLib).join(', '));
+          }
+          const PlacesLib = this._placesLib;
+
+          if (PlacesLib.AutocompleteSuggestion) {
+            // New Places API
+            const { suggestions } = await PlacesLib.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+              input: query,
+              includedRegionCodes: ['au'],
+              includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route'],
+            });
+            if (!suggestions || suggestions.length === 0) {
+              this._addressResults = [];
+              this.renderAddressDropdown(query);
+              return;
+            }
+            this._addressResults = suggestions.map(s => ({
+              sla: s.placePrediction.text.text,
+              placeId: s.placePrediction.placeId,
+              _isGoogle: true
+            }));
+          } else if (PlacesLib.AutocompleteService) {
+            // Legacy fallback
+            const svc = new PlacesLib.AutocompleteService();
+            const result = await new Promise((resolve) => {
+              svc.getPlacePredictions({ input: query, componentRestrictions: { country: 'au' }, types: ['address'] },
+                (predictions, status) => resolve({ predictions, status }));
+            });
+            if (!result.predictions || result.predictions.length === 0) {
+              this._addressResults = [];
+              this.renderAddressDropdown(query);
+              return;
+            }
+            this._addressResults = result.predictions.map(p => ({
+              sla: p.description,
+              placeId: p.place_id,
+              _isGoogle: true
+            }));
+          } else {
+            console.warn('[Address] No autocomplete class found in Places library');
+            this._fetchAddressrFallback(query);
             return;
           }
-          this._addressResults = suggestions.map(s => ({
-            sla: s.placePrediction.text.text,
-            placeId: s.placePrediction.placeId,
-            _isGoogle: true
-          }));
           this.renderAddressDropdown(query);
         } catch(e) {
           console.warn('[Address] Google Places autocomplete error:', e);
@@ -3548,9 +3581,10 @@
         const input = document.getElementById('addressInput');
 
         if (r._isGoogle && r.placeId) {
-          // Google Places (New API): get full details
+          // Google Places: get full details
           try {
-            const place = new google.maps.places.Place({ id: r.placeId });
+            const PlacesLib = this._placesLib || await google.maps.importLibrary('places');
+            const place = new PlacesLib.Place({ id: r.placeId });
             await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
 
             const fullAddress = place.formattedAddress || r.sla;
