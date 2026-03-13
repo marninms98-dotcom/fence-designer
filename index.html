@@ -108,31 +108,10 @@
       font-style: italic;
     }
 
-    .header-status-tag {
-      display: inline-block;
-      padding: 4px 14px;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .header-status-tag.draft {
-      background: #F59E0B;
-      color: #fff;
-      font-size: 14px;
-      padding: 5px 18px;
-    }
-    .header-status-tag.job-number {
-      background: #22C55E;
-      color: #fff;
-      font-size: 15px;
-      padding: 5px 18px;
-      letter-spacing: 1.5px;
-    }
-    .header-status-tag.hidden { display: none; }
+    .header-tag { display:inline-block; padding:4px 14px; border-radius:4px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:1px; white-space:nowrap; flex-shrink:0; }
+    .header-tag.draft { background:#F59E0B; color:#fff; font-size:14px; padding:5px 18px; }
+    .header-tag.job-number { background:#22C55E; color:#fff; font-size:15px; padding:5px 18px; letter-spacing:1.5px; }
+    .header-tag.hidden { display:none; }
 
     .header-actions {
       margin-left: auto;
@@ -142,51 +121,16 @@
       flex-shrink: 0;
     }
 
-    /* ── Sync Dot ── */
-    .sync-dot-wrap {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      cursor: pointer;
-      padding: 4px 8px;
-      border-radius: 4px;
-      transition: background 0.15s;
-      position: relative;
-    }
-    .sync-dot-wrap:hover { background: rgba(255,255,255,0.08); }
-    .sync-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      transition: background 0.3s;
-    }
-    .sync-dot.green { background: #34C759; }
-    .sync-dot.orange { background: #FF9500; }
-    .sync-dot.red { background: #FF3B30; }
-    .sync-dot.grey { background: rgba(255,255,255,0.3); }
-    .sync-dot-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.6);
-      white-space: nowrap;
-    }
-    .sync-detail-popup {
-      display: none;
-      position: absolute;
-      top: 100%;
-      right: 0;
-      margin-top: 6px;
-      background: #fff;
-      color: #293C46;
-      border-radius: 8px;
-      padding: 12px 16px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-      font-size: 12px;
-      min-width: 200px;
-      z-index: 200;
-      line-height: 1.5;
-    }
-    .sync-dot-wrap.open .sync-detail-popup { display: block; }
+    /* ── Sync Indicator (matches patio) ── */
+    .sync-indicator { display:flex; align-items:center; gap:5px; cursor:pointer; padding:4px 8px; border-radius:4px; position:relative; transition:background 0.15s; }
+    .sync-indicator:hover { background:rgba(255,255,255,0.08); }
+    .sync-dot { width:8px; height:8px; border-radius:50%; background:#FF9500; flex-shrink:0; transition:background 0.3s; }
+    .sync-dot.saved { background:#34C759; }
+    .sync-dot.failed { background:#FF3B30; }
+    .sync-label { font-size:11px; font-weight:600; color:rgba(255,255,255,0.6); white-space:nowrap; }
+    .sync-detail-popover { position:absolute; top:100%; right:0; margin-top:6px; background:#fff; color:#293C46; border-radius:8px; padding:12px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.25); font-size:12px; min-width:200px; z-index:300; line-height:1.5; display:none; }
+    .sync-detail-popover div { margin-bottom:6px; color:#4C6A7C; }
+    .sync-detail-popover button { margin-top:6px; font-size:11px; }
 
     .btn-header {
       padding: 6px 14px;
@@ -1305,14 +1249,15 @@
         <input type="text" class="header-search" id="headerSearch" placeholder="Search or load a job..." onclick="window._swIntegration?window._swIntegration.loadPicker():void(0)" readonly>
       </div>
       <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
-      <span class="header-status-tag hidden" id="headerStatusTag">DRAFT</span>
+      <span class="header-tag hidden" id="headerStatusTag">DRAFT</span>
       <div class="header-actions" id="headerActions">
-        <div class="sync-dot-wrap" id="syncDotWrap" onclick="toggleSyncDetail()">
-          <span class="sync-dot grey" id="syncDot"></span>
-          <span class="sync-dot-label" id="syncDotLabel">—</span>
-          <div class="sync-detail-popup" id="syncDetailPopup">
-            <div id="syncDetailContent">Not saved yet</div>
-            <button id="syncRetryBtn" style="display:none;margin-top:8px;padding:6px 12px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;" onclick="event.stopPropagation();if(window._swIntegration)window._swIntegration.save()">Retry Save</button>
+        <div id="headerSyncStatus" class="sync-indicator" onclick="toggleSyncDetail()">
+          <span class="sync-dot"></span>
+          <span class="sync-label">Local</span>
+          <div id="syncDetail" class="sync-detail-popover" style="display:none">
+            <div>Last sync: <span id="syncLastTime">Never</span></div>
+            <div>Job ID: <span id="syncJobId">--</span></div>
+            <button id="syncRetryBtn" style="display:none;padding:6px 12px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;" onclick="event.stopPropagation();window._swIntegration&&window._swIntegration.save()">Retry</button>
           </div>
         </div>
         <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()">Load Job</button>
@@ -1806,12 +1751,12 @@
         var jobNumber = this.job.ref || (window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber()) || '';
         if (jobNumber && jobNumber.startsWith('SW')) {
           tagEl.textContent = jobNumber;
-          tagEl.className = 'header-status-tag job-number';
-        } else if (name || (this.job.runs && this.job.runs.length > 0)) {
+          tagEl.className = 'header-tag job-number';
+        } else if (name) {
           tagEl.textContent = 'DRAFT';
-          tagEl.className = 'header-status-tag draft';
+          tagEl.className = 'header-tag draft';
         } else {
-          tagEl.className = 'header-status-tag hidden';
+          tagEl.className = 'header-tag hidden';
         }
       },
 
@@ -9341,64 +9286,50 @@
     // ════════════════════════════════════════════════════════
     // SYNC DOT — cloud sync status indicator
     // ════════════════════════════════════════════════════════
-    var _lastSyncState = 'grey';
-    var _lastSyncTime = null;
-
+    // ── Sync indicator (matches patio pattern) ──
     function updateSyncDot(state, detail) {
-      var dot = document.getElementById('syncDot');
-      var label = document.getElementById('syncDotLabel');
-      var content = document.getElementById('syncDetailContent');
-      if (!dot || !label) return;
-
-      _lastSyncState = state;
-      dot.className = 'sync-dot';
-
-      if (state === 'saved') {
-        dot.classList.add('green');
-        label.textContent = 'Saved';
-        _lastSyncTime = new Date();
-      } else if (state === 'saving') {
-        dot.classList.add('orange');
-        label.textContent = detail || 'Saving...';
-      } else if (state === 'local') {
-        dot.classList.add('orange');
-        label.textContent = 'Local';
-      } else if (state === 'error') {
-        dot.classList.add('red');
-        label.textContent = 'Failed';
-      } else {
-        dot.classList.add('grey');
-        label.textContent = '—';
-      }
-
-      if (content) {
-        var lines = [];
-        if (_lastSyncTime) lines.push('Last cloud save: ' + _lastSyncTime.toLocaleTimeString());
-        var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
-        if (jobId) lines.push('Job ID: ' + jobId.slice(0, 8) + '...');
-        if (state === 'local') lines.push('Changes saved to browser only');
-        if (state === 'error' && detail) lines.push('Error: ' + detail);
-        if (state === 'saved') lines.push('Synced to cloud');
-        content.innerHTML = lines.join('<br>') || 'Not saved yet';
-      }
-
-      // Show retry button on error
+      var dot = document.querySelector('#headerSyncStatus .sync-dot');
+      var label = document.querySelector('#headerSyncStatus .sync-label');
+      var timeEl = document.getElementById('syncLastTime');
+      var jobIdEl = document.getElementById('syncJobId');
       var retryBtn = document.getElementById('syncRetryBtn');
+      if (!dot) return;
+
+      dot.className = 'sync-dot';
+      if (state === 'saved') {
+        dot.classList.add('saved');
+        if (label) label.textContent = 'Saved';
+        if (timeEl) {
+          var d = new Date();
+          timeEl.textContent = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+        }
+      } else if (state === 'error') {
+        dot.classList.add('failed');
+        if (label) label.textContent = 'Failed';
+      } else {
+        // local / saving / default — orange dot
+        if (label) label.textContent = (state === 'saving') ? (detail || 'Saving...') : 'Local';
+      }
+
+      if (jobIdEl) {
+        var jid = window._swIntegration && window._swIntegration.getJobId ? window._swIntegration.getJobId() : null;
+        jobIdEl.textContent = jid ? jid.slice(0, 8) + '...' : '--';
+      }
       if (retryBtn) retryBtn.style.display = (state === 'error') ? '' : 'none';
 
-      // Refresh header status tag (DRAFT → SYNCED → job number)
       if (app && app._updateHeaderStatus) app._updateHeaderStatus();
     }
 
     function toggleSyncDetail() {
-      var wrap = document.getElementById('syncDotWrap');
-      if (wrap) wrap.classList.toggle('open');
+      var el = document.getElementById('syncDetail');
+      if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
     }
 
-    // Close sync popup when clicking outside
+    // Close sync popover when clicking outside
     document.addEventListener('click', function(e) {
-      var wrap = document.getElementById('syncDotWrap');
-      if (wrap && !wrap.contains(e.target)) wrap.classList.remove('open');
+      var syncDetail = document.getElementById('syncDetail');
+      var syncInd = document.getElementById('headerSyncStatus');
+      if (syncDetail && syncInd && !syncInd.contains(e.target)) syncDetail.style.display = 'none';
     });
 
     // ════════════════════════════════════════════════════════
