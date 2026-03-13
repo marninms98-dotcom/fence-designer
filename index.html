@@ -9220,7 +9220,7 @@
           statusEl.style.background = '#EDF1F4';
           statusEl.style.color = '#293C46';
           statusEl.textContent = 'Updating job status...';
-          await cloud.updateJobStatus(jobId, 'quoted');
+          await cloud.jobs.updateJobStatus(jobId, 'quoted');
         }
 
         statusEl.style.display = '';
