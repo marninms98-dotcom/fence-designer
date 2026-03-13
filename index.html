@@ -8644,14 +8644,25 @@
       // Final confirmation
       if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Generate a job number (SWF-25XXX)\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
 
+      // Gate behind QA sign-off
+      if (!fenceQA.isSignedOff()) {
+        app.showToast('QA must be passed before completing scope — run QA Check first', 'error');
+        return;
+      }
+
       // Enrich job state before cloud save
       app.job._pricing_json = app.buildPricingJson();
 
-      // Trigger full cloud save + link chain
+      // Trigger full cloud save + link chain via saveAfterSignOff (gates GHL link + job number + PO)
       if (window._swIntegration) {
         try {
-          await window._swIntegration.save();
-          app.showToast('Scope completed! Job number will appear in dashboard.', 'success');
+          var result = await window._swIntegration.saveAfterSignOff();
+          if (result.success) {
+            app.showToast('Scope completed! Job number: ' + (result.jobNumber || 'pending'), 'success');
+            if (typeof updateButtonStages === 'function') updateButtonStages();
+          } else {
+            app.showToast('Scope complete failed: ' + (result.reason || 'unknown'), 'error');
+          }
         } catch (e) {
           app.showToast('Scope complete failed: ' + e.message, 'error');
         }
@@ -8665,6 +8676,15 @@
     // ════════════════════════════════════════════════════════
     const fenceQA = {
       _acknowledged: new Set(),
+      _verificationState: JSON.parse(localStorage.getItem('fenceQA_verification') || '{}'),
+
+      _saveState() {
+        localStorage.setItem('fenceQA_verification', JSON.stringify(this._verificationState));
+      },
+
+      isSignedOff() {
+        return !!(this._verificationState.scoper && this._verificationState.scoper.signedOff);
+      },
 
       close() {
         document.getElementById('qaOverlay').style.display = 'none';
@@ -8722,7 +8742,7 @@
         html += `</div>
           <div class="qa-actions">
             <button class="qa-btn qa-btn-secondary" onclick="fenceQA.close()">Close</button>
-            ${!hasRed ? '<button class="qa-btn qa-btn-primary" onclick="fenceQA.close(); app.showToast(\'QA passed — outputs unlocked\', \'success\')">Approve & Close</button>' : ''}
+            ${!hasRed ? '<button class="qa-btn qa-btn-primary" onclick="fenceQA._verificationState.scoper = { signedOff: true, by: app.job.scoper || \'unknown\', at: new Date().toISOString() }; fenceQA._saveState(); fenceQA.close(); if (typeof updateButtonStages === \'function\') updateButtonStages(); app.showToast(\'QA passed — outputs unlocked\', \'success\')">Approve & Close</button>' : ''}
           </div>
         </div>`;
 
@@ -9301,14 +9321,15 @@
       if (!j) return 1;
 
       // Stage 4: Scope complete (has job number)
-      if (j.ref && j.ref.startsWith('SWF')) return 4;
+      var hasJobNumber = !!(j.ref && j.ref.startsWith('SWF')) || !!(window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber());
+      if (hasJobNumber) return 4;
       if (j.scopeComplete) return 4;
 
-      // Stage 3: Has runs + client + valid pricing — ready for output
-      // QA Check is the quality gate, not the stage system
+      // Stage 3: Has runs + client + valid pricing + QA signed off — ready for output
+      var scopeOk = fenceQA.isSignedOff();
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
       var hasClient = !!(j.clientFirstName && j.address && j.email);
-      if (hasRuns && hasClient) {
+      if (hasRuns && hasClient && scopeOk) {
         try {
           var d = app._collectOutputData();
           if (d.grandTotal > 0) return 3;

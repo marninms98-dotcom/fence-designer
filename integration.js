@@ -32,6 +32,7 @@
   var _ghlOpportunityId = null;
   var _ghlContactId = null;
   var _lastJobNumber = null;
+  var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _toolType = null;
   var _jobLoaded = false;
   var _getStateFn = null;
@@ -769,64 +770,76 @@
           }
         }
 
-        // Write scope link back to GHL opportunity notes
-        var linkResult = null;
-        if (_ghlOpportunityId) {
-          try {
-            linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
-          } catch(ghlErr) {
-            console.warn('[Integration] GHL link failed (non-blocking):', ghlErr);
-          }
-        }
-
-        // Auto-create draft PO from scope materials (non-blocking)
-        if (linkResult && linkResult.jobNumber && _jobId) {
-          try {
-            var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
-            var poMaterials = await poRes.json();
-            if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
-              await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  job_id: _jobId,
-                  status: 'draft',
-                  supplier_name: '',
-                  line_items: poMaterials.materials,
-                  reference: linkResult.jobNumber,
-                  notes: 'Auto-generated from scope - review before approving'
-                })
-              });
-              console.log('[Integration] Draft PO created from scope');
+        // ── Post-QA only: GHL link, job number, PO, contact push ──
+        // Only runs during Scope Complete (saveAfterSignOff). Regular cloud saves
+        // just persist scope data — no job number, no GHL side-effects.
+        if (_isSignOff) {
+          // Write scope link back to GHL opportunity notes + assign job number
+          var linkResult = null;
+          if (_ghlOpportunityId) {
+            try {
+              linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
+              if (linkResult && linkResult.jobNumber) {
+                _lastJobNumber = linkResult.jobNumber;
+                console.log('[Integration] Job number assigned:', linkResult.jobNumber);
+              }
+            } catch(ghlErr) {
+              console.warn('[Integration] GHL link failed (non-blocking):', ghlErr);
             }
-          } catch(poErr) {
-            console.warn('[Integration] Draft PO creation failed (non-blocking):', poErr);
           }
-        }
 
-        // Push contact details back to GHL — use structured first/last to avoid round-trip name mangling
-        if (_ghlContactId && meta.client_name) {
-          try {
-            var ghlUpdate = {
-              email: meta.client_email || '',
-              phone: meta.client_phone || '',
-              address: meta.site_address || '',
-              suburb: meta.site_suburb || ''
-            };
-            // Send firstName/lastName separately if the fencing tool has them
-            if (state.job && state.job.clientFirstName) {
-              ghlUpdate.firstName = state.job.clientFirstName;
-              ghlUpdate.lastName = state.job.clientLastName || '';
-            } else {
-              ghlUpdate.name = meta.client_name;
+          // Auto-create draft PO from scope materials (non-blocking)
+          if (linkResult && linkResult.jobNumber && _jobId) {
+            try {
+              var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
+              var poMaterials = await poRes.json();
+              if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
+                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    job_id: _jobId,
+                    status: 'draft',
+                    supplier_name: '',
+                    line_items: poMaterials.materials,
+                    reference: linkResult.jobNumber,
+                    notes: 'Auto-generated from scope - review before approving'
+                  })
+                });
+                console.log('[Integration] Draft PO created from scope');
+              }
+            } catch(poErr) {
+              console.warn('[Integration] Draft PO creation failed (non-blocking):', poErr);
             }
-            await cloud.ghl.updateContact(_ghlContactId, ghlUpdate);
-          } catch(ghlErr) {
-            console.warn('[Integration] GHL contact update failed (non-blocking):', ghlErr);
+          }
+
+          // Push contact details back to GHL — only send non-empty fields
+          if (_ghlContactId && meta.client_name) {
+            try {
+              var contactUpdate = {};
+              // Send firstName/lastName separately if the fencing tool has them
+              if (state.job && state.job.clientFirstName) {
+                contactUpdate.firstName = state.job.clientFirstName;
+                if (state.job.clientLastName) contactUpdate.lastName = state.job.clientLastName;
+              } else {
+                contactUpdate.name = meta.client_name;
+              }
+              if (meta.client_email) contactUpdate.email = meta.client_email;
+              if (meta.client_phone) contactUpdate.phone = meta.client_phone;
+              if (meta.site_address) contactUpdate.address = meta.site_address;
+              if (meta.site_suburb) contactUpdate.suburb = meta.site_suburb;
+              await cloud.ghl.updateContact(_ghlContactId, contactUpdate);
+            } catch(ghlErr) {
+              console.warn('[Integration] GHL contact update failed (non-blocking):', ghlErr);
+            }
           }
         }
 
-        cloud.ui.showSaveStatus('saved');
+        if (_lastJobNumber) {
+          cloud.ui.showSaveStatus('saved', 'Saved — ' + _lastJobNumber);
+        } else {
+          cloud.ui.showSaveStatus('saved');
+        }
         if (typeof updateSyncDot === 'function') updateSyncDot('saved');
         updateUI();
 
@@ -973,8 +986,39 @@
       window.location.href = '../dashboard/index.html';
     },
 
+    // Save after QA sign-off — sets _isSignOff flag to gate GHL link + job number + PO
+    saveAfterSignOff: async function() {
+      if (!cloud || !cloud.auth.isLoggedIn()) {
+        console.warn('[Integration] Not logged in — sign-off saved locally only');
+        return { success: false, reason: 'not_logged_in' };
+      }
+
+      // Skip the validation modal — QA checks are stricter and already passed.
+      var validation = _validateForSave();
+      if (!validation.valid) {
+        console.warn('[Integration] Validation failed after sign-off:', validation.errors);
+      }
+
+      try {
+        // Set sign-off flag — this gates GHL link, job number, PO creation
+        _isSignOff = true;
+        await integration.save();
+        console.log('[Integration] Cloud save after sign-off completed');
+        return { success: true, jobNumber: _lastJobNumber };
+      } catch(e) {
+        console.error('[Integration] Cloud save after sign-off failed:', e);
+        return { success: false, reason: e.message };
+      } finally {
+        _isSignOff = false;
+      }
+    },
+
     getJobId: function() {
       return _jobId;
+    },
+
+    getLastJobNumber: function() {
+      return _lastJobNumber;
     },
 
     // Connect integration to a job — used by the inline GHL search (first name field)
