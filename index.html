@@ -14,7 +14,6 @@
   <style>
     /* ── iPad-first base ── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    #jobRef:empty::after { content: attr(data-empty); color: #8FA4B2; font-weight: 400; font-size: 12px; }
     html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 
     body {
@@ -48,110 +47,125 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 10px 16px;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 8px 16px;
     }
 
     .header-logo {
-      height: 32px;
+      height: 28px;
       width: auto;
       image-rendering: -webkit-optimize-contrast;
       image-rendering: crisp-edges;
       flex-shrink: 0;
       background: #fff;
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 3px 6px;
+      border-radius: 4px;
     }
 
-    .header-app-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.5);
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-    }
-
-    .header-fields {
-      display: flex;
-      gap: 12px;
-      padding: 8px 16px 10px;
-      flex-wrap: wrap;
-      align-items: center;
-      background: rgba(0,0,0,0.12);
-    }
-
-    .header-group {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .header-group label {
+    .header-job-info {
+      font-size: 14px;
       font-weight: 700;
-      font-size: 10px;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 40vw;
+      line-height: 1.3;
+    }
+    .header-job-info.empty {
+      color: rgba(255,255,255,0.35);
+      font-weight: 400;
+      font-style: italic;
+    }
+
+    .header-status-tag {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      opacity: 0.6;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
-
-    .header-group input,
-    .header-group select {
-      padding: 6px 10px;
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 6px;
-      font-size: 14px;
-      min-height: 36px;
-      background: rgba(255,255,255,0.08);
-      color: #fff;
-      transition: border-color 0.2s, background 0.2s;
+    .header-status-tag.draft {
+      background: rgba(245,158,11,0.2);
+      color: #F59E0B;
     }
-
-    .header-group input:focus,
-    .header-group select:focus {
-      outline: none;
-      border-color: #F15A29;
-      background: rgba(255,255,255,0.12);
+    .header-status-tag.complete {
+      background: rgba(34,197,94,0.2);
+      color: #22C55E;
     }
-
-    .header-group input::placeholder { color: rgba(255,255,255,0.35); }
-    .header-group input { min-width: 90px; }
+    .header-status-tag.hidden { display: none; }
 
     .header-actions {
       margin-left: auto;
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-shrink: 0;
     }
 
-    .header-actions .saved-indicator {
-      font-size: 12px;
-      opacity: 0.5;
-      transition: opacity 0.3s;
+    /* ── Sync Dot ── */
+    .sync-dot-wrap {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: background 0.15s;
+      position: relative;
     }
+    .sync-dot-wrap:hover { background: rgba(255,255,255,0.08); }
+    .sync-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .sync-dot.green { background: #34C759; }
+    .sync-dot.orange { background: #FF9500; }
+    .sync-dot.red { background: #FF3B30; }
+    .sync-dot.grey { background: rgba(255,255,255,0.3); }
+    .sync-dot-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.6);
+      white-space: nowrap;
+    }
+    .sync-detail-popup {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 6px;
+      background: #fff;
+      color: #293C46;
+      border-radius: 8px;
+      padding: 12px 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      font-size: 12px;
+      min-width: 200px;
+      z-index: 200;
+      line-height: 1.5;
+    }
+    .sync-dot-wrap.open .sync-detail-popup { display: block; }
 
     .btn-header {
-      padding: 7px 16px;
-      background: #F15A29;
+      padding: 6px 14px;
+      background: #4C6A7C;
       color: #FFFFFF;
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
-      min-height: 36px;
+      min-height: 32px;
       transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
     }
-
-    .btn-header:hover { box-shadow: 0 2px 8px rgba(241,90,41,0.4); }
-    .btn-header:active { background: #d94e22; transform: scale(0.96); }
-
-    .btn-header-reset {
-      background: transparent;
-      border: 1px solid rgba(255,255,255,0.2);
-      color: rgba(255,255,255,0.7);
-    }
-    .btn-header-reset:hover { border-color: #dc2626; color: #fff; background: rgba(220,38,38,0.15); box-shadow: none; }
-    .btn-header-reset:active { background: #dc2626; color: #fff; }
+    .btn-header:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
+    .btn-header:active { transform: scale(0.96); }
 
     /* ── Scope Form Layout ── */
     .scope-form {
@@ -1188,67 +1202,89 @@
     .qa-btn-secondary { background: #e5e7eb; color: #293C46; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    /* ── Generate Bar upgrade ── */
+    /* ── Generate Bar ── */
     .generate-bar-multi {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
-      background: #293C46; padding: 10px 16px;
-      display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+      background: #293C46; padding: 8px 16px;
+      display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap;
       box-shadow: 0 -2px 16px rgba(0,0,0,0.2);
     }
     .gen-btn {
-      padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; font-size: 14px;
+      padding: 10px 18px; border: none; border-radius: 8px; font-weight: 700; font-size: 13px;
       cursor: pointer; min-height: 44px; transition: transform 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
     }
     .gen-btn:active { transform: scale(0.96); }
+    .gen-btn-save { background: #34C759; color: #fff; }
+    .gen-btn-save:hover { box-shadow: 0 2px 8px rgba(52,199,89,0.4); }
     .gen-btn-qa { background: #f59e0b; color: #fff; }
     .gen-btn-qa:hover { box-shadow: 0 2px 8px rgba(245,158,11,0.4); }
+    .gen-btn-send { background: #F15A29; color: #fff; flex: 1; max-width: 320px; font-size: 15px; }
+    .gen-btn-send:hover { box-shadow: 0 2px 8px rgba(241,90,41,0.4); }
     .gen-btn-quote { background: #F15A29; color: #fff; }
     .gen-btn-quote:hover { box-shadow: 0 2px 8px rgba(241,90,41,0.4); }
-    .gen-btn-material { background: #4C6A7C; color: #fff; }
-    .gen-btn-material:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
-    .gen-btn-workorder { background: #293C46; color: #fff; border: 2px solid rgba(255,255,255,0.3); }
-    .gen-btn-workorder:hover { border-color: #fff; }
+    .gen-btn-scope { background: #22C55E; color: #fff; }
+    .gen-btn-scope:hover { box-shadow: 0 2px 8px rgba(34,197,94,0.4); }
+    .gen-btn-more { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); position: relative; }
+    .gen-btn-more:hover { background: rgba(255,255,255,0.15); }
+    .gen-btn-ops { background: #4C6A7C; color: #fff; }
+    .gen-btn-ops:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
     .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
+    /* More overflow menu */
+    .gen-more-menu {
+      display: none;
+      position: absolute;
+      bottom: 100%;
+      right: 0;
+      margin-bottom: 8px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      overflow: hidden;
+      min-width: 180px;
+      z-index: 110;
+    }
+    .gen-more-menu.open { display: block; }
+    .gen-more-item {
+      display: block; width: 100%; padding: 12px 16px;
+      border: none; background: none; text-align: left;
+      font-size: 13px; font-weight: 600; color: #293C46;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .gen-more-item:hover { background: #f0f4f7; }
+    .gen-more-item + .gen-more-item { border-top: 1px solid #eee; }
+
     /* Progressive disclosure — hide all stage buttons by default, JS shows the right ones */
-    .btn-stage, .gen-stage { display: none !important; }
-    .btn-stage.stage-active, .gen-stage.stage-active { display: inline-flex !important; }
-    div.gen-stage.stage-active { display: block !important; }
+    .gen-stage { display: none !important; }
+    .gen-stage.stage-active { display: inline-flex !important; }
   </style>
 </head>
 <body>
   <!-- Header Bar -->
   <div class="header" id="headerBar">
     <div class="header-top">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <img src="logo.png" alt="SecureWorks WA" class="header-logo">
-        <a onclick="window._swIntegration && window._swIntegration.openDashboard()" title="Dashboard" style="cursor:pointer;color:rgba(255,255,255,0.5);font-size:18px;text-decoration:none;line-height:1;" aria-label="Dashboard">&#9776;</a>
-      </div>
-      <div class="job-badge" id="headerBadge" style="background:rgba(255,255,255,0.12);color:#fff;padding:4px 12px;border-radius:4px;font-size:13px;white-space:nowrap;display:none;"><strong>SW—</strong></div>
+      <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+      <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
+      <span class="header-status-tag hidden" id="headerStatusTag">DRAFT</span>
       <div class="header-actions" id="headerActions">
-        <span class="saved-indicator" id="savedIndicator">Saved</span>
-        <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()" style="background:#4C6A7C;">Load Job</button>
+        <div class="sync-dot-wrap" id="syncDotWrap" onclick="toggleSyncDetail()">
+          <span class="sync-dot grey" id="syncDot"></span>
+          <span class="sync-dot-label" id="syncDotLabel">—</span>
+          <div class="sync-detail-popup" id="syncDetailPopup">
+            <div id="syncDetailContent">Not saved yet</div>
+          </div>
+        </div>
+        <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()">Load Job</button>
         <button class="btn-header" onclick="app.newJob()">New</button>
-        <button class="btn-header btn-stage btn-stage-2 btn-stage-3 btn-stage-4" onclick="window._swIntegration && window._swIntegration.save()" style="background:#34C759;">Cloud Save</button>
-        <button class="btn-header btn-stage btn-stage-3" onclick="scopeComplete()" style="background:#22c55e;">Scope Complete</button>
-        <input type="file" id="importJobInput" accept=".json" style="display:none" onchange="app.importJobJSON(event)">
-      </div>
-    </div>
-    <div class="header-fields">
-      <div class="header-group">
-        <label>Job Ref</label>
-        <span id="jobRef" style="font-size:14px;font-weight:700;color:#F15A29;line-height:36px;" data-empty="Auto-assigned on save"></span>
-      </div>
-      <div class="header-group">
-        <label>Date</label>
-        <input type="date" id="jobDate">
-      </div>
-      <div class="header-group">
-        <label>Scoper</label>
-        <input type="text" id="scoper" placeholder="Name">
       </div>
     </div>
   </div>
+  <!-- Hidden fields for date/scoper — still bound to app.job but no longer in header -->
+  <input type="hidden" id="jobDate">
+  <input type="hidden" id="scoper">
+  <span id="jobRef" style="display:none;"></span>
+  <input type="file" id="importJobInput" accept=".json" style="display:none" onchange="app.importJobJSON(event)">
 
   <!-- Scope Form -->
   <div class="scope-form" id="scopeForm">
@@ -1427,18 +1463,22 @@
   </div>
 
   <!-- Sticky Generate Bar (stage-aware) -->
-  <div class="generate-bar-multi" id="generateBar">
-    <!-- Stage 2: Scoping -->
-    <button class="gen-btn gen-btn-qa gen-stage gen-stage-2" onclick="fenceQA.showScopeVerification()">QA Check</button>
-    <!-- Stage 3: Output -->
-    <div class="gen-stage gen-stage-3" style="display:none;width:100%;text-align:center;">
-      <button id="btnFenceSendQuote" onclick="showSendQuoteModal()" style="width:100%;max-width:400px;padding:14px 24px;border:none;border-radius:8px;font-weight:700;font-size:16px;cursor:pointer;min-height:48px;background:#F15A29;color:#fff;margin-bottom:8px;transition:transform 0.15s,box-shadow 0.15s;" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform=''">Send Quote</button>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-        <button class="gen-btn gen-btn-quote" id="btnQuotePDF" onclick="app.generateQuotePDF()" style="font-size:12px;padding:8px 14px;min-height:36px;">Quote PDF</button>
-        <button class="gen-btn gen-btn-material" id="btnMaterialOrder" onclick="app.generateMaterialOrder()" style="font-size:12px;padding:8px 14px;min-height:36px;">Material Order</button>
-        <button class="gen-btn gen-btn-workorder" id="btnWorkOrder" onclick="app.generateWorkOrder()" style="font-size:12px;padding:8px 14px;min-height:36px;">Work Order</button>
+  <div class="generate-bar-multi" id="generateBar" style="display:none;">
+    <!-- Stage 2: Scoping — Cloud Save + QA Check -->
+    <button class="gen-btn gen-btn-save gen-stage gen-stage-2 gen-stage-3 gen-stage-4" onclick="window._swIntegration && window._swIntegration.save()">Cloud Save</button>
+    <button class="gen-btn gen-btn-qa gen-stage gen-stage-2 gen-stage-3" onclick="fenceQA.showScopeVerification()">QA Check</button>
+    <!-- Stage 3: Output — Send Quote + Quote PDF + Scope Complete + More overflow -->
+    <button class="gen-btn gen-btn-send gen-stage gen-stage-3" id="btnFenceSendQuote" onclick="showSendQuoteModal()">Send Quote</button>
+    <button class="gen-btn gen-btn-quote gen-stage gen-stage-3" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
+    <button class="gen-btn gen-btn-scope gen-stage gen-stage-3" onclick="scopeComplete()">Scope Complete</button>
+    <button class="gen-btn gen-btn-more gen-stage gen-stage-3" id="btnGenMore" onclick="toggleGenMore(event)">More &#8943;
+      <div class="gen-more-menu" id="genMoreMenu">
+        <button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>
+        <button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>
       </div>
-    </div>
+    </button>
+    <!-- Stage 4: Complete — View in Ops -->
+    <button class="gen-btn gen-btn-ops gen-stage gen-stage-4" onclick="window.open('https://secureworkswa.com.au/dashboard/ops.html','_blank')">View in Ops</button>
   </div>
 
   <!-- Toast Container -->
@@ -1714,21 +1754,35 @@
         }
       },
 
-      _updateHeaderBadge() {
-        var badge = document.getElementById('headerBadge');
-        if (!badge) return;
-        var ref = this.job.ref || '';
+      _updateHeaderStatus() {
+        var infoEl = document.getElementById('headerJobInfo');
+        var tagEl = document.getElementById('headerStatusTag');
+        if (!infoEl || !tagEl) return;
+
         var name = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
-        if (ref || name) {
-          badge.style.display = '';
-          badge.innerHTML = '<strong>' + (ref || 'SW—') + '</strong>' + (name ? ' &nbsp;' + name : '');
+        var addr = this.job.address || '';
+        if (name || addr) {
+          infoEl.textContent = name + (addr ? ' — ' + addr : '');
+          infoEl.classList.remove('empty');
         } else {
-          badge.style.display = 'none';
+          infoEl.textContent = 'No job loaded';
+          infoEl.classList.add('empty');
+        }
+
+        var ref = this.job.ref || '';
+        if (ref) {
+          tagEl.textContent = ref;
+          tagEl.className = 'header-status-tag complete';
+        } else if (name || this.job.runs && this.job.runs.length > 0) {
+          tagEl.textContent = 'DRAFT';
+          tagEl.className = 'header-status-tag draft';
+        } else {
+          tagEl.className = 'header-status-tag hidden';
         }
       },
 
       bindHeaderInputs() {
-        // jobRef is read-only — auto-assigned on scope complete
+        // Date and scoper are hidden inputs — bind silently
         document.getElementById('jobDate').addEventListener('change', (e) => {
           this.job.date = e.target.value;
           this.save();
@@ -1744,7 +1798,7 @@
         document.getElementById('jobRef').textContent = this.job.ref || '';
         document.getElementById('jobDate').value = this.job.date || new Date().toISOString().slice(0, 10);
         document.getElementById('scoper').value = this.job.scoper || '';
-        this._updateHeaderBadge();
+        this._updateHeaderStatus();
       },
 
       // ── Section 3.5: Panel width by supplier ──
@@ -2893,6 +2947,18 @@
                 </div>
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Scope Date</label>
+                <input type="date" id="scopeDate" value="${j.date || new Date().toISOString().slice(0,10)}"
+                  onchange="app.job.date=this.value; document.getElementById('jobDate').value=this.value; app.save();">
+              </div>
+              <div class="form-group">
+                <label>Scoper</label>
+                <input type="text" id="scoperField" value="${this._esc(j.scoper)}" placeholder="Scoper name"
+                  oninput="app.job.scoper=this.value; document.getElementById('scoper').value=this.value; app.save(); app.updateSectionStatuses();">
+              </div>
+            </div>
             <div class="form-row full-width">
               <div class="form-group">
                 <label>Site Notes</label>
@@ -3442,7 +3508,10 @@
         this.job[field] = value;
         if (field === 'clientFirstName' || field === 'clientLastName') {
           this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
-          this._updateHeaderBadge();
+          this._updateHeaderStatus();
+        }
+        if (field === 'address') {
+          this._updateHeaderStatus();
         }
         this.save();
         this.updateSectionStatuses();
@@ -3770,7 +3839,7 @@
             this.save();
             this.render();
             this.updateSectionStatuses();
-            this._updateHeaderBadge();
+            this._updateHeaderStatus();
             this.showToast('Loaded: ' + (contact.name || opp.contactName), 'success');
           } catch(e) {
             this.showToast('Failed to load contact: ' + e.message, 'error');
@@ -8251,17 +8320,11 @@
       save() {
         try {
           localStorage.setItem('fenceJob', JSON.stringify(this.job));
-          const ind = document.getElementById('savedIndicator');
-          if (ind) {
-            ind.textContent = 'Saved';
-            ind.style.opacity = '1';
-            setTimeout(() => { ind.style.opacity = '0.7'; }, 1000);
-          }
+          updateSyncDot('local');
         } catch (e) {
           if (e.name === 'QuotaExceededError' || e.code === 22) {
             this.showToast('Storage full — delete some photos to free space', 'error');
-            const ind = document.getElementById('savedIndicator');
-            if (ind) { ind.textContent = 'NOT SAVED'; ind.style.opacity = '1'; ind.style.color = '#dc2626'; }
+            updateSyncDot('error', 'Storage full');
           } else {
             throw e;
           }
@@ -9109,19 +9172,84 @@
     }
 
     // ════════════════════════════════════════════════════════
+    // SYNC DOT — cloud sync status indicator
+    // ════════════════════════════════════════════════════════
+    var _lastSyncState = 'grey';
+    var _lastSyncTime = null;
+
+    function updateSyncDot(state, detail) {
+      var dot = document.getElementById('syncDot');
+      var label = document.getElementById('syncDotLabel');
+      var content = document.getElementById('syncDetailContent');
+      if (!dot || !label) return;
+
+      _lastSyncState = state;
+      dot.className = 'sync-dot';
+
+      if (state === 'saved') {
+        dot.classList.add('green');
+        label.textContent = 'Saved';
+        _lastSyncTime = new Date();
+      } else if (state === 'saving') {
+        dot.classList.add('orange');
+        label.textContent = detail || 'Saving...';
+      } else if (state === 'local') {
+        dot.classList.add('orange');
+        label.textContent = 'Local';
+      } else if (state === 'error') {
+        dot.classList.add('red');
+        label.textContent = 'Failed';
+      } else {
+        dot.classList.add('grey');
+        label.textContent = '—';
+      }
+
+      if (content) {
+        var lines = [];
+        if (_lastSyncTime) lines.push('Last cloud save: ' + _lastSyncTime.toLocaleTimeString());
+        var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+        if (jobId) lines.push('Job ID: ' + jobId.slice(0, 8) + '...');
+        if (state === 'local') lines.push('Changes saved to browser only');
+        if (state === 'error' && detail) lines.push('Error: ' + detail);
+        if (state === 'saved') lines.push('Synced to cloud');
+        content.innerHTML = lines.join('<br>') || 'Not saved yet';
+      }
+    }
+
+    function toggleSyncDetail() {
+      var wrap = document.getElementById('syncDotWrap');
+      if (wrap) wrap.classList.toggle('open');
+    }
+
+    // Close sync popup when clicking outside
+    document.addEventListener('click', function(e) {
+      var wrap = document.getElementById('syncDotWrap');
+      if (wrap && !wrap.contains(e.target)) wrap.classList.remove('open');
+    });
+
+    // ════════════════════════════════════════════════════════
+    // BOTTOM BAR — More overflow menu
+    // ════════════════════════════════════════════════════════
+    function toggleGenMore(e) {
+      e.stopPropagation();
+      var menu = document.getElementById('genMoreMenu');
+      if (menu) menu.classList.toggle('open');
+    }
+    document.addEventListener('click', function(e) {
+      var menu = document.getElementById('genMoreMenu');
+      if (menu && !e.target.closest('#btnGenMore')) menu.classList.remove('open');
+    });
+
+    // ════════════════════════════════════════════════════════
     // PROGRESSIVE DISCLOSURE — Stage-based button visibility
     // ════════════════════════════════════════════════════════
     function detectJobStage() {
       var j = app.job;
       if (!j) return 1;
 
-      // Stage 4: Scope complete / linked to GHL
-      if (j.scopeComplete || (j.materialVerification && j.materialVerification.verified)) {
-        // Check if scope was actually linked (has a job number from GHL)
-        var badge = document.getElementById('headerBadge');
-        if (badge && badge.style.display !== 'none' && badge.textContent.includes('SWF')) return 4;
-        if (j.materialVerification && j.materialVerification.verified) return 3; // verified but not yet linked
-      }
+      // Stage 4: Scope complete (has job number)
+      if (j.ref && j.ref.startsWith('SWF')) return 4;
+      if (j.scopeComplete) return 4;
 
       // Stage 3: Has runs + client + pricing + checklist complete — ready for output
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
@@ -9147,29 +9275,18 @@
 
     function updateButtonStages() {
       var stage = detectJobStage();
-      // Determine which stages to show buttons for
-      // Each stage includes its own buttons + logically needed ones
       var visible = {};
       if (stage === 1) {
-        visible = { 1: true };
+        visible = {};
       } else if (stage === 2) {
-        visible = { 1: true, 2: true };
+        visible = { 2: true };
       } else if (stage === 3) {
         visible = { 2: true, 3: true };
       } else if (stage === 4) {
         visible = { 2: true, 3: true, 4: true };
       }
 
-      // Header buttons
-      document.querySelectorAll('.btn-stage').forEach(function(btn) {
-        var match = false;
-        for (var s = 1; s <= 4; s++) {
-          if (btn.classList.contains('btn-stage-' + s) && visible[s]) match = true;
-        }
-        btn.classList.toggle('stage-active', match);
-      });
-
-      // Bottom bar buttons
+      // Bottom bar buttons only (no header stage buttons anymore)
       document.querySelectorAll('.gen-stage').forEach(function(btn) {
         var match = false;
         for (var s = 1; s <= 4; s++) {
@@ -9181,6 +9298,9 @@
       // Hide bottom bar entirely in stage 1
       var bar = document.getElementById('generateBar');
       if (bar) bar.style.display = (stage === 1) ? 'none' : '';
+
+      // Update header status tag
+      if (app && app._updateHeaderStatus) app._updateHeaderStatus();
     }
 
     // Hook into app.save() to update stages whenever data changes
@@ -9217,8 +9337,8 @@
   window.SUPABASE_URL = 'https://kevgrhcjxspbxgovpmfl.supabase.co';
   window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtldmdyaGNqeHNwYnhnb3ZwbWZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNTQxMDUsImV4cCI6MjA4NzkzMDEwNX0.lPUEvx8u98WL86PcMNv8yfLnd6OQKzTUOCsRewfQiZc';
 </script>
-<script src="cloud.js?v=20260312c"></script>
-<script src="integration.js?v=20260312h"></script>
+<script src="cloud.js?v=20260313a"></script>
+<script src="integration.js?v=20260313a"></script>
 
 </body>
 </html>

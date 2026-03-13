@@ -1045,7 +1045,7 @@
 
       document.getElementById('sw-ghl-close').onclick = function() { overlay.remove(); };
 
-      // Load opportunities
+      // Load opportunities with enriched display
       var _loadOpps = async function(pipeline, search) {
         var list = document.getElementById('sw-ghl-list');
         list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading...</p>';
@@ -1062,14 +1062,51 @@
             return;
           }
 
+          // Check for existing Supabase jobs for each opportunity (batch)
+          var jobLookup = {};
+          try {
+            var lookups = opps.map(function(opp) {
+              return ghl.findJobByOpportunity(opp.id, toolType).then(function(job) {
+                if (job) jobLookup[opp.id] = job;
+              }).catch(function() {});
+            });
+            await Promise.all(lookups);
+          } catch(e) { /* non-blocking */ }
+
           list.innerHTML = opps.map(function(opp) {
-            var subtitle = [opp.stageName, opp.contactPhone, opp.contactEmail].filter(Boolean).join(' \u00b7 ');
-            return '<div class="sw-ghl-item" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' style="padding:12px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">' +
+            var existingJob = jobLookup[opp.id] || null;
+            var name = opp.contactName || opp.name || 'Unknown';
+            var address = opp.contactAddress || opp.address || '';
+            var phone = opp.contactPhone || '';
+            var stage = opp.stageName || opp.status || '';
+
+            // Build detail lines
+            var details = [];
+            if (address) details.push('<span style="color:' + hex.dark + ';">' + address + '</span>');
+            if (phone) details.push(phone);
+            var detailLine = details.length > 0
+              ? '<div style="font-size:12px;color:' + hex.mid + ';margin-top:4px;">' + details.join(' &middot; ') + '</div>'
+              : '';
+
+            // Existing job badge
+            var jobBadge = '';
+            var actionLabel = 'Start new scope';
+            if (existingJob) {
+              var jn = existingJob.job_number || '';
+              jobBadge = '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(34,197,94,0.15);color:#16a34a;font-weight:700;margin-left:6px;">' + (jn || 'Existing') + '</span>';
+              actionLabel = 'Resume scope';
+            }
+
+            return '<div class="sw-ghl-item" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' style="padding:12px;border:1px solid ' + (existingJob ? '#bbf7d0' : '#eee') + ';border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;' + (existingJob ? 'background:#f0fdf4;' : '') + '" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.08)\'" onmouseout="this.style.boxShadow=\'\'">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                '<strong style="color:' + hex.dark + ';">' + (opp.contactName || opp.name || 'Unknown') + '</strong>' +
-                '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;">' + (opp.stageName || opp.status || '') + '</span>' +
+                '<div style="display:flex;align-items:center;gap:4px;">' +
+                  '<strong style="color:' + hex.dark + ';">' + name + '</strong>' +
+                  jobBadge +
+                '</div>' +
+                '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;">' + stage + '</span>' +
               '</div>' +
-              (subtitle ? '<div style="font-size:12px;color:' + hex.mid + ';margin-top:4px;">' + subtitle + '</div>' : '') +
+              detailLine +
+              '<div style="font-size:11px;color:' + hex.mid + ';margin-top:6px;font-weight:600;">' + actionLabel + ' &rarr;</div>' +
             '</div>';
           }).join('');
 

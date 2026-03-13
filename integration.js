@@ -192,15 +192,12 @@
     var refEl = document.getElementById('jobRef');
     if (refEl) refEl.textContent = jobNumber;
     // Update app.job.ref if fencing tool
-    if (window.app && window.app.job) window.app.job.ref = jobNumber;
-    // Update header badge
-    var badge = document.getElementById('headerBadge');
-    if (badge) {
-      var name = '';
-      if (window.app && window.app.job) name = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
-      badge.style.display = '';
-      badge.innerHTML = '<strong>' + jobNumber + '</strong>' + (name ? ' &nbsp;' + name : '');
+    if (window.app && window.app.job) {
+      window.app.job.ref = jobNumber;
+      if (window.app._updateHeaderStatus) window.app._updateHeaderStatus();
     }
+    // Update stage buttons (job number means stage 4)
+    if (typeof updateButtonStages === 'function') updateButtonStages();
     console.log('[Integration] Job number applied to UI:', jobNumber);
   }
 
@@ -604,6 +601,7 @@
 
       try {
         cloud.ui.showSaveStatus('saving');
+        if (typeof updateSyncDot === 'function') updateSyncDot('saving');
 
         if (!_jobId) {
           // Use DOM fields first, then prompt as last resort
@@ -822,11 +820,13 @@
         }
 
         cloud.ui.showSaveStatus('saved');
+        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
         updateUI();
 
       } catch(e) {
         console.error('[Integration] Save failed:', e);
         cloud.ui.showSaveStatus('error');
+        if (typeof updateSyncDot === 'function') updateSyncDot('error', e.message);
         alert('Save failed: ' + e.message);
       }
     },
@@ -996,20 +996,18 @@
 
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
+      if (typeof updateSyncDot === 'function') updateSyncDot('saved');
     });
     cloud.on('autosave:error', function() {
       cloud.ui.showSaveStatus('error');
+      if (typeof updateSyncDot === 'function') updateSyncDot('error', 'Auto-save failed');
     });
 
     cloud.on('online', function() {
-      var el = document.getElementById('sw-cloud-status');
-      if (el) el.textContent = el.textContent.replace(' (offline)', '');
+      // No-op — sync dot handles state
     });
     cloud.on('offline', function() {
-      var el = document.getElementById('sw-cloud-status');
-      if (el && !el.textContent.includes('offline')) {
-        el.textContent += ' (offline)';
-      }
+      if (typeof updateSyncDot === 'function') updateSyncDot('local');
     });
 
     updateUI();
