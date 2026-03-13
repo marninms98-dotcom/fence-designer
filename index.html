@@ -79,26 +79,27 @@
 
     .header-status-tag {
       display: inline-block;
-      padding: 3px 10px;
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 700;
+      padding: 4px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 1px;
       white-space: nowrap;
       flex-shrink: 0;
     }
     .header-status-tag.draft {
-      background: rgba(245,158,11,0.2);
-      color: #F59E0B;
+      background: #F59E0B;
+      color: #fff;
+      font-size: 14px;
+      padding: 5px 18px;
     }
-    .header-status-tag.synced {
-      background: rgba(59,130,246,0.2);
-      color: #3B82F6;
-    }
-    .header-status-tag.complete {
-      background: rgba(34,197,94,0.2);
-      color: #22C55E;
+    .header-status-tag.job-number {
+      background: #22C55E;
+      color: #fff;
+      font-size: 15px;
+      padding: 5px 18px;
+      letter-spacing: 1.5px;
     }
     .header-status-tag.hidden { display: none; }
 
@@ -1759,15 +1760,12 @@
           infoEl.classList.add('empty');
         }
 
-        var ref = this.job.ref || '';
-        var hasCloudJob = !!(window._swIntegration && window._swIntegration.getJobId());
-        if (ref) {
-          tagEl.textContent = ref;
-          tagEl.className = 'header-status-tag complete';
-        } else if (hasCloudJob) {
-          tagEl.textContent = 'SYNCED';
-          tagEl.className = 'header-status-tag synced';
-        } else if (name || this.job.runs && this.job.runs.length > 0) {
+        // Two states: DRAFT or job number — nothing in between
+        var jobNumber = this.job.ref || (window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber()) || '';
+        if (jobNumber && jobNumber.startsWith('SW')) {
+          tagEl.textContent = jobNumber;
+          tagEl.className = 'header-status-tag job-number';
+        } else if (name || (this.job.runs && this.job.runs.length > 0)) {
           tagEl.textContent = 'DRAFT';
           tagEl.className = 'header-status-tag draft';
         } else {
@@ -9148,22 +9146,34 @@
         return;
       }
 
-      // Step 2: Ensure job exists in Supabase before any quote leaves
+      // Step 2: Ensure job exists in Supabase + assign job number if not yet done
       if (window._swIntegration) {
         var sync = window._swIntegration;
         if (!sync.getJobId()) {
           app.showToast('Syncing...', 'info');
-          var result = await sync.ensureJobSynced();
-          if (!result.ok) {
-            if (result.reason === 'login') {
-              app.showToast('You need to be online to send quotes — log in and try again', 'error');
+          var ensureResult = await sync.ensureJobSynced();
+          if (!ensureResult.ok) {
+            app.showToast('You need to be online to send quotes — log in and try again', 'error');
+            if (ensureResult.reason === 'login') {
               var cloud = window.SECUREWORKS_CLOUD;
               if (cloud) cloud.ui.showLoginModal();
-            } else {
-              app.showToast('You need to be online to send quotes — log in and try again', 'error');
             }
             return;
           }
+        }
+        // Assign job number via saveAfterSignOff if not yet assigned
+        var existingJobNum = sync.getLastJobNumber && sync.getLastJobNumber();
+        if (!existingJobNum && !(app.job.ref && app.job.ref.startsWith('SW'))) {
+          app.showToast('Assigning job number...', 'info');
+          app.job._pricing_json = app.buildPricingJson();
+          var signOffResult = await sync.saveAfterSignOff();
+          if (signOffResult.success && signOffResult.jobNumber) {
+            app.job.ref = signOffResult.jobNumber;
+            app.showToast('Job number assigned: ' + signOffResult.jobNumber, 'success');
+          }
+          // Refresh header + bottom bar to show job number
+          app._updateHeaderStatus();
+          if (typeof updateButtonStages === 'function') updateButtonStages();
         }
       }
 
@@ -9366,24 +9376,26 @@
       document.body.style.paddingBottom = '70px';
       var html = '';
 
-      if (stage === 2) {
-        // Minimal — just cloud save while still entering data
-        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save()">Cloud Save</button>';
-      } else if (stage >= 3) {
-        // Send Quote is always the primary action — auto-triggers QA if not yet passed
+      var hasJobNumber = !!(app.job.ref && app.job.ref.startsWith('SW')) || !!(window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber());
+
+      if (hasJobNumber) {
+        // Has job number — full toolkit
         html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
-        // Additional tools only after QA passed
-        if (fenceQA.isSignedOff()) {
-          html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
-          html += '<div class="gen-more-wrap">' +
-                    '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
-                    '<div class="gen-more-menu" id="genMoreMenu">' +
-                      '<button class="gen-more-item" onclick="scopeComplete()">Scope Complete</button>' +
-                      '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
-                      '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
-                    '</div>' +
-                  '</div>';
-        }
+        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
+        html += '<div class="gen-more-wrap">' +
+                  '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
+                  '<div class="gen-more-menu" id="genMoreMenu">' +
+                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
+                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
+                  '</div>' +
+                '</div>';
+      } else if (stage >= 3) {
+        // Ready for quote — show Save & Continue + Send Quote
+        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
+        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
+      } else if (stage === 2) {
+        // Still entering data — just save
+        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
       }
 
       inner.innerHTML = html;
