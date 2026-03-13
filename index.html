@@ -1229,19 +1229,19 @@
     .gen-btn-quote:hover { box-shadow: 0 2px 8px rgba(241,90,41,0.4); }
     .gen-btn-scope { background: #22C55E; color: #fff; }
     .gen-btn-scope:hover { box-shadow: 0 2px 8px rgba(34,197,94,0.4); }
-    .gen-btn-more { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); position: relative; }
+    .gen-btn-more { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
     .gen-btn-more:hover { background: rgba(255,255,255,0.15); }
     .gen-btn-ops { background: #4C6A7C; color: #fff; }
     .gen-btn-ops:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
     .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
-    /* More overflow menu */
+    /* More overflow menu — wrapper is a div, not nested inside button */
+    .gen-more-wrap { position: relative; display: inline-block; }
     .gen-more-menu {
       display: none;
       position: absolute;
-      bottom: 100%;
+      bottom: calc(100% + 8px);
       right: 0;
-      margin-bottom: 8px;
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.25);
@@ -9316,7 +9316,7 @@
     }
     document.addEventListener('click', function(e) {
       var menu = document.getElementById('genMoreMenu');
-      if (menu && !e.target.closest('.gen-btn-more')) menu.classList.remove('open');
+      if (menu && !e.target.closest('.gen-more-wrap')) menu.classList.remove('open');
     });
 
     // ════════════════════════════════════════════════════════
@@ -9375,13 +9375,14 @@
         // Additional tools only after QA passed
         if (fenceQA.isSignedOff()) {
           html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
-          html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
+          html += '<div class="gen-more-wrap">' +
+                    '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
                     '<div class="gen-more-menu" id="genMoreMenu">' +
                       '<button class="gen-more-item" onclick="scopeComplete()">Scope Complete</button>' +
                       '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
                       '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
                     '</div>' +
-                  '</button>';
+                  '</div>';
         }
       }
 
