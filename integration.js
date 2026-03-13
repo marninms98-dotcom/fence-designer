@@ -977,6 +977,27 @@
       return _jobId;
     },
 
+    // Connect integration to a job — used by the inline GHL search (first name field)
+    // so that cloud save, auto-save, and sync dot all work after loading via that path
+    _connectJob: function(jobId, opportunityId, contactId) {
+      _ghlOpportunityId = opportunityId || null;
+      _ghlContactId = contactId || null;
+      if (jobId) {
+        _jobId = jobId;
+        _jobLoaded = true;
+        var newUrl = window.location.pathname + '?jobId=' + _jobId;
+        window.history.replaceState({}, '', newUrl);
+        if (cloud) cloud.startAutoSave(_jobId, _getStateFn, 30000);
+        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
+        console.log('[Integration] _connectJob: connected to existing job', _jobId);
+      } else if (opportunityId) {
+        // No Supabase job yet — just store the GHL IDs so the next save creates one linked correctly
+        if (typeof updateSyncDot === 'function') updateSyncDot('local');
+        console.log('[Integration] _connectJob: GHL opportunity set, no cloud job yet', opportunityId);
+      }
+      updateUI();
+    },
+
     // Silent save for quote flow — ensures a Supabase job exists before any quote leaves
     // Returns { ok: true } on success, { ok: false, reason: 'string' } on failure
     ensureJobSynced: async function() {

@@ -3830,25 +3830,43 @@
               if (contact.suburb) this.job.suburb = contact.suburb;
             }
 
-            // Check for existing job linked to this opportunity
+            // Check for existing cloud job linked to this opportunity
             var existingJob = null;
             try {
               existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
             } catch(e) { /* no existing job */ }
 
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              if (confirm('Found existing scope for ' + (opp.contactName || opp.name) + '. Load it?')) {
-                window.app.job = existingJob.scope_json.job || window.app.job;
-                if (window.app.job.runs && window.app.job.runs.length > 0) {
-                  window.app.currentRunId = window.app.job.runs[0].id;
-                }
+              // Load cloud scope data
+              window.app.job = existingJob.scope_json.job || window.app.job;
+              if (window.app.job.runs && window.app.job.runs.length > 0) {
+                window.app.currentRunId = window.app.job.runs[0].id;
               }
+              // GHL contact is source of truth — overwrite stale scope_json contact fields
+              if (contact.firstName) {
+                window.app.job.clientFirstName = contact.firstName;
+                window.app.job.clientLastName = contact.lastName || '';
+              }
+              if (contact.email) window.app.job.email = contact.email;
+              if (contact.phone) window.app.job.phone = contact.phone;
+              if (contact.address) {
+                var addr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
+                window.app.job.address = addr || contact.address;
+              }
+              if (contact.suburb) window.app.job.suburb = contact.suburb;
+              window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
+            }
+
+            // Wire up the integration layer so cloud save, auto-save, and sync dot all work
+            if (window._swIntegration) {
+              window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
             }
 
             this.save();
             this.render();
             this.updateSectionStatuses();
             this._updateHeaderStatus();
+            if (typeof updateButtonStages === 'function') updateButtonStages();
             this.showToast('Loaded: ' + (contact.name || opp.contactName), 'success');
           } catch(e) {
             this.showToast('Failed to load contact: ' + e.message, 'error');
