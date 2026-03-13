@@ -804,16 +804,23 @@
           }
         }
 
-        // Push contact details back to GHL
+        // Push contact details back to GHL — use structured first/last to avoid round-trip name mangling
         if (_ghlContactId && meta.client_name) {
           try {
-            await cloud.ghl.updateContact(_ghlContactId, {
-              name: meta.client_name,
+            var ghlUpdate = {
               email: meta.client_email || '',
               phone: meta.client_phone || '',
               address: meta.site_address || '',
               suburb: meta.site_suburb || ''
-            });
+            };
+            // Send firstName/lastName separately if the fencing tool has them
+            if (state.job && state.job.clientFirstName) {
+              ghlUpdate.firstName = state.job.clientFirstName;
+              ghlUpdate.lastName = state.job.clientLastName || '';
+            } else {
+              ghlUpdate.name = meta.client_name;
+            }
+            await cloud.ghl.updateContact(_ghlContactId, ghlUpdate);
           } catch(ghlErr) {
             console.warn('[Integration] GHL contact update failed (non-blocking):', ghlErr);
           }
@@ -876,6 +883,24 @@
             }
             // Load photos/videos from cloud
             try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+
+            // GHL is source of truth for contact details — overwrite scope_json values
+            // This catches stale/mangled names from old saves
+            if (contact && window.app && window.app.job) {
+              if (contact.firstName) {
+                window.app.job.clientFirstName = contact.firstName;
+                window.app.job.clientLastName = contact.lastName || '';
+              }
+              if (contact.email) window.app.job.email = contact.email;
+              if (contact.phone) window.app.job.phone = contact.phone;
+              if (contact.address) {
+                var fullAddr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
+                window.app.job.address = fullAddr || contact.address;
+              }
+              if (contact.suburb) window.app.job.suburb = contact.suburb;
+              window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
+              console.log('[Integration] Contact details refreshed from GHL:', window.app.job.clientFirstName, window.app.job.clientLastName);
+            }
           } else {
             // Create a new Supabase job linked to this GHL opportunity (via edge function)
             var contactForJob = contact || { name: opp.contactName, phone: opp.contactPhone, email: opp.contactEmail };
