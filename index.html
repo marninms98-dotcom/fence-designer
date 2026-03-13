@@ -61,6 +61,37 @@
       border-radius: 4px;
     }
 
+    /* Central search bar */
+    .header-search-wrap {
+      flex: 1;
+      max-width: 420px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .header-search {
+      width: 100%;
+      padding: 7px 14px 7px 36px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      outline: none;
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+    .header-search::placeholder { color: rgba(255,255,255,0.45); }
+    .header-search:focus { background: rgba(255,255,255,0.2); }
+    .header-search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: rgba(255,255,255,0.4);
+    }
+
     .header-job-info {
       font-size: 14px;
       font-weight: 700;
@@ -1269,6 +1300,10 @@
   <div class="header" id="headerBar">
     <div class="header-top">
       <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+      <div class="header-search-wrap" id="headerSearchWrap">
+        <svg class="header-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="header-search" id="headerSearch" placeholder="Search or load a job..." onclick="window._swIntegration?window._swIntegration.loadPicker():void(0)" readonly>
+      </div>
       <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
       <span class="header-status-tag hidden" id="headerStatusTag">DRAFT</span>
       <div class="header-actions" id="headerActions">
@@ -1758,6 +1793,13 @@
         } else {
           infoEl.textContent = 'No job loaded';
           infoEl.classList.add('empty');
+        }
+
+        // Update search bar with current job
+        var searchEl = document.getElementById('headerSearch');
+        if (searchEl) {
+          searchEl.value = name ? name + (this.job.suburb ? ', ' + this.job.suburb : '') : '';
+          searchEl.placeholder = name ? 'Change job...' : 'Search or load a job...';
         }
 
         // Two states: DRAFT or job number — nothing in between
@@ -9393,16 +9435,18 @@
       bar.style.display = '';
       document.body.style.paddingBottom = '70px';
       var html = '';
+      var qaPassed = typeof fenceQA !== 'undefined' && fenceQA.isSignedOff();
 
-      var hasJobNumber = !!(app.job.ref && app.job.ref.startsWith('SW')) || !!(window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber());
+      // Save — always visible
+      html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save</button>';
 
-      // Save & Continue always visible — peace of mind cloud sync
-      html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save &amp; Continue</button>';
-
-      if (stage >= 3) {
+      if (!qaPassed) {
+        // Pre-QA: QA button + disabled Send Quote
+        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA</button>';
+        html += '<button class="gen-btn gen-btn-send" disabled title="Pass QA first" style="opacity:0.35;cursor:not-allowed;">Send Quote</button>';
+      } else {
+        // Post-QA: active Send Quote + output buttons
         html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
-      }
-      if (hasJobNumber) {
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
         html += '<div class="gen-more-wrap">' +
                   '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
@@ -9411,10 +9455,10 @@
                     '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
                   '</div>' +
                 '</div>';
+        html += '<button class="gen-btn gen-btn-scope" onclick="scopeComplete()">Scope Complete</button>';
       }
 
       inner.innerHTML = html;
-      // Update header status tag
       if (app && app._updateHeaderStatus) app._updateHeaderStatus();
     }
 
