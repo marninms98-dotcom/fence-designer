@@ -847,6 +847,22 @@
         var state = getStateFn();
         if (!state) return;
         var meta = {};
+        // Always sync client details so jobs table stays current
+        if (state.job) {
+          meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+          meta.client_phone = state.job.phone || '';
+          meta.client_email = state.job.email || '';
+          meta.site_address = state.job.address || '';
+          meta.site_suburb = state.job.suburb || '';
+        } else if (state.customer || state.client) {
+          var c = state.customer || {};
+          var cl = state.client || {};
+          meta.client_name = c.name || cl.name || '';
+          meta.client_phone = c.phone || cl.phone || '';
+          meta.client_email = c.email || cl.email || '';
+          meta.site_address = c.address || cl.address || '';
+          meta.site_suburb = cl.suburb || '';
+        }
         if (state.job && state.job._pricing_json) {
           meta.pricing_json = state.job._pricing_json;
         } else if (state._pricing_json) {
