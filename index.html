@@ -1259,9 +1259,8 @@
     .gen-more-item:hover { background: #f0f4f7; }
     .gen-more-item + .gen-more-item { border-top: 1px solid #eee; }
 
-    /* Progressive disclosure — hide all stage buttons by default, JS shows the right ones */
-    .gen-stage { display: none !important; }
-    .gen-stage.stage-active { display: inline-flex !important; }
+    /* Inner button container for dynamic toolbar */
+    #genBarButtons { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; width: 100%; }
   </style>
 </head>
 <body>
@@ -1467,23 +1466,9 @@
 
   </div>
 
-  <!-- Sticky Generate Bar (stage-aware) -->
+  <!-- Sticky Generate Bar (stage-aware, dynamically rebuilt per stage) -->
   <div class="generate-bar-multi" id="generateBar" style="display:none;">
-    <!-- Stage 2: Scoping — Cloud Save + QA Check -->
-    <button class="gen-btn gen-btn-save gen-stage gen-stage-2" onclick="window._swIntegration && window._swIntegration.save()">Cloud Save</button>
-    <button class="gen-btn gen-btn-qa gen-stage gen-stage-2" onclick="fenceQA.showScopeVerification()">QA Check</button>
-    <!-- Stage 3: Output — Send Quote (wide) + Quote PDF + Scope Complete + More overflow -->
-    <button class="gen-btn gen-btn-send gen-stage gen-stage-3" id="btnFenceSendQuote" onclick="showSendQuoteModal()">Send Quote</button>
-    <button class="gen-btn gen-btn-quote gen-stage gen-stage-3" id="btnQuotePDF" onclick="app.generateQuotePDF()">Quote PDF</button>
-    <button class="gen-btn gen-btn-scope gen-stage gen-stage-3" onclick="scopeComplete()">Scope Complete</button>
-    <button class="gen-btn gen-btn-more gen-stage gen-stage-3" id="btnGenMore" onclick="toggleGenMore(event)">More &#8943;
-      <div class="gen-more-menu" id="genMoreMenu">
-        <button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>
-        <button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>
-      </div>
-    </button>
-    <!-- Stage 4: Complete — View in Ops only -->
-    <button class="gen-btn gen-btn-ops gen-stage gen-stage-4" onclick="window.open('https://secureworkswa.com.au/dashboard/ops.html','_blank')">View in Ops</button>
+    <div id="genBarButtons"></div>
   </div>
 
   <!-- Toast Container -->
@@ -9305,7 +9290,7 @@
     }
     document.addEventListener('click', function(e) {
       var menu = document.getElementById('genMoreMenu');
-      if (menu && !e.target.closest('#btnGenMore')) menu.classList.remove('open');
+      if (menu && !e.target.closest('.gen-btn-more')) menu.classList.remove('open');
     });
 
     // ════════════════════════════════════════════════════════
@@ -9319,18 +9304,15 @@
       if (j.ref && j.ref.startsWith('SWF')) return 4;
       if (j.scopeComplete) return 4;
 
-      // Stage 3: Has runs + client + pricing + checklist complete — ready for output
+      // Stage 3: Has runs + client + valid pricing — ready for output
+      // QA Check is the quality gate, not the stage system
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
       var hasClient = !!(j.clientFirstName && j.address && j.email);
-      var cl = j.checklist || {};
-      var checklistDone = (cl.photos && cl.photos.length >= 5) && cl.videoWalkthrough;
       if (hasRuns && hasClient) {
-        if (checklistDone) {
-          try {
-            var d = app._collectOutputData();
-            if (d.grandTotal > 0) return 3;
-          } catch(e) { /* pricing failed, stay at 2 */ }
-        }
+        try {
+          var d = app._collectOutputData();
+          if (d.grandTotal > 0) return 3;
+        } catch(e) { /* pricing failed, stay at 2 */ }
         return 2;
       }
 
@@ -9343,30 +9325,46 @@
 
     function updateButtonStages() {
       var stage = detectJobStage();
-      var visible = {};
-      if (stage === 1) {
-        visible = {};
-      } else if (stage === 2) {
-        visible = { 2: true };
-      } else if (stage === 3) {
-        visible = { 3: true };
-      } else if (stage === 4) {
-        visible = { 4: true };
+      var bar = document.getElementById('generateBar');
+      var inner = document.getElementById('genBarButtons');
+      if (!bar || !inner) return;
+
+      if (stage <= 1) {
+        bar.style.display = 'none';
+        document.body.style.paddingBottom = '';
+        return;
       }
 
-      // Bottom bar buttons only (no header stage buttons anymore)
-      document.querySelectorAll('.gen-stage').forEach(function(btn) {
-        var match = false;
-        for (var s = 1; s <= 4; s++) {
-          if (btn.classList.contains('gen-stage-' + s) && visible[s]) match = true;
-        }
-        btn.classList.toggle('stage-active', match);
-      });
+      bar.style.display = '';
+      document.body.style.paddingBottom = '70px';
+      var html = '';
 
-      // Hide bottom bar entirely in stage 1
-      var bar = document.getElementById('generateBar');
-      if (bar) bar.style.display = (stage === 1) ? 'none' : '';
+      if (stage === 2) {
+        html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save()">Cloud Save</button>';
+        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
+      } else if (stage === 3) {
+        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
+        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
+        html += '<button class="gen-btn gen-btn-scope" onclick="scopeComplete()">Scope Complete</button>';
+        html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
+                  '<div class="gen-more-menu" id="genMoreMenu">' +
+                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
+                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
+                  '</div>' +
+                '</button>';
+      } else if (stage === 4) {
+        html += '<button class="gen-btn gen-btn-ops" onclick="window.open(\'https://secureworkswa.com.au/dashboard/ops.html\',\'_blank\')">View in Ops</button>';
+        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
+        html += '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF' +
+                  '<div class="gen-more-menu" id="genMoreMenu">' +
+                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
+                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
+                    '<button class="gen-more-item" onclick="showSendQuoteModal()">Send Quote</button>' +
+                  '</div>' +
+                '</button>';
+      }
 
+      inner.innerHTML = html;
       // Update header status tag
       if (app && app._updateHeaderStatus) app._updateHeaderStatus();
     }
