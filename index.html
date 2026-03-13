@@ -7978,11 +7978,25 @@
       // Flag to capture PDF blob instead of saving to disk (used by Send Quote)
       _capturePdfBlob: null,
 
-      generateQuotePDF() {
+      async generateQuotePDF() {
         const missing = this._validateRequired();
         if (missing.length > 0) {
           this.showToast('Missing required fields — run QA Check first', 'error');
           return;
+        }
+
+        // Ensure job exists in Supabase before any quote PDF is generated
+        if (window._swIntegration) {
+          var sync = window._swIntegration;
+          if (!sync.getJobId()) {
+            this.showToast('Syncing...', 'info');
+            var result = await sync.ensureJobSynced();
+            if (!result.ok) {
+              this.showToast('You need to be online to send quotes — log in and try again', 'error');
+              if (result.reason === 'login' && window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.ui.showLoginModal();
+              return;
+            }
+          }
         }
         this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
         const d = this._collectOutputData();
@@ -9088,20 +9102,40 @@
     // ════════════════════════════════════════════════════════
     // SEND QUOTE — Gate through Material Verification
     // ════════════════════════════════════════════════════════
-    function showSendQuoteModal() {
+    async function showSendQuoteModal() {
       // Step 1: Validate required fields
       var missing = app._validateRequired();
       if (missing.length > 0) {
         app.showToast('Missing: ' + missing.join(', '), 'error');
         return;
       }
-      // Step 2: Collect output data
+
+      // Step 2: Ensure job exists in Supabase before any quote leaves
+      if (window._swIntegration) {
+        var sync = window._swIntegration;
+        if (!sync.getJobId()) {
+          app.showToast('Syncing...', 'info');
+          var result = await sync.ensureJobSynced();
+          if (!result.ok) {
+            if (result.reason === 'login') {
+              app.showToast('You need to be online to send quotes — log in and try again', 'error');
+              var cloud = window.SECUREWORKS_CLOUD;
+              if (cloud) cloud.ui.showLoginModal();
+            } else {
+              app.showToast('You need to be online to send quotes — log in and try again', 'error');
+            }
+            return;
+          }
+        }
+      }
+
+      // Step 3: Collect output data
       var d;
       try { d = app._collectOutputData(); } catch(e) {
         app.showToast('Error calculating output: ' + e.message, 'error');
         return;
       }
-      // Step 3: Show material verification modal (blocks until confirmed)
+      // Step 4: Show material verification modal (blocks until confirmed)
       showMaterialVerificationModal(d);
     }
 

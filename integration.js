@@ -950,6 +950,53 @@
 
     getJobId: function() {
       return _jobId;
+    },
+
+    // Silent save for quote flow — ensures a Supabase job exists before any quote leaves
+    // Returns { ok: true } on success, { ok: false, reason: 'string' } on failure
+    ensureJobSynced: async function() {
+      // Already have a job — nothing to do
+      if (_jobId) return { ok: true };
+
+      // Must be online and logged in
+      if (!cloud) return { ok: false, reason: 'Cloud not initialised — reload and try again.' };
+      if (!cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
+
+      // Run the save logic (stripped-down version — no validation modal, no alert)
+      var state = _getStateFn();
+      if (!state) return { ok: false, reason: 'No job data to save.' };
+
+      var meta = {};
+      if (state.job) {
+        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+        meta.site_suburb = state.job.suburb || '';
+        meta.client_phone = state.job.phone || '';
+        meta.client_email = state.job.email || '';
+        meta.site_address = state.job.address || '';
+      }
+
+      try {
+        // Create job
+        var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
+        var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || '', _toolType, contact);
+        _jobId = job.id;
+        var newUrl = window.location.pathname + '?jobId=' + _jobId;
+        window.history.replaceState({}, '', newUrl);
+
+        // Save scope
+        await cloud.ghl.saveScope(_jobId, state, meta);
+        cloud.ui.showSaveStatus('saved');
+        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
+
+        // Start auto-save now that we have a jobId
+        cloud.startAutoSave(_jobId, _getStateFn, 30000);
+
+        console.log('[Integration] ensureJobSynced: created + saved job', _jobId);
+        return { ok: true };
+      } catch(e) {
+        console.error('[Integration] ensureJobSynced failed:', e);
+        return { ok: false, reason: e.message || 'Save failed.' };
+      }
     }
   };
 
