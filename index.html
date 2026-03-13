@@ -3781,6 +3781,24 @@
 
           this.showToast('Loading ' + (opp.contactName || opp.name) + ' from GHL...', 'info');
 
+          // ── Reset to clean state before loading new opportunity ──
+          localStorage.removeItem('fenceJob');
+          this.job = null;
+          this.currentRunId = null;
+          this._resetSections();
+          this.init();
+          // Clear QA state for old job
+          localStorage.removeItem('fenceQA_verification');
+          if (typeof fenceQA !== 'undefined') {
+            fenceQA._verificationState = {};
+          }
+          // Stop any running auto-save for old job
+          if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+          // Clear integration state for old job
+          if (window._swIntegration) {
+            window._swIntegration._connectJob(null, null, null);
+          }
+
           try {
             // Fetch full contact from GHL
             var contact = null;

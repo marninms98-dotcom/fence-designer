@@ -864,6 +864,23 @@
           _ghlOpportunityId = opp.id;
           _ghlContactId = opp.contactId || null;
 
+          // ── Reset tool to clean state before loading new opportunity ──
+          if (cloud) cloud.stopAutoSave();
+          _jobId = null;
+          _lastJobNumber = null;
+          _jobLoaded = false;
+
+          // Reset fencing tool form/data
+          if (_toolType === 'fencing' && window.app) {
+            localStorage.removeItem('fenceJob');
+            window.app.job = null;
+            window.app.currentRunId = null;
+            if (typeof window.app._resetSections === 'function') window.app._resetSections();
+            window.app.init();
+            localStorage.removeItem('fenceQA_verification');
+            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+          }
+
           // Fetch full contact details from GHL (has address, suburb etc)
           var contact = null;
           if (_ghlContactId) {
@@ -948,6 +965,22 @@
 
       cloud.ui.showJobPicker(_toolType, async function(jobId) {
         try {
+          // ── Reset tool to clean state before loading new job ──
+          if (cloud) cloud.stopAutoSave();
+          _jobId = null;
+          _lastJobNumber = null;
+          _jobLoaded = false;
+
+          if (_toolType === 'fencing' && window.app) {
+            localStorage.removeItem('fenceJob');
+            window.app.job = null;
+            window.app.currentRunId = null;
+            if (typeof window.app._resetSections === 'function') window.app._resetSections();
+            window.app.init();
+            localStorage.removeItem('fenceQA_verification');
+            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+          }
+
           var job = await cloud.jobs.loadJob(jobId);
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
             var loaded = _loadStateFn(job.scope_json);
@@ -1024,6 +1057,7 @@
     // Connect integration to a job — used by the inline GHL search (first name field)
     // so that cloud save, auto-save, and sync dot all work after loading via that path
     _connectJob: function(jobId, opportunityId, contactId) {
+      _lastJobNumber = null;
       _ghlOpportunityId = opportunityId || null;
       _ghlContactId = contactId || null;
       if (jobId) {
