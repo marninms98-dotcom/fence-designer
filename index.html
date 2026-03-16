@@ -4380,21 +4380,13 @@
             self._spDrawLineOnCtx(outCtx, line, 2, false);
           });
 
-          var dataUrl = outCanvas.toDataURL('image/png');
+          var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
           self.job.sitePlanImage = dataUrl;
 
-          // Also push to checklist photos for cloud upload
-          if (!self.job.checklist) self.job.checklist = {};
-          if (!self.job.checklist.photos) self.job.checklist.photos = [];
-          // Remove any previous site plan photo
-          self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
-          self.job.checklist.photos.push({
-            id: 'siteplan-' + Date.now(),
-            name: 'Site Plan',
-            label: 'Site Plan',
-            dataUrl: dataUrl,
-            timestamp: Date.now()
-          });
+          // Remove any old site plan from checklist photos (no longer duplicated — stored as sitePlanImage)
+          if (self.job.checklist && self.job.checklist.photos) {
+            self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+          }
 
           self.save();
           self.showToast('Site plan captured', 'success');
@@ -8647,14 +8639,100 @@
       },
 
       // ── LocalStorage ──
+      _cleanupStorage() {
+        // Remove any localStorage keys that aren't ours
+        var keep = ['fenceJob', 'fenceQA_verification'];
+        var toRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (keep.indexOf(key) === -1) toRemove.push(key);
+        }
+        toRemove.forEach(function(k) { localStorage.removeItem(k); });
+        return toRemove.length;
+      },
+
+      _compressJobData() {
+        // Reduce data size: convert PNG site plans to smaller JPEG, remove duplicate from checklist
+        var changed = false;
+        if (this.job.sitePlanImage && this.job.sitePlanImage.indexOf('data:image/png') === 0) {
+          // Re-encode as JPEG via canvas
+          try {
+            var img = new Image();
+            img.src = this.job.sitePlanImage;
+            var c = document.createElement('canvas');
+            c.width = img.naturalWidth || 800;
+            c.height = img.naturalHeight || 600;
+            var ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            this.job.sitePlanImage = c.toDataURL('image/jpeg', 0.7);
+            changed = true;
+          } catch(e) { /* ignore conversion errors */ }
+        }
+        // Remove site plan duplicate from checklist photos (it's stored separately in sitePlanImage)
+        if (this.job.checklist && this.job.checklist.photos) {
+          var before = this.job.checklist.photos.length;
+          this.job.checklist.photos = this.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+          if (this.job.checklist.photos.length < before) changed = true;
+        }
+        // Compress any remaining checklist photo data URLs that are PNG
+        if (this.job.checklist && this.job.checklist.photos) {
+          this.job.checklist.photos.forEach(function(p) {
+            if (p.dataUrl && p.dataUrl.indexOf('data:image/png') === 0) {
+              try {
+                var img2 = new Image();
+                img2.src = p.dataUrl;
+                var c2 = document.createElement('canvas');
+                c2.width = img2.naturalWidth || 400;
+                c2.height = img2.naturalHeight || 300;
+                var ctx2 = c2.getContext('2d');
+                ctx2.drawImage(img2, 0, 0);
+                p.dataUrl = c2.toDataURL('image/jpeg', 0.7);
+                changed = true;
+              } catch(e) { /* ignore */ }
+            }
+          });
+        }
+        return changed;
+      },
+
       save() {
         try {
           localStorage.setItem('fenceJob', JSON.stringify(this.job));
           updateSyncDot('local');
         } catch (e) {
           if (e.name === 'QuotaExceededError' || e.code === 22) {
-            this.showToast('Storage full — delete some photos to free space', 'error');
-            updateSyncDot('error', 'Storage full');
+            // Step 1: Clean up orphaned keys
+            this.showToast('Local storage full — clearing old data...', 'info');
+            this._cleanupStorage();
+
+            // Step 2: Compress images in job data
+            this._compressJobData();
+
+            // Step 3: Retry save
+            try {
+              localStorage.setItem('fenceJob', JSON.stringify(this.job));
+              updateSyncDot('local');
+              this.showToast('Storage recovered — saved successfully', 'success');
+            } catch (e2) {
+              if (e2.name === 'QuotaExceededError' || e2.code === 22) {
+                // Step 4: Last resort — strip all photo data URLs (cloud has copies)
+                if (this.job.checklist && this.job.checklist.photos) {
+                  this.job.checklist.photos = this.job.checklist.photos.map(function(p) {
+                    return { id: p.id, name: p.name, label: p.label, timestamp: p.timestamp, dataUrl: '' };
+                  });
+                }
+                try {
+                  localStorage.setItem('fenceJob', JSON.stringify(this.job));
+                  updateSyncDot('local');
+                  this.showToast('Storage full — photos cleared from local (cloud copies kept)', 'warning');
+                } catch (e3) {
+                  this.showToast('Storage full — save to cloud or start a new job', 'error');
+                  updateSyncDot('error', 'Storage full');
+                }
+              } else {
+                throw e2;
+              }
+            }
           } else {
             throw e;
           }
