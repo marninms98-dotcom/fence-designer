@@ -2929,7 +2929,7 @@
                 </div>
               </div>
             </div>
-            <div class="form-row full-width">
+            <div class="form-row full-width" style="display:none">
               <div class="form-group">
                 <label>Suburb *</label>
                 <input type="text" id="clientSuburb" value="${this._esc(j.suburb)}" placeholder="Suburb"
@@ -3921,10 +3921,6 @@
           this.showToast('Enter a site address first to load the satellite view', 'error');
           return;
         }
-        if (!this._isGooglePlacesAvailable()) {
-          this.showToast('Google Maps API key not configured', 'error');
-          return;
-        }
 
         var existing = document.getElementById('sitePlanModal');
         if (existing) existing.remove();
@@ -3939,10 +3935,12 @@
             '<button onclick="document.getElementById(\'sitePlanModal\').remove()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;">&times;</button>' +
           '</div>' +
           '<div id="spMapContainer" style="flex:1;position:relative;overflow:hidden;">' +
-            '<div id="spMap" style="width:100%;height:100%;"></div>' +
+            '<img id="spMapImg" style="width:100%;height:100%;object-fit:cover;" alt="Satellite view">' +
             '<canvas id="spCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;touch-action:none;"></canvas>' +
           '</div>' +
-          '<div style="display:flex;gap:8px;padding:8px 16px;background:#293C46;justify-content:center;flex-wrap:wrap;">' +
+          '<div style="display:flex;gap:8px;padding:8px 16px;background:#293C46;justify-content:center;flex-wrap:wrap;align-items:center;">' +
+            '<button onclick="app._spZoom(-1)" style="padding:10px 14px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:18px;font-weight:700;cursor:pointer;min-height:44px;line-height:1;">&minus;</button>' +
+            '<button onclick="app._spZoom(1)" style="padding:10px 14px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:18px;font-weight:700;cursor:pointer;min-height:44px;line-height:1;">+</button>' +
             '<button id="spDrawBtn" onclick="app._spToggleDraw()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Draw</button>' +
             '<button onclick="app._spUndo()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Undo</button>' +
             '<button onclick="app._spClear()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Clear</button>' +
@@ -3951,25 +3949,18 @@
 
         document.body.appendChild(overlay);
 
-        // Init map
+        // Store latlng and zoom for static image
         var self = this;
         var latlng = this.job._latlng;
+        this._spLatlng = latlng;
+        this._spZoomLevel = 19;
+
         setTimeout(function() {
-          var mapDiv = document.getElementById('spMap');
+          var container = document.getElementById('spMapContainer');
           var canvas = document.getElementById('spCanvas');
-          if (!mapDiv || !canvas) return;
+          if (!container || !canvas) return;
 
-          self._spMap = new google.maps.Map(mapDiv, {
-            center: latlng,
-            zoom: 19,
-            mapTypeId: 'satellite',
-            disableDefaultUI: true,
-            zoomControl: true,
-            gestureHandling: 'greedy'
-          });
-
-          // Size canvas
-          var rect = mapDiv.getBoundingClientRect();
+          var rect = container.getBoundingClientRect();
           canvas.width = rect.width * (window.devicePixelRatio || 1);
           canvas.height = rect.height * (window.devicePixelRatio || 1);
           canvas.style.width = rect.width + 'px';
@@ -3986,7 +3977,33 @@
           self._spDrawMode = false;
           self._spCanvasW = rect.width;
           self._spCanvasH = rect.height;
-        }, 300);
+
+          // Load static satellite image
+          self._spLoadStaticImage();
+        }, 100);
+      },
+
+      _spLoadStaticImage() {
+        var img = document.getElementById('spMapImg');
+        if (!img) return;
+        var w = Math.round(this._spCanvasW);
+        var h = Math.round(this._spCanvasH);
+        // Static Maps API max size is 640x640 (scale=2 gives 1280x1280 actual pixels)
+        var reqW = Math.min(w, 640);
+        var reqH = Math.min(h, 640);
+        var url = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
+          this._spLatlng.lat + ',' + this._spLatlng.lng +
+          '&zoom=' + this._spZoomLevel +
+          '&size=' + reqW + 'x' + reqH +
+          '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+        img.src = url;
+      },
+
+      _spZoom(delta) {
+        var newZoom = this._spZoomLevel + delta;
+        if (newZoom < 17 || newZoom > 21) return;
+        this._spZoomLevel = newZoom;
+        this._spLoadStaticImage();
       },
 
       _spToggleDraw() {
@@ -4074,17 +4091,20 @@
       },
 
       _spCapture() {
-        if (!this._spMap || !this._spCanvas) return;
+        if (!this._spLatlng || !this._spCanvas) return;
         var self = this;
-        var center = this._spMap.getCenter();
-        var zoom = this._spMap.getZoom();
+        var lat = this._spLatlng.lat;
+        var lng = this._spLatlng.lng;
+        var zoom = this._spZoomLevel;
         var w = this._spCanvasW;
         var h = this._spCanvasH;
 
-        // Use Static Maps API for the background (avoids CORS issues with tile rendering)
+        // Use Static Maps API for the background
+        var reqW = Math.min(Math.round(w), 640);
+        var reqH = Math.min(Math.round(h), 640);
         var staticUrl = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
-          center.lat() + ',' + center.lng() + '&zoom=' + zoom +
-          '&size=' + Math.round(w) + 'x' + Math.round(h) + '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+          lat + ',' + lng + '&zoom=' + zoom +
+          '&size=' + reqW + 'x' + reqH + '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
 
         var bgImg = new Image();
         bgImg.crossOrigin = 'anonymous';
@@ -7698,9 +7718,9 @@
           </div>` : ''}
 
           ${d.job._latlng ? `<div class="section">
-            <h2>Site Location</h2>
-            <img src="https://maps.googleapis.com/maps/api/staticmap?center=${d.job._latlng.lat},${d.job._latlng.lng}&zoom=19&size=600x300&maptype=satellite&scale=2&key=${GOOGLE_MAPS_API_KEY}"
-              alt="Site satellite view" style="width:100%;max-height:250px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
+            <h2>${d.job.sitePlanImage ? 'Site Plan' : 'Site Location'}</h2>
+            <img src="${d.job.sitePlanImage || ('https://maps.googleapis.com/maps/api/staticmap?center=' + d.job._latlng.lat + ',' + d.job._latlng.lng + '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY)}"
+              alt="${d.job.sitePlanImage ? 'Annotated site plan' : 'Site satellite view'}" style="width:100%;max-height:250px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;">
             <p style="font-size:11px;color:#4C6A7C;margin-top:4px;">${this._esc(d.job.address || '')}</p>
           </div>` : ''}
 
@@ -7915,6 +7935,12 @@
               <div><span class="label">Urgency:</span> <span class="value">${d.js.urgency}</span></div>
             </div>
           </div>
+          ${d.job._latlng ? `<div class="section">
+            <h2>Site Plan</h2>
+            <img src="${d.job.sitePlanImage || ('https://maps.googleapis.com/maps/api/staticmap?center=' + d.job._latlng.lat + ',' + d.job._latlng.lng + '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY)}"
+              alt="Site plan" style="width:100%;border-radius:6px;border:1px solid #e5e7eb;">
+            ${d.job.sitePlanImage ? '<p style="font-size:11px;color:#4C6A7C;margin-top:4px;">Orange lines indicate fence locations</p>' : ''}
+          </div>` : ''}
           ${((d.job.neighbours || []).filter(n => n.firstName || n.lastName).length > 0) ? `<div class="section">
             <h2>Neighbour Details</h2>
             ${d.job.neighbours.filter(n => n.firstName || n.lastName).map(n => `<div class="info-grid" style="margin-bottom:8px;">
@@ -9435,6 +9461,24 @@
       app.init();
       // Hook stage updates after a tick so app is fully initialized
       setTimeout(hookStageUpdates, 500);
+
+      // Auto-fill scoper from cloud auth
+      setTimeout(function() {
+        if (window.SECUREWORKS_CLOUD && window.SECUREWORKS_CLOUD.on) {
+          window.SECUREWORKS_CLOUD.on('auth:login', function(user) {
+            if (!user || !user.name) return;
+            // Only set if scoper is empty or at default
+            if (!app.job.scoper) {
+              app.job.scoper = user.name;
+              var sf = document.getElementById('scoperField');
+              if (sf) sf.value = user.name;
+              var sh = document.getElementById('scoper');
+              if (sh) sh.value = user.name;
+              app.save();
+            }
+          });
+        }
+      }, 100);
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.address-autocomplete-wrap')) { app.hideAddressDropdown(); app.hideClientNameDropdown(); }
