@@ -3915,7 +3915,7 @@
         }
       },
 
-      // ── Site Plan Modal (satellite + drawing canvas) ──
+      // ── Site Plan Modal (satellite + click-to-place line drawing + pan) ──
       showSitePlanModal() {
         if (!this.job._latlng) {
           this.showToast('Enter a site address first to load the satellite view', 'error');
@@ -3934,14 +3934,16 @@
             '<span style="color:#fff;font-weight:700;font-size:16px;">Site Plan — Draw Fence Lines</span>' +
             '<button onclick="document.getElementById(\'sitePlanModal\').remove()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;">&times;</button>' +
           '</div>' +
-          '<div id="spMapContainer" style="flex:1;position:relative;overflow:hidden;">' +
-            '<img id="spMapImg" style="width:100%;height:100%;object-fit:cover;" alt="Satellite view">' +
-            '<canvas id="spCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;touch-action:none;"></canvas>' +
+          '<div id="spMapContainer" style="flex:1;position:relative;overflow:hidden;cursor:grab;">' +
+            '<img id="spMapImg" style="width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none;-webkit-user-drag:none;" draggable="false" alt="Satellite view">' +
+            '<canvas id="spCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none;"></canvas>' +
+            '<div id="spLoadingOverlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);pointer-events:none;"></div>' +
           '</div>' +
           '<div style="display:flex;gap:8px;padding:8px 16px;background:#293C46;justify-content:center;flex-wrap:wrap;align-items:center;">' +
             '<button onclick="app._spZoom(-1)" style="padding:10px 14px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:18px;font-weight:700;cursor:pointer;min-height:44px;line-height:1;">&minus;</button>' +
             '<button onclick="app._spZoom(1)" style="padding:10px 14px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:18px;font-weight:700;cursor:pointer;min-height:44px;line-height:1;">+</button>' +
             '<button id="spDrawBtn" onclick="app._spToggleDraw()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Draw</button>' +
+            '<button id="spFinishBtn" onclick="app._spFinishLine()" style="display:none;padding:10px 20px;background:#F15A29;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Finish Line</button>' +
             '<button onclick="app._spUndo()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Undo</button>' +
             '<button onclick="app._spClear()" style="padding:10px 20px;background:#4C6A7C;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Clear</button>' +
             '<button onclick="app._spCapture()" style="padding:10px 20px;background:#F15A29;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;min-height:44px;">Capture Site Plan</button>' +
@@ -3952,7 +3954,7 @@
         // Store latlng and zoom for static image
         var self = this;
         var latlng = this.job._latlng;
-        this._spLatlng = latlng;
+        this._spLatlng = { lat: latlng.lat, lng: latlng.lng };
         this._spZoomLevel = 19;
 
         setTimeout(function() {
@@ -3971,12 +3973,19 @@
 
           self._spCtx = ctx;
           self._spCanvas = canvas;
+          self._spContainer = container;
           self._spStrokes = [];
-          self._spCurrentStroke = null;
+          self._spCurrentLine = null;
+          self._spMousePos = null;
           self._spDrawing = false;
           self._spDrawMode = false;
+          self._spPanStart = null;
+          self._spPanning = false;
           self._spCanvasW = rect.width;
           self._spCanvasH = rect.height;
+
+          // Attach pan + draw handlers (always active, behaviour depends on mode)
+          self._spAttachHandlers();
 
           // Load static satellite image
           self._spLoadStaticImage();
@@ -3985,7 +3994,9 @@
 
       _spLoadStaticImage() {
         var img = document.getElementById('spMapImg');
+        var loadingEl = document.getElementById('spLoadingOverlay');
         if (!img) return;
+        if (loadingEl) loadingEl.style.display = 'block';
         var w = Math.round(this._spCanvasW);
         var h = Math.round(this._spCanvasH);
         // Static Maps API max size is 640x640 (scale=2 gives 1280x1280 actual pixels)
@@ -3996,6 +4007,7 @@
           '&zoom=' + this._spZoomLevel +
           '&size=' + reqW + 'x' + reqH +
           '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+        img.onload = function() { if (loadingEl) loadingEl.style.display = 'none'; };
         img.src = url;
       },
 
@@ -4003,82 +4015,319 @@
         var newZoom = this._spZoomLevel + delta;
         if (newZoom < 17 || newZoom > 21) return;
         this._spZoomLevel = newZoom;
+        this._spStrokes = [];
+        this._spCurrentLine = null;
+        this._spDrawing = false;
+        this._spUpdateFinishBtn();
+        this._spRedraw();
+        this._spLoadStaticImage();
+      },
+
+      _spAttachHandlers() {
+        var self = this;
+        var canvas = this._spCanvas;
+        var container = this._spContainer;
+        var lastTapTime = 0;
+
+        // ── Mouse handlers ──
+        canvas.addEventListener('mousedown', function(e) {
+          if (self._spDrawMode) return; // draw clicks handled separately
+          // Pan mode: start pan
+          self._spPanStart = { x: e.clientX, y: e.clientY };
+          self._spPanning = false;
+          container.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mousemove', function(e) {
+          if (self._spDrawMode) {
+            // Update preview line position
+            var r = canvas.getBoundingClientRect();
+            self._spMousePos = { x: e.clientX - r.left, y: e.clientY - r.top };
+            if (self._spCurrentLine && self._spCurrentLine.length > 0) {
+              self._spRedraw();
+            }
+            return;
+          }
+          // Pan mode: drag
+          if (self._spPanStart) {
+            self._spPanning = true;
+            container.style.cursor = 'grabbing';
+          }
+        });
+
+        canvas.addEventListener('mouseup', function(e) {
+          if (self._spDrawMode) return;
+          if (self._spPanning && self._spPanStart) {
+            var dx = e.clientX - self._spPanStart.x;
+            var dy = e.clientY - self._spPanStart.y;
+            self._spApplyPan(dx, dy);
+          }
+          self._spPanStart = null;
+          self._spPanning = false;
+          container.style.cursor = self._spDrawMode ? 'crosshair' : 'grab';
+        });
+
+        canvas.addEventListener('mouseleave', function() {
+          self._spMousePos = null;
+          if (self._spCurrentLine && self._spCurrentLine.length > 0) self._spRedraw();
+          if (!self._spDrawMode && self._spPanning && self._spPanStart) {
+            // Cancel pan on leave
+            self._spPanStart = null;
+            self._spPanning = false;
+            container.style.cursor = 'grab';
+          }
+        });
+
+        // Click for draw mode (place vertex)
+        canvas.addEventListener('click', function(e) {
+          if (!self._spDrawMode) return;
+          var r = canvas.getBoundingClientRect();
+          var x = e.clientX - r.left;
+          var y = e.clientY - r.top;
+          self._spPlaceVertex(x, y);
+        });
+
+        // Double-click to finish line
+        canvas.addEventListener('dblclick', function(e) {
+          if (!self._spDrawMode) return;
+          e.preventDefault();
+          self._spFinishLine();
+        });
+
+        // ── Touch handlers ──
+        canvas.addEventListener('touchstart', function(e) {
+          e.preventDefault();
+          if (e.touches.length !== 1) return;
+          var t = e.touches[0];
+          var r = canvas.getBoundingClientRect();
+
+          if (self._spDrawMode) {
+            // Detect double-tap
+            var now = Date.now();
+            if (now - lastTapTime < 350) {
+              self._spFinishLine();
+              lastTapTime = 0;
+              return;
+            }
+            lastTapTime = now;
+            // Place vertex
+            self._spPlaceVertex(t.clientX - r.left, t.clientY - r.top);
+            return;
+          }
+          // Pan mode
+          self._spPanStart = { x: t.clientX, y: t.clientY };
+          self._spPanning = false;
+        });
+
+        canvas.addEventListener('touchmove', function(e) {
+          e.preventDefault();
+          if (e.touches.length !== 1) return;
+          var t = e.touches[0];
+
+          if (self._spDrawMode) {
+            // Update preview
+            var r = canvas.getBoundingClientRect();
+            self._spMousePos = { x: t.clientX - r.left, y: t.clientY - r.top };
+            if (self._spCurrentLine && self._spCurrentLine.length > 0) self._spRedraw();
+            return;
+          }
+          // Pan mode
+          if (self._spPanStart) self._spPanning = true;
+        });
+
+        canvas.addEventListener('touchend', function(e) {
+          e.preventDefault();
+          if (self._spDrawMode) {
+            self._spMousePos = null;
+            if (self._spCurrentLine && self._spCurrentLine.length > 0) self._spRedraw();
+            return;
+          }
+          if (self._spPanning && self._spPanStart) {
+            var ct = e.changedTouches[0];
+            var dx = ct.clientX - self._spPanStart.x;
+            var dy = ct.clientY - self._spPanStart.y;
+            self._spApplyPan(dx, dy);
+          }
+          self._spPanStart = null;
+          self._spPanning = false;
+        });
+      },
+
+      _spApplyPan(dx, dy) {
+        // Convert pixel drag distance to lat/lng offset
+        var zoom = this._spZoomLevel;
+        var dppLng = 360 / (256 * Math.pow(2, zoom));
+        var dppLat = dppLng / Math.cos(this._spLatlng.lat * Math.PI / 180);
+        // Use CSS display size for conversion (what the user sees / drags in)
+        var displayW = this._spCanvasW;
+        var displayH = this._spCanvasH;
+        // dx positive = dragged right = map should move left = lng decreases
+        this._spLatlng.lng -= dx * dppLng;
+        // dy positive = dragged down = map should move up = lat increases
+        this._spLatlng.lat += dy * dppLat;
+        // Clear strokes since image changed
+        this._spStrokes = [];
+        this._spCurrentLine = null;
+        this._spDrawing = false;
+        this._spUpdateFinishBtn();
+        this._spRedraw();
         this._spLoadStaticImage();
       },
 
       _spToggleDraw() {
         this._spDrawMode = !this._spDrawMode;
         var btn = document.getElementById('spDrawBtn');
-        var canvas = this._spCanvas;
+        var container = this._spContainer;
         if (this._spDrawMode) {
           btn.style.background = '#F15A29';
-          btn.textContent = 'Drawing ON';
-          canvas.style.pointerEvents = 'all';
-          // Touch/mouse handlers
-          var self = this;
-          canvas.onmousedown = function(e) { self._spStartStroke(e.offsetX, e.offsetY); };
-          canvas.onmousemove = function(e) { if (self._spDrawing) self._spAddPoint(e.offsetX, e.offsetY); };
-          canvas.onmouseup = function() { self._spEndStroke(); };
-          canvas.ontouchstart = function(e) {
-            e.preventDefault();
-            var t = e.touches[0]; var r = canvas.getBoundingClientRect();
-            self._spStartStroke(t.clientX - r.left, t.clientY - r.top);
-          };
-          canvas.ontouchmove = function(e) {
-            e.preventDefault();
-            if (!self._spDrawing) return;
-            var t = e.touches[0]; var r = canvas.getBoundingClientRect();
-            self._spAddPoint(t.clientX - r.left, t.clientY - r.top);
-          };
-          canvas.ontouchend = function(e) { e.preventDefault(); self._spEndStroke(); };
+          btn.textContent = 'Drawing';
+          container.style.cursor = 'crosshair';
         } else {
           btn.style.background = '#4C6A7C';
           btn.textContent = 'Draw';
-          canvas.style.pointerEvents = 'none';
-          canvas.onmousedown = canvas.onmousemove = canvas.onmouseup = null;
-          canvas.ontouchstart = canvas.ontouchmove = canvas.ontouchend = null;
+          container.style.cursor = 'grab';
+          // If there's a current line being drawn, finish it
+          if (this._spCurrentLine && this._spCurrentLine.length > 1) {
+            this._spStrokes.push(this._spCurrentLine);
+          }
+          this._spCurrentLine = null;
+          this._spDrawing = false;
+          this._spMousePos = null;
+          this._spUpdateFinishBtn();
+          this._spRedraw();
         }
       },
 
-      _spStartStroke(x, y) {
-        this._spDrawing = true;
-        this._spCurrentStroke = [{ x, y }];
-      },
-
-      _spAddPoint(x, y) {
-        if (!this._spCurrentStroke) return;
-        this._spCurrentStroke.push({ x, y });
+      _spPlaceVertex(x, y) {
+        if (!this._spCurrentLine) {
+          this._spCurrentLine = [{ x: x, y: y }];
+          this._spDrawing = true;
+        } else {
+          this._spCurrentLine.push({ x: x, y: y });
+        }
+        this._spUpdateFinishBtn();
         this._spRedraw();
       },
 
-      _spEndStroke() {
-        if (this._spCurrentStroke && this._spCurrentStroke.length > 1) {
-          this._spStrokes.push(this._spCurrentStroke);
+      _spFinishLine() {
+        if (this._spCurrentLine && this._spCurrentLine.length > 1) {
+          this._spStrokes.push(this._spCurrentLine);
         }
-        this._spCurrentStroke = null;
+        this._spCurrentLine = null;
         this._spDrawing = false;
+        this._spMousePos = null;
+        this._spUpdateFinishBtn();
         this._spRedraw();
+      },
+
+      _spUpdateFinishBtn() {
+        var btn = document.getElementById('spFinishBtn');
+        if (!btn) return;
+        btn.style.display = (this._spDrawMode && this._spCurrentLine && this._spCurrentLine.length > 0) ? '' : 'none';
+      },
+
+      _spIsLineClosed(line) {
+        if (!line || line.length < 3) return false;
+        var first = line[0];
+        var last = line[line.length - 1];
+        var dx = first.x - last.x;
+        var dy = first.y - last.y;
+        return Math.sqrt(dx * dx + dy * dy) < 20;
+      },
+
+      _spDrawLineOnCtx(ctx, line, scale, isDashed) {
+        if (!line || line.length < 1) return;
+        var s = scale || 1;
+
+        // If closed and 3+ vertices, draw semi-transparent fill
+        if (line.length >= 3 && this._spIsLineClosed(line)) {
+          ctx.fillStyle = 'rgba(241, 90, 41, 0.15)';
+          ctx.beginPath();
+          ctx.moveTo(line[0].x * s, line[0].y * s);
+          for (var i = 1; i < line.length; i++) ctx.lineTo(line[i].x * s, line[i].y * s);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Draw lines
+        ctx.strokeStyle = '#F15A29';
+        ctx.lineWidth = 3 * s;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        if (isDashed) ctx.setLineDash([8 * s, 6 * s]);
+        else ctx.setLineDash([]);
+
+        if (line.length >= 2) {
+          ctx.beginPath();
+          ctx.moveTo(line[0].x * s, line[0].y * s);
+          for (var i = 1; i < line.length; i++) ctx.lineTo(line[i].x * s, line[i].y * s);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // Draw vertex circles
+        for (var i = 0; i < line.length; i++) {
+          ctx.beginPath();
+          ctx.arc(line[i].x * s, line[i].y * s, 6 * s, 0, Math.PI * 2);
+          ctx.fillStyle = '#F15A29';
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2 * s;
+          ctx.stroke();
+        }
       },
 
       _spRedraw() {
         var ctx = this._spCtx;
+        if (!ctx) return;
         ctx.clearRect(0, 0, this._spCanvasW, this._spCanvasH);
-        var allStrokes = this._spStrokes.concat(this._spCurrentStroke ? [this._spCurrentStroke] : []);
-        ctx.strokeStyle = '#F15A29';
-        ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        allStrokes.forEach(function(stroke) {
-          if (stroke.length < 2) return;
-          ctx.beginPath();
-          ctx.moveTo(stroke[0].x, stroke[0].y);
-          for (var i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x, stroke[i].y);
-          ctx.stroke();
+
+        // Draw completed lines
+        var self = this;
+        this._spStrokes.forEach(function(line) {
+          self._spDrawLineOnCtx(ctx, line, 1, false);
         });
+
+        // Draw current line being placed (with preview to cursor)
+        if (this._spCurrentLine && this._spCurrentLine.length > 0) {
+          // Build preview: current points + mouse position
+          var previewLine = this._spCurrentLine.slice();
+          if (this._spMousePos) {
+            previewLine = previewLine.concat([this._spMousePos]);
+          }
+          // Draw the placed segments as solid
+          if (this._spCurrentLine.length >= 2) {
+            self._spDrawLineOnCtx(ctx, this._spCurrentLine, 1, false);
+          } else {
+            // Just one point — draw vertex
+            self._spDrawLineOnCtx(ctx, this._spCurrentLine, 1, false);
+          }
+          // Draw preview (dashed) line from last placed point to cursor
+          if (this._spMousePos && this._spCurrentLine.length > 0) {
+            var lastPt = this._spCurrentLine[this._spCurrentLine.length - 1];
+            ctx.strokeStyle = '#F15A29';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([8, 6]);
+            ctx.beginPath();
+            ctx.moveTo(lastPt.x, lastPt.y);
+            ctx.lineTo(this._spMousePos.x, this._spMousePos.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
       },
 
       _spUndo() {
-        if (this._spStrokes.length > 0) {
+        if (this._spCurrentLine && this._spCurrentLine.length > 0) {
+          // Remove last placed vertex
+          this._spCurrentLine.pop();
+          if (this._spCurrentLine.length === 0) {
+            this._spCurrentLine = null;
+            this._spDrawing = false;
+          }
+          this._spUpdateFinishBtn();
+          this._spRedraw();
+        } else if (this._spStrokes.length > 0) {
           this._spStrokes.pop();
           this._spRedraw();
         }
@@ -4086,12 +4335,21 @@
 
       _spClear() {
         this._spStrokes = [];
-        this._spCurrentStroke = null;
+        this._spCurrentLine = null;
+        this._spDrawing = false;
+        this._spMousePos = null;
+        this._spUpdateFinishBtn();
         this._spRedraw();
       },
 
       _spCapture() {
         if (!this._spLatlng || !this._spCanvas) return;
+        // Finish any in-progress line first
+        if (this._spCurrentLine && this._spCurrentLine.length > 1) {
+          this._spStrokes.push(this._spCurrentLine);
+          this._spCurrentLine = null;
+          this._spDrawing = false;
+        }
         var self = this;
         var lat = this._spLatlng.lat;
         var lng = this._spLatlng.lng;
@@ -4117,17 +4375,9 @@
           // Draw satellite background
           outCtx.drawImage(bgImg, 0, 0, outCanvas.width, outCanvas.height);
 
-          // Draw user strokes on top
-          outCtx.strokeStyle = '#F15A29';
-          outCtx.lineWidth = 8;
-          outCtx.lineCap = 'round';
-          outCtx.lineJoin = 'round';
-          self._spStrokes.forEach(function(stroke) {
-            if (stroke.length < 2) return;
-            outCtx.beginPath();
-            outCtx.moveTo(stroke[0].x * 2, stroke[0].y * 2);
-            for (var i = 1; i < stroke.length; i++) outCtx.lineTo(stroke[i].x * 2, stroke[i].y * 2);
-            outCtx.stroke();
+          // Draw user lines on top (scaled 2x for retina)
+          self._spStrokes.forEach(function(line) {
+            self._spDrawLineOnCtx(outCtx, line, 2, false);
           });
 
           var dataUrl = outCanvas.toDataURL('image/png');
