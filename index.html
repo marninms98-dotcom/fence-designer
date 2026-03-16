@@ -1795,11 +1795,12 @@
         if (!lengthM || lengthM <= 0) return 0;
         const lengthMm = lengthM * 1000;
         const panelW = this.getPanelWidthMm();
-        // Panels are cut to fit — only add another panel if overshoot > 50mm
-        // e.g. 2400mm run with 2380mm panels = 1 panel (trimmed), not 2
+        // Rule: length ÷ panel width, round up. Order full panels, cut on site.
+        // Tolerance: if remainder < 50mm (covered by post overlap), don't add a panel.
         const raw = lengthMm / panelW;
-        const floored = Math.floor(raw);
-        return (raw - floored > 0.02) ? floored + 1 : Math.max(1, floored);
+        const remainder = lengthMm - Math.floor(raw) * panelW;
+        if (remainder > 0 && remainder <= 50) return Math.max(1, Math.floor(raw));
+        return Math.max(1, Math.ceil(lengthMm / panelW));
       },
 
       // ── Section 6.3: Post height per-post (between two panels) ──
@@ -2648,7 +2649,7 @@
           } else if (g.sheetH === 2100) {
             unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
           } else unitCost = COST_PRICES.panelKit1800_2400;
-          matRows += `<tr><td>Panel kit ${g.sheetH}H/${g.postH}H</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
+          matRows += `<tr><td>${g.sheetH}H panels + ${g.postH}H posts</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
         });
         if (d.totalPlinths > 0) matRows += `<tr><td>Retaining plinths</td><td class="r">${d.totalPlinths} × $${f(COST_PRICES.plinth)}</td><td class="r">$${f(d.totalPlinths * COST_PRICES.plinth)}</td></tr>`;
         if (d.totalPatioTubes > 0) matRows += `<tr><td>Patio tubes (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${f(COST_PRICES.patioTube)}</td><td class="r">$${f(d.totalPatioTubes * COST_PRICES.patioTube)}</td></tr>`;
