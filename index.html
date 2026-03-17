@@ -1570,6 +1570,46 @@
       delivery: 250            // default delivery
     };
 
+    // Async: fetch confirmed prices from Supabase and merge into COST_PRICES (non-blocking)
+    (function loadSupabaseFencePrices() {
+      var url = 'https://kevgrhcjxspbxgovpmfl.supabase.co/functions/v1/ops-api?action=confirmed_prices';
+      fetch(url).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      }).then(function(data) {
+        var prices = data.prices || data;
+        if (!prices || typeof prices !== 'object') return;
+        var priceMap = {};
+        if (Array.isArray(prices)) {
+          prices.forEach(function(item) {
+            var key = item.rate_key || item.key || item.name;
+            var val = parseFloat(item.confirmed_rate || item.rate || item.price);
+            if (key && !isNaN(val)) priceMap[key] = val;
+          });
+        } else {
+          priceMap = prices;
+        }
+        // Only override keys that exist in COST_PRICES
+        var updated = false;
+        Object.keys(priceMap).forEach(function(k) {
+          if (k in COST_PRICES && typeof priceMap[k] === 'number' && !isNaN(priceMap[k])) {
+            COST_PRICES[k] = priceMap[k];
+            updated = true;
+          }
+        });
+        if (updated) {
+          // Recalculate if the app is already initialized
+          if (typeof app !== 'undefined' && app.recalculateAll) {
+            app.recalculateAll();
+          }
+          console.log('[FenceDesigner] Supabase prices merged into COST_PRICES');
+        }
+      }).catch(function(err) {
+        // Silent fallback — offline or endpoint not yet available
+        console.log('[FenceDesigner] Supabase price fetch skipped:', err.message);
+      });
+    })();
+
     const MARGIN = 0.30; // 30% margin: sell = cost / (1 - 0.30)
 
     const ACCESS_SURCHARGE = { easy: 0, moderate: 0.10, difficult: 0.20 }; // % of labour
@@ -8330,7 +8370,8 @@
         doc.text('ABN 64 689 223 416  |  fencing@secureworkswa.com.au  |  +61 489 267 772', pw / 2, 22, { align: 'center' });
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
-        doc.text('CLIENT QUOTE', pw / 2, 29, { align: 'center' });
+        var quoteNumLabel = window._currentQuoteNumber ? 'CLIENT QUOTE  —  ' + window._currentQuoteNumber : 'CLIENT QUOTE';
+        doc.text(quoteNumLabel, pw / 2, 29, { align: 'center' });
         y = 40;
 
         // Client details
@@ -9601,19 +9642,47 @@
       var statusEl = document.getElementById('sqStatus');
       var sendBtn = document.getElementById('sqSendBtn');
       sendBtn.disabled = true;
-      sendBtn.textContent = 'Generating PDF...';
+      sendBtn.textContent = 'Preparing...';
       sendBtn.style.opacity = '0.6';
       try {
-        // Generate and download the PDF
-        app.generateQuotePDF();
-
-        // Update job status to "quoted" in the cloud
         var cloud = window.SECUREWORKS_CLOUD;
         var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+
+        // Step 1: Reserve quote number via prepare_quote (if online)
+        var quoteNumber = null;
         if (cloud && jobId) {
           statusEl.style.display = '';
           statusEl.style.background = '#EDF1F4';
           statusEl.style.color = '#293C46';
+          statusEl.textContent = 'Reserving quote number...';
+          try {
+            var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
+            var jobRef = app.job.ref || '';
+            var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
+            var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId: jobId, fileName: fileName })
+            });
+            var prepData = await prepRes.json();
+            if (prepRes.ok && prepData.quoteNumber) {
+              quoteNumber = prepData.quoteNumber;
+            }
+          } catch(e) {
+            console.warn('[SendQuote] Could not reserve quote number (non-blocking):', e.message);
+          }
+        }
+
+        // Step 2: Generate PDF with quote number
+        statusEl.style.display = '';
+        statusEl.textContent = 'Generating PDF...';
+        sendBtn.textContent = 'Generating PDF...';
+        window._currentQuoteNumber = quoteNumber;
+        app.generateQuotePDF();
+        window._currentQuoteNumber = null;
+
+        // Step 3: Update job status to "quoted" in the cloud
+        if (cloud && jobId) {
           statusEl.textContent = 'Updating job status...';
           await cloud.jobs.updateJobStatus(jobId, 'quoted');
         }
@@ -9621,10 +9690,10 @@
         statusEl.style.display = '';
         statusEl.style.background = '#DCFCE7';
         statusEl.style.color = '#166534';
-        statusEl.innerHTML = '<strong>PDF downloaded.</strong> Job marked as Quoted — send via Outlook.';
+        statusEl.innerHTML = '<strong>PDF downloaded.</strong>' + (quoteNumber ? ' Quote ' + quoteNumber + '.' : '') + ' Job marked as Quoted — send via Outlook.';
         sendBtn.textContent = 'Done ✓';
         sendBtn.style.background = '#22C55E';
-        app.showToast('Quote PDF downloaded — send via Outlook', 'success');
+        app.showToast('Quote ' + (quoteNumber || 'PDF') + ' downloaded — send via Outlook', 'success');
         setTimeout(function() { var modal = document.getElementById('sendQuoteModal'); if (modal) modal.remove(); }, 2500);
       } catch(e) {
         console.error('[SendQuote] Error:', e);
