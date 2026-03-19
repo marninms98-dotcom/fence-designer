@@ -1360,11 +1360,11 @@
       </div>
     </div>
 
-    <!-- Section 7: Stats & Summary -->
+    <!-- Section 7: Scope Summary (physical counts only — no pricing) -->
     <div class="scope-section" id="sectionStats" data-section="stats">
       <button class="scope-section-header" onclick="app.toggleSection('stats')">
         <span class="section-status empty" id="statusStats"></span>
-        <span class="section-title">7. Summary</span>
+        <span class="section-title">7. Scope Summary</span>
         <span class="section-chevron"></span>
       </button>
       <div class="scope-section-body" id="bodyStats">
@@ -1385,31 +1385,15 @@
             <label>Plinths</label>
             <div class="value" id="statPlinths">0</div>
           </div>
-          <div class="stat-item">
-            <label>Total (inc GST)</label>
-            <div class="value price-badge" id="statCost">$0</div>
-          </div>
-          <div class="stat-item">
-            <label>Deposit (50%)</label>
-            <div class="value" id="statDeposit" style="color:#F15A29;font-weight:700;">$0</div>
-          </div>
-          <div class="stat-item">
-            <label>Margin</label>
-            <div class="value" id="statMargin">—</div>
-          </div>
-          <div class="stat-item">
-            <label>Cost</label>
-            <div class="value" id="statInternalCost" style="font-size:13px;">$0</div>
-          </div>
         </div>
       </div>
     </div>
 
-    <!-- Section 8: Pricing (set prices FIRST) -->
+    <!-- Section 8: Pricing (set $/m, delivery, addons, custom items) -->
     <div class="scope-section" id="sectionQuote" data-section="quote">
       <button class="scope-section-header" onclick="app.toggleSection('quote')">
         <span class="section-status empty" id="statusQuote"></span>
-        <span class="section-title">8. Pricing Inputs</span>
+        <span class="section-title">8. Pricing</span>
         <span class="section-chevron"></span>
       </button>
       <div class="scope-section-body" id="bodyQuote"></div>
@@ -1533,22 +1517,24 @@
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
 
     // ── Business rules: cost prices (internal) ──
+    // Updated 2026-03-19 — aligned with actual R&R Fencing supplier pricing
     const COST_PRICES = {
-      panelKit1800_2400: 185,  // 1800H panel kit with 2400 posts, per panel
-      panelKit1800_2700: 210,  // 1800H panel kit with 2700 posts
-      panelKit1800_3000: 235,  // 1800H panel kit with 3000 posts
-      panelKit1500_2400: 165,
-      panelKit1200_2400: 145,
-      panelKit2100_2700: 230,
-      panelKit2100_3000: 255,
-      plinth: 52,              // per plinth (150mm) — $42 material + $10 labour
+      panelKit1800_2400: 97,   // 1800H colorbond panel (2380mm wide) inc post — R&R $97
+      panelKit1800_2700: 109,  // 1800H colorbond panel inc 2700 post — R&R $109
+      panelKit1800_3000: 124,  // 1800H colorbond panel (3150mm wide) inc post — R&R $124
+      panelKit1500_2400: 85,   // 1500H panel inc post (estimated)
+      panelKit1200_2400: 75,   // 1200H panel inc post (estimated)
+      panelKit2100_2700: 109,  // 2100H colorbond panel inc 2700 post — R&R $109
+      panelKit2100_3000: 130,  // 2100H colorbond panel inc 3000 post (estimated)
+      plinth: 45,              // per plinth (150mm) — material cost only
+      plinthInstall: 10,       // labour per plinth install
       patioTube: 45,           // 76x38 RHS 3000mm
       gateKitPedestrian: 320,  // pedestrian gate kit
       gateKitDouble: 580,      // double swing gate kit
       gatePost90x90: 85,       // 90x90mm SHS gate post
       concrete: 9.50,          // per bag
       tekScrewBox: 18,         // per box
-      removeHardie: 15,        // per metre cost
+      removeHardie: 12.50,     // per metre cost ($10-15 range, use midpoint)
       removeTimberLap: 20,     // per metre cost
       removeColorbond: 15,     // per metre cost
       removeAsbestos: 65,      // per metre cost (licenced disposal)
@@ -1557,7 +1543,7 @@
       groundStones: 18,        // per lineal metre
       groundTurf: 22,          // per lineal metre
       labourPerMetre: 35,      // base labour rate per metre
-      delivery: 250            // default delivery
+      delivery: 200            // default delivery — R&R charges $200
     };
 
     // Async: fetch confirmed prices from Supabase and merge into COST_PRICES (non-blocking)
@@ -2719,18 +2705,17 @@
         const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
         const accessPct = d.accessRate || 0;
         const accessAmt = labBase * accessPct;
+        const plinthLabour = d.totalPlinths * (COST_PRICES.plinthInstall || 10);
         let labRows = '';
         labRows += `<tr><td>Base labour (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m)</td><td class="r">$${f(labBase)}</td></tr>`;
+        if (d.totalPlinths > 0) {
+          labRows += `<tr><td>Plinth install (${d.totalPlinths} × $${f(COST_PRICES.plinthInstall || 10)})</td><td class="r">$${f(plinthLabour)}</td></tr>`;
+        }
         if (accessPct > 0) {
           labRows += `<tr><td>Access surcharge (${(accessPct * 100).toFixed(0)}%)</td><td class="r">$${f(accessAmt)}</td></tr>`;
         }
-        if (d.removalItems.length > 0) {
-          labRows += `<tr><td colspan="2" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
-          d.removalItems.forEach(r => {
-            if (r.costPrice) labRows += `<tr><td>${r.desc}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)} = $${f(r.qty * r.costPrice)}</td></tr>`;
-          });
-        }
-        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + (d.internalRemovalCost || 0))}</td></tr>`;
+        // Removal costs are in Material PO only — not double-counted here
+        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + plinthLabour)}</td></tr>`;
 
         const labApproved = this._poApproved.labour;
         html += `<div class="po-card" style="margin-top:8px;">

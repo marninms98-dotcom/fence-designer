@@ -31,7 +31,7 @@ const DEFAULT_RATES = {
 
   // --- Removal & Disposal ---
   remove_hardie_per_sheet: 30,  // Remove Hardie/Super6 per sheet
-  remove_timber_per_m: 45,      // Remove timber lap per metre
+  remove_timber_per_m: 40,      // Remove timber lap per metre
   remove_asbestos_per_sheet: 90,// Remove asbestos per sheet
   asbestos_removal_fee: 300,    // Flat fee for asbestos removal job
 
@@ -52,25 +52,25 @@ const DEFAULT_RATES = {
 // --- Cost Prices (internal, for GP calculation) ---
 // These are NOT shown to the client. Used for margin analysis.
 const COST_PRICES = {
-  fencing_1800_per_m: 95,
-  fencing_2100_per_m: 100,
+  fencing_1800_per_m: 97,        // ~$97/panel for 2380mm wide = ~$41/m material
+  fencing_2100_per_m: 109,       // ~$109/panel for 2100H
   extension_150_per_m: 73,
-  plinth_each: 55,
+  plinth_each: 55,               // $45 material + $10 install
   pedestrian_gate: 835,
   double_gate: 1830,
-  remove_hardie_per_sheet: 15,
-  remove_timber_per_m: 22.50,
+  remove_hardie_per_sheet: 12.50, // $10-15 range, midpoint
+  remove_timber_per_m: 20,       // labour cost per metre
   remove_asbestos_per_sheet: 60,
   asbestos_removal_fee: 300,
-  delivery: 200,
+  delivery: 200,                 // R&R charges $200
   vegetation_clear: 100,
   additional_labour_per_hr: 45,
   mulch_per_m2: 5,
   white_stones_per_m2: 10,
   turf_prep_per_m2: 7,
   rock_per_hole: 30,
-  labour_base_per_m: 35,       // Base labour rate for surcharge calc
-  plinth_install_each: 10,     // Labour per plinth install
+  labour_base_per_m: 35,        // Base labour rate for surcharge calc
+  plinth_install_each: 10,      // Labour per plinth install
 };
 
 // --- Surcharges ---
