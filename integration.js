@@ -31,59 +31,67 @@
   var _jobId = null;
   var _ghlOpportunityId = null;
   var _ghlContactId = null;
-  var _lastJobNumber = null;
-  var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _toolType = null;
-  var _jobLoaded = false;
+  var _lastJobNumber = null;
   var _getStateFn = null;
   var _loadStateFn = null;
+  var _jobLoaded = false;
+  var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
+
+  // Upload a document blob to Supabase storage + register in job_documents
+  async function _uploadDocBlob(cloudRef, jobId, jobNumber, blob, fileName, docType) {
+    if (!cloudRef || !jobId || !blob) return;
+    // Step 1: Get signed upload URL
+    var uploadRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, file_name: fileName, content_type: blob.type || 'application/pdf' })
+    });
+    var uploadData = await uploadRes.json();
+    if (!uploadData.signedUrl) throw new Error('No signed URL returned');
+    // Step 2: PUT the blob
+    await fetch(uploadData.signedUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': blob.type || 'application/pdf' },
+      body: blob
+    });
+    // Step 3: Confirm upload (insert into job_documents)
+    await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: jobId,
+        file_name: fileName,
+        public_url: uploadData.publicUrl || '',
+        document_type: docType,
+        reference: jobNumber
+      })
+    });
+  }
 
   // Pre-fill all contact fields in the tool from a GHL contact object
   function _prefillContact(contact) {
     if (!contact) return;
     console.log('[Integration] Pre-filling contact:', contact);
 
-    // Build full address string from parts
-    var fullAddress = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
-
-    // Fencing tool v2: set fields directly on app.job and re-render
-    if (window.app && window.app.job && _toolType === 'fencing') {
-      // Use structured firstName/lastName from GHL if available, fall back to splitting name
-      if (contact.firstName) {
-        window.app.job.clientFirstName = contact.firstName;
-        window.app.job.clientLastName = contact.lastName || '';
-      } else {
-        var nameParts = (contact.name || '').split(' ');
-        if (nameParts.length >= 2) {
-          window.app.job.clientFirstName = nameParts[0];
-          window.app.job.clientLastName = nameParts.slice(1).join(' ');
-        } else {
-          window.app.job.clientFirstName = contact.name || '';
-        }
-      }
-      window.app.job.client = contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' ');
-      if (contact.email) window.app.job.email = contact.email;
-      if (contact.phone) window.app.job.phone = contact.phone;
-      if (fullAddress) window.app.job.address = fullAddress;
-      else if (contact.address) window.app.job.address = contact.address;
-      if (contact.suburb) window.app.job.suburb = contact.suburb;
-      window.app.save();
-      if (typeof window.app.render === 'function') window.app.render();
-      // Also re-render site info specifically to update visible fields
-      if (typeof window.app.renderSiteInfo === 'function') window.app.renderSiteInfo();
-      if (typeof window.app.updateSectionStatuses === 'function') window.app.updateSectionStatuses();
-      if (typeof window.app._updateHeaderBadge === 'function') window.app._updateHeaderBadge();
-      console.log('[Integration] Contact prefilled:', window.app.job.clientFirstName, window.app.job.clientLastName, window.app.job.email, window.app.job.phone, window.app.job.address, window.app.job.suburb);
-      return;
+    // Resolve name — use firstName/lastName if GHL provides them, else use full name
+    var displayName = contact.name || '';
+    if (contact.firstName) {
+      displayName = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
     }
 
-    // Patio tool + fallback: use DOM selectors
+    // Preserve structured address — use street address only for address field
+    var streetAddress = contact.address || '';
+    // Only use suburb separately — don't concatenate everything
+    var suburb = contact.suburb || '';
+
+    // Set individual fields — these selectors cover both patio and fencing tools
     var mapping = [
-      { val: contact.name, selectors: '#customerName, #clientName, #client, [name="clientName"]' },
+      { val: displayName, selectors: '#customerName, #clientName, [name="clientName"]' },
       { val: contact.email, selectors: '#clientEmail, #customerEmail, [name="clientEmail"], [name="email"]' },
       { val: contact.phone, selectors: '#customerPhone, #clientPhone, [name="clientPhone"], [name="phone"]' },
-      { val: fullAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, #address, [name="siteAddress"], [name="address"]' },
-      { val: contact.suburb || '', selectors: '#customerSuburb, #clientSuburb' }
+      { val: streetAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, [name="siteAddress"], [name="address"]' },
+      { val: suburb, selectors: '#customerSuburb, #clientSuburb' }
     ];
 
     mapping.forEach(function(m) {
@@ -97,11 +105,69 @@
 
     // Also set window globals if the tool uses them
     if (typeof window.customer === 'object' && window.customer) {
-      if (contact.name) window.customer.name = contact.name;
+      if (displayName) window.customer.name = displayName;
       if (contact.phone) window.customer.phone = contact.phone;
       if (contact.email) window.customer.email = contact.email;
-      if (fullAddress) window.customer.address = fullAddress;
+      if (streetAddress) window.customer.address = streetAddress;
     }
+  }
+
+  // Reset patio tool form to clean state before loading a new opportunity
+  function _resetPatioForm() {
+    // Clear all form inputs in the left panel
+    document.querySelectorAll('#leftPanel input, #leftPanel select, #leftPanel textarea').forEach(function(el) {
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        el.checked = el.defaultChecked;
+      } else if (el.tagName === 'SELECT') {
+        el.selectedIndex = 0;
+      } else {
+        el.value = el.defaultValue || '';
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Reset global objects
+    if (typeof window.customer === 'object') {
+      window.customer = { name: '', address: '', phone: '' };
+    }
+    if (typeof window.siteDetails === 'object') {
+      window.siteDetails = { existingSite: 'clear', demoScope: 'na', electrical: 'none', siteAccess: 'easy', groundSurface: 'grass', fasciaMaterial: 'timber', wallType: 'doublebrick', existingRoof: 'tiles' };
+    }
+    if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
+    if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+
+    // Reset arrays/objects
+    if (typeof window.flashingProfiles !== 'undefined') window.flashingProfiles = [];
+    if (typeof window.dpSelection !== 'undefined') window.dpSelection = [];
+    if (typeof window.matQtyOverrides !== 'undefined') window.matQtyOverrides = {};
+    if (typeof window.extrasRows !== 'undefined') window.extrasRows = [];
+    if (typeof window.additionalMaterials !== 'undefined') window.additionalMaterials = [];
+    if (typeof window.customPostPositions !== 'undefined') window.customPostPositions = {};
+
+    // Clear QA verification state
+    var jobRef = document.getElementById('jobRef');
+    if (jobRef && jobRef.value) {
+      localStorage.removeItem('patio-verification-' + jobRef.value);
+    }
+    if (typeof window.patioQA !== 'undefined' && window.patioQA._verificationState) {
+      window.patioQA._verificationState = {};
+    }
+
+    // Reset toggle buttons to defaults
+    document.querySelectorAll('.toggle-btn.active').forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+    // Re-activate default toggle values
+    ['siteAccess', 'groundSurface', 'fasciaMaterial', 'wallType', 'existingRoof'].forEach(function(fieldId) {
+      var group = document.getElementById(fieldId + 'Group');
+      if (group) {
+        var defaultBtn = group.querySelector('.toggle-btn[data-value="' + (window.siteDetails ? window.siteDetails[fieldId] : '') + '"]');
+        if (defaultBtn) defaultBtn.classList.add('active');
+      }
+    });
+
+    // Recalculate
+    if (typeof window.recalcAll === 'function') window.recalcAll();
   }
 
   // Load photos/videos from Supabase Storage into the tool's sitePhotos/siteVideo arrays
@@ -118,54 +184,24 @@
     var photos = media.filter(function(m) { return m.type === 'photo'; });
     var videos = media.filter(function(m) { return m.type === 'video'; });
 
-    // Fencing tool v2: photos live in app.job.checklist.photos
-    if (_toolType === 'fencing' && window.app && window.app.job) {
-      if (photos.length > 0) {
-        if (!window.app.job.checklist) window.app.job.checklist = {};
-        if (!window.app.job.checklist.photos) window.app.job.checklist.photos = [];
-        for (var i = 0; i < photos.length; i++) {
-          var p = photos[i];
-          // Only add if not already present (by cloudUrl)
-          var exists = window.app.job.checklist.photos.some(function(ep) { return ep.cloudUrl === p.storage_url; });
-          if (!exists) {
-            window.app.job.checklist.photos.push({
-              id: 'cloud-' + Date.now() + '-' + i,
-              name: p.label || 'Photo ' + (i + 1),
-              label: p.label || 'Photo',
-              dataUrl: p.storage_url,
-              cloudUrl: p.storage_url,
-              timestamp: Date.now()
-            });
-          }
-        }
-        if (typeof window.app.renderChecklist === 'function') window.app.renderChecklist();
-        if (typeof window.app.updateSectionStatuses === 'function') window.app.updateSectionStatuses();
-        console.log('[Integration] Loaded', photos.length, 'photos into checklist');
-      }
-      if (videos.length > 0) {
-        window.app.job.checklist.videoWalkthrough = true;
-        if (typeof window.app.renderChecklist === 'function') window.app.renderChecklist();
-        console.log('[Integration] Video exists in cloud, marking walkthrough done');
-      }
-      return;
-    }
-
-    // Patio tool / legacy: inject into window.sitePhotos
+    // Inject photos into the tool's sitePhotos array
     if (photos.length > 0 && typeof window.sitePhotos !== 'undefined') {
       for (var i = 0; i < photos.length; i++) {
         var p = photos[i];
+        // Use numeric IDs (tool's deletePhoto/updatePhotoLabel expect numbers in onclick)
         var numericId = Date.now() + i;
         window.sitePhotos.push({
           id: numericId,
-          cloudId: p.id,
-          dataUrl: p.storage_url,
-          cloudUrl: p.storage_url,
+          cloudId: p.id,             // Keep the database UUID separately
+          dataUrl: p.storage_url,    // Use cloud URL instead of base64
+          cloudUrl: p.storage_url,   // Mark as already uploaded
           label: p.label || 'Photo',
           caption: p.notes || '',
           originalSize: 0,
           compressedSize: 0
         });
       }
+      // Re-render the photo grid if the function exists
       if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
       if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
       console.log('[Integration] Loaded', photos.length, 'photos from cloud');
@@ -179,27 +215,12 @@
         cloudUrl: v.storage_url,
         label: v.label || 'Site Walkthrough',
         originalSize: 0,
-        file: null
+        file: null  // No file object for cloud videos
       };
       if (typeof window.renderVideoPreview === 'function') window.renderVideoPreview();
       if (typeof window.updateVideoBadge === 'function') window.updateVideoBadge();
       console.log('[Integration] Loaded video from cloud');
     }
-  }
-
-  // ── Apply job number to UI ──
-  function _applyJobNumber(jobNumber) {
-    if (!jobNumber) return;
-    var refEl = document.getElementById('jobRef');
-    if (refEl) refEl.textContent = jobNumber;
-    // Update app.job.ref if fencing tool
-    if (window.app && window.app.job) {
-      window.app.job.ref = jobNumber;
-      if (window.app._updateHeaderStatus) window.app._updateHeaderStatus();
-    }
-    // Update stage buttons (job number means stage 4)
-    if (typeof updateButtonStages === 'function') updateButtonStages();
-    console.log('[Integration] Job number applied to UI:', jobNumber);
   }
 
   // ── Detect tool type ──
@@ -208,6 +229,7 @@
     if (attr) return attr;
     var title = (document.title || '').toLowerCase();
     if (title.includes('fence') || title.includes('fencing')) return 'fencing';
+    if (title.includes('deck')) return 'decking';
     if (title.includes('patio')) return 'patio';
     return 'patio';
   }
@@ -227,20 +249,50 @@
     console.log('[Integration] Header found:', !!header);
     if (!header) return;
 
-    // Cloud bar removed — action buttons now live in the header.
-    // Create hidden placeholder elements so updateUI() doesn't error.
+    // Inject a <style> block for cloud bar + hover states
+    if (!document.getElementById('sw-cloud-styles')) {
+      var style = document.createElement('style');
+      style.id = 'sw-cloud-styles';
+      style.textContent =
+        '#sw-cloud-bar{display:flex;gap:6px;align-items:center;justify-content:flex-end;' +
+          'padding:4px 24px;background:#293C46;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;' +
+          'border-bottom:2px solid #F15A29;}' +
+        '#sw-cloud-bar .sw-status{font-size:11px;color:rgba(255,255,255,0.6);margin-right:auto;letter-spacing:0.3px;}' +
+        '#sw-cloud-bar .sw-btn{padding:3px 12px;border:1px solid rgba(255,255,255,0.25);color:#fff;' +
+          'background:transparent;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;' +
+          'letter-spacing:0.3px;transition:all 0.15s ease;text-transform:uppercase;}' +
+        '#sw-cloud-bar .sw-btn:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.4);}' +
+        '#sw-cloud-bar .sw-btn-primary{background:#F15A29;border-color:#F15A29;}' +
+        '#sw-cloud-bar .sw-btn-primary:hover{background:#d94d20;border-color:#d94d20;}' +
+        '#sw-cloud-bar .sw-btn-save{background:#34C759;border-color:#34C759;}' +
+        '#sw-cloud-bar .sw-btn-save:hover{background:#2ab348;}';
+      document.head.appendChild(style);
+    }
+
+    // Create a dedicated cloud bar that sits below the header
     var cloudBar = document.createElement('div');
     cloudBar.id = 'sw-cloud-bar';
-    cloudBar.style.display = 'none';
-    cloudBar.innerHTML =
-      '<span id="sw-cloud-status"></span>' +
-      '<button id="sw-btn-login" style="display:none;"></button>' +
-      '<button id="sw-btn-save" style="display:none;"></button>' +
-      '<button id="sw-btn-load" style="display:none;"></button>' +
-      '<button id="sw-btn-dashboard" style="display:none;"></button>';
-    document.body.appendChild(cloudBar);
 
-    console.log('[Integration] Cloud bar suppressed (buttons in header)');
+    cloudBar.innerHTML =
+      '<span class="sw-status" id="sw-cloud-status"></span>' +
+      '<button id="sw-btn-login" class="sw-btn sw-btn-primary" onclick="window._swIntegration.login()" style="display:none;">Sign In</button>' +
+      '<button id="sw-btn-save" class="sw-btn sw-btn-save" onclick="window._swIntegration.save()" style="display:none;">Save</button>' +
+      '<button id="sw-btn-load" class="sw-btn" onclick="window._swIntegration.loadPicker()" style="display:none;">Load Job</button>' +
+      '<button id="sw-btn-dashboard" class="sw-btn" onclick="window._swIntegration.openDashboard()" style="display:none;">Dashboard</button>';
+
+    // Insert right after the header
+    if (header.nextSibling) {
+      header.parentNode.insertBefore(cloudBar, header.nextSibling);
+    } else {
+      header.parentNode.appendChild(cloudBar);
+    }
+
+    console.log('[Integration] Cloud bar injected');
+
+    // Hide cloud bar when bottom toolbar is present (patio tool)
+    if (document.getElementById('bottomToolbar')) {
+      cloudBar.style.display = 'none';
+    }
   }
 
   // ── Update UI based on auth state ──
@@ -256,26 +308,61 @@
       return;
     }
 
-    // Save/Load/Dashboard buttons now live in the header — keep them hidden here
-    saveBtn.style.display = 'none';
-    loadBtn.style.display = 'none';
-    dashBtn.style.display = 'none';
-
     if (cloud && cloud.auth.isLoggedIn()) {
       var user = cloud.auth.getUser();
       var userName = (user && user.name) || (user && user.email) || '';
       loginBtn.style.display = 'none';
-      status.textContent = userName + (_jobId ? ' | Job loaded' : '');
-      console.log('[Integration] UI updated: logged in as', userName);
+      saveBtn.style.display = '';
+      loadBtn.style.display = '';
+      dashBtn.style.display = '';
+      if (_lastJobNumber) {
+        status.innerHTML = '<strong style="color:#fff;font-size:13px;letter-spacing:0.5px;">' + _lastJobNumber + '</strong> <span style="opacity:0.5;margin:0 4px;">|</span> ' + userName;
+      } else if (_jobId && _jobId.indexOf('local-') === 0) {
+        status.textContent = userName + ' | Local draft — save to push to cloud';
+      } else if (_jobId) {
+        status.textContent = userName + ' | Draft (no job number yet)';
+      } else {
+        status.textContent = userName;
+      }
+      console.log('[Integration] UI updated: logged in as', userName, 'job:', _lastJobNumber || _jobId || 'none');
     } else if (cloud) {
       loginBtn.style.display = '';
+      saveBtn.style.display = 'none';
+      loadBtn.style.display = 'none';
+      dashBtn.style.display = 'none';
       status.textContent = 'Not signed in';
       console.log('[Integration] UI updated: not signed in, showing Sign In button');
     } else {
       loginBtn.style.display = 'none';
+      saveBtn.style.display = 'none';
+      loadBtn.style.display = 'none';
+      dashBtn.style.display = 'none';
       status.textContent = '';
       console.log('[Integration] UI updated: no cloud module');
     }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // JOB NUMBER — set the Job Ref field + header badge to the
+  // Supabase job number so it's the single source of truth
+  // across the tool, PDFs, and all downstream systems.
+  // ════════════════════════════════════════════════════════════
+
+  function _applyJobNumber(jobNumber) {
+    if (!jobNumber) return;
+    // Set the Job Ref input field (used by PDFs, exports, QA)
+    var refEl = document.getElementById('jobRef');
+    if (refEl) refEl.value = jobNumber;
+    // Update header badge if the tool has one
+    if (typeof window.updateHeaderBadge === 'function') {
+      window.updateHeaderBadge();
+    } else {
+      // Fencing tool or tools without updateHeaderBadge
+      var badge = document.getElementById('headerBadge');
+      var name = (document.getElementById('customerName') || document.getElementById('clientName') || {}).value || '';
+      if (badge) badge.innerHTML = '<strong>' + jobNumber + '</strong>' + (name ? ' &nbsp;' + name : '');
+    }
+    console.log('[Integration] Job number applied to UI:', jobNumber);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -284,30 +371,16 @@
 
   function getFencingState() {
     if (window.app && window.app.job) {
-      // Deep clone job so we can strip base64 photo data (uploaded separately)
-      var job = JSON.parse(JSON.stringify(window.app.job));
-      // Strip base64 dataUrls from checklist photos to keep scope_json small
-      // Photos with cloudUrl are already uploaded; others will be uploaded by save()
-      if (job.checklist && job.checklist.photos) {
-        job.checklist.photos = job.checklist.photos.map(function(p) {
-          return { id: p.id, name: p.name, label: p.label, timestamp: p.timestamp, cloudUrl: p.cloudUrl || null };
-        });
-      }
-      // Strip video dataUrl to keep scope_json small
-      if (job.checklist && job.checklist.videoFile) {
-        delete job.checklist.videoFile;
-      }
-      // Ensure full formatted address from _addressComponents if available
-      if (job._addressComponents) {
-        var ac = job._addressComponents;
-        var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
-        if (fullAddr) job.address = fullAddr;
-        if (ac.suburb && !job.suburb) job.suburb = ac.suburb;
-      }
       return {
         tool: 'fencing',
-        version: '2.0',
-        job: job,
+        version: '1.0',
+        job: window.app.job,
+        scopeMedia: window.scopeMedia ? {
+          photos: (window.scopeMedia.photos || []).map(function(p) {
+            return { label: p.label, dataUrl: p.dataUrl };
+          }),
+          video: window.scopeMedia.video || null
+        } : null,
         savedAt: new Date().toISOString()
       };
     }
@@ -318,13 +391,11 @@
     if (!scopeJson || !scopeJson.job || !window.app) return false;
     try {
       window.app.job = scopeJson.job;
-      if (window.app.job.runs && window.app.job.runs.length > 0) {
+      if (window.app.currentRunId && window.app.job.runs.length > 0) {
         window.app.currentRunId = window.app.job.runs[0].id;
       }
-      // Sync header fields (jobRef, date, scoper)
-      if (typeof window.app.syncHeaderFromJob === 'function') window.app.syncHeaderFromJob();
-      // Full re-render populates all dynamically rendered sections (site info, runs, gates, etc.)
-      if (typeof window.app.render === 'function') window.app.render();
+      if (typeof window.app.renderAll === 'function') window.app.renderAll();
+      else if (typeof window.app.render === 'function') window.app.render();
       return true;
     } catch(e) {
       console.error('[Integration] Failed to load fencing state:', e);
@@ -336,6 +407,22 @@
     if (typeof window.gatherJobData === 'function') {
       try {
         var base = window.gatherJobData();
+        // Build enhanced pricing_json if the tool exposes buildPricingJson()
+        var pricingJson = null;
+        if (typeof window.buildPricingJson === 'function') {
+          try { pricingJson = window.buildPricingJson(); } catch(e) { console.warn('[Integration] buildPricingJson failed:', e); }
+        }
+        // Include verification state if available (QA sign-off records)
+        var verification = null;
+        if (window.patioQA && window.patioQA._verificationState) {
+          verification = window.patioQA._verificationState;
+        } else {
+          // Fallback: read from localStorage
+          var jobRef = (document.getElementById('jobRef') || {}).value || '';
+          if (jobRef) {
+            try { verification = JSON.parse(localStorage.getItem('patio-verification-' + jobRef)); } catch(e) {}
+          }
+        }
         return {
           tool: 'patio',
           version: '1.0',
@@ -346,6 +433,8 @@
           notes: base.notes,
           customer: window.customer || {},
           siteDetails: window.siteDetails || {},
+          _pricing_json: pricingJson,
+          verification: verification,
           savedAt: new Date().toISOString()
         };
       } catch(e) {
@@ -376,6 +465,48 @@
     }
   }
 
+  // ── Decking state get/load ──
+  function getDeckingState() {
+    if (typeof window.getToolState === 'function') {
+      try {
+        var base = window.getToolState();
+        var pricingJson = null;
+        if (typeof window.buildPricingJson === 'function') {
+          try { pricingJson = window.buildPricingJson(); } catch(e) { console.warn('[Integration] buildPricingJson failed:', e); }
+        }
+        return {
+          tool: 'decking',
+          version: '1.0',
+          client: base ? base.client : {},
+          config: base ? base.config : {},
+          extras: base ? base.extras : [],
+          accessories: base ? base.accessories : [],
+          pricing: base ? base.pricing : {},
+          notes: base ? base.notes : {},
+          _pricing_json: pricingJson,
+          savedAt: new Date().toISOString()
+        };
+      } catch(e) {
+        console.warn('[Integration] getDeckingState failed:', e);
+      }
+    }
+    return null;
+  }
+
+  function loadDeckingState(scopeJson) {
+    if (!scopeJson) return false;
+    try {
+      if (typeof window.loadToolState === 'function') {
+        window.loadToolState(scopeJson);
+        return true;
+      }
+      return false;
+    } catch(e) {
+      console.error('[Integration] Failed to load decking state:', e);
+      return false;
+    }
+  }
+
   // ════════════════════════════════════════════════════════════
   // VALIDATION GATE  (blocks save if required fields are missing)
   // ════════════════════════════════════════════════════════════
@@ -396,37 +527,7 @@
     if (_toolType === 'fencing' && window.app && window.app.job) {
       // ── Fencing tool ──
       var j = window.app.job;
-
-      // Step 1: Try to flush DOM → job (catches case where user typed but didn't blur)
-      var domIds = {
-        clientFirstNameInput: 'clientFirstName',
-        clientLastNameInput: 'clientLastName',
-        clientPhone: 'phone',
-        clientEmail: 'email',
-        addressInput: 'address',
-        clientSuburb: 'suburb'
-      };
-      for (var id in domIds) {
-        var el = document.getElementById(id);
-        if (el && el.value && el.value.trim()) {
-          j[domIds[id]] = el.value.trim();
-        }
-      }
-      // Also try querySelector for phone/email (they may not have IDs in cached HTML)
-      if (!j.phone) {
-        var telEl = document.getElementById('clientPhone') || document.querySelector('#bodySiteInfo input[type="tel"]');
-        if (telEl && telEl.value && telEl.value.trim()) j.phone = telEl.value.trim();
-      }
-      if (!j.email) {
-        var emlEl = document.getElementById('clientEmail') || document.querySelector('#bodySiteInfo input[type="email"]');
-        if (emlEl && emlEl.value && emlEl.value.trim()) j.email = emlEl.value.trim();
-      }
-
-      // Step 2: Build client name
-      j.client = [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ');
-
-      // Step 3: Read DIRECTLY from app.job — this is the source of truth
-      data.name = j.client || ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim();
+      data.name = ((j.clientFirstName || '') + ' ' + (j.clientLastName || '')).trim() || j.client || '';
       data.phone = j.phone || '';
       data.email = j.email || '';
       data.address = j.address || '';
@@ -439,12 +540,7 @@
           var od = window.app._collectOutputData();
           data.sellPrice = od.grandTotal || 0;
           data.costPrice = (od.internalCost || 0) + (od.internalLabour || 0);
-        } catch(e) {
-          console.warn('[Validation] _collectOutputData failed:', e.message);
-          // Don't block save if pricing calc fails — set safe defaults
-          data.sellPrice = 1;
-          data.costPrice = 0;
-        }
+        } catch(e) { /* pricing calc may fail if no runs */ }
       }
     } else {
       // ── Patio tool ──
@@ -498,16 +594,10 @@
     if (!d.email)      errors.push('Email address is required');
     if (!d.address)    errors.push('Site address is required');
     if (!d.suburb)     errors.push('Suburb is required');
-    if (!d.hasItems)   errors.push('At least one scope item is required (add a fence run)');
-
-    // Only check pricing if we got valid pricing data (don't block on calc errors)
-    if (d.sellPrice > 0 && d.costPrice > 0 && d.sellPrice < d.costPrice) {
-      errors.push('Sell price ($' + Math.round(d.sellPrice) + ') is less than cost ($' + Math.round(d.costPrice) + ') — negative margin');
-    }
-
-    console.log('[Validation] toolType=' + _toolType + ' | data:', JSON.stringify(d));
-    console.log('[Validation] app.job keys:', window.app && window.app.job ? Object.keys(window.app.job).filter(function(k) { return window.app.job[k]; }).join(', ') : 'NO JOB');
-    if (errors.length > 0) console.warn('[Validation] BLOCKED:', errors);
+    if (!d.hasItems)   errors.push('At least one scope item is required');
+    if (d.sellPrice <= 0) errors.push('Total sell price must be greater than $0');
+    if (d.sellPrice > 0 && d.costPrice > 0 && d.sellPrice <= d.costPrice)
+      errors.push('Sell price must be greater than cost price (negative margin)');
 
     return { valid: errors.length === 0, errors: errors };
   }
@@ -572,20 +662,11 @@
 
       var meta = {};
       if (state.job) {
-        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+        meta.client_name = state.job.clientName || state.job.client || '';
         meta.site_suburb = state.job.suburb || '';
         meta.client_phone = state.job.phone || '';
         meta.client_email = state.job.email || '';
         meta.site_address = state.job.address || '';
-        // Reconstruct full address from _addressComponents if address looks incomplete
-        if (state.job._addressComponents) {
-          var ac = state.job._addressComponents;
-          var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
-          if (fullAddr && (!meta.site_address || !meta.site_address.includes(','))) {
-            meta.site_address = fullAddr;
-          }
-          if (ac.suburb && !meta.site_suburb) meta.site_suburb = ac.suburb;
-        }
       } else if (state.customer || state.client) {
         var c = state.customer || {};
         var cl = state.client || {};
@@ -595,12 +676,12 @@
         meta.client_email = c.email || cl.email || '';
         meta.site_address = c.address || cl.address || '';
       }
-      // Fallback: read directly from DOM if meta is empty (covers both patio + fencing IDs)
-      if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || document.getElementById('client') || {}).value || '';
-      if (!meta.client_phone) meta.client_phone = (document.getElementById('customerPhone') || document.getElementById('clientPhone') || {}).value || '';
+      // Fallback: read directly from DOM if meta is empty
+      if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || {}).value || '';
+      if (!meta.client_phone) meta.client_phone = (document.getElementById('customerPhone') || {}).value || '';
       if (!meta.client_email) meta.client_email = (document.getElementById('clientEmail') || {}).value || '';
-      if (!meta.site_address) meta.site_address = (document.getElementById('customerAddress') || document.getElementById('address') || {}).value || '';
-      if (!meta.site_suburb) meta.site_suburb = (document.getElementById('customerSuburb') || document.getElementById('clientSuburb') || {}).value || '';
+      if (!meta.site_address) meta.site_address = (document.getElementById('customerAddress') || {}).value || '';
+      if (!meta.site_suburb) meta.site_suburb = (document.getElementById('customerSuburb') || {}).value || '';
 
       // Include pricing_json if the tool attached it to job state or root state
       if (state.job && state.job._pricing_json) {
@@ -609,24 +690,16 @@
         meta.pricing_json = state._pricing_json;
       }
 
-      // Include material verification metadata if present
-      if (state.job && state.job.materialVerification) {
-        meta.material_verified = true;
-        meta.material_verified_at = state.job.materialVerification.timestamp;
-        meta.material_verified_by = state.job.materialVerification.verifier;
-      }
-
       try {
         cloud.ui.showSaveStatus('saving');
-        if (typeof updateSyncDot === 'function') updateSyncDot('saving');
 
-        if (!_jobId) {
+        if (!_jobId || (_jobId && _jobId.indexOf('local-') === 0)) {
           // Use DOM fields first, then prompt as last resort
           if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || {}).value || '';
           if (!meta.client_name) meta.client_name = prompt('Client name for this job:');
           if (!meta.client_name) { cloud.ui.showSaveStatus('error'); return; }
 
-          // Create job via edge function (bypasses RLS) — opportunityId is optional for walk-up scopes
+          // Create job via edge function (bypasses RLS)
           var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
           var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || null, _toolType, contact);
           _jobId = job.id;
@@ -641,16 +714,8 @@
         console.log('[Integration] Scope saved successfully');
 
         // Upload site photos via signed URLs (handles large photos, no size limit)
-        // Fencing v2: photos stored as tiny thumbnails in localStorage, upload-quality in window._photoFiles
-        var sitePhotos = (_toolType === 'fencing' && window.app && window.app.job && window.app.job.checklist)
-          ? (window.app.job.checklist.photos || [])
-          : (window.sitePhotos || []);
-        var memPhotos = window._photoFiles || {};
-        var photosToUpload = sitePhotos.filter(function(p) {
-          if (p.cloudUrl) return false;
-          // Has upload-quality image in memory, or has a dataUrl to fall back on
-          return memPhotos[p.id] || (p.dataUrl && p.dataUrl.startsWith('data:'));
-        });
+        var sitePhotos = window.sitePhotos || [];
+        var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
         if (photosToUpload.length > 0) {
           console.log('[Integration] Uploading', photosToUpload.length, 'photos via signed URLs...');
           cloud.ui.showSaveStatus('saving', 'Uploading photos 0/' + photosToUpload.length);
@@ -659,12 +724,11 @@
             try {
               cloud.ui.showSaveStatus('saving', 'Uploading photo ' + (i + 1) + '/' + photosToUpload.length);
 
-              // Use upload-quality image from memory, fall back to thumbnail dataUrl
-              var uploadDataUrl = memPhotos[photo.id] || photo.dataUrl;
-              var mimeMatch = uploadDataUrl.match(/data:([^;]+);/);
+              // Convert dataUrl to Blob for direct upload
+              var mimeMatch = photo.dataUrl.match(/data:([^;]+);/);
               var mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
               var ext = mime.includes('png') ? 'png' : 'jpg';
-              var b64 = uploadDataUrl.split(',')[1];
+              var b64 = photo.dataUrl.split(',')[1];
               var binary = atob(b64);
               var bytes = new Uint8Array(binary.length);
               for (var j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
@@ -699,25 +763,15 @@
                   jobId: _jobId,
                   storageUrl: urlData.publicUrl,
                   type: 'photo',
-                  label: photo.name || photo.label || 'Photo ' + (i + 1)
+                  label: photo.label || 'Photo ' + (i + 1)
                 })
               });
 
               photo.cloudUrl = urlData.publicUrl;
-              // Free upload-quality image from memory after successful upload
-              if (memPhotos[photo.id]) delete memPhotos[photo.id];
-              console.log('[Integration] Photo uploaded:', (photo.name || photo.label), (blob.size / 1024).toFixed(0) + 'KB');
+              console.log('[Integration] Photo uploaded:', photo.label, (blob.size / 1024).toFixed(0) + 'KB');
             } catch(photoErr) {
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
-          }
-        }
-
-        // Bridge fencing tool video to window.siteVideo for upload
-        if (window.app && window.app.job && window.app.job.checklist) {
-          var cl = window.app.job.checklist;
-          if (cl.videoFile && !window.siteVideo) {
-            window.siteVideo = { dataUrl: cl.videoFile, label: cl.videoFileName || 'Site Walkthrough', file: null };
           }
         }
 
@@ -774,11 +828,6 @@
               });
 
               siteVideo.cloudUrl = urlData.publicUrl;
-              // Mark video as uploaded in job state so QA check knows
-              if (window.app && window.app.job && window.app.job.checklist) {
-                window.app.job.checklist.videoCloudUrl = urlData.publicUrl;
-                window.app.save();
-              }
               console.log('[Integration] Video uploaded:', urlData.publicUrl);
             } catch(vidErr) {
               console.warn('[Integration] Video upload failed:', vidErr);
@@ -807,11 +856,13 @@
           // Auto-create TWO draft POs from scope: Materials + Labour (non-blocking)
           if (linkResult && linkResult.jobNumber && _jobId) {
             try {
+              // Get pricing_json line items from the scope tool state
               var pricing = (state && state.pricing) || {};
               var lineItems = pricing.line_items || pricing.items || [];
               var materialCost = pricing.materialCostEstimate || 0;
               var labourCost = pricing.labourCostEstimate || 0;
 
+              // Split line items by category
               var materialCategories = ['steel', 'roofing', 'fencing', 'materials', 'concrete', 'flashings', 'fixings', 'guttering', 'delivery', 'gates'];
               var labourCategories = ['labour', 'installation', 'demolition', 'electrical'];
 
@@ -835,7 +886,9 @@
                 });
               }
 
+              // Fallback: if no line items but we have totals, create summary items
               if (materialItems.length === 0 && materialCost > 0) {
+                // Fall back to scope_to_po extraction
                 var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
                 var poMaterials = await poRes.json();
                 if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
@@ -848,6 +901,7 @@
                 labourItems = [{ description: 'Installation labour (per scope)', quantity: 1, unit: 'lot', unit_price: labourCost }];
               }
 
+              // Create Materials PO
               if (materialItems.length > 0) {
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
@@ -864,6 +918,7 @@
                 console.log('[Integration] Draft Materials PO created');
               }
 
+              // Create Labour PO
               if (labourItems.length > 0) {
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
@@ -879,26 +934,76 @@
                 });
                 console.log('[Integration] Draft Labour PO created');
               }
+
+              // Sales Commission PO
+              // Patio: 10% of gross profit (revenue ex GST - material cost - labour cost)
+              // Fencing: 5.25% of total inc GST
+              var totalIncGST = pricing.totalIncGST || 0;
+              var totalExGST = pricing.totalExGST || pricing.subtotal || 0;
+              var matCostEst = pricing.materialCostEstimate || 0;
+              var labCostEst = pricing.labourCostEstimate || 0;
+              var commissionAmount = 0;
+              if (_toolType === 'fencing') {
+                commissionAmount = totalIncGST * 0.0525;
+              } else {
+                // Patio/decking: 10% of gross profit
+                var grossProfit = totalExGST - matCostEst - labCostEst;
+                commissionAmount = grossProfit > 0 ? grossProfit * 0.10 : 0;
+              }
+              if (commissionAmount > 0) {
+                var commNote = _toolType === 'fencing'
+                  ? 'SALES COMMISSION — 35% × 15% = 5.25% of total inc GST ($' + totalIncGST.toFixed(2) + ').'
+                  : 'SALES COMMISSION — 10% of gross profit ($' + (totalExGST - matCostEst - labCostEst).toFixed(2) + ' GP).';
+                var commDesc = _toolType === 'fencing'
+                  ? 'Sales commission (5.25%)'
+                  : 'Sales commission (10% of GP)';
+                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    job_id: _jobId,
+                    status: 'draft',
+                    supplier_name: '',
+                    line_items: [{ description: commDesc, quantity: 1, unit: 'lot', unit_price: commissionAmount }],
+                    reference: linkResult.jobNumber,
+                    notes: commNote + ' Auto-generated from scope.'
+                  })
+                });
+                console.log('[Integration] Draft Commission PO created: $' + commissionAmount.toFixed(2));
+              }
             } catch(poErr) {
               console.warn('[Integration] Draft PO creation failed (non-blocking):', poErr);
+            }
+
+            // Upload quote PDF if available (blob captured during scope complete)
+            try {
+              var pdfBlob = null;
+              // Fencing tool stores on app._capturePdfBlob, patio on window._capturePdfBlob
+              if (window.app && window.app._capturePdfBlob && window.app._capturePdfBlob instanceof Blob) {
+                pdfBlob = window.app._capturePdfBlob;
+              } else if (window._capturePdfBlob && window._capturePdfBlob instanceof Blob) {
+                pdfBlob = window._capturePdfBlob;
+              }
+              if (pdfBlob) {
+                var pdfFileName = (linkResult.jobNumber || 'quote') + '-quote.pdf';
+                await _uploadDocBlob(cloud, _jobId, linkResult.jobNumber, pdfBlob, pdfFileName, 'quote');
+                console.log('[Integration] Quote PDF uploaded:', pdfFileName);
+                if (window.app) window.app._capturePdfBlob = null;
+                window._capturePdfBlob = null;
+              }
+            } catch(docErr) {
+              console.warn('[Integration] Quote PDF upload failed (non-blocking):', docErr);
             }
           }
 
           // Push contact details back to GHL — only send non-empty fields
           if (_ghlContactId && meta.client_name) {
             try {
-              var contactUpdate = {};
-              // Send firstName/lastName separately if the fencing tool has them
-              if (state.job && state.job.clientFirstName) {
-                contactUpdate.firstName = state.job.clientFirstName;
-                if (state.job.clientLastName) contactUpdate.lastName = state.job.clientLastName;
-              } else {
-                contactUpdate.name = meta.client_name;
-              }
+              var contactUpdate = { name: meta.client_name };
               if (meta.client_email) contactUpdate.email = meta.client_email;
               if (meta.client_phone) contactUpdate.phone = meta.client_phone;
               if (meta.site_address) contactUpdate.address = meta.site_address;
-              if (meta.site_suburb) contactUpdate.suburb = meta.site_suburb;
+              if (meta.site_suburb)  contactUpdate.suburb = meta.site_suburb;
               await cloud.ghl.updateContact(_ghlContactId, contactUpdate);
             } catch(ghlErr) {
               console.warn('[Integration] GHL contact update failed (non-blocking):', ghlErr);
@@ -906,18 +1011,25 @@
           }
         }
 
+        // Start auto-save now that we have a real cloud job ID
+        if (_jobId && _jobId.indexOf('local-') !== 0) {
+          cloud.startAutoSave(_jobId, _getStateFn, 30000);
+        }
+
         if (_lastJobNumber) {
           cloud.ui.showSaveStatus('saved', 'Saved — ' + _lastJobNumber);
         } else {
           cloud.ui.showSaveStatus('saved');
         }
-        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
+        if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
+        if (window.updateHeaderBadge) window.updateHeaderBadge();
+        if (window.updateBottomToolbar) window.updateBottomToolbar();
         updateUI();
 
       } catch(e) {
         console.error('[Integration] Save failed:', e);
         cloud.ui.showSaveStatus('error');
-        if (typeof updateSyncDot === 'function') updateSyncDot('error', e.message);
+        if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
         alert('Save failed: ' + e.message);
       }
     },
@@ -941,7 +1053,6 @@
           _lastJobNumber = null;
           _jobLoaded = false;
 
-          // Reset fencing tool form/data
           if (_toolType === 'fencing' && window.app) {
             localStorage.removeItem('fenceJob');
             window.app.job = null;
@@ -950,6 +1061,8 @@
             window.app.init();
             localStorage.removeItem('fenceQA_verification');
             if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+          } else {
+            _resetPatioForm();
           }
 
           // Fetch full contact details from GHL (has address, suburb etc)
@@ -978,30 +1091,15 @@
 
           if (existingJob) {
             _jobId = existingJob.id;
-            console.log('[Integration] Found existing job:', _jobId);
+            _lastJobNumber = existingJob.job_number || null;
+            console.log('[Integration] Found existing job:', _jobId, 'number:', _lastJobNumber);
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
               _loadStateFn(existingJob.scope_json);
             }
+            // Override local job ref with Supabase job number (single source of truth)
+            _applyJobNumber(_lastJobNumber);
             // Load photos/videos from cloud
             try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
-
-            // GHL is source of truth for contact details — overwrite scope_json values
-            // This catches stale/mangled names from old saves
-            if (contact && window.app && window.app.job) {
-              if (contact.firstName) {
-                window.app.job.clientFirstName = contact.firstName;
-                window.app.job.clientLastName = contact.lastName || '';
-              }
-              if (contact.email) window.app.job.email = contact.email;
-              if (contact.phone) window.app.job.phone = contact.phone;
-              if (contact.address) {
-                var fullAddr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
-                window.app.job.address = fullAddr || contact.address;
-              }
-              if (contact.suburb) window.app.job.suburb = contact.suburb;
-              window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
-              console.log('[Integration] Contact details refreshed from GHL:', window.app.job.clientFirstName, window.app.job.clientLastName);
-            }
           } else {
             // Create a new Supabase job linked to this GHL opportunity (via edge function)
             var contactForJob = contact || { name: opp.contactName, phone: opp.contactPhone, email: opp.contactEmail };
@@ -1036,6 +1134,25 @@
 
       cloud.ui.showJobPicker(_toolType, async function(jobId) {
         try {
+          // ── Local-only new scope (no cloud job yet) ──
+          if (jobId && jobId.indexOf('local-') === 0) {
+            if (cloud) cloud.stopAutoSave();
+            _jobId = jobId;
+            _lastJobNumber = null;
+            _jobLoaded = false;
+            if (_toolType === 'fencing' && window.app) {
+              localStorage.removeItem('fenceJob');
+              window.app.job = null;
+              window.app.currentRunId = null;
+              if (typeof window.app._resetSections === 'function') window.app._resetSections();
+              window.app.init();
+            } else {
+              _resetPatioForm();
+            }
+            updateUI();
+            return;
+          }
+
           // ── Reset tool to clean state before loading new job ──
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
@@ -1050,6 +1167,8 @@
             window.app.init();
             localStorage.removeItem('fenceQA_verification');
             if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+          } else {
+            _resetPatioForm();
           }
 
           var job = await cloud.jobs.loadJob(jobId);
@@ -1090,9 +1209,16 @@
       window.location.href = '../dashboard/index.html';
     },
 
-    // Save after QA sign-off — sets _isSignOff flag to gate GHL link + job number + PO
+    // ── Cloud save triggered after QA sign-off ──
+    // Called automatically by both patio and fencing tools when scope is signed off.
+    // Runs validation, saves scope + pricing + verification state to Supabase,
+    // uploads photos/video, and links to GHL. Shows progress overlay.
     saveAfterSignOff: async function() {
-      if (!cloud || !cloud.auth.isLoggedIn()) {
+      if (!cloud) {
+        console.warn('[Integration] Cloud not available — sign-off saved locally only');
+        return { success: false, reason: 'no_cloud' };
+      }
+      if (!cloud.auth.isLoggedIn()) {
         console.warn('[Integration] Not logged in — sign-off saved locally only');
         return { success: false, reason: 'not_logged_in' };
       }
@@ -1117,16 +1243,27 @@
       }
     },
 
-    getJobId: function() {
-      return _jobId;
+    // Convenience: create cloud job + save scope in one step (for local-only sessions)
+    saveToCloud: async function() {
+      return await integration.save();
     },
 
-    getLastJobNumber: function() {
-      return _lastJobNumber;
+    // Returns true if the current session is local-only (no cloud job yet)
+    isLocalOnly: function() {
+      return !_jobId || (_jobId && _jobId.indexOf('local-') === 0);
     },
 
-    // Connect integration to a job — used by the inline GHL search (first name field)
-    // so that cloud save, auto-save, and sync dot all work after loading via that path
+    // Returns the current job ID (used by tools to check if cloud-connected)
+    getJobId: function() { return _jobId; },
+    getLastJobNumber: function() { return _lastJobNumber; },
+
+    // Returns whether cloud save is available
+    isCloudReady: function() {
+      return !!(cloud && cloud.auth.isLoggedIn());
+    },
+
+    // Connect integration state from an external load path (e.g. inline name search).
+    // Ensures _jobId, _ghlOpportunityId, _ghlContactId are set so saves work correctly.
     _connectJob: function(jobId, opportunityId, contactId) {
       _lastJobNumber = null;
       _ghlOpportunityId = opportunityId || null;
@@ -1134,80 +1271,24 @@
       if (jobId) {
         _jobId = jobId;
         _jobLoaded = true;
-        var newUrl = window.location.pathname + '?jobId=' + _jobId;
-        window.history.replaceState({}, '', newUrl);
-        if (cloud) cloud.startAutoSave(_jobId, _getStateFn, 30000);
-        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
-        console.log('[Integration] _connectJob: connected to existing job', _jobId);
+        // Only update URL and start auto-save for real cloud jobs (not local-only)
+        if (jobId.indexOf('local-') !== 0) {
+          var newUrl = window.location.pathname + '?jobId=' + _jobId;
+          window.history.replaceState({}, '', newUrl);
+          if (cloud) cloud.startAutoSave(_jobId, _getStateFn, 30000);
+        }
+        console.log('[Integration] _connectJob: connected to job', _jobId);
       } else if (opportunityId) {
         // No Supabase job yet — just store the GHL IDs so the next save creates one linked correctly
-        if (typeof updateSyncDot === 'function') updateSyncDot('local');
         console.log('[Integration] _connectJob: GHL opportunity set, no cloud job yet', opportunityId);
       } else {
         // Full reset — no job, no opportunity
         _jobId = null;
         _jobLoaded = false;
         if (cloud) cloud.stopAutoSave();
-        if (typeof updateSyncDot === 'function') updateSyncDot('local');
         console.log('[Integration] _connectJob: fully cleared');
       }
       updateUI();
-    },
-
-    // Silent save for quote flow — ensures a Supabase job exists before any quote leaves
-    // Returns { ok: true } on success, { ok: false, reason: 'string' } on failure
-    ensureJobSynced: async function() {
-      // Already have a job — nothing to do
-      if (_jobId) return { ok: true };
-
-      // Must be online and logged in
-      if (!cloud) return { ok: false, reason: 'Cloud not initialised — reload and try again.' };
-      if (!cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
-
-      // Run the save logic (stripped-down version — no validation modal, no alert)
-      var state = _getStateFn();
-      if (!state) return { ok: false, reason: 'No job data to save.' };
-
-      var meta = {};
-      if (state.job) {
-        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
-        meta.site_suburb = state.job.suburb || '';
-        meta.client_phone = state.job.phone || '';
-        meta.client_email = state.job.email || '';
-        meta.site_address = state.job.address || '';
-        // Reconstruct full address from _addressComponents if address looks incomplete
-        if (state.job._addressComponents) {
-          var ac = state.job._addressComponents;
-          var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
-          if (fullAddr && (!meta.site_address || !meta.site_address.includes(','))) {
-            meta.site_address = fullAddr;
-          }
-          if (ac.suburb && !meta.site_suburb) meta.site_suburb = ac.suburb;
-        }
-      }
-
-      try {
-        // Create job
-        var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
-        var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || null, _toolType, contact);
-        _jobId = job.id;
-        var newUrl = window.location.pathname + '?jobId=' + _jobId;
-        window.history.replaceState({}, '', newUrl);
-
-        // Save scope
-        await cloud.ghl.saveScope(_jobId, state, meta);
-        cloud.ui.showSaveStatus('saved');
-        if (typeof updateSyncDot === 'function') updateSyncDot('saved');
-
-        // Start auto-save now that we have a jobId
-        cloud.startAutoSave(_jobId, _getStateFn, 30000);
-
-        console.log('[Integration] ensureJobSynced: created + saved job', _jobId);
-        return { ok: true };
-      } catch(e) {
-        console.error('[Integration] ensureJobSynced failed:', e);
-        return { ok: false, reason: e.message || 'Save failed.' };
-      }
     }
   };
 
@@ -1226,6 +1307,9 @@
     if (_toolType === 'fencing') {
       _getStateFn = getFencingState;
       _loadStateFn = loadFencingState;
+    } else if (_toolType === 'decking') {
+      _getStateFn = getDeckingState;
+      _loadStateFn = loadDeckingState;
     } else {
       _getStateFn = getPatioState;
       _loadStateFn = loadPatioState;
@@ -1247,39 +1331,45 @@
       _jobId = null;
       _ghlOpportunityId = null;
       _ghlContactId = null;
-      _jobLoaded = false;
       cloud.stopAutoSave();
       updateUI();
     });
 
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
-      if (typeof updateSyncDot === 'function') updateSyncDot('saved');
     });
     cloud.on('autosave:error', function() {
       cloud.ui.showSaveStatus('error');
-      if (typeof updateSyncDot === 'function') updateSyncDot('error', 'Auto-save failed');
     });
 
     cloud.on('online', function() {
-      // No-op — sync dot handles state
+      var el = document.getElementById('sw-cloud-status');
+      if (el) el.textContent = el.textContent.replace(' (offline)', '');
     });
     cloud.on('offline', function() {
-      if (typeof updateSyncDot === 'function') updateSyncDot('local');
+      var el = document.getElementById('sw-cloud-status');
+      if (el && !el.textContent.includes('offline')) {
+        el.textContent += ' (offline)';
+      }
     });
 
     updateUI();
 
+    // If already logged in, load job immediately (auth:login won't fire)
     if (cloud.auth.isLoggedIn()) {
       _autoLoadJob();
     }
   }
 
+  // Shared job-load logic — called from auth:login AND isLoggedIn() check.
+  // Guard prevents double-load.
   async function _autoLoadJob() {
     var urlJobId = getJobIdFromURL();
     if (!urlJobId || _jobLoaded) return;
     _jobLoaded = true;
+
     _jobId = urlJobId;
+    console.log('[Integration] Auto-loading job:', urlJobId);
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
       if (job.scope_json && Object.keys(job.scope_json).length > 0) {
@@ -1287,13 +1377,14 @@
       }
       _ghlOpportunityId = job.ghl_opportunity_id || null;
       _lastJobNumber = job.job_number || null;
+      // Apply job number AFTER loadStateFn has finished setting the local ref
       _applyJobNumber(_lastJobNumber);
       try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
       cloud.startAutoSave(_jobId, _getStateFn, 30000);
       updateUI();
     } catch(e) {
       console.warn('[Integration] Failed to auto-load job:', e);
-      _jobLoaded = false;
+      _jobLoaded = false; // Allow retry
     }
   }
 

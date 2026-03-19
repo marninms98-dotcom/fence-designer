@@ -1405,41 +1405,31 @@
       </div>
     </div>
 
-    <!-- Quote Breakdown (live pricing table) -->
-    <div class="scope-section" id="sectionBreakdown" data-section="breakdown">
-      <button class="scope-section-header" onclick="app.toggleSection('breakdown')">
-        <span class="section-status empty" id="statusBreakdown"></span>
-        <span class="section-title">Quote Breakdown</span>
-        <span class="section-chevron"></span>
-      </button>
-      <div class="scope-section-body" id="bodyBreakdown"></div>
-    </div>
-
-    <!-- Profit & Orders (GP breakdown + PO approval) -->
-    <div class="scope-section" id="sectionProfitOrders" data-section="profitOrders">
-      <button class="scope-section-header" onclick="app.toggleSection('profitOrders')">
-        <span class="section-status empty" id="statusProfitOrders"></span>
-        <span class="section-title">Profit & Orders</span>
-        <span class="section-chevron"></span>
-      </button>
-      <div class="scope-section-body" id="bodyProfitOrders"></div>
-    </div>
-
-    <!-- Section 8: Quote -->
+    <!-- Section 8: Pricing (set prices FIRST) -->
     <div class="scope-section" id="sectionQuote" data-section="quote">
       <button class="scope-section-header" onclick="app.toggleSection('quote')">
         <span class="section-status empty" id="statusQuote"></span>
-        <span class="section-title">8. Quote</span>
+        <span class="section-title">8. Pricing</span>
         <span class="section-chevron"></span>
       </button>
       <div class="scope-section-body" id="bodyQuote"></div>
     </div>
 
-    <!-- Section 9: Checklist -->
+    <!-- Section 9: Quote & Orders (breakdown + POs + GP) -->
+    <div class="scope-section" id="sectionQuoteOrders" data-section="quoteOrders">
+      <button class="scope-section-header" onclick="app.toggleSection('quoteOrders')">
+        <span class="section-status empty" id="statusQuoteOrders"></span>
+        <span class="section-title">9. Quote & Orders</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyQuoteOrders"></div>
+    </div>
+
+    <!-- Section 10: Checklist -->
     <div class="scope-section" id="sectionChecklist" data-section="checklist">
       <button class="scope-section-header" onclick="app.toggleSection('checklist')">
         <span class="section-status empty" id="statusChecklist"></span>
-        <span class="section-title">9. Checklist</span>
+        <span class="section-title">10. Checklist</span>
         <span class="section-chevron"></span>
       </button>
       <div class="scope-section-body" id="bodyChecklist"></div>
@@ -2570,31 +2560,40 @@
         }
       },
 
-      // ── Quote Breakdown (live pricing table) ──
-      renderQuoteBreakdown() {
-        const el = document.getElementById('bodyBreakdown');
+      // ── Merged: Quote Breakdown + Profit & Orders ──
+      _poApproved: { materials: false, labour: false, commission: false },
+
+      renderQuoteAndOrders() {
+        const el = document.getElementById('bodyQuoteOrders');
         if (!el) return;
-        const statusEl = document.getElementById('statusBreakdown');
+        const statusEl = document.getElementById('statusQuoteOrders');
         let d;
         try { d = this._collectOutputData(); } catch(e) {
-          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see pricing breakdown.</div>';
-          if (statusEl) { statusEl.className = 'section-status empty'; }
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs and set pricing to see quote breakdown.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
           return;
         }
         if (d.totalMetres <= 0) {
-          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see pricing breakdown.</div>';
-          if (statusEl) { statusEl.className = 'section-status empty'; }
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs and set pricing to see quote breakdown.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
           return;
         }
 
         const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const totalCost = d.internalCost + d.internalLabour;
-        const marginPct = d.subtotal > 0 ? ((d.subtotal - totalCost) / d.subtotal * 100) : 0;
-        const marginCol = marginPct < 20 ? '#dc2626' : marginPct < 30 ? '#d97706' : '#16a34a';
 
+        // Commission: 5.25% of total inc GST (35% margin × 15% commission)
+        const commissionAmount = d.grandTotal * 0.0525;
+        const trueTotalCost = d.internalCost + d.internalLabour + commissionAmount;
+        const trueGP = d.subtotal - trueTotalCost;
+        const trueGPPct = d.subtotal > 0 ? (trueGP / d.subtotal * 100) : 0;
+        const gpCol = trueGPPct < 20 ? '#dc2626' : trueGPPct < 30 ? '#d97706' : '#16a34a';
+
+        // ═══════════════════════════════════════
+        // 1. QUOTE BREAKDOWN TABLE (client-facing)
+        // ═══════════════════════════════════════
         let rows = '';
 
-        // ── Fencing ──
+        // Fencing
         rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
         rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
         if (d.totalPlinths > 0)
@@ -2602,7 +2601,7 @@
         if (d.totalPatioTubes > 0)
           rows += `<tr><td>Patio tube bracing (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${d.patioSell}</td><td class="r">$${f(d.patioTotal)}</td></tr>`;
 
-        // ── Gates ──
+        // Gates
         if (d.gateLineItems.length > 0) {
           rows += `<tr class="qb-cat"><td colspan="3">Gates</td></tr>`;
           d.gateLineItems.forEach(g => {
@@ -2610,7 +2609,7 @@
           });
         }
 
-        // ── Removal ──
+        // Removal
         if (d.removalItems.length > 0) {
           rows += `<tr class="qb-cat"><td colspan="3">Removal</td></tr>`;
           d.removalItems.forEach(r => {
@@ -2618,7 +2617,7 @@
           });
         }
 
-        // ── Site Works ──
+        // Site Works
         const hasSiteWorks = d.groundFinishTotal > 0 || d.addonItems.length > 0;
         if (hasSiteWorks) {
           rows += `<tr class="qb-cat"><td colspan="3">Site Works</td></tr>`;
@@ -2629,7 +2628,7 @@
           });
         }
 
-        // ── Custom Items ──
+        // Custom Items
         if (d.customItems.length > 0) {
           rows += `<tr class="qb-cat"><td colspan="3">Custom Items</td></tr>`;
           d.customItems.forEach(c => {
@@ -2637,79 +2636,36 @@
           });
         }
 
-        // ── Surcharges ──
+        // Surcharges
         if (d.accessSurcharge > 0 || d.urgencySurcharge > 0) {
           rows += `<tr class="qb-cat"><td colspan="3">Surcharges</td></tr>`;
           if (d.accessSurcharge > 0) rows += `<tr><td>Access difficulty (${d.js.access})</td><td class="r">${Math.round(d.accessRate * 100)}%</td><td class="r">$${f(d.accessSurcharge)}</td></tr>`;
           if (d.urgencySurcharge > 0) rows += `<tr><td>Urgency (${d.js.urgency})</td><td class="r">${Math.round(d.urgencyRate * 100)}%</td><td class="r">$${f(d.urgencySurcharge)}</td></tr>`;
         }
 
-        // ── Delivery ──
+        // Delivery
         rows += `<tr><td>Delivery</td><td class="r"></td><td class="r">$${f(d.deliveryFee)}</td></tr>`;
 
-        // ── Totals ──
+        // Totals
         rows += `<tr class="qb-subtotal"><td>Subtotal (ex GST)</td><td></td><td class="r">$${f(d.subtotal)}</td></tr>`;
         rows += `<tr class="qb-subtotal"><td>GST (10%)</td><td></td><td class="r">$${f(d.gst)}</td></tr>`;
         rows += `<tr class="qb-grand"><td>Total (inc GST)</td><td></td><td class="r">$${f(d.grandTotal)}</td></tr>`;
 
-        // ── Internal (scoper only) ──
-        rows += `<tr class="qb-internal"><td colspan="3" style="padding-top:12px;font-weight:700;">Internal (not shown to client)</td></tr>`;
-        rows += `<tr class="qb-internal"><td>Material cost</td><td></td><td class="r">$${f(d.internalCost)}</td></tr>`;
-        rows += `<tr class="qb-internal"><td>Labour cost</td><td></td><td class="r">$${f(d.internalLabour)}</td></tr>`;
-        rows += `<tr class="qb-internal"><td>Total cost</td><td></td><td class="r">$${f(totalCost)}</td></tr>`;
-        rows += `<tr class="qb-internal"><td>Margin</td><td></td><td class="r"><span class="qb-margin-pill" style="background:${marginCol}15;color:${marginCol};">${marginPct.toFixed(1)}%</span></td></tr>`;
+        // Deposit
         rows += `<tr class="qb-internal"><td>Deposit (50%)</td><td></td><td class="r" style="font-weight:700;color:#F15A29;">$${f(d.grandTotal * 0.5)}</td></tr>`;
 
-        el.innerHTML = `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+        let html = `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-        if (statusEl) { statusEl.className = 'section-status done'; }
-      },
+        // ═══════════════════════════════════════
+        // 2. INTERNAL COSTS DIVIDER
+        // ═══════════════════════════════════════
+        html += `<div style="margin:16px 0 8px;padding:8px 12px;background:#293C46;color:#fff;border-radius:6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Internal (not shown to client)</div>`;
 
-      // ── Profit & Orders (GP breakdown + draft PO approval) ──
-      _poApproved: { materials: false, labour: false },
+        // ═══════════════════════════════════════
+        // 3. THREE PO CARDS
+        // ═══════════════════════════════════════
 
-      renderProfitOrders() {
-        const el = document.getElementById('bodyProfitOrders');
-        if (!el) return;
-        const statusEl = document.getElementById('statusProfitOrders');
-        let d;
-        try { d = this._collectOutputData(); } catch(e) {
-          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see profit breakdown.</div>';
-          if (statusEl) statusEl.className = 'section-status empty';
-          return;
-        }
-        if (d.totalMetres <= 0) {
-          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see profit breakdown.</div>';
-          if (statusEl) statusEl.className = 'section-status empty';
-          return;
-        }
-
-        const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const totalCost = d.internalCost + d.internalLabour;
-        const gp = d.subtotal - totalCost;
-        const gpPct = d.subtotal > 0 ? (gp / d.subtotal * 100) : 0;
-        const gpCol = gpPct < 20 ? '#dc2626' : gpPct < 30 ? '#d97706' : '#16a34a';
-
-        // ── GP Overview Card ──
-        let html = `<div class="po-card" style="border-color:${gpCol}40;">
-          <div class="po-card-header" style="background:${gpCol}10;color:${gpCol};">
-            Gross Profit Analysis
-            <span class="qb-margin-pill" style="background:${gpCol}15;color:${gpCol};font-size:14px;">${gpPct.toFixed(1)}% GP</span>
-          </div>
-          <div class="po-card-body">
-            <div class="po-gp-bar">
-              <div class="po-gp-fill" style="width:${Math.min(100, Math.max(0, gpPct))}%;background:${gpCol};"></div>
-              <div class="po-gp-label">$${f(gp)} GP on $${f(d.subtotal)} revenue</div>
-            </div>
-            <table>
-              <tr><td>Revenue (ex GST)</td><td class="r" style="font-weight:700;">$${f(d.subtotal)}</td></tr>
-              <tr><td>Total cost (materials + labour)</td><td class="r">$${f(totalCost)}</td></tr>
-              <tr class="po-total"><td style="color:${gpCol};">Gross Profit</td><td class="r" style="color:${gpCol};font-size:15px;">$${f(gp)}</td></tr>
-            </table>
-          </div>
-        </div>`;
-
-        // ── Material PO Card ──
+        // ── Material & Removal PO Card ──
         let matRows = '';
         Object.values(d.postGroups).forEach(g => {
           let unitCost = 0;
@@ -2735,7 +2691,6 @@
             matRows += `<tr><td>Double gate kit + 4× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90)}</td></tr>`;
           }
         });
-        // Removal costs in PO
         if (d.removalItems.length > 0) {
           matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
           d.removalItems.forEach(r => {
@@ -2769,7 +2724,6 @@
         if (accessPct > 0) {
           labRows += `<tr><td>Access surcharge (${(accessPct * 100).toFixed(0)}%)</td><td class="r">$${f(accessAmt)}</td></tr>`;
         }
-        // Removal labour costs
         if (d.removalItems.length > 0) {
           labRows += `<tr><td colspan="2" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
           d.removalItems.forEach(r => {
@@ -2794,11 +2748,56 @@
           </div>
         </div>`;
 
-        // ── Revenue Split Summary ──
+        // ── Sales Commission PO Card (5.25% of total inc GST) ──
+        const commApproved = this._poApproved.commission;
+        html += `<div class="po-card" style="margin-top:8px;">
+          <div class="po-card-header" style="background:${commApproved ? '#dcfce7' : '#fef3c7'};color:${commApproved ? '#16a34a' : '#92400e'};">
+            Draft Sales Commission Purchase Order
+            <button class="po-approve-btn" style="background:${commApproved ? '#16a34a' : '#F15A29'};color:#fff;" onclick="app.togglePOApproval('commission')">
+              ${commApproved ? 'Approved' : 'Approve'}
+            </button>
+          </div>
+          <div class="po-card-body">
+            <table>
+              <thead><tr><th style="text-align:left;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Item</th><th style="text-align:right;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Cost</th></tr></thead>
+              <tbody>
+                <tr><td>Sales commission (5.25% of $${f(d.grandTotal)} inc GST)</td><td class="r">$${f(commissionAmount)}</td></tr>
+                <tr style="font-size:11px;color:#4C6A70;"><td colspan="2">35% margin target × 15% commission = 5.25% of revenue inc GST</td></tr>
+                <tr class="po-total"><td>Total Commission</td><td class="r">$${f(commissionAmount)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+
+        // ═══════════════════════════════════════
+        // 4. GP ANALYSIS CARD (with all 3 costs)
+        // ═══════════════════════════════════════
+        html += `<div class="po-card" style="margin-top:8px;border-color:${gpCol}40;">
+          <div class="po-card-header" style="background:${gpCol}10;color:${gpCol};">
+            Gross Profit Analysis (True)
+            <span class="qb-margin-pill" style="background:${gpCol}15;color:${gpCol};font-size:14px;">${trueGPPct.toFixed(1)}% GP</span>
+          </div>
+          <div class="po-card-body">
+            <div class="po-gp-bar">
+              <div class="po-gp-fill" style="width:${Math.min(100, Math.max(0, trueGPPct))}%;background:${gpCol};"></div>
+              <div class="po-gp-label">$${f(trueGP)} GP on $${f(d.subtotal)} revenue</div>
+            </div>
+            <table>
+              <tr><td>Revenue (ex GST)</td><td class="r" style="font-weight:700;">$${f(d.subtotal)}</td></tr>
+              <tr><td>Material + removal cost</td><td class="r">$${f(d.internalCost)}</td></tr>
+              <tr><td>Labour cost</td><td class="r">$${f(d.internalLabour)}</td></tr>
+              <tr><td>Sales commission (5.25%)</td><td class="r">$${f(commissionAmount)}</td></tr>
+              <tr><td style="font-weight:600;">Total cost</td><td class="r" style="font-weight:600;">$${f(trueTotalCost)}</td></tr>
+              <tr class="po-total"><td style="color:${gpCol};">True Gross Profit</td><td class="r" style="color:${gpCol};font-size:15px;">$${f(trueGP)}</td></tr>
+            </table>
+          </div>
+        </div>`;
+
+        // ═══════════════════════════════════════
+        // 5. REVENUE SPLIT SUMMARY (with commission)
+        // ═══════════════════════════════════════
         const matSell = d.fencingTotal + d.plinthsTotal + d.patioTotal + d.gatesTotal + d.deliveryFee;
-        const matMargin = matSell - d.internalCost;
-        const matMarginPct = matSell > 0 ? (matMargin / matSell * 100) : 0;
-        const matMCol = matMarginPct < 20 ? '#dc2626' : matMarginPct < 30 ? '#d97706' : '#16a34a';
+        const matMCol = (() => { const p = matSell > 0 ? ((matSell - (d.internalCost - d.internalRemovalCost)) / matSell * 100) : 0; return p < 20 ? '#dc2626' : p < 30 ? '#d97706' : '#16a34a'; })();
         const removalMargin = d.removalTotal - d.internalRemovalCost;
         const removalMarginPct = d.removalTotal > 0 ? (removalMargin / d.removalTotal * 100) : 0;
         const remMCol = removalMarginPct < 20 ? '#dc2626' : removalMarginPct < 30 ? '#d97706' : '#16a34a';
@@ -2808,21 +2807,22 @@
             <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost - d.internalRemovalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matSell - (d.internalCost - d.internalRemovalCost))} (${(matSell > 0 ? ((matSell - (d.internalCost - d.internalRemovalCost)) / matSell * 100) : 0).toFixed(0)}%)</td></tr>
             ${d.removalTotal > 0 ? `<tr><td>Removal: sell $${f(d.removalTotal)}, cost $${f(d.internalRemovalCost)}</td><td class="r" style="color:${remMCol};font-weight:700;">GP $${f(removalMargin)} (${removalMarginPct.toFixed(0)}%)</td></tr>` : ''}
             <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
+            <tr><td>Sales commission (5.25% of inc GST)</td><td class="r">$${f(commissionAmount)}</td></tr>
             <tr><td>Other (addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
-            <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">Total GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(gp)} (${gpPct.toFixed(1)}%)</td></tr>
+            <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">True GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(trueGP)} (${trueGPPct.toFixed(1)}%)</td></tr>
           </table>
         </div>`;
 
         el.innerHTML = html;
-        const bothApproved = matApproved && labApproved;
+        const allApproved = this._poApproved.materials && this._poApproved.labour && this._poApproved.commission;
         if (statusEl) {
-          statusEl.className = 'section-status ' + (bothApproved ? 'done' : 'partial');
+          statusEl.className = 'section-status ' + (allApproved ? 'done' : 'partial');
         }
       },
 
       togglePOApproval(type) {
         this._poApproved[type] = !this._poApproved[type];
-        this.renderProfitOrders();
+        this.renderQuoteAndOrders();
         if (this._poApproved[type]) {
           this.showToast(type.charAt(0).toUpperCase() + type.slice(1) + ' PO approved', 'success');
         }
@@ -2889,7 +2889,7 @@
 
       // ── Render ──
       // ── Section toggle & status system ──
-      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, breakdown: false, profitOrders: false, quote: false, checklist: false },
+      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, quote: false, quoteOrders: false, checklist: false },
 
       toggleSection(sectionId) {
         const opening = !this._openSections[sectionId];
@@ -3399,7 +3399,7 @@
             <div class="form-group">
               <label>$/Metre</label>
               <input type="number" id="pricePerMetre" value="${j.pricePerMetre || 115}" step="0.01" min="0"
-                onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats(); app.renderQuoteBreakdown(); app.renderProfitOrders();">
+                onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats(); app.renderQuoteAndOrders();">
             </div>
             <div class="form-group">
               <label>Urgency</label>
@@ -4561,8 +4561,7 @@
         this.job.quote[field] = value;
         this.save();
         this.updateStats();
-        this.renderQuoteBreakdown();
-        this.renderProfitOrders();
+        this.renderQuoteAndOrders();
         this.updateSectionStatuses();
       },
 
@@ -4574,8 +4573,7 @@
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
         this.updateStats();
-        this.renderQuoteBreakdown();
-        this.renderProfitOrders();
+        this.renderQuoteAndOrders();
       },
 
       updateChecklist(field, value) {
@@ -4853,8 +4851,7 @@
         this.renderRunContent();
         this.renderGatesSection();
         this.updateStats();
-        this.renderQuoteBreakdown();
-        this.renderProfitOrders();
+        this.renderQuoteAndOrders();
         this.renderQuote();
         this.renderChecklist();
         this.updateSectionStatuses();
@@ -8699,8 +8696,7 @@
         this.job.quote.addons[key] = parseFloat(val) || 0;
         this.save();
         this.updateStats();
-        this.renderQuoteBreakdown();
-        this.renderProfitOrders();
+        this.renderQuoteAndOrders();
       },
 
       // ── Export / Import job data ──
@@ -9049,10 +9045,11 @@
         lineItems.push({ description: 'Delivery', quantity: 1, unit: 'lot', cost_price: COST_PRICES.delivery, sell_price: d.deliveryFee, total_sell: d.deliveryFee, category: 'delivery' });
       }
 
-      // Enhanced cost estimates for dashboard/reporting
+      // Enhanced cost estimates for dashboard/reporting (includes commission)
       var materialCostEstimate = d.internalCost || 0;
       var labourCostEstimate = d.internalLabour || 0;
-      var totalCostEstimate = materialCostEstimate + labourCostEstimate;
+      var commissionCostEstimate = d.grandTotal * 0.0525;
+      var totalCostEstimate = materialCostEstimate + labourCostEstimate + commissionCostEstimate;
       var margin_pct = d.subtotal > 0 ? Math.round(((d.subtotal - totalCostEstimate) / d.subtotal) * 1000) / 10 : 0;
 
       // Auto-generate job description from scope data
@@ -9099,9 +9096,10 @@
         totalCostEstimate: totalCostEstimate,
         materialCostEstimate: materialCostEstimate,
         labourCostEstimate: labourCostEstimate,
+        commissionCostEstimate: commissionCostEstimate,
         margin_pct: margin_pct,
         job_description: job_description,
-        internal: { cost: d.internalCost, labour: d.internalLabour, margin: d.materialMargin },
+        internal: { cost: d.internalCost, labour: d.internalLabour, commission: commissionCostEstimate, margin: d.materialMargin },
         deposit: {
           percent: depPercent,
           fixed_amount: null,
@@ -9170,7 +9168,7 @@
 
       // Final confirmation
       var _yr = String(new Date().getFullYear()).slice(-2);
-      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Generate a job number (SWF-' + _yr + 'XXX)\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
+      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Lock the scope and generate all documents\n• Generate a job number (SWF-' + _yr + 'XXX)\n• Create 3 draft POs (materials, labour, commission)\n• Upload quote PDF to ops\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
 
       // Gate behind QA sign-off
       if (!fenceQA.isSignedOff()) {
@@ -9178,15 +9176,23 @@
         return;
       }
 
+      // Auto-generate quote PDF blob for upload (don't download)
+      try {
+        app._capturePdfBlob = undefined; // sentinel: trigger blob capture mode
+        await app.generateQuotePDF();
+      } catch(pdfErr) {
+        console.warn('[ScopeComplete] PDF generation failed (non-blocking):', pdfErr);
+      }
+
       // Enrich job state before cloud save
       app.job._pricing_json = app.buildPricingJson();
 
-      // Trigger full cloud save + link chain via saveAfterSignOff (gates GHL link + job number + PO)
+      // Trigger full cloud save + link chain via saveAfterSignOff (gates GHL link + job number + PO + doc upload)
       if (window._swIntegration) {
         try {
           var result = await window._swIntegration.saveAfterSignOff();
           if (result.success) {
-            app.showToast('Scope completed! Job number: ' + (result.jobNumber || 'pending'), 'success');
+            app.showToast('Scope locked. Quote PDF + POs sent to ops. Job: ' + (result.jobNumber || 'pending'), 'success');
             if (typeof updateButtonStages === 'function') updateButtonStages();
           } else {
             app.showToast('Scope complete failed: ' + (result.reason || 'unknown'), 'error');
@@ -9325,12 +9331,18 @@
         try {
           const d = app._collectOutputData();
           if (d.grandTotal <= 0) flag('Pricing', 'red', 'Total quote is $0');
-          const marginPct = d.subtotal > 0 ? ((d.subtotal - d.internalCost - d.internalLabour) / d.subtotal * 100) : 0;
+          const commAmt = d.grandTotal * 0.0525;
+          const marginPct = d.subtotal > 0 ? ((d.subtotal - d.internalCost - d.internalLabour - commAmt) / d.subtotal * 100) : 0;
           if (marginPct < 20) flag('Pricing', 'amber', `Margin is only ${marginPct.toFixed(1)}% — below 20% threshold`);
           if (marginPct > 60) flag('Pricing', 'amber', `Margin is ${marginPct.toFixed(1)}% — unusually high, double check`);
         } catch (e) {
           flag('Pricing', 'red', 'Cannot calculate pricing — check fence run data');
         }
+
+        // PO Approvals
+        if (!app._poApproved.materials) flag('Pricing', 'red', 'Material PO not approved');
+        if (!app._poApproved.labour) flag('Pricing', 'red', 'Labour PO not approved');
+        if (!app._poApproved.commission) flag('Pricing', 'red', 'Commission PO not approved');
 
         // Photos & Checklist
         const photos = (j.checklist && j.checklist.photos) || [];
