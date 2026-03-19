@@ -3077,16 +3077,26 @@
                     onchange="app.updateNeighbour('${nb.id}', 'email', this.value)">
                 </div>
               </div>
-              <div class="form-row full-width">
+              <div class="form-row">
                 <div class="form-group">
                   <label>Address</label>
                   <input type="text" value="${this._esc(nb.address)}" placeholder="Neighbour address"
                     onchange="app.updateNeighbour('${nb.id}', 'address', this.value)">
                 </div>
+                <div class="form-group" style="max-width:110px">
+                  <label>Cost Share %</label>
+                  <input type="number" value="${nb.sharePercent || Math.round(100 / (nbs.length + 1))}" min="0" max="100" step="5"
+                    onchange="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
+                    style="text-align:center">
+                </div>
               </div>
             </div>
           `).join('') + `
-            <button class="btn-orange" style="margin-top:4px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
+            <div style="margin-top:8px;padding:10px 12px;background:#FDF2EE;border:1px solid #FADDD2;border-radius:6px;font-size:12px;">
+              <strong>Client share:</strong> <span id="clientSharePct">${100 - nbs.reduce((s, n) => s + (n.sharePercent || Math.round(100 / (nbs.length + 1))), 0)}%</span>
+              &nbsp;|&nbsp; <strong>Neighbours:</strong> ${nbs.map((n, i) => (n.firstName || 'Nb' + (i+1)) + ' ' + (n.sharePercent || Math.round(100 / (nbs.length + 1))) + '%').join(', ')}
+            </div>
+            <button class="btn-orange" style="margin-top:8px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
           ` : '';
 
           contentHtml = `
@@ -3119,9 +3129,12 @@
 
       addNeighbour() {
         if (!this.job.neighbours) this.job.neighbours = [];
+        var totalParties = this.job.neighbours.length + 2; // +1 for new nb, +1 for client
+        var defaultShare = Math.round(100 / totalParties);
         this.job.neighbours.push({
           id: 'nb-' + Date.now(),
-          firstName: '', lastName: '', phone: '', email: '', address: ''
+          firstName: '', lastName: '', phone: '', email: '', address: '',
+          sharePercent: defaultShare
         });
         this.save();
         this.renderSiteInfo();
@@ -9050,8 +9063,37 @@
         + (d.colour ? ' ' + d.colour : '')
         + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
 
+      // Build deposit config (fencing default: 50%)
+      var depPercent = 50;
+      var depTotal = Math.round(d.grandTotal * (depPercent / 100) * 100) / 100;
+
+      // Build neighbour splits if present
+      var neighbourSplits = null;
+      var j = d.job || app.job || {};
+      if (j.neighboursRequired && j.neighbours && j.neighbours.length > 0) {
+        var nbs = j.neighbours.filter(function(n) { return n.firstName || n.lastName; });
+        if (nbs.length > 0) {
+          var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
+          var clientShare = 100 - nbTotalShare;
+          neighbourSplits = {
+            client_share_percent: clientShare,
+            client_portion_inc_gst: Math.round(d.grandTotal * (clientShare / 100) * 100) / 100,
+            neighbours: nbs.map(function(n, i) {
+              return {
+                name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                phone: n.phone || '',
+                email: n.email || '',
+                address: n.address || '',
+                share_percent: n.sharePercent || 50,
+                portion_inc_gst: Math.round(d.grandTotal * ((n.sharePercent || 50) / 100) * 100) / 100
+              };
+            })
+          };
+        }
+      }
+
       return {
-        source: 'scoping_tool', version: '2.0', generated_at: new Date().toISOString(),
+        source: 'scoping_tool', version: '2.1', generated_at: new Date().toISOString(),
         line_items: lineItems,
         subtotal: d.subtotal, gst: d.gst, totalExGST: d.subtotal, totalIncGST: d.grandTotal,
         totalCostEstimate: totalCostEstimate,
@@ -9059,7 +9101,15 @@
         labourCostEstimate: labourCostEstimate,
         margin_pct: margin_pct,
         job_description: job_description,
-        internal: { cost: d.internalCost, labour: d.internalLabour, margin: d.materialMargin }
+        internal: { cost: d.internalCost, labour: d.internalLabour, margin: d.materialMargin },
+        deposit: {
+          percent: depPercent,
+          fixed_amount: null,
+          council_fees: 0,
+          description: depPercent + '% deposit',
+          total_deposit_inc_gst: depTotal
+        },
+        neighbour_splits: neighbourSplits
       };
     };
 
@@ -9702,8 +9752,9 @@
         var cloud = window.SECUREWORKS_CLOUD;
         var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
 
-        // Step 1: Reserve quote number via prepare_quote (if online)
+        // Step 1: Reserve quote number via prepare_quote (or prepare_neighbour_quotes for splits)
         var quoteNumber = null;
+        var neighbourQuoteData = null;
         if (cloud && jobId) {
           statusEl.style.display = '';
           statusEl.style.background = '#EDF1F4';
@@ -9713,14 +9764,56 @@
             var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
             var jobRef = app.job.ref || '';
             var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
-            var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ jobId: jobId, fileName: fileName })
-            });
-            var prepData = await prepRes.json();
-            if (prepRes.ok && prepData.quoteNumber) {
-              quoteNumber = prepData.quoteNumber;
+
+            // Check if this is a multi-contact (neighbour split) job
+            var hasNeighbours = app.job.neighboursRequired && app.job.neighbours && app.job.neighbours.some(function(n) { return n.firstName || n.lastName; });
+
+            if (hasNeighbours) {
+              // Build contacts array: client (primary) + neighbours
+              statusEl.textContent = 'Creating neighbour quotes...';
+              var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
+              var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
+              var clientShare = 100 - nbTotalShare;
+
+              var contacts = [{
+                name: clientName,
+                phone: app.job.phone || '',
+                email: app.job.email || '',
+                share_percentage: clientShare,
+                contact_type: 'primary'
+              }];
+              nbs.forEach(function(n) {
+                contacts.push({
+                  name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                  phone: n.phone || '',
+                  email: n.email || '',
+                  share_percentage: n.sharePercent || 50,
+                  contact_type: 'neighbour'
+                });
+              });
+
+              var nbRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId: jobId, contacts: contacts, fileName: fileName })
+              });
+              var nbData = await nbRes.json();
+              if (nbRes.ok && nbData.success) {
+                neighbourQuoteData = nbData;
+                quoteNumber = nbData.contacts[0]?.quote_number || null;
+                console.log('[SendQuote] Neighbour quotes prepared:', nbData.contacts.length, 'contacts');
+              }
+            } else {
+              // Standard single-contact quote
+              var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId: jobId, fileName: fileName })
+              });
+              var prepData = await prepRes.json();
+              if (prepRes.ok && prepData.quoteNumber) {
+                quoteNumber = prepData.quoteNumber;
+              }
             }
           } catch(e) {
             console.warn('[SendQuote] Could not reserve quote number (non-blocking):', e.message);
@@ -9744,7 +9837,12 @@
         statusEl.style.display = '';
         statusEl.style.background = '#DCFCE7';
         statusEl.style.color = '#166534';
-        statusEl.innerHTML = '<strong>PDF downloaded.</strong>' + (quoteNumber ? ' Quote ' + quoteNumber + '.' : '') + ' Job marked as Quoted — send via Outlook.';
+        var doneMsg = '<strong>PDF downloaded.</strong>' + (quoteNumber ? ' Quote ' + quoteNumber + '.' : '') + ' Job marked as Quoted.';
+        if (neighbourQuoteData && neighbourQuoteData.contacts) {
+          doneMsg += '<br><strong>' + neighbourQuoteData.contacts.length + ' neighbour quote tokens created.</strong> Each contact has their own acceptance link.';
+        }
+        doneMsg += ' Send via Outlook.';
+        statusEl.innerHTML = doneMsg;
         sendBtn.textContent = 'Done ✓';
         sendBtn.style.background = '#22C55E';
         app.showToast('Quote ' + (quoteNumber || 'PDF') + ' downloaded — send via Outlook', 'success');
