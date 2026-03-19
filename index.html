@@ -9119,7 +9119,8 @@
       }
 
       // Final confirmation
-      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Generate a job number (SWF-25XXX)\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
+      var _yr = String(new Date().getFullYear()).slice(-2);
+      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Generate a job number (SWF-' + _yr + 'XXX)\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
 
       // Gate behind QA sign-off
       if (!fenceQA.isSignedOff()) {
