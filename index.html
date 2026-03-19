@@ -2521,29 +2521,6 @@
         document.getElementById('statPosts').textContent = totalPosts;
         document.getElementById('statPlinths').textContent =
           totalPlinths > 0 ? `${totalPlinths} (across ${plinthPanelCount} panels)` : '0';
-
-        // Full pricing from _collectOutputData
-        try {
-          const d = this._collectOutputData();
-          document.getElementById('statCost').textContent =
-            d.grandTotal > 0 ? `$${Math.round(d.grandTotal).toLocaleString()}` : '$0';
-          document.getElementById('statDeposit').textContent =
-            d.grandTotal > 0 ? `$${Math.round(d.grandTotal * 0.5).toLocaleString()}` : '$0';
-
-          const totalCost = d.internalCost + d.internalLabour;
-          const marginPct = d.subtotal > 0 ? ((d.subtotal - totalCost) / d.subtotal * 100) : 0;
-          const marginEl = document.getElementById('statMargin');
-          marginEl.textContent = `${marginPct.toFixed(0)}%`;
-          marginEl.style.color = marginPct < 20 ? '#dc2626' : marginPct < 30 ? '#d97706' : '#16a34a';
-
-          document.getElementById('statInternalCost').textContent =
-            totalCost > 0 ? `$${Math.round(totalCost).toLocaleString()}` : '$0';
-        } catch (e) {
-          document.getElementById('statCost').textContent = '$0';
-          document.getElementById('statDeposit').textContent = '$0';
-          document.getElementById('statMargin').textContent = '—';
-          document.getElementById('statInternalCost').textContent = '$0';
-        }
       },
 
       // ── Merged: Quote Breakdown + Profit & Orders ──
