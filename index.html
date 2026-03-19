@@ -8648,6 +8648,22 @@
         const d = this._collectOutputData();
         this._openOutputTab('Work Order', this._generateWorkOrderHTML(d));
         this.showToast('Work order generated', 'success');
+        // Fire-and-forget: upload 3D screenshot to job_media
+        (async () => {
+          try {
+            var cloud = window.SECUREWORKS_CLOUD;
+            var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+            if (!cloud || !jobId) return;
+            var dataUrl = this._get3DScreenshotDataUrl();
+            if (!dataUrl) return;
+            var existing = await cloud.ghl.listMedia(jobId);
+            if (existing.some(m => m.label === '3D Preview')) return;
+            await cloud.ghl.uploadPhoto(jobId, dataUrl, '3D Preview', 'Auto-captured from fencing scoping tool');
+            console.log('[fence] 3D preview uploaded to job_media');
+          } catch (e) {
+            console.log('[fence] 3D preview upload skipped:', e);
+          }
+        })();
       },
 
       // ── Validation helper ──
