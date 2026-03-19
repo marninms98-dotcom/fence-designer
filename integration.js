@@ -297,6 +297,13 @@
       if (job.checklist && job.checklist.videoFile) {
         delete job.checklist.videoFile;
       }
+      // Ensure full formatted address from _addressComponents if available
+      if (job._addressComponents) {
+        var ac = job._addressComponents;
+        var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
+        if (fullAddr) job.address = fullAddr;
+        if (ac.suburb && !job.suburb) job.suburb = ac.suburb;
+      }
       return {
         tool: 'fencing',
         version: '2.0',
@@ -570,6 +577,15 @@
         meta.client_phone = state.job.phone || '';
         meta.client_email = state.job.email || '';
         meta.site_address = state.job.address || '';
+        // Reconstruct full address from _addressComponents if address looks incomplete
+        if (state.job._addressComponents) {
+          var ac = state.job._addressComponents;
+          var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
+          if (fullAddr && (!meta.site_address || !meta.site_address.includes(','))) {
+            meta.site_address = fullAddr;
+          }
+          if (ac.suburb && !meta.site_suburb) meta.site_suburb = ac.suburb;
+        }
       } else if (state.customer || state.client) {
         var c = state.customer || {};
         var cl = state.client || {};
@@ -1159,6 +1175,15 @@
         meta.client_phone = state.job.phone || '';
         meta.client_email = state.job.email || '';
         meta.site_address = state.job.address || '';
+        // Reconstruct full address from _addressComponents if address looks incomplete
+        if (state.job._addressComponents) {
+          var ac = state.job._addressComponents;
+          var fullAddr = [ac.street, ac.suburb, ac.state, ac.postcode].filter(Boolean).join(', ');
+          if (fullAddr && (!meta.site_address || !meta.site_address.includes(','))) {
+            meta.site_address = fullAddr;
+          }
+          if (ac.suburb && !meta.site_suburb) meta.site_suburb = ac.suburb;
+        }
       }
 
       try {
