@@ -4644,10 +4644,8 @@
           const imgExts = ['jpg','jpeg','png','gif','webp','heic','heif','bmp','tiff'];
           if (!file.type.startsWith('image/') && !imgExts.includes(ext)) continue;
           try {
-            // Small thumbnail for display only (~3-5KB each, localStorage friendly)
-            const thumbUrl = await this._compressImage(file, 200, 0.5);
-            // Medium resolution for cloud upload (~50-100KB each)
-            const uploadUrl = await this._compressImage(file, 1200, 0.8);
+            // Load once, resize to both thumbnail and upload quality
+            const { thumb: thumbUrl, upload: uploadUrl } = await this._processOnePhoto(file, 200, 0.5, 1200, 0.8);
             const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
             // Keep upload-quality image in memory (not localStorage)
             window._photoFiles[id] = uploadUrl;
@@ -4669,29 +4667,35 @@
         if (added > 0) this.showToast(added + ' photo' + (added > 1 ? 's' : '') + ' added — will upload on Cloud Save', 'success');
       },
 
-      _compressImage(file, maxDim, quality) {
+      _processOnePhoto(file, thumbDim, thumbQ, uploadDim, uploadQ) {
         return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = function() {
+            URL.revokeObjectURL(url);
+            function resize(maxDim, quality) {
               let w = img.width, h = img.height;
               if (w > maxDim || h > maxDim) {
                 if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
                 else { w = Math.round(w * maxDim / h); h = maxDim; }
               }
-              const canvas = document.createElement('canvas');
-              canvas.width = w; canvas.height = h;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, w, h);
-              resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.onerror = reject;
-            img.src = e.target.result;
+              const c = document.createElement('canvas');
+              c.width = w; c.height = h;
+              c.getContext('2d').drawImage(img, 0, 0, w, h);
+              const dataUrl = c.toDataURL('image/jpeg', quality);
+              c.width = 0; c.height = 0;
+              return dataUrl;
+            }
+            resolve({ thumb: resize(thumbDim, thumbQ), upload: resize(uploadDim, uploadQ) });
           };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
+          img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
+          img.src = url;
         });
+      },
+
+      // Legacy wrapper in case anything else calls _compressImage
+      _compressImage(file, maxDim, quality) {
+        return this._processOnePhoto(file, maxDim, quality, maxDim, quality).then(r => r.upload);
       },
 
       handleVideoSelect(event) {
