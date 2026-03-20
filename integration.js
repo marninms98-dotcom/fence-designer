@@ -289,8 +289,8 @@
 
     console.log('[Integration] Cloud bar injected');
 
-    // Hide cloud bar when bottom toolbar is present (patio tool)
-    if (document.getElementById('bottomToolbar')) {
+    // Hide cloud bar when bottom toolbar is present (patio tool or fencing generate bar)
+    if (document.getElementById('bottomToolbar') || document.getElementById('generateBar')) {
       cloudBar.style.display = 'none';
     }
   }
