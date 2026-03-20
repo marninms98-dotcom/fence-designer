@@ -10376,12 +10376,7 @@
       var inner = document.getElementById('genBarButtons');
       if (!bar || !inner) return;
 
-      if (stage <= 1) {
-        bar.style.display = 'none';
-        document.body.style.paddingBottom = '';
-        return;
-      }
-
+      // Always show the bar — save buttons are always available
       bar.style.display = '';
       document.body.style.paddingBottom = '70px';
       var html = '';
@@ -10395,7 +10390,9 @@
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Draft saved to cloud\',\'success\')}else{app.showToast(\'Not logged in — saved locally only\',\'warning\');app.save()}">' +
                   '<span style="font-size:16px;line-height:1;">&#9729;</span> Save Draft to Cloud' +
                 '</button>';
-        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
+        if (stage >= 3) {
+          html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
+        }
       } else {
         // ── Post-QA: Save to Cloud + Send Quote + output buttons ──
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
