@@ -523,6 +523,35 @@
       return data.job;
     },
 
+    // Auto-create GHL contact + opportunity for walk-up clients (dedup by email/phone)
+    async createContactAndOpportunity(contact, toolType) {
+      console.log('[Cloud] createContactAndOpportunity:', toolType);
+      var firstName = contact.firstName || '';
+      var lastName = contact.lastName || '';
+      if (!firstName && contact.name) {
+        var parts = contact.name.trim().split(/\s+/);
+        firstName = parts[0] || '';
+        lastName = parts.slice(1).join(' ') || '';
+      }
+      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: firstName,
+          lastName: lastName,
+          email: contact.email || '',
+          phone: contact.phone || '',
+          address: contact.address || '',
+          suburb: contact.suburb || '',
+          toolType: toolType
+        })
+      });
+      var data = await res.json();
+      console.log('[Cloud] createContactAndOpportunity result:', data);
+      if (!res.ok) throw new Error(data.error || 'Failed to create contact/opportunity');
+      return data;
+    },
+
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
     async createJobForOpportunity(opportunityId, toolType, contact) {
       console.log('[Cloud] createJobForOpportunity:', opportunityId || '(no GHL opp)', toolType);
@@ -536,6 +565,7 @@
       };
       // GHL opportunity is optional — walk-up scopes may not have one
       if (opportunityId) payload.opportunityId = opportunityId;
+      if (contact.contactId) payload.contactId = contact.contactId;
       var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

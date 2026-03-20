@@ -699,8 +699,27 @@
           if (!meta.client_name) meta.client_name = prompt('Client name for this job:');
           if (!meta.client_name) { cloud.ui.showSaveStatus('error'); return; }
 
-          // Create job via edge function (bypasses RLS)
+          // Walk-up: auto-create GHL contact + opportunity if not linked yet
           var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
+          // Extract first/last name from fencing tool if available
+          if (state.job && state.job.clientFirstName) {
+            contact.firstName = state.job.clientFirstName;
+            contact.lastName = state.job.clientLastName || '';
+          }
+          if (!_ghlOpportunityId && (meta.client_phone || meta.client_email)) {
+            try {
+              var ghlResult = await cloud.ghl.createContactAndOpportunity(contact, _toolType);
+              if (ghlResult.opportunityId) _ghlOpportunityId = ghlResult.opportunityId;
+              if (ghlResult.contactId) _ghlContactId = ghlResult.contactId;
+              contact.contactId = _ghlContactId;
+              console.log('[Integration] Walk-up GHL creation:', ghlResult.contactExisted ? 'existing contact' : 'new contact', 'opp:', _ghlOpportunityId);
+            } catch (ghlErr) {
+              console.warn('[Integration] Walk-up GHL creation failed (non-blocking):', ghlErr);
+              // Falls through — Supabase job still created without GHL link
+            }
+          }
+
+          // Create job via edge function (bypasses RLS)
           var job = await cloud.ghl.createJobForOpportunity(_ghlOpportunityId || null, _toolType, contact);
           _jobId = job.id;
 
