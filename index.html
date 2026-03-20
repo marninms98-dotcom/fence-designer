@@ -1195,6 +1195,10 @@
       white-space: nowrap;
     }
     .gen-btn:active { transform: scale(0.96); }
+    .gen-btn-save-local { background: #4C6A7C; color: #fff; }
+    .gen-btn-save-local:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
+    .gen-btn-save-cloud { background: #34C759; color: #fff; }
+    .gen-btn-save-cloud:hover { box-shadow: 0 2px 8px rgba(52,199,89,0.4); }
     .gen-btn-save { background: #34C759; color: #fff; }
     .gen-btn-save:hover { box-shadow: 0 2px 8px rgba(52,199,89,0.4); }
     .gen-btn-qa { background: #f59e0b; color: #fff; }
@@ -10383,15 +10387,20 @@
       var html = '';
       var qaPassed = typeof fenceQA !== 'undefined' && fenceQA.isSignedOff();
 
-      // Save — always visible
-      html += '<button class="gen-btn gen-btn-save" onclick="window._swIntegration && window._swIntegration.save(); app.showToast(\'Saved to cloud\', \'success\')">Save</button>';
-
       if (!qaPassed) {
-        // Pre-QA: QA button + disabled Send Quote
-        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA</button>';
-        html += '<button class="gen-btn gen-btn-send" disabled title="Pass QA first" style="opacity:0.35;cursor:not-allowed;">Send Quote</button>';
+        // ── Pre-QA: Save Local + Save Draft to Cloud + QA ──
+        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">' +
+                  '<span style="font-size:16px;line-height:1;">&#128190;</span> Save to Local' +
+                '</button>';
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Draft saved to cloud\',\'success\')}else{app.showToast(\'Not logged in — saved locally only\',\'warning\');app.save()}">' +
+                  '<span style="font-size:16px;line-height:1;">&#9729;</span> Save Draft to Cloud' +
+                '</button>';
+        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
       } else {
-        // Post-QA: active Send Quote + output buttons
+        // ── Post-QA: Save to Cloud + Send Quote + output buttons ──
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
+                  '<span style="font-size:16px;line-height:1;">&#9729;</span> Save to Cloud' +
+                '</button>';
         html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
         html += '<div class="gen-more-wrap">' +
