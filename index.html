@@ -1664,7 +1664,8 @@
               vegetation: false,
               gateOnExisting: false,
               access: 'easy',
-              notes: ''
+              notes: '',
+              removalExtras: []
             },
             installation: {
               coreDrill: false,
@@ -2882,8 +2883,9 @@
         this._setSectionStatus('SiteInfo', siteComplete ? 'complete' : 'warning');
 
         const r = j.removal || {};
+        const extrasOk = !(r.removalExtras || []).some(ex => !ex.fenceType || !ex.length);
         const removalDone = r.removalRequired === false ||
-          (r.removalRequired === true && r.existingFenceType && r.existingFenceLength > 0);
+          (r.removalRequired === true && r.existingFenceType && r.existingFenceLength > 0 && extrasOk);
         this._setSectionStatus('Removal', removalDone ? 'complete' : 'warning');
 
         this._setSectionStatus('Installation',
@@ -3126,73 +3128,118 @@
         const r = this.job.removal || {};
         const required = r.removalRequired === true;
         const types = ['Timber','Lap','Hardie','Colourbond','Asbestos','Other'];
+        const extras = r.removalExtras || [];
+
+        // Build extras HTML
+        let extrasHtml = '';
+        extras.forEach((ex, idx) => {
+          extrasHtml += `
+          <div style="position:relative;border:1px solid #e5e7eb;border-radius:8px;padding:12px 12px 8px;margin-top:10px;background:#f8fafc;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="font-size:12px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.5px;">Item ${idx + 2}</span>
+              <button onclick="app.removeRemovalExtra(${idx})" style="background:none;border:none;color:#dc2626;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;" title="Remove">\u2715</button>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Fence Type *</label>
+                <select onchange="app.updateRemovalExtra(${idx}, 'fenceType', this.value)">
+                  <option value="" ${!ex.fenceType ? 'selected' : ''}>— Select —</option>
+                  ${types.map(t => `<option value="${t.toLowerCase()}" ${ex.fenceType === t.toLowerCase() ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Length (m) *</label>
+                <input type="number" value="${ex.length || ''}" min="0" step="0.5" placeholder="0"
+                  onchange="app.updateRemovalExtra(${idx}, 'length', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Disposal</label>
+                <div class="toggle-group">
+                  <button class="toggle-btn ${ex.disposal === 'client' ? 'active' : ''}" onclick="app.updateRemovalExtra(${idx}, 'disposal', 'client')">Client</button>
+                  <button class="toggle-btn ${ex.disposal !== 'client' ? 'active' : ''}" onclick="app.updateRemovalExtra(${idx}, 'disposal', 'company')">Company</button>
+                </div>
+              </div>
+            </div>
+          </div>`;
+        });
+
         const detailsHtml = required ? `
-          <div class="form-row">
-            <div class="form-group">
-              <label>Existing Fence Type *</label>
-              <select onchange="app.updateRemoval('existingFenceType', this.value)">
-                <option value="" ${!r.existingFenceType ? 'selected' : ''}>— Select —</option>
-                ${types.map(t => `<option value="${t.toLowerCase()}" ${r.existingFenceType === t.toLowerCase() ? 'selected' : ''}>${t}</option>`).join('')}
-              </select>
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 12px 8px;background:#f8fafc;">
+            <span style="font-size:12px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Item 1</span>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Existing Fence Type *</label>
+                <select onchange="app.updateRemoval('existingFenceType', this.value)">
+                  <option value="" ${!r.existingFenceType ? 'selected' : ''}>— Select —</option>
+                  ${types.map(t => `<option value="${t.toLowerCase()}" ${r.existingFenceType === t.toLowerCase() ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Existing Fence Length (m) *</label>
+                <input type="number" value="${r.existingFenceLength || ''}" min="0" step="0.5" placeholder="0"
+                  onchange="app.updateRemoval('existingFenceLength', this.value)">
+              </div>
+              <div class="form-group">
+                <label>Disposal</label>
+                <div class="toggle-group">
+                  <button class="toggle-btn ${r.disposal === 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'client')">Client</button>
+                  <button class="toggle-btn ${r.disposal !== 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'company')">Company</button>
+                </div>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Existing Fence Length (m) *</label>
-              <input type="number" value="${r.existingFenceLength || ''}" min="0" step="0.5" placeholder="0"
-                onchange="app.updateRemoval('existingFenceLength', this.value)">
+            ${r.existingFenceType === 'asbestos' ? `
+            <div class="form-row">
+              <div class="form-group">
+                <label>Sheets to Remove (1 per metre)</label>
+                <input type="number" value="${r.asbestosSheetCount != null ? r.asbestosSheetCount : Math.ceil(r.existingFenceLength || 0)}" min="0" step="1"
+                  onchange="app.updateRemoval('asbestosSheetCount', parseInt(this.value) || 0)">
+              </div>
+              <div class="form-group">
+                <label>Asbestos Removal Certificate</label>
+                <div class="toggle-group">
+                  <button class="toggle-btn ${r.asbestosCert !== false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', true)">Include in Quote</button>
+                  <button class="toggle-btn ${r.asbestosCert === false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', false)">Exclude</button>
+                </div>
+              </div>
             </div>
+            ` : ''}
           </div>
-          ${r.existingFenceType === 'asbestos' ? `
-          <div class="form-row">
-            <div class="form-group">
-              <label>Sheets to Remove (1 per metre)</label>
-              <input type="number" value="${r.asbestosSheetCount != null ? r.asbestosSheetCount : Math.ceil(r.existingFenceLength || 0)}" min="0" step="1"
-                onchange="app.updateRemoval('asbestosSheetCount', parseInt(this.value) || 0)">
-            </div>
-            <div class="form-group">
-              <label>Asbestos Removal Certificate</label>
-              <div class="toggle-group">
-                <button class="toggle-btn ${r.asbestosCert !== false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', true)">Include in Quote</button>
-                <button class="toggle-btn ${r.asbestosCert === false ? 'active' : ''}" onclick="app.updateRemoval('asbestosCert', false)">Exclude</button>
-              </div>
-            </div>
+          ${extrasHtml}
+          <div style="margin-top:10px;">
+            <button onclick="app.addRemovalExtra()" style="background:#F15A29;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;">+ Add removal type</button>
           </div>
-          ` : ''}
-          <div class="form-row">
-            <div class="form-group">
-              <label>Disposal</label>
-              <div class="toggle-group">
-                <button class="toggle-btn ${r.disposal === 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'client')">Client</button>
-                <button class="toggle-btn ${r.disposal !== 'client' ? 'active' : ''}" onclick="app.updateRemoval('disposal', 'company')">Company</button>
+          <div style="margin-top:14px;border-top:1px solid #e5e7eb;padding-top:14px;">
+            <span style="font-size:12px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Global Settings</span>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Access Difficulty</label>
+                <div class="toggle-group">
+                  ${['easy','moderate','difficult'].map(a => `<button class="toggle-btn ${r.access === a ? 'active' : ''}" onclick="app.updateRemoval('access', '${a}')">${a.charAt(0).toUpperCase() + a.slice(1)}</button>`).join('')}
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Vegetation Clear</label>
+                <div class="toggle-group">
+                  <button class="toggle-btn ${r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', true)">Yes</button>
+                  <button class="toggle-btn ${!r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', false)">No</button>
+                </div>
               </div>
             </div>
-            <div class="form-group">
-              <label>Access Difficulty</label>
-              <div class="toggle-group">
-                ${['easy','moderate','difficult'].map(a => `<button class="toggle-btn ${r.access === a ? 'active' : ''}" onclick="app.updateRemoval('access', '${a}')">${a.charAt(0).toUpperCase() + a.slice(1)}</button>`).join('')}
+            <div class="form-row">
+              <div class="form-group">
+                <label>Gate on Existing Fence</label>
+                <div class="toggle-group">
+                  <button class="toggle-btn ${r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', true)">Yes</button>
+                  <button class="toggle-btn ${!r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', false)">No</button>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Vegetation Clear</label>
-              <div class="toggle-group">
-                <button class="toggle-btn ${r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', true)">Yes</button>
-                <button class="toggle-btn ${!r.vegetation ? 'active' : ''}" onclick="app.updateRemoval('vegetation', false)">No</button>
+            <div class="form-row full-width">
+              <div class="form-group">
+                <label>Removal Notes</label>
+                <textarea rows="2" placeholder="Any removal details..."
+                  onchange="app.updateRemoval('notes', this.value)">${this._esc(r.notes)}</textarea>
               </div>
-            </div>
-            <div class="form-group">
-              <label>Gate on Existing Fence</label>
-              <div class="toggle-group">
-                <button class="toggle-btn ${r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', true)">Yes</button>
-                <button class="toggle-btn ${!r.gateOnExisting ? 'active' : ''}" onclick="app.updateRemoval('gateOnExisting', false)">No</button>
-              </div>
-            </div>
-          </div>
-          <div class="form-row full-width">
-            <div class="form-group">
-              <label>Removal Notes</label>
-              <textarea rows="2" placeholder="Any removal details..."
-                onchange="app.updateRemoval('notes', this.value)">${this._esc(r.notes)}</textarea>
             </div>
           </div>
         ` : '';
@@ -4473,6 +4520,34 @@
         if (field === 'existingFenceLength' && this.job.removal.existingFenceType === 'asbestos') {
           this.job.removal.asbestosSheetCount = Math.ceil(value || 0);
         }
+        this.save();
+        this.updateSectionStatuses();
+        this.renderRemoval();
+      },
+
+      addRemovalExtra() {
+        if (!this.job.removal) this.job.removal = {};
+        if (!this.job.removal.removalExtras) this.job.removal.removalExtras = [];
+        this.job.removal.removalExtras.push({ fenceType: '', length: 0, disposal: 'company' });
+        this.save();
+        this.updateSectionStatuses();
+        this.renderRemoval();
+      },
+
+      removeRemovalExtra(idx) {
+        if (!this.job.removal || !this.job.removal.removalExtras) return;
+        this.job.removal.removalExtras.splice(idx, 1);
+        this.save();
+        this.updateSectionStatuses();
+        this.renderRemoval();
+      },
+
+      updateRemovalExtra(idx, field, value) {
+        if (!this.job.removal || !this.job.removal.removalExtras) return;
+        const ex = this.job.removal.removalExtras[idx];
+        if (!ex) return;
+        if (field === 'length') value = parseFloat(value) || 0;
+        ex[field] = value;
         this.save();
         this.updateSectionStatuses();
         this.renderRemoval();
@@ -7568,6 +7643,16 @@
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
         };
+        // Aggregate removalExtras into the same qty totals
+        (rem.removalExtras || []).forEach(ex => {
+          const t = (ex.fenceType || '').toLowerCase();
+          const len = parseFloat(ex.length) || 0;
+          if (!t || len <= 0) return;
+          if (t === 'hardie') { js.removeHardie = true; js.removeHardieQty += Math.ceil(len); }
+          else if (t === 'timber' || t === 'lap') { js.removeTimber = true; js.removeTimberQty += len; }
+          else if (t === 'colourbond') { js.removeColorbond = true; js.removeColorbondQty += len; }
+          else if (t === 'asbestos') { js.removeAsbestos = true; js.removeAsbestosQty += Math.ceil(len); }
+        });
         const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
         const panelWidthMm = supplier.panelWidth;
         const panelWidthM = panelWidthMm / 1000;
@@ -7938,11 +8023,21 @@
           parts.push('Gates: ' + gateDescs.join(', '));
         }
         const rem = d.job.removal || {};
+        const remTypes = [];
         if (rem.existingFenceType && rem.existingFenceType !== 'none') {
           const ftype = rem.existingFenceType.charAt(0).toUpperCase() + rem.existingFenceType.slice(1);
-          let remDesc = `Removal and disposal of existing ${ftype} fencing`;
+          let remDesc = `${ftype}`;
           if (rem.existingFenceLength > 0) remDesc += ` (approx. ${rem.existingFenceLength}m)`;
-          parts.push(remDesc);
+          remTypes.push(remDesc);
+        }
+        (rem.removalExtras || []).forEach(ex => {
+          if (ex.fenceType && ex.length > 0) {
+            const ft = ex.fenceType.charAt(0).toUpperCase() + ex.fenceType.slice(1);
+            remTypes.push(`${ft} (approx. ${ex.length}m)`);
+          }
+        });
+        if (remTypes.length > 0) {
+          parts.push(`Removal and disposal of existing ${remTypes.join(' and ')} fencing`);
         }
         if (d.groundFinishDesc) parts.push(d.groundFinishDesc);
         parts.push('Complete site clean-up included');
