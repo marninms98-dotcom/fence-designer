@@ -3101,6 +3101,20 @@
                 '</div>';
             })()}
             <button class="btn-orange" style="margin-top:8px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
+            ${(() => {
+              const runsWithNb = (this.job.runs || []).filter(r => r.neighbourId);
+              if (runsWithNb.length > 0 || (this.job.runs || []).some(r => r.name)) {
+                const imgUrl = this._generateSitePlanDataUrl();
+                if (imgUrl) {
+                  return '<div style="margin-top:12px;border:1px solid #D4DEE4;border-radius:8px;overflow:hidden;background:#F8F6F3;">' +
+                    '<div style="padding:8px 12px;background:#293C46;color:#fff;font-size:12px;font-weight:700;">SITE PLAN — Aerial View</div>' +
+                    '<img src="' + imgUrl + '" style="width:100%;display:block;" alt="Site plan diagram">' +
+                    '</div>';
+                }
+                return '';
+              }
+              return '';
+            })()}
           ` : '';
 
           contentHtml = `
@@ -7700,6 +7714,10 @@
       },
 
       // ── Site Plan Diagram (canvas-based, colour-coded by neighbour) ──
+      // Aerial site plan: bird's-eye view looking down
+      // Orientation: Front = bottom (street side), Rear = top,
+      // LHS (when facing house from street) = RIGHT on aerial,
+      // RHS (when facing house from street) = LEFT on aerial
       _generateSitePlanDataUrl() {
         const job = this.job;
         const runs = job.runs || [];
@@ -7707,7 +7725,7 @@
         if (!runs.length) return null;
 
         const c = document.createElement('canvas');
-        const W = 600, H = 400;
+        const W = 600, H = 480;
         c.width = W; c.height = H;
         const ctx = c.getContext('2d');
 
@@ -7716,35 +7734,74 @@
         ctx.fillRect(0, 0, W, H);
 
         // Property rectangle
-        const propX = 100, propY = 60, propW = 400, propH = 260;
+        const propX = 120, propY = 50, propW = 360, propH = 300;
         ctx.strokeStyle = '#293C46';
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.strokeRect(propX, propY, propW, propH);
         ctx.setLineDash([]);
 
-        // Property label
+        // House icon (small rectangle in centre)
+        const houseW = 120, houseH = 70;
+        const houseX = propX + (propW - houseW) / 2;
+        const houseY = propY + (propH - houseH) / 2 - 10;
         ctx.fillStyle = '#293C46';
-        ctx.font = 'bold 14px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.globalAlpha = 0.08;
+        ctx.fillRect(houseX, houseY, houseW, houseH);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#293C46';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+        ctx.strokeRect(houseX, houseY, houseW, houseH);
+
+        // House label
+        ctx.fillStyle = '#293C46';
+        ctx.font = 'bold 13px Helvetica Neue, Helvetica, Arial, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('PROPERTY', propX + propW / 2, propY + propH / 2 - 8);
-        ctx.font = '11px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.fillText('HOUSE', houseX + houseW / 2, houseY + houseH / 2 + 5);
+
+        // Client name below house
+        ctx.font = '10px Helvetica Neue, Helvetica, Arial, sans-serif';
         ctx.fillStyle = '#4C6A7C';
         const clientName = [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || '';
-        if (clientName) ctx.fillText(clientName, propX + propW / 2, propY + propH / 2 + 8);
+        if (clientName) ctx.fillText(clientName, propX + propW / 2, houseY + houseH + 16);
+
+        // Street label at bottom
+        ctx.fillStyle = '#8FA4B2';
+        ctx.font = 'bold 11px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('— STREET —', propX + propW / 2, propY + propH + 34);
+
+        // Compass
+        ctx.fillStyle = '#4C6A7C';
+        ctx.font = 'bold 10px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('AERIAL VIEW', 10, 18);
 
         // Neighbour colour palette
         const nbColours = ['#F15A29', '#2196F3', '#4CAF50', '#9C27B0'];
         const clientColour = '#8FA4B2';
 
-        // Map side names to edges
+        // Aerial orientation: LHS when facing house = RIGHT on plan, RHS = LEFT
         const sideMap = {
-          'Front': { x1: propX, y1: propY, x2: propX + propW, y2: propY, labelY: propY - 8, labelX: propX + propW / 2 },
-          'Rear': { x1: propX, y1: propY + propH, x2: propX + propW, y2: propY + propH, labelY: propY + propH + 18, labelX: propX + propW / 2 },
-          'LHS': { x1: propX, y1: propY, x2: propX, y2: propY + propH, labelY: propY + propH / 2, labelX: propX - 12, rotate: true },
-          'Left': { x1: propX, y1: propY, x2: propX, y2: propY + propH, labelY: propY + propH / 2, labelX: propX - 12, rotate: true },
-          'RHS': { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH, labelY: propY + propH / 2, labelX: propX + propW + 12, rotate: true },
-          'Right': { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH, labelY: propY + propH / 2, labelX: propX + propW + 12, rotate: true },
+          'Front': { x1: propX, y1: propY + propH, x2: propX + propW, y2: propY + propH,
+                     labelX: propX + propW / 2, labelY: propY + propH + 16,
+                     nbLabelX: propX + propW / 2, nbLabelY: propY + propH + 48 },
+          'Rear':  { x1: propX, y1: propY, x2: propX + propW, y2: propY,
+                     labelX: propX + propW / 2, labelY: propY - 10,
+                     nbLabelX: propX + propW / 2, nbLabelY: propY - 24 },
+          'LHS':   { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH,
+                     labelX: propX + propW + 14, labelY: propY + propH / 2, rotate: true,
+                     nbLabelX: propX + propW + 30, nbLabelY: propY + propH / 2, nbRotate: true },
+          'Left':  { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH,
+                     labelX: propX + propW + 14, labelY: propY + propH / 2, rotate: true,
+                     nbLabelX: propX + propW + 30, nbLabelY: propY + propH / 2, nbRotate: true },
+          'RHS':   { x1: propX, y1: propY, x2: propX, y2: propY + propH,
+                     labelX: propX - 14, labelY: propY + propH / 2, rotate: true,
+                     nbLabelX: propX - 30, nbLabelY: propY + propH / 2, nbRotate: true },
+          'Right': { x1: propX, y1: propY, x2: propX, y2: propY + propH,
+                     labelX: propX - 14, labelY: propY + propH / 2, rotate: true,
+                     nbLabelX: propX - 30, nbLabelY: propY + propH / 2, nbRotate: true },
         };
 
         // Track legend entries
@@ -7754,20 +7811,22 @@
         // Draw each run as a coloured line segment
         runs.forEach(run => {
           const side = sideMap[run.name];
-          if (!side) return; // custom name — skip diagram placement
+          if (!side) return;
 
-          // Determine colour
+          // Determine colour + neighbour name
           let colour = clientColour;
           let legendLabel = 'Client';
+          let nbName = '';
           if (run.neighbourId) {
             const nbIdx = nbs.findIndex(n => n.id === run.neighbourId);
             if (nbIdx >= 0) {
               colour = nbColours[nbIdx % nbColours.length];
-              legendLabel = [nbs[nbIdx].firstName, nbs[nbIdx].lastName].filter(Boolean).join(' ') || 'Neighbour ' + (nbIdx + 1);
+              nbName = [nbs[nbIdx].firstName, nbs[nbIdx].lastName].filter(Boolean).join(' ') || 'Neighbour ' + (nbIdx + 1);
+              legendLabel = nbName;
             }
           }
 
-          // Draw thick coloured line
+          // Draw thick coloured line on boundary
           ctx.strokeStyle = colour;
           ctx.lineWidth = 6;
           ctx.lineCap = 'round';
@@ -7776,18 +7835,34 @@
           ctx.lineTo(side.x2, side.y2);
           ctx.stroke();
 
-          // Label
+          // Run label (side name + length)
           ctx.fillStyle = colour;
           ctx.font = 'bold 10px Helvetica Neue, Helvetica, Arial, sans-serif';
           ctx.textAlign = 'center';
+          const runLabel = run.name + (run.length ? ' · ' + run.length + 'm' : '');
           if (side.rotate) {
             ctx.save();
             ctx.translate(side.labelX, side.labelY);
             ctx.rotate(-Math.PI / 2);
-            ctx.fillText(run.name + (run.length ? ' · ' + run.length + 'm' : ''), 0, 0);
+            ctx.fillText(runLabel, 0, 0);
             ctx.restore();
           } else {
-            ctx.fillText(run.name + (run.length ? ' · ' + run.length + 'm' : ''), side.labelX, side.labelY);
+            ctx.fillText(runLabel, side.labelX, side.labelY);
+          }
+
+          // Neighbour name label (outside boundary)
+          if (nbName) {
+            ctx.fillStyle = colour;
+            ctx.font = '9px Helvetica Neue, Helvetica, Arial, sans-serif';
+            if (side.nbRotate) {
+              ctx.save();
+              ctx.translate(side.nbLabelX, side.nbLabelY);
+              ctx.rotate(-Math.PI / 2);
+              ctx.fillText(nbName, 0, 0);
+              ctx.restore();
+            } else {
+              ctx.fillText(nbName, side.nbLabelX, side.nbLabelY);
+            }
           }
 
           // Track for legend
@@ -7797,21 +7872,21 @@
           }
         });
 
-        // Legend
+        // Legend (bottom-left)
         if (legend.length > 0) {
-          let lx = 12, ly = H - 14 - legend.length * 18;
-          ctx.font = 'bold 11px Helvetica Neue, Helvetica, Arial, sans-serif';
+          let lx = 10, ly = H - 10 - legend.length * 16;
+          ctx.font = 'bold 10px Helvetica Neue, Helvetica, Arial, sans-serif';
           ctx.fillStyle = '#293C46';
           ctx.textAlign = 'left';
           ctx.fillText('LEGEND', lx, ly);
-          ly += 16;
-          ctx.font = '11px Helvetica Neue, Helvetica, Arial, sans-serif';
+          ly += 14;
+          ctx.font = '10px Helvetica Neue, Helvetica, Arial, sans-serif';
           legend.forEach(l => {
             ctx.fillStyle = l.colour;
-            ctx.fillRect(lx, ly - 8, 12, 12);
+            ctx.fillRect(lx, ly - 8, 10, 10);
             ctx.fillStyle = '#293C46';
-            ctx.fillText(l.label, lx + 18, ly + 2);
-            ly += 18;
+            ctx.fillText(l.label, lx + 14, ly + 1);
+            ly += 16;
           });
         }
 
@@ -8760,27 +8835,6 @@
             doc.addImage(screenshot3D, 'PNG', mx, y, imgW, imgH);
             y += imgH + 6;
           } catch(e) { /* skip if image fails */ }
-        }
-
-        // Site plan diagram (if runs have neighbour assignments)
-        if (d.hasRunAssignments) {
-          try {
-            const sitePlanUrl = this._generateSitePlanDataUrl();
-            if (sitePlanUrl) {
-              const spW = pw - mx * 2;
-              const spH = spW * (400 / 600); // match canvas aspect ratio
-              if (y + spH + 10 > ph - 40) { doc.addPage(); y = 20; }
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(11);
-              doc.setTextColor(41, 60, 70);
-              doc.text('SITE PLAN — NEIGHBOUR BOUNDARIES', mx, y);
-              doc.setDrawColor(76, 106, 124);
-              doc.line(mx, y + 1, pw - mx, y + 1);
-              y += 4;
-              doc.addImage(sitePlanUrl, 'PNG', mx, y, spW, spH);
-              y += spH + 6;
-            }
-          } catch(e) { /* skip if site plan fails */ }
         }
 
         // Material selection — colour swatch + profile name
