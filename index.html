@@ -9002,6 +9002,223 @@
         }
       },
 
+      // ── Generate Per-Neighbour PDF (their portion only) ──
+      generateNeighbourPDF(contact, d, neighbourKey) {
+        // contact: { client_name, quote_number, upload_url, contact_type }
+        // d: output from _collectOutputData()
+        // neighbourKey: neighbourId string or '__client__'
+        const costs = d.neighbourCosts[neighbourKey];
+        if (!costs) return null;
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const pw = 210, ph = 297, mx = 20;
+        let y = 20;
+
+        // Header bar
+        doc.setFillColor(41, 60, 70);
+        doc.rect(0, 0, pw, 32, 'F');
+        doc.setTextColor(241, 90, 41);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text('SECUREWORKS WA PTY LTD', pw / 2, 14, { align: 'center' });
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text('ABN 64 689 223 416  |  fencing@secureworkswa.com.au  |  +61 489 267 772', pw / 2, 22, { align: 'center' });
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        var quoteNumLabel = contact.quote_number ? 'CLIENT QUOTE  —  ' + contact.quote_number : 'CLIENT QUOTE';
+        doc.text(quoteNumLabel, pw / 2, 29, { align: 'center' });
+        y = 40;
+
+        // Client details (contact's name, not primary client)
+        doc.setTextColor(41, 60, 70);
+        doc.setFontSize(10);
+        const date = d.job.date || new Date().toISOString().slice(0, 10);
+        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+        const address = d.job.address || '\u2014';
+        const info = [
+          ['Client', contact.client_name || '\u2014'], ['Job Ref', d.job.ref || '\u2014'],
+          ['Address', address], ['Date', date],
+          ['Valid Until', validUntil]
+        ];
+        info.forEach((row, i) => {
+          const col = i % 2;
+          const ry = y + Math.floor(i / 2) * 7;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(76, 106, 124);
+          doc.text(row[0].toUpperCase(), mx + col * 85, ry);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          doc.setTextColor(41, 60, 70);
+          doc.text(String(row[1]), mx + col * 85 + 30, ry);
+        });
+        y += Math.ceil(info.length / 2) * 7 + 4;
+
+        // Portion note
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.setTextColor(76, 106, 124);
+        doc.text('Your portion of the shared fencing project at ' + address, mx, y);
+        y += 8;
+
+        // Material selection
+        const colourHex = this._getColourHex(d.colour);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
+        doc.text('MATERIAL SELECTION', mx, y);
+        doc.setDrawColor(76, 106, 124);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 7;
+        const hex = colourHex.replace('#', '');
+        const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
+        doc.setFillColor(cr, cg, cb);
+        doc.rect(mx, y - 3, 10, 10, 'F');
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(mx, y - 3, 10, 10, 'S');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(41, 60, 70);
+        doc.text('COLORBOND ' + d.colour, mx + 14, y + 1);
+        doc.text('Profile: ' + d.profile, mx + 14, y + 6);
+        y += 14;
+
+        // Scope — only their assigned runs
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('SCOPE OF WORKS', mx, y);
+        doc.setDrawColor(76, 106, 124);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        const theirRuns = costs.runs || [];
+        const runDescs = theirRuns.map(r => {
+          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour;
+          if (r.plinths > 0) desc += ' (' + r.plinths + ' retaining plinths)';
+          return desc;
+        });
+        const totalM = theirRuns.reduce((s, r) => s + r.length, 0);
+        runDescs.push('Total: ' + totalM.toFixed(1) + 'm COLORBOND fencing \u2014 supply & install');
+        const scopeText = runDescs.join('\n');
+        const scopeLines = doc.splitTextToSize(scopeText, pw - mx * 2);
+        doc.text(scopeLines, mx, y);
+        y += scopeLines.length * 4 + 6;
+
+        // Pricing
+        if (y > ph - 60) { doc.addPage(); y = 20; }
+        const portionExGst = costs.totalExGst;
+        const portionGst = costs.gst;
+        const portionTotal = costs.totalIncGst;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
+        doc.text('PRICING', mx, y);
+        doc.setDrawColor(76, 106, 124);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFillColor(245, 245, 245);
+        doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
+        doc.setFontSize(8);
+        doc.setTextColor(76, 106, 124);
+        doc.text('DESCRIPTION', mx + 2, y);
+        doc.text('AMOUNT', pw - mx - 2, y, { align: 'right' });
+        y += 6;
+        doc.setTextColor(41, 60, 70);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('COLORBOND Fencing \u2014 Your Portion (Supply & Install)', mx + 2, y);
+        doc.text('$' + this._fmt(portionExGst), pw - mx - 2, y, { align: 'right' });
+        y += 4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(76, 106, 124);
+        const detailStr = totalM.toFixed(1) + 'm across ' + theirRuns.length + ' run' + (theirRuns.length > 1 ? 's' : '');
+        doc.text(detailStr, mx + 2, y);
+        y += 6;
+
+        // Totals
+        doc.setDrawColor(41, 60, 70);
+        doc.setLineWidth(0.5);
+        doc.line(mx, y, pw - mx, y);
+        y += 4;
+        doc.setTextColor(41, 60, 70);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('Subtotal (excl. GST)', mx + 2, y);
+        doc.text('$' + this._fmt(portionExGst), pw - mx - 2, y, { align: 'right' });
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.text('GST (10%)', mx + 2, y);
+        doc.text('$' + this._fmt(portionGst), pw - mx - 2, y, { align: 'right' });
+        y += 6;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.setTextColor(241, 90, 41);
+        doc.text('TOTAL (incl. GST)', mx + 2, y);
+        doc.text('$' + this._fmt(portionTotal), pw - mx - 2, y, { align: 'right' });
+        y += 10;
+
+        // Deposit
+        doc.setTextColor(41, 60, 70);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        const deposit = portionTotal * 0.5;
+        doc.text('Deposit Required (50%): $' + this._fmt(deposit), mx, y);
+        y += 8;
+
+        // Payment terms
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('PAYMENT TERMS', mx, y);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text('50% deposit required to confirm booking. Balance due on completion.', mx, y);
+        y += 10;
+
+        // T&C
+        if (y > ph - 60) { doc.addPage(); y = 20; }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('TERMS & CONDITIONS', mx, y);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 100, 100);
+        DISCLAIMERS.forEach((disc, i) => {
+          if (y > ph - 15) { doc.addPage(); y = 20; }
+          const lines = doc.splitTextToSize((i + 1) + '. ' + disc, pw - mx * 2);
+          doc.text(lines, mx, y);
+          y += lines.length * 3.2 + 2;
+        });
+
+        // Warranty
+        y += 4;
+        doc.setTextColor(41, 60, 70);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text('WARRANTY', mx, y);
+        y += 4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 100, 100);
+        doc.text('BlueScope 10-year warranty on COLORBOND steel. SecureWorks WA 12-month workmanship warranty.', mx, y);
+
+        // Footer
+        const fy = ph - 8;
+        doc.setFontSize(7);
+        doc.setTextColor(76, 106, 124);
+        doc.text('SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, fy, { align: 'center' });
+
+        return doc.output('blob');
+      },
+
       // ── Generate Material Order (categorised) ──
       generateMaterialOrder() {
         const missing = this._validateRequired();
@@ -10264,13 +10481,50 @@
           }
         }
 
-        // Step 2: Generate PDF with quote number
+        // Step 2: Generate PDF with quote number (full-job PDF for ops/download)
         statusEl.style.display = '';
         statusEl.textContent = 'Generating PDF...';
         sendBtn.textContent = 'Generating PDF...';
         window._currentQuoteNumber = quoteNumber;
         app.generateQuotePDF();
         window._currentQuoteNumber = null;
+
+        // Step 2b: Generate + upload per-neighbour PDFs (each contact sees only their portion)
+        if (neighbourQuoteData && neighbourQuoteData.contacts && cloud) {
+          statusEl.textContent = 'Generating neighbour PDFs...';
+          try {
+            var d = app._collectOutputData();
+            var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
+            for (var pi = 0; pi < neighbourQuoteData.contacts.length; pi++) {
+              var pContact = neighbourQuoteData.contacts[pi];
+              if (!pContact.upload_url) continue;
+              // Map contact index to neighbourCosts key
+              var nbKey = pi === 0 ? '__client__' : (nbs[pi - 1] ? nbs[pi - 1].id : null);
+              if (!nbKey || !d.neighbourCosts[nbKey]) {
+                console.warn('[SendQuote] No cost data for contact', pi, pContact.client_name);
+                continue;
+              }
+              var blob = app.generateNeighbourPDF(pContact, d, nbKey);
+              if (!blob) continue;
+              try {
+                var upRes = await fetch(pContact.upload_url, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/pdf' },
+                  body: blob
+                });
+                if (upRes.ok) {
+                  console.log('[SendQuote] Uploaded PDF for', pContact.client_name);
+                } else {
+                  console.warn('[SendQuote] PDF upload failed for', pContact.client_name, upRes.status);
+                }
+              } catch(ue) {
+                console.warn('[SendQuote] PDF upload error for', pContact.client_name, ue.message);
+              }
+            }
+          } catch(pdfErr) {
+            console.warn('[SendQuote] Neighbour PDF generation failed (non-blocking):', pdfErr.message);
+          }
+        }
 
         // Step 3: Update job status to "quoted" in the cloud
         if (cloud && jobId) {
@@ -10291,7 +10545,6 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   document_id: contact.document_id,
-                  // email + name resolved from job_contacts by the edge function
                 })
               });
               if (sendRes.ok) emailsSent++;
