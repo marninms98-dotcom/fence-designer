@@ -1530,12 +1530,14 @@
       panelKit1200_2400: 75,   // 1200H panel inc post (estimated)
       panelKit2100_2700: 109,  // 2100H colorbond panel inc 2700 post — R&R $109
       panelKit2100_3000: 130,  // 2100H colorbond panel inc 3000 post (estimated)
-      plinth: 45,              // per plinth (150mm) — material cost only
+      plinth: 42,              // per plinth (150mm) — material cost, R&R $42
       plinthInstall: 10,       // labour per plinth install
-      patioTube: 45,           // 76x38 RHS 3000mm
+      patioTube: 45,           // 76x38 RHS 3000mm — cost $45, sell $75
       gateKitPedestrian: 320,  // pedestrian gate kit
-      gateKitDouble: 580,      // double swing gate kit
+      gateKitDouble: 500,      // double swing gate kit (~$350 more than ped gate total)
       gatePost90x90: 85,       // 90x90mm SHS gate post
+      gateLabourPedestrian: 250, // labour per ped gate install
+      gateLabourDouble: 500,   // labour per double gate install
       concrete: 9.50,          // per bag
       tekScrewBox: 18,         // per box
       removeHardie: 12.50,     // per metre cost ($10-15 range, use midpoint)
@@ -1547,7 +1549,7 @@
       groundStones: 18,        // per lineal metre
       groundTurf: 22,          // per lineal metre
       labourPerMetre: 35,      // base labour rate per metre
-      delivery: 200            // default delivery — R&R charges $200
+      delivery: 95             // actual delivery cost — R&R charges ~$95
     };
 
     // Async: fetch confirmed prices from Supabase and merge into COST_PRICES (non-blocking)
@@ -1655,7 +1657,7 @@
             supplier: '',
             profile: '',
             colour: '',
-            pricePerMetre: 115,
+            pricePerMetre: 125,
             runs: [],
             gatesRequired: undefined,
             gates: [],
@@ -1680,7 +1682,7 @@
             },
             quote: {
               urgency: 'standard',
-              deliveryFee: 250,
+              deliveryFee: 200,
               groundFinish: 'none',
               customLineItems: [{}, {}, {}],
               // Scope add-ons (use custom line items instead)
@@ -3461,7 +3463,7 @@
           <div class="form-row">
             <div class="form-group">
               <label>$/Metre</label>
-              <input type="number" id="pricePerMetre" value="${j.pricePerMetre || 115}" step="0.01" min="0"
+              <input type="number" id="pricePerMetre" value="${j.pricePerMetre || 125}" step="0.01" min="0"
                 onchange="app.updateField('pricePerMetre', parseFloat(this.value) || 0); app.updateStats(); app.renderQuoteAndOrders();">
             </div>
             <div class="form-group">
@@ -3484,7 +3486,7 @@
             </div>
             <div class="form-group">
               <label>Delivery Fee ($)</label>
-              <input type="number" value="${q.deliveryFee != null ? q.deliveryFee : 250}" min="0" step="10"
+              <input type="number" value="${q.deliveryFee != null ? q.deliveryFee : 200}" min="0" step="10"
                 onchange="app.updateQuote('deliveryFee', this.value)">
             </div>
           </div>
@@ -3508,7 +3510,7 @@
             </div>
             <div class="form-group">
               <label>Asbestos Removal ($/m)</label>
-              <input type="number" value="${q.asbestosPrice || 130}" min="0" step="1"
+              <input type="number" value="${q.asbestosPrice || 90}" min="0" step="1"
                 onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
             </div>
           </div>
@@ -3518,7 +3520,7 @@
           <div class="form-row">
             <div class="form-group">
               <label>Patio Tube ($/each)</label>
-              <input type="number" value="${q.patioTubePrice || 65}" min="0" step="1"
+              <input type="number" value="${q.patioTubePrice || 75}" min="0" step="1"
                 onchange="app.updateQuote('patioTubePrice', parseFloat(this.value) || 0)">
             </div>
             <div class="form-group">
@@ -4648,7 +4650,7 @@
       updateQuote(field, value) {
         this.logScopeDecision('quote_override', { field, value });
         if (!this.job.quote) this.job.quote = {};
-        if (field === 'deliveryFee') value = parseFloat(value) || 250;
+        if (field === 'deliveryFee') value = parseFloat(value) || 200;
         this.job.quote[field] = value;
         this.save();
         this.updateStats();
@@ -7901,7 +7903,7 @@
         const js = {
           access: rem.access || 'easy',
           urgency: q.urgency || 'standard',
-          delivery: q.deliveryFee != null ? q.deliveryFee : 250,
+          delivery: q.deliveryFee != null ? q.deliveryFee : 200,
           removeHardie: rem.existingFenceType === 'hardie',
           removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil(rem.existingFenceLength || 0) : 0,
           removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
@@ -7932,9 +7934,9 @@
         const panelWidthM = panelWidthMm / 1000;
 
         // Unit prices (needed inside per-run loop for run subtotals)
-        const pricePerMetre = job.pricePerMetre || 115;
+        const pricePerMetre = job.pricePerMetre || 125;
         const plinthSell = q.plinthPrice || 80;
-        const patioSell = q.patioTubePrice || 65;
+        const patioSell = q.patioTubePrice || 75;
 
         let totalMetres = 0;
         let totalPanels = 0;
@@ -8058,15 +8060,13 @@
         const gateLineItems = [];
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') {
-            const sell = COST_PRICES.gateKitPedestrian / (1 - MARGIN);
-            const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
-            gatesTotal += sell + 2 * postSell;
-            gateLineItems.push({ desc: `Pedestrian gate ${g.width}mm`, qty: 1, total: sell + 2 * postSell });
+            const pedSell = 1100;
+            gatesTotal += pedSell;
+            gateLineItems.push({ desc: `Pedestrian gate ${g.width}mm`, qty: 1, total: pedSell });
           } else if (g.type === 'double') {
-            const sell = COST_PRICES.gateKitDouble / (1 - MARGIN);
-            const postSell = COST_PRICES.gatePost90x90 / (1 - MARGIN);
-            gatesTotal += sell + 4 * postSell;
-            gateLineItems.push({ desc: `Double swing gate ${g.width}mm`, qty: 1, total: sell + 4 * postSell });
+            const dblSell = 2400;
+            gatesTotal += dblSell;
+            gateLineItems.push({ desc: `Double swing gate ${g.width}mm`, qty: 1, total: dblSell });
           }
         });
 
@@ -8092,7 +8092,7 @@
           removalItems.push({ desc: 'Remove Colorbond fence', qty: js.removeColorbondQty, unit: 'm', unitPrice: cbPerM, costPrice: COST_PRICES.removeColorbond, total: t });
         }
         if (js.removeAsbestos && js.removeAsbestosQty > 0) {
-          const asbestosPerM = q.asbestosPrice || 130;
+          const asbestosPerM = q.asbestosPrice || 90;
           const t = js.removeAsbestosQty * asbestosPerM;
           removalTotal += t;
           removalItems.push({ desc: 'Remove asbestos fence (licenced)', qty: js.removeAsbestosQty, unit: 'm', unitPrice: asbestosPerM, costPrice: COST_PRICES.removeAsbestos, total: t });
@@ -8150,7 +8150,7 @@
         const accessSurcharge = labourBase * accessRate;
 
         // Delivery
-        const deliveryFee = js.delivery || 250;
+        const deliveryFee = js.delivery || 200;
 
         // Subtotal before urgency
         const subtotalBeforeUrgency = fencingTotal + plinthsTotal + patioTotal + gatesTotal + removalTotal + groundFinishTotal + addonsTotal + customTotal + accessSurcharge + deliveryFee;
@@ -8194,8 +8194,16 @@
           if (r.costPrice) internalRemovalCost += r.qty * r.costPrice;
         });
         internalCost += internalRemovalCost;
+        // Delivery cost (actual cost to us, not the sell price charged to client)
+        internalCost += COST_PRICES.delivery;
 
-        const labourCost = labourBase;
+        const plinthLabourCost = totalPlinths * COST_PRICES.plinthInstall;
+        let gateLabourCost = 0;
+        (job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') gateLabourCost += COST_PRICES.gateLabourPedestrian;
+          else if (g.type === 'double') gateLabourCost += COST_PRICES.gateLabourDouble;
+        });
+        const labourCost = labourBase + plinthLabourCost + gateLabourCost;
         const internalLabour = labourCost * (1 + accessRate);
         const materialMargin = subtotal - gst - internalCost - internalLabour;
 
@@ -9540,7 +9548,7 @@
               const js = this.job.jobSettings || {};
               this.job.quote = {
                 urgency: js.urgency || 'standard',
-                deliveryFee: js.delivery || 250,
+                deliveryFee: js.delivery || 200,
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
                   ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 }))
