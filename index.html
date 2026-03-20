@@ -4622,14 +4622,14 @@
       },
 
       handlePhotoSelect(event) {
-        const files = event.target.files;
-        if (files && files.length > 0) this._processPhotoFiles(files);
+        const files = Array.from(event.target.files || []);
         event.target.value = '';
+        if (files.length > 0) this._processPhotoFiles(files);
       },
 
       handlePhotoDrop(event) {
-        const files = event.dataTransfer.files;
-        if (files && files.length > 0) this._processPhotoFiles(files);
+        const files = Array.from(event.dataTransfer.files || []);
+        if (files.length > 0) this._processPhotoFiles(files);
       },
 
       async _processPhotoFiles(files) {
