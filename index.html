@@ -10390,9 +10390,7 @@
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Draft saved to cloud\',\'success\')}else{app.showToast(\'Not logged in — saved locally only\',\'warning\');app.save()}">' +
                   '<span style="font-size:16px;line-height:1;">&#9729;</span> Save Draft to Cloud' +
                 '</button>';
-        if (stage >= 3) {
-          html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
-        }
+        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
       } else {
         // ── Post-QA: Save to Cloud + Send Quote + output buttons ──
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
