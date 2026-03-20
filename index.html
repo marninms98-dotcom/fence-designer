@@ -2019,6 +2019,7 @@
           length: 0,
           sheetHeight: 1800,
           extension: 'none',
+          neighbourId: null,
           panels: [],
           slope: { mode: 'simple', points: [], simple: { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' }, monotonic: null }
         };
@@ -2341,6 +2342,8 @@
           run.sheetHeight = parseInt(value);
         } else if (field === 'extension') {
           run.extension = value;
+        } else if (field === 'neighbourId') {
+          run.neighbourId = value || null;
         }
 
         this.save();
@@ -3052,14 +3055,47 @@
                   <input type="number" value="${nb.sharePercent || Math.round(100 / (nbs.length + 1))}" min="0" max="100" step="5"
                     onchange="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
                     style="text-align:center">
+                  <div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>
                 </div>
               </div>
+              ${(() => {
+                const assignedRuns = (this.job.runs || []).filter(r => r.neighbourId === nb.id);
+                if (assignedRuns.length > 0) {
+                  return '<div style="margin-top:8px;padding:8px 10px;background:#E8F5E9;border:1px solid #A5D6A7;border-radius:6px;font-size:12px;">' +
+                    '<strong>Assigned runs:</strong> ' + assignedRuns.map(r => r.name || 'Unnamed').join(', ') +
+                    '</div>';
+                }
+                return '';
+              })()}
             </div>
           `).join('') + `
-            <div style="margin-top:8px;padding:10px 12px;background:#FDF2EE;border:1px solid #FADDD2;border-radius:6px;font-size:12px;">
-              <strong>Client share:</strong> <span id="clientSharePct">${100 - nbs.reduce((s, n) => s + (n.sharePercent || Math.round(100 / (nbs.length + 1))), 0)}%</span>
-              &nbsp;|&nbsp; <strong>Neighbours:</strong> ${nbs.map((n, i) => (n.firstName || 'Nb' + (i+1)) + ' ' + (n.sharePercent || Math.round(100 / (nbs.length + 1))) + '%').join(', ')}
-            </div>
+            ${(() => {
+              const runsWithNb = (this.job.runs || []).filter(r => r.neighbourId);
+              const clientRuns = (this.job.runs || []).filter(r => !r.neighbourId);
+              if (runsWithNb.length > 0) {
+                let summary = '<div style="margin-top:8px;padding:10px 12px;background:#E3F2FD;border:1px solid #90CAF9;border-radius:6px;font-size:12px;">';
+                summary += '<strong style="display:block;margin-bottom:4px;">Cost Split (by assigned runs):</strong>';
+                if (clientRuns.length > 0) {
+                  summary += '<div>Client: ' + clientRuns.map(r => r.name || 'Unnamed').join(', ') + '</div>';
+                }
+                nbs.forEach((n, i) => {
+                  const nbRuns = (this.job.runs || []).filter(r => r.neighbourId === n.id);
+                  const nbName = n.firstName || 'Nb' + (i + 1);
+                  if (nbRuns.length > 0) {
+                    summary += '<div>' + this._esc(nbName) + ': ' + nbRuns.map(r => r.name || 'Unnamed').join(', ') + '</div>';
+                  } else {
+                    summary += '<div style="color:#999;">' + this._esc(nbName) + ': No runs assigned (uses ' + (n.sharePercent || Math.round(100 / (nbs.length + 1))) + '% flat)</div>';
+                  }
+                });
+                summary += '<div style="margin-top:4px;font-size:11px;color:#666;">Shared costs (removal, gates, delivery) split proportionally by run costs.</div>';
+                summary += '</div>';
+                return summary;
+              }
+              return '<div style="margin-top:8px;padding:10px 12px;background:#FDF2EE;border:1px solid #FADDD2;border-radius:6px;font-size:12px;">' +
+                '<strong>Client share:</strong> <span id="clientSharePct">' + (100 - nbs.reduce((s, n) => s + (n.sharePercent || Math.round(100 / (nbs.length + 1))), 0)) + '%</span>' +
+                '&nbsp;|&nbsp; <strong>Neighbours:</strong> ' + nbs.map((n, i) => (n.firstName || 'Nb' + (i+1)) + ' ' + (n.sharePercent || Math.round(100 / (nbs.length + 1))) + '%').join(', ') +
+                '</div>';
+            })()}
             <button class="btn-orange" style="margin-top:8px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
           ` : '';
 
@@ -5021,6 +5057,18 @@
                 </select>
                 ${!RUN_NAME_OPTIONS.includes(run.name) && run.name ? `<div style="margin-top:4px;font-size:12px;color:#4C6A70;">Custom: ${this._esc(run.name)}</div>` : ''}
               </div>
+              ${this.job.neighboursRequired && (this.job.neighbours || []).length > 0 ? `
+              <div class="form-group">
+                <label>Boundary Neighbour</label>
+                <select onchange="app.updateRunSettings('${run.id}', 'neighbourId', this.value)">
+                  <option value="" ${!run.neighbourId ? 'selected' : ''}>No neighbour (client side)</option>
+                  ${(this.job.neighbours || []).map(nb => {
+                    const nbName = [nb.firstName, nb.lastName].filter(Boolean).join(' ') || 'Unnamed';
+                    return `<option value="${nb.id}" ${run.neighbourId === nb.id ? 'selected' : ''}>${this._esc(nbName)}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+              ` : ''}
               <div class="form-group">
                 <label>Length (m) *</label>
                 <input type="number" value="${run.length || ''}" min="0" step="0.5" placeholder="0.0"
@@ -6690,18 +6738,40 @@
         const clientName = [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || 'Client';
         const clientAddr = job.address || '';
         const nbs = job.neighbours || [];
-        const nbName = [nbs[0]?.firstName, nbs[0]?.lastName].filter(Boolean).join(' ') || 'Neighbour';
-        const nbAddr = nbs[0]?.address || '';
 
         const clientLabel = this._create3DPropertyLabel(clientName, clientAddr, '#293C46', '#F15A29');
         clientLabel.position.set(cx, 0.01, 2.5);
         clientLabel.rotation.x = -Math.PI/2;
         f.envGrp.add(clientLabel);
 
-        const nbLabel = this._create3DPropertyLabel(nbName, nbAddr, '#4C6A7C', '#8FA4B2');
-        nbLabel.position.set(cx, 0.01, -2.5);
-        nbLabel.rotation.x = -Math.PI/2;
-        f.envGrp.add(nbLabel);
+        // Show per-run neighbour labels if runs have neighbourId assigned
+        const runsWithNb = (job.runs || []).filter(r => r.neighbourId);
+        if (runsWithNb.length > 0 && nbs.length > 0) {
+          // Build unique neighbour names from assigned runs
+          const nbIds = [...new Set(runsWithNb.map(r => r.neighbourId))];
+          const nbCols = ['#4C6A7C', '#5C7A4C', '#7C5C4C', '#4C5C7C'];
+          const nbAccents = ['#8FA4B2', '#A4B28F', '#B2A48F', '#8F9EB2'];
+          nbIds.forEach((nbId, idx) => {
+            const nb = nbs.find(n => n.id === nbId);
+            if (!nb) return;
+            const name = [nb.firstName, nb.lastName].filter(Boolean).join(' ') || 'Neighbour';
+            const addr = nb.address || '';
+            const assignedRuns = runsWithNb.filter(r => r.neighbourId === nbId).map(r => r.name).filter(Boolean).join(', ');
+            const labelText = assignedRuns ? name + ' (' + assignedRuns + ')' : name;
+            const label = this._create3DPropertyLabel(labelText, addr, nbCols[idx % nbCols.length], nbAccents[idx % nbAccents.length]);
+            label.position.set(cx, 0.01, -2.5 - idx * 1.0);
+            label.rotation.x = -Math.PI/2;
+            f.envGrp.add(label);
+          });
+        } else {
+          // Fallback: single neighbour label (legacy behaviour)
+          const nbName = [nbs[0]?.firstName, nbs[0]?.lastName].filter(Boolean).join(' ') || 'Neighbour';
+          const nbAddr = nbs[0]?.address || '';
+          const nbLabel = this._create3DPropertyLabel(nbName, nbAddr, '#4C6A7C', '#8FA4B2');
+          nbLabel.position.set(cx, 0.01, -2.5);
+          nbLabel.rotation.x = -Math.PI/2;
+          f.envGrp.add(nbLabel);
+        }
 
         // ── Camera ──
         f.controls.target.set(cx, maxFenceTop * 0.4, 0);
@@ -7087,8 +7157,10 @@
         ctx.font = `700 ${labelFontSize}px Helvetica Neue, Helvetica, Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
+        const _nbForRun = run.neighbourId && (this.job.neighbours || []).find(n => n.id === run.neighbourId);
+        const _nbLabel = _nbForRun ? '  ·  ' + ([_nbForRun.firstName, _nbForRun.lastName].filter(Boolean).join(' ') || 'Neighbour') : '';
         ctx.fillText(
-          `${run.name}  ·  ${panelCount} panels  ·  ${run.length}m`,
+          `${run.name}  ·  ${panelCount} panels  ·  ${run.length}m${_nbLabel}`,
           originX + fencePixelW / 2,
           groundY - maxAboveGndYMm * scale - 10
         );
@@ -7623,6 +7695,125 @@
         return { errors, warnings };
       },
 
+      // ── Site Plan Diagram (canvas-based, colour-coded by neighbour) ──
+      _generateSitePlanDataUrl() {
+        const job = this.job;
+        const runs = job.runs || [];
+        const nbs = job.neighbours || [];
+        if (!runs.length) return null;
+
+        const c = document.createElement('canvas');
+        const W = 600, H = 400;
+        c.width = W; c.height = H;
+        const ctx = c.getContext('2d');
+
+        // Background
+        ctx.fillStyle = '#F8F6F3';
+        ctx.fillRect(0, 0, W, H);
+
+        // Property rectangle
+        const propX = 100, propY = 60, propW = 400, propH = 260;
+        ctx.strokeStyle = '#293C46';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(propX, propY, propW, propH);
+        ctx.setLineDash([]);
+
+        // Property label
+        ctx.fillStyle = '#293C46';
+        ctx.font = 'bold 14px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('PROPERTY', propX + propW / 2, propY + propH / 2 - 8);
+        ctx.font = '11px Helvetica Neue, Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#4C6A7C';
+        const clientName = [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || '';
+        if (clientName) ctx.fillText(clientName, propX + propW / 2, propY + propH / 2 + 8);
+
+        // Neighbour colour palette
+        const nbColours = ['#F15A29', '#2196F3', '#4CAF50', '#9C27B0'];
+        const clientColour = '#8FA4B2';
+
+        // Map side names to edges
+        const sideMap = {
+          'Front': { x1: propX, y1: propY, x2: propX + propW, y2: propY, labelY: propY - 8, labelX: propX + propW / 2 },
+          'Rear': { x1: propX, y1: propY + propH, x2: propX + propW, y2: propY + propH, labelY: propY + propH + 18, labelX: propX + propW / 2 },
+          'LHS': { x1: propX, y1: propY, x2: propX, y2: propY + propH, labelY: propY + propH / 2, labelX: propX - 12, rotate: true },
+          'Left': { x1: propX, y1: propY, x2: propX, y2: propY + propH, labelY: propY + propH / 2, labelX: propX - 12, rotate: true },
+          'RHS': { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH, labelY: propY + propH / 2, labelX: propX + propW + 12, rotate: true },
+          'Right': { x1: propX + propW, y1: propY, x2: propX + propW, y2: propY + propH, labelY: propY + propH / 2, labelX: propX + propW + 12, rotate: true },
+        };
+
+        // Track legend entries
+        const legend = [];
+        const legendSeen = {};
+
+        // Draw each run as a coloured line segment
+        runs.forEach(run => {
+          const side = sideMap[run.name];
+          if (!side) return; // custom name — skip diagram placement
+
+          // Determine colour
+          let colour = clientColour;
+          let legendLabel = 'Client';
+          if (run.neighbourId) {
+            const nbIdx = nbs.findIndex(n => n.id === run.neighbourId);
+            if (nbIdx >= 0) {
+              colour = nbColours[nbIdx % nbColours.length];
+              legendLabel = [nbs[nbIdx].firstName, nbs[nbIdx].lastName].filter(Boolean).join(' ') || 'Neighbour ' + (nbIdx + 1);
+            }
+          }
+
+          // Draw thick coloured line
+          ctx.strokeStyle = colour;
+          ctx.lineWidth = 6;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(side.x1, side.y1);
+          ctx.lineTo(side.x2, side.y2);
+          ctx.stroke();
+
+          // Label
+          ctx.fillStyle = colour;
+          ctx.font = 'bold 10px Helvetica Neue, Helvetica, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          if (side.rotate) {
+            ctx.save();
+            ctx.translate(side.labelX, side.labelY);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(run.name + (run.length ? ' · ' + run.length + 'm' : ''), 0, 0);
+            ctx.restore();
+          } else {
+            ctx.fillText(run.name + (run.length ? ' · ' + run.length + 'm' : ''), side.labelX, side.labelY);
+          }
+
+          // Track for legend
+          if (!legendSeen[legendLabel]) {
+            legendSeen[legendLabel] = true;
+            legend.push({ label: legendLabel, colour });
+          }
+        });
+
+        // Legend
+        if (legend.length > 0) {
+          let lx = 12, ly = H - 14 - legend.length * 18;
+          ctx.font = 'bold 11px Helvetica Neue, Helvetica, Arial, sans-serif';
+          ctx.fillStyle = '#293C46';
+          ctx.textAlign = 'left';
+          ctx.fillText('LEGEND', lx, ly);
+          ly += 16;
+          ctx.font = '11px Helvetica Neue, Helvetica, Arial, sans-serif';
+          legend.forEach(l => {
+            ctx.fillStyle = l.colour;
+            ctx.fillRect(lx, ly - 8, 12, 12);
+            ctx.fillStyle = '#293C46';
+            ctx.fillText(l.label, lx + 18, ly + 2);
+            ly += 18;
+          });
+        }
+
+        return c.toDataURL('image/png');
+      },
+
       // ── Collect all data for outputs ──
       _collectOutputData() {
         const job = this.job;
@@ -7722,16 +7913,27 @@
             return (sp + mp) > 0;
           });
 
+          // Per-run cost subtotal (fencing + plinths + patio tubes for this run)
+          const runFencing = (run.length || 0) * pricePerMetre;
+          const runPlinthsCost = runPlinths * plinthSell;
+          const runPatioCost = patioTubes * patioSell;
+          const runSubtotal = runFencing + runPlinthsCost + runPatioCost;
+
           runDetails.push({
             name: run.name,
             length: run.length || 0,
+            neighbourId: run.neighbourId || null,
             panelCount,
             postCount,
             plinths: runPlinths,
             patioTubes,
             panelsWithPatio,
             hasRetaining,
-            panels: panelDetails
+            panels: panelDetails,
+            runSubtotal,
+            runFencing,
+            runPlinthsCost,
+            runPatioCost
           });
         });
 
@@ -7915,6 +8117,33 @@
         const internalLabour = labourCost * (1 + accessRate);
         const materialMargin = subtotal - gst - internalCost - internalLabour;
 
+        // ── Per-neighbour cost calculation (from assigned runs) ──
+        const neighbourCosts = {};
+        const hasRunAssignments = runDetails.some(r => r.neighbourId);
+        if (hasRunAssignments && (job.neighbours || []).length > 0) {
+          // Sum direct run costs per neighbour
+          const totalRunSubtotals = runDetails.reduce((s, r) => s + r.runSubtotal, 0);
+          const sharedCosts = removalTotal + gatesTotal + deliveryFee + accessSurcharge + urgencySurcharge + groundFinishTotal + addonsTotal + customTotal;
+
+          runDetails.forEach(rd => {
+            const key = rd.neighbourId || '__client__';
+            if (!neighbourCosts[key]) neighbourCosts[key] = { directCost: 0, runs: [], runNames: [] };
+            neighbourCosts[key].directCost += rd.runSubtotal;
+            neighbourCosts[key].runs.push(rd);
+            neighbourCosts[key].runNames.push(rd.name);
+          });
+
+          // Split shared costs proportionally by each party's direct run cost
+          Object.keys(neighbourCosts).forEach(key => {
+            const nc = neighbourCosts[key];
+            const proportion = totalRunSubtotals > 0 ? nc.directCost / totalRunSubtotals : 0;
+            nc.sharedCost = sharedCosts * proportion;
+            nc.totalExGst = nc.directCost + nc.sharedCost;
+            nc.gst = nc.totalExGst * 0.10;
+            nc.totalIncGst = nc.totalExGst + nc.gst;
+          });
+        }
+
         return {
           job, js, supplier: job.supplier, profile: job.profile, colour: job.colour,
           panelWidthMm, panelWidthM, pricePerMetre,
@@ -7928,7 +8157,8 @@
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
           subtotal, gst, grandTotal,
-          internalCost, internalLabour, materialMargin
+          internalCost, internalLabour, materialMargin,
+          neighbourCosts, hasRunAssignments
         };
       },
 
@@ -8525,6 +8755,27 @@
           } catch(e) { /* skip if image fails */ }
         }
 
+        // Site plan diagram (if runs have neighbour assignments)
+        if (d.hasRunAssignments) {
+          try {
+            const sitePlanUrl = this._generateSitePlanDataUrl();
+            if (sitePlanUrl) {
+              const spW = pw - mx * 2;
+              const spH = spW * (400 / 600); // match canvas aspect ratio
+              if (y + spH + 10 > ph - 40) { doc.addPage(); y = 20; }
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(11);
+              doc.setTextColor(41, 60, 70);
+              doc.text('SITE PLAN — NEIGHBOUR BOUNDARIES', mx, y);
+              doc.setDrawColor(76, 106, 124);
+              doc.line(mx, y + 1, pw - mx, y + 1);
+              y += 4;
+              doc.addImage(sitePlanUrl, 'PNG', mx, y, spW, spH);
+              y += spH + 6;
+            }
+          } catch(e) { /* skip if site plan fails */ }
+        }
+
         // Material selection — colour swatch + profile name
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
@@ -8964,6 +9215,8 @@
               if (!run.slope.mode) run.slope.mode = 'simple';
               if (!run.slope.simple) run.slope.simple = { direction: 'left-to-right', totalFallMm: 0, startsFrom: 'start' };
               if (run.slope.monotonic === undefined) run.slope.monotonic = null;
+              // Migration: ensure neighbourId exists on runs
+              if (run.neighbourId === undefined) run.neighbourId = null;
               run.panels.forEach(p => {
                 if (p.step === undefined) p.step = p.ground || 'level';
                 if (p.slopePlinths === undefined) p.slopePlinths = 0;
@@ -9131,22 +9384,51 @@
       if (j.neighboursRequired && j.neighbours && j.neighbours.length > 0) {
         var nbs = j.neighbours.filter(function(n) { return n.firstName || n.lastName; });
         if (nbs.length > 0) {
-          var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
-          var clientShare = 100 - nbTotalShare;
-          neighbourSplits = {
-            client_share_percent: clientShare,
-            client_portion_inc_gst: Math.round(d.grandTotal * (clientShare / 100) * 100) / 100,
-            neighbours: nbs.map(function(n, i) {
-              return {
-                name: [n.firstName, n.lastName].filter(Boolean).join(' '),
-                phone: n.phone || '',
-                email: n.email || '',
-                address: n.address || '',
-                share_percent: n.sharePercent || 50,
-                portion_inc_gst: Math.round(d.grandTotal * ((n.sharePercent || 50) / 100) * 100) / 100
-              };
-            })
-          };
+          // Per-run cost method (preferred when runs have neighbourId assigned)
+          if (d.hasRunAssignments && d.neighbourCosts) {
+            var clientCost = d.neighbourCosts['__client__'];
+            neighbourSplits = {
+              method: 'per_run',
+              client_portion_ex_gst: clientCost ? Math.round(clientCost.totalExGst * 100) / 100 : d.subtotal,
+              client_portion_inc_gst: clientCost ? Math.round(clientCost.totalIncGst * 100) / 100 : d.grandTotal,
+              client_assigned_runs: clientCost ? clientCost.runNames : [],
+              neighbours: nbs.map(function(n) {
+                var nc = d.neighbourCosts[n.id];
+                return {
+                  id: n.id,
+                  name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                  phone: n.phone || '',
+                  email: n.email || '',
+                  address: n.address || '',
+                  portion_ex_gst: nc ? Math.round(nc.totalExGst * 100) / 100 : 0,
+                  portion_inc_gst: nc ? Math.round(nc.totalIncGst * 100) / 100 : 0,
+                  assigned_runs: nc ? nc.runNames : [],
+                  // Fallback flat % still included for backward compat
+                  share_percent: n.sharePercent || Math.round(100 / (nbs.length + 1))
+                };
+              })
+            };
+          } else {
+            // Fallback: flat percentage method (legacy)
+            var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
+            var clientShare = 100 - nbTotalShare;
+            neighbourSplits = {
+              method: 'flat_percent',
+              client_share_percent: clientShare,
+              client_portion_inc_gst: Math.round(d.grandTotal * (clientShare / 100) * 100) / 100,
+              neighbours: nbs.map(function(n, i) {
+                return {
+                  id: n.id,
+                  name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                  phone: n.phone || '',
+                  email: n.email || '',
+                  address: n.address || '',
+                  share_percent: n.sharePercent || 50,
+                  portion_inc_gst: Math.round(d.grandTotal * ((n.sharePercent || 50) / 100) * 100) / 100
+                };
+              })
+            };
+          }
         }
       }
 
@@ -9845,25 +10127,53 @@
               // Build contacts array: client (primary) + neighbours
               statusEl.textContent = 'Creating neighbour quotes...';
               var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
-              var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
-              var clientShare = 100 - nbTotalShare;
+              var pricingJson = app.job._pricing_json || app.buildPricingJson();
+              var splits = pricingJson.neighbour_splits;
+              var usePerRun = splits && splits.method === 'per_run';
 
-              var contacts = [{
-                name: clientName,
-                phone: app.job.phone || '',
-                email: app.job.email || '',
-                share_percentage: clientShare,
-                contact_type: 'primary'
-              }];
-              nbs.forEach(function(n) {
-                contacts.push({
-                  name: [n.firstName, n.lastName].filter(Boolean).join(' '),
-                  phone: n.phone || '',
-                  email: n.email || '',
-                  share_percentage: n.sharePercent || 50,
-                  contact_type: 'neighbour'
+              var contacts;
+              if (usePerRun) {
+                // Per-run cost method — send actual portions instead of flat %
+                contacts = [{
+                  name: clientName,
+                  phone: app.job.phone || '',
+                  email: app.job.email || '',
+                  portion_ex_gst: splits.client_portion_ex_gst,
+                  assigned_runs: splits.client_assigned_runs || [],
+                  contact_type: 'primary'
+                }];
+                nbs.forEach(function(n) {
+                  var nbSplit = (splits.neighbours || []).find(function(s) { return s.id === n.id; });
+                  contacts.push({
+                    name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                    phone: n.phone || '',
+                    email: n.email || '',
+                    portion_ex_gst: nbSplit ? nbSplit.portion_ex_gst : 0,
+                    assigned_runs: nbSplit ? nbSplit.assigned_runs : [],
+                    contact_type: 'neighbour'
+                  });
                 });
-              });
+              } else {
+                // Fallback flat percentage method
+                var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
+                var clientShare = 100 - nbTotalShare;
+                contacts = [{
+                  name: clientName,
+                  phone: app.job.phone || '',
+                  email: app.job.email || '',
+                  share_percentage: clientShare,
+                  contact_type: 'primary'
+                }];
+                nbs.forEach(function(n) {
+                  contacts.push({
+                    name: [n.firstName, n.lastName].filter(Boolean).join(' '),
+                    phone: n.phone || '',
+                    email: n.email || '',
+                    share_percentage: n.sharePercent || 50,
+                    contact_type: 'neighbour'
+                  });
+                });
+              }
 
               var nbRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
                 method: 'POST',
@@ -9907,14 +10217,42 @@
           await cloud.jobs.updateJobStatus(jobId, 'quoted');
         }
 
+        // Step 4: Send per-neighbour emails if we have neighbour quote data
+        var emailsSent = 0;
+        if (cloud && neighbourQuoteData && neighbourQuoteData.contacts) {
+          statusEl.textContent = 'Sending quote emails...';
+          for (var ci = 0; ci < neighbourQuoteData.contacts.length; ci++) {
+            var contact = neighbourQuoteData.contacts[ci];
+            if (!contact.document_id) continue;
+            try {
+              var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  document_id: contact.document_id,
+                  // email + name resolved from job_contacts by the edge function
+                })
+              });
+              if (sendRes.ok) emailsSent++;
+            } catch(e) {
+              console.warn('[SendQuote] Email send failed for', contact.client_name, e.message);
+            }
+          }
+        }
+
         statusEl.style.display = '';
         statusEl.style.background = '#DCFCE7';
         statusEl.style.color = '#166534';
         var doneMsg = '<strong>PDF downloaded.</strong>' + (quoteNumber ? ' Quote ' + quoteNumber + '.' : '') + ' Job marked as Quoted.';
         if (neighbourQuoteData && neighbourQuoteData.contacts) {
-          doneMsg += '<br><strong>' + neighbourQuoteData.contacts.length + ' neighbour quote tokens created.</strong> Each contact has their own acceptance link.';
+          doneMsg += '<br><strong>' + neighbourQuoteData.contacts.length + ' neighbour quote tokens created.</strong>';
+          if (emailsSent > 0) {
+            doneMsg += ' <strong>' + emailsSent + ' email(s) sent</strong> to contacts with email addresses.';
+          } else {
+            doneMsg += ' Each contact has their own acceptance link. Send via Outlook.';
+          }
         }
-        doneMsg += ' Send via Outlook.';
+        if (!neighbourQuoteData) doneMsg += ' Send via Outlook.';
         statusEl.innerHTML = doneMsg;
         sendBtn.textContent = 'Done ✓';
         sendBtn.style.background = '#22C55E';
