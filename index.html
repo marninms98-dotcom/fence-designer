@@ -7852,6 +7852,11 @@
         const panelWidthMm = supplier.panelWidth;
         const panelWidthM = panelWidthMm / 1000;
 
+        // Unit prices (needed inside per-run loop for run subtotals)
+        const pricePerMetre = job.pricePerMetre || 115;
+        const plinthSell = q.plinthPrice || 80;
+        const patioSell = q.patioTubePrice || 65;
+
         let totalMetres = 0;
         let totalPanels = 0;
         let totalPosts = 0;
@@ -7958,17 +7963,15 @@
         const tekBoxes = totalPanels > 0 ? Math.max(1, Math.ceil(totalPanels / 4)) : 0;
 
         // ── Pricing ──
-        const pricePerMetre = job.pricePerMetre || 115;
+        // (pricePerMetre, plinthSell, patioSell declared above runs loop)
 
         // Fencing line item
         const fencingTotal = totalMetres * pricePerMetre;
 
-        // Plinths: use override price or default $80
-        const plinthSell = q.plinthPrice || 80;
+        // Plinths
         const plinthsTotal = totalPlinths * plinthSell;
 
-        // Patio tubes: use override price or default $65
-        const patioSell = q.patioTubePrice || 65;
+        // Patio tubes
         const patioTotal = totalPatioTubes * patioSell;
 
         // Gates
