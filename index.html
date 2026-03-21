@@ -11081,6 +11081,9 @@
           '</div>';
         }).join('');
 
+        // Invalidate status cache so badge re-fetches
+        window._quoteStatusCache = null;
+
         overlay.innerHTML =
           '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;">' +
             '<div style="width:64px;height:64px;border-radius:50%;background:#DCFCE7;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">' +
@@ -11257,7 +11260,7 @@
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
                   '<span style="font-size:16px;line-height:1;">&#9729;</span> Save to Cloud' +
                 '</button>';
-        html += '<button class="gen-btn gen-btn-send" onclick="showSendQuoteModal()">Send Quote</button>';
+        html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote</button>';
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
         html += '<div class="gen-more-wrap">' +
                   '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
@@ -11271,6 +11274,46 @@
 
       inner.innerHTML = html;
       if (app && app._updateHeaderStatus) app._updateHeaderStatus();
+
+      // Async fetch quote status badge (non-blocking)
+      if (window._swIntegration && window._swIntegration.getJobId()) {
+        _fetchQuoteStatus(window._swIntegration.getJobId());
+      }
+    }
+
+    // ── Quote status badge ──
+    window._quoteStatusCache = null;
+    function _fetchQuoteStatus(jobId) {
+      if (!jobId || !window.SECUREWORKS_CLOUD) return;
+      if (window._quoteStatusCache && window._quoteStatusCache.job_id === jobId) {
+        _applyQuoteStatusBadge(window._quoteStatusCache);
+        return;
+      }
+      var cloud = window.SECUREWORKS_CLOUD;
+      fetch(cloud.supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId), {
+        headers: { 'Authorization': 'Bearer ' + cloud.supabaseAnonKey }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.status) {
+          data.job_id = jobId;
+          window._quoteStatusCache = data;
+          _applyQuoteStatusBadge(data);
+        }
+      })
+      .catch(function() { /* silent — badge is cosmetic */ });
+    }
+
+    function _applyQuoteStatusBadge(data) {
+      var colors = { sent: '#999', viewed: '#3B82F6', accepted: '#22C55E', declined: '#EF4444' };
+      var color = colors[data.status] || '#999';
+      var label = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+      var badge = '<span style="font-size:10px;padding:2px 6px;border-radius:100px;background:' + color + ';color:#fff;margin-left:6px;vertical-align:middle;">' + label + '</span>';
+
+      var btn = document.getElementById('fenceSendQuoteBtn');
+      if (btn) {
+        btn.innerHTML = 'Resend Quote' + badge;
+      }
     }
 
     // Hook into app.save() to update stages whenever data changes
