@@ -10571,59 +10571,298 @@
     }
 
     // ════════════════════════════════════════════════════════
-    // SEND QUOTE — Modal + Upload + Email via Edge Functions
+    // SEND QUOTE — Compose Modal + Upload + Email
     // ════════════════════════════════════════════════════════
+
+    var FENCE_LIBRARY_DOCS = [
+      { name: 'Warranty & Guarantee Guide', path: 'warranty-guide.pdf', size: '0.8 MB', sizeBytes: 838861 },
+      { name: 'Colorbond Colour Chart', path: 'colour-chart.pdf', size: '1.2 MB', sizeBytes: 1258291 },
+      { name: 'SecureWorks Capability Statement', path: 'capability-statement.pdf', size: '1.5 MB', sizeBytes: 1572864 },
+    ];
+
     function _showSendQuoteModalInternal() {
       var existing = document.getElementById('sendQuoteModal');
       if (existing) existing.remove();
 
       var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
+      var clientEmail = app.job.email || '';
+      var jobRef = app.job.ref || '';
+      var address = app.job.address || '';
+      var hasNeighbours = app.job.neighboursRequired && app.job.neighbours && app.job.neighbours.some(function(n) { return n.firstName || n.lastName; });
+      var neighbours = hasNeighbours ? app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; }) : [];
 
       var overlay = document.createElement('div');
       overlay.id = 'sendQuoteModal';
-      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
-      overlay.innerHTML = '<div style="background:#fff;border-radius:8px;max-width:480px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
-        '<h3 style="margin:0 0 4px;color:#293C46;font-size:18px;">Download Quote PDF</h3>' +
-        '<p style="margin:0 0 16px;color:#4C6A7C;font-size:13px;">PDF will download — send it to the client via Outlook.</p>' +
-        '<div id="sqStatus" style="display:none;padding:10px 12px;border-radius:4px;font-size:13px;margin-bottom:12px;"></div>' +
-        '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
-          '<button onclick="document.getElementById(\'sendQuoteModal\').remove()" style="padding:10px 20px;border:1px solid #D4DEE4;background:#fff;border-radius:4px;font-size:14px;cursor:pointer;">Cancel</button>' +
-          '<button id="sqSendBtn" onclick="executeSendQuote()" style="padding:10px 24px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:14px;font-weight:700;cursor:pointer;">Download & Mark as Quoted</button>' +
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#fff;z-index:10000;display:flex;flex-direction:column;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;overflow:hidden;';
+
+      var defaultSubject = 'Your fencing quote from SecureWorks WA' + (address ? ' — ' + address : '');
+
+      // Build library doc checkboxes
+      var docChecks = FENCE_LIBRARY_DOCS.map(function(d) {
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;font-size:14px;color:#333;cursor:pointer;border-bottom:1px solid #f0f0f0;">' +
+          '<input type="checkbox" class="sq-lib-check" data-path="' + d.path + '" data-size="' + d.sizeBytes + '" style="width:20px;height:20px;accent-color:#F15A29;"> ' +
+          '<span style="flex:1;">' + d.name + '</span>' +
+          '<span style="color:#999;font-size:12px;">' + d.size + '</span>' +
+        '</label>';
+      }).join('');
+
+      // Build neighbour recipients section
+      var neighbourHtml = '';
+      if (neighbours.length > 0) {
+        var nbRows = '';
+        // Primary client row (always checked, cannot uncheck)
+        nbRows += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">' +
+          '<input type="checkbox" checked disabled style="width:20px;height:20px;accent-color:#F15A29;">' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:14px;font-weight:600;color:#293C46;">' + clientName + ' <span style="font-size:11px;color:#4C6A7C;font-weight:400;">(Primary)</span></div>' +
+            '<input type="email" class="sq-nb-email" data-contact="primary" value="' + clientEmail.replace(/"/g, '&quot;') + '" placeholder="Email address" style="width:100%;padding:6px 8px;border:1px solid #D4DEE4;border-radius:4px;font-size:13px;margin-top:4px;box-sizing:border-box;">' +
+          '</div>' +
+        '</div>';
+
+        neighbours.forEach(function(n, i) {
+          var nbName = [n.firstName, n.lastName].filter(Boolean).join(' ');
+          var nbEmail = n.email || '';
+          var shareInfo = '';
+          var pricingJson = app.job._pricing_json || {};
+          var splits = pricingJson.neighbour_splits;
+          if (splits && splits.neighbours) {
+            var nbSplit = splits.neighbours.find(function(s) { return s.id === n.id; });
+            if (nbSplit && nbSplit.portion_ex_gst) shareInfo = ' — $' + nbSplit.portion_ex_gst.toLocaleString();
+          }
+          nbRows += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">' +
+            '<input type="checkbox" class="sq-nb-check" data-idx="' + i + '" ' + (nbEmail ? 'checked' : '') + ' style="width:20px;height:20px;accent-color:#F15A29;">' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:14px;font-weight:600;color:#293C46;">' + nbName + shareInfo + '</div>' +
+              '<input type="email" class="sq-nb-email" data-contact="nb-' + i + '" value="' + nbEmail.replace(/"/g, '&quot;') + '" placeholder="Email address" style="width:100%;padding:6px 8px;border:1px solid #D4DEE4;border-radius:4px;font-size:13px;margin-top:4px;box-sizing:border-box;">' +
+            '</div>' +
+          '</div>';
+        });
+
+        neighbourHtml =
+          '<div style="font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:8px;margin-top:20px;text-transform:uppercase;letter-spacing:0.5px;">Recipients (Neighbour Quotes)</div>' +
+          '<div style="background:#f9f9f9;border-radius:4px;padding:4px 12px;margin-bottom:20px;">' + nbRows + '</div>' +
+          '<p style="font-size:12px;color:#999;margin-bottom:20px;">Each checked recipient will receive their own quote with their share amount. Uncheck to skip sending.</p>';
+      }
+
+      overlay.innerHTML =
+        // Header
+        '<div style="background:#F15A29;padding:14px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;">' +
+          '<button id="sqBackBtn" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:4px 8px;line-height:1;">←</button>' +
+          '<div style="flex:1;">' +
+            '<div style="color:#fff;font-size:17px;font-weight:700;">Send Quote</div>' +
+            '<div style="color:rgba(255,255,255,0.8);font-size:12px;">' + jobRef + ' — ' + clientName + '</div>' +
+          '</div>' +
+          '<button id="sqSendBtn" style="background:#fff;color:#F15A29;border:none;border-radius:8px;padding:10px 24px;font-size:15px;font-weight:700;cursor:pointer;">Send ▶</button>' +
         '</div>' +
-      '</div>';
+
+        // Scrollable body
+        '<div style="flex:1;overflow-y:auto;padding:20px;-webkit-overflow-scrolling:touch;">' +
+          (hasNeighbours ? '' :
+            '<label style="display:block;font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">To *</label>' +
+            '<input type="email" id="sqTo" value="' + clientEmail.replace(/"/g, '&quot;') + '" placeholder="client@example.com" ' +
+              'style="width:100%;padding:12px;border:1px solid #D4DEE4;border-radius:4px;font-size:16px;margin-bottom:16px;box-sizing:border-box;">'
+          ) +
+
+          (hasNeighbours ? neighbourHtml : '') +
+
+          // CC field
+          '<label style="display:block;font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">CC (optional)</label>' +
+          '<input type="text" id="sqCC" placeholder="partner@example.com, builder@example.com" ' +
+            'style="width:100%;padding:12px;border:1px solid #D4DEE4;border-radius:4px;font-size:16px;margin-bottom:16px;box-sizing:border-box;">' +
+
+          // Subject
+          '<label style="display:block;font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Subject</label>' +
+          '<input type="text" id="sqSubject" value="' + defaultSubject.replace(/"/g, '&quot;') + '" ' +
+            'style="width:100%;padding:12px;border:1px solid #D4DEE4;border-radius:4px;font-size:16px;margin-bottom:16px;box-sizing:border-box;">' +
+
+          // Message
+          '<label style="display:block;font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Personal Message (optional)</label>' +
+          '<textarea id="sqMessage" rows="3" placeholder="Any additional notes for the client..." ' +
+            'style="width:100%;padding:12px;border:1px solid #D4DEE4;border-radius:4px;font-size:15px;margin-bottom:20px;resize:vertical;box-sizing:border-box;"></textarea>' +
+
+          // Attachments
+          '<div style="font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Attachments</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">' +
+            '<span style="font-size:20px;">📄</span>' +
+            '<span style="flex:1;font-size:14px;color:#333;font-weight:600;">Quote PDF <span style="color:#999;font-weight:400;">(auto-attached)</span></span>' +
+            '<span style="background:#DCFCE7;color:#166534;font-size:11px;padding:2px 8px;border-radius:100px;">Included</span>' +
+          '</div>' +
+          '<div style="margin-top:4px;">' + docChecks + '</div>' +
+          '<div id="sqSizeTracker" style="text-align:right;font-size:12px;color:#999;margin-top:8px;margin-bottom:20px;">Estimated: ~0.5 MB</div>' +
+
+        '</div>' +
+
+        // Bottom send button
+        '<div style="padding:16px 20px;border-top:1px solid #eee;flex-shrink:0;background:#fff;">' +
+          '<button id="sqSendBtnBottom" style="width:100%;padding:16px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;min-height:56px;">Send Quote</button>' +
+        '</div>';
+
       document.body.appendChild(overlay);
-      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+      // Wire events
+      setTimeout(function() {
+        document.getElementById('sqBackBtn').onclick = function() { overlay.remove(); };
+
+        var sendHandler = function() {
+          // Save form values before send
+          window._sqLastMessage = (document.getElementById('sqMessage') || {}).value || '';
+          window._sqLastCC = (document.getElementById('sqCC') || {}).value || '';
+          window._sqLastSubject = (document.getElementById('sqSubject') || {}).value || '';
+          window._sqLastLibPaths = [];
+          document.querySelectorAll('.sq-lib-check:checked').forEach(function(cb) {
+            window._sqLastLibPaths.push(cb.dataset.path);
+          });
+
+          // For neighbour mode, save per-contact emails
+          if (hasNeighbours) {
+            window._sqNeighbourSend = [];
+            // Primary client
+            var primaryEmailEl = document.querySelector('.sq-nb-email[data-contact="primary"]');
+            window._sqNeighbourSend.push({
+              contactType: 'primary',
+              name: clientName,
+              email: primaryEmailEl ? primaryEmailEl.value.trim() : clientEmail,
+              send: true
+            });
+            // Neighbours
+            neighbours.forEach(function(n, i) {
+              var nbCheck = document.querySelector('.sq-nb-check[data-idx="' + i + '"]');
+              var nbEmailEl = document.querySelector('.sq-nb-email[data-contact="nb-' + i + '"]');
+              var nbName = [n.firstName, n.lastName].filter(Boolean).join(' ');
+              window._sqNeighbourSend.push({
+                contactType: 'neighbour',
+                name: nbName,
+                email: nbEmailEl ? nbEmailEl.value.trim() : '',
+                send: nbCheck ? nbCheck.checked : false,
+                neighbourId: n.id
+              });
+            });
+          } else {
+            window._sqNeighbourSend = null;
+            window._sqLastTo = (document.getElementById('sqTo') || {}).value.trim();
+          }
+
+          executeSendQuote();
+        };
+        document.getElementById('sqSendBtn').onclick = sendHandler;
+        document.getElementById('sqSendBtnBottom').onclick = sendHandler;
+
+        // Validate send buttons
+        function validateSend() {
+          var valid = false;
+          if (hasNeighbours) {
+            // At least primary must have email
+            var primaryEmailEl = document.querySelector('.sq-nb-email[data-contact="primary"]');
+            valid = primaryEmailEl && primaryEmailEl.value.trim().includes('@');
+          } else {
+            var toEl = document.getElementById('sqTo');
+            valid = toEl && toEl.value.trim().includes('@') && toEl.value.trim().includes('.');
+          }
+          [document.getElementById('sqSendBtn'), document.getElementById('sqSendBtnBottom')].forEach(function(b) {
+            if (b) { b.disabled = !valid; b.style.opacity = valid ? '1' : '0.4'; }
+          });
+        }
+        if (hasNeighbours) {
+          document.querySelectorAll('.sq-nb-email').forEach(function(el) { el.addEventListener('input', validateSend); });
+        } else {
+          var toEl = document.getElementById('sqTo');
+          if (toEl) toEl.addEventListener('input', validateSend);
+        }
+        validateSend();
+
+        // Size tracker
+        function updateSizeTracker() {
+          var total = 500000;
+          document.querySelectorAll('.sq-lib-check:checked').forEach(function(cb) {
+            total += parseInt(cb.dataset.size) || 0;
+          });
+          var mb = (total / 1048576).toFixed(1);
+          var el = document.getElementById('sqSizeTracker');
+          if (el) {
+            el.textContent = 'Estimated: ~' + mb + ' MB / 10 MB';
+            el.style.color = total > 10485760 ? '#991B1B' : '#999';
+          }
+        }
+        document.querySelectorAll('.sq-lib-check').forEach(function(cb) {
+          cb.addEventListener('change', updateSizeTracker);
+        });
+
+        // Focus appropriate field
+        if (hasNeighbours) {
+          var firstNbEmail = document.querySelector('.sq-nb-email');
+          if (firstNbEmail) firstNbEmail.focus();
+        } else {
+          var toEl = document.getElementById('sqTo');
+          if (toEl) toEl.focus();
+        }
+      }, 50);
     }
 
     async function executeSendQuote() {
-      var statusEl = document.getElementById('sqStatus');
-      var sendBtn = document.getElementById('sqSendBtn');
-      sendBtn.disabled = true;
-      sendBtn.textContent = 'Preparing...';
-      sendBtn.style.opacity = '0.6';
-      try {
-        var cloud = window.SECUREWORKS_CLOUD;
-        var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+      var overlay = document.getElementById('sendQuoteModal');
+      if (!overlay) return;
 
-        // Step 1: Reserve quote number via prepare_quote (or prepare_neighbour_quotes for splits)
+      var message = window._sqLastMessage || '';
+      var ccField = window._sqLastCC || '';
+      var customSubject = window._sqLastSubject || '';
+      var libraryPaths = window._sqLastLibPaths || [];
+      var neighbourSend = window._sqNeighbourSend;
+      var singleTo = window._sqLastTo || '';
+
+      // Validate
+      if (!neighbourSend && (!singleTo || !singleTo.includes('@'))) {
+        app.showToast('Please enter a valid email address', 'error');
+        return;
+      }
+
+      // Parse CC
+      var ccEmails = [];
+      if (ccField) {
+        ccEmails = ccField.split(',').map(function(e) { return e.trim(); }).filter(function(e) { return e && e.includes('@'); });
+      }
+
+      // Get scoper name
+      var scoperName = 'The SecureWorks Team';
+      var cloud = window.SECUREWORKS_CLOUD;
+      if (cloud && cloud.auth && cloud.auth.getUser) {
+        try {
+          var user = cloud.auth.getUser();
+          if (user && user.full_name) scoperName = user.full_name;
+        } catch(e) {}
+      }
+
+      // Switch to sending screen
+      overlay.innerHTML =
+        '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;">' +
+          '<div style="width:48px;height:48px;border:4px solid #D4DEE4;border-top-color:#F15A29;border-radius:50%;animation:sqSpin 0.8s linear infinite;margin-bottom:24px;"></div>' +
+          '<div id="sqSendingStep" style="font-size:17px;font-weight:600;color:#293C46;margin-bottom:8px;">Preparing...</div>' +
+          '<div id="sqSendingDetail" style="font-size:14px;color:#4C6A7C;"></div>' +
+        '</div>' +
+        '<style>@keyframes sqSpin { to { transform: rotate(360deg); } }</style>';
+
+      function updateStep(step, detail) {
+        var s = document.getElementById('sqSendingStep');
+        var d = document.getElementById('sqSendingDetail');
+        if (s) s.textContent = step;
+        if (d) d.textContent = detail || '';
+      }
+
+      try {
+        var jobId = window._swIntegration ? window._swIntegration.getJobId() : null;
+        var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
+        var jobRef = app.job.ref || '';
+        var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
+
+        // Step 1: Reserve quote numbers
         var quoteNumber = null;
         var neighbourQuoteData = null;
+        var hasNeighbours = !!(neighbourSend && neighbourSend.length > 1);
+
         if (cloud && jobId) {
-          statusEl.style.display = '';
-          statusEl.style.background = '#EDF1F4';
-          statusEl.style.color = '#293C46';
-          statusEl.textContent = 'Reserving quote number...';
+          updateStep('Reserving quote number...', '');
           try {
-            var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
-            var jobRef = app.job.ref || '';
-            var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
-
-            // Check if this is a multi-contact (neighbour split) job
-            var hasNeighbours = app.job.neighboursRequired && app.job.neighbours && app.job.neighbours.some(function(n) { return n.firstName || n.lastName; });
-
             if (hasNeighbours) {
-              // Build contacts array: client (primary) + neighbours
-              statusEl.textContent = 'Creating neighbour quotes...';
+              updateStep('Creating neighbour quotes...', '');
               var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
               var pricingJson = app.job._pricing_json || app.buildPricingJson();
               var splits = pricingJson.neighbour_splits;
@@ -10631,42 +10870,40 @@
 
               var contacts;
               if (usePerRun) {
-                // Per-run cost method — send actual portions instead of flat %
                 contacts = [{
                   name: clientName,
                   phone: app.job.phone || '',
-                  email: app.job.email || '',
+                  email: neighbourSend[0].email || '',
                   portion_ex_gst: splits.client_portion_ex_gst,
                   assigned_runs: splits.client_assigned_runs || [],
                   contact_type: 'primary'
                 }];
-                nbs.forEach(function(n) {
+                nbs.forEach(function(n, i) {
                   var nbSplit = (splits.neighbours || []).find(function(s) { return s.id === n.id; });
                   contacts.push({
                     name: [n.firstName, n.lastName].filter(Boolean).join(' '),
                     phone: n.phone || '',
-                    email: n.email || '',
+                    email: neighbourSend[i + 1] ? neighbourSend[i + 1].email : '',
                     portion_ex_gst: nbSplit ? nbSplit.portion_ex_gst : 0,
                     assigned_runs: nbSplit ? nbSplit.assigned_runs : [],
                     contact_type: 'neighbour'
                   });
                 });
               } else {
-                // Fallback flat percentage method
                 var nbTotalShare = nbs.reduce(function(s, n) { return s + (n.sharePercent || 50); }, 0);
                 var clientShare = 100 - nbTotalShare;
                 contacts = [{
                   name: clientName,
                   phone: app.job.phone || '',
-                  email: app.job.email || '',
+                  email: neighbourSend[0].email || '',
                   share_percentage: clientShare,
                   contact_type: 'primary'
                 }];
-                nbs.forEach(function(n) {
+                nbs.forEach(function(n, i) {
                   contacts.push({
                     name: [n.firstName, n.lastName].filter(Boolean).join(' '),
                     phone: n.phone || '',
-                    email: n.email || '',
+                    email: neighbourSend[i + 1] ? neighbourSend[i + 1].email : '',
                     share_percentage: n.sharePercent || 50,
                     contact_type: 'neighbour'
                   });
@@ -10682,10 +10919,8 @@
               if (nbRes.ok && nbData.success) {
                 neighbourQuoteData = nbData;
                 quoteNumber = nbData.contacts[0]?.quote_number || null;
-                console.log('[SendQuote] Neighbour quotes prepared:', nbData.contacts.length, 'contacts');
               }
             } else {
-              // Standard single-contact quote
               var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -10701,29 +10936,23 @@
           }
         }
 
-        // Step 2: Generate PDF with quote number (full-job PDF for ops/download)
-        statusEl.style.display = '';
-        statusEl.textContent = 'Generating PDF...';
-        sendBtn.textContent = 'Generating PDF...';
+        // Step 2: Generate PDF
+        updateStep('Generating PDF...', '');
         window._currentQuoteNumber = quoteNumber;
         app.generateQuotePDF();
         window._currentQuoteNumber = null;
 
-        // Step 2b: Generate + upload per-neighbour PDFs (each contact sees only their portion)
+        // Step 2b: Generate + upload per-neighbour PDFs
         if (neighbourQuoteData && neighbourQuoteData.contacts && cloud) {
-          statusEl.textContent = 'Generating neighbour PDFs...';
+          updateStep('Generating neighbour PDFs...', '');
           try {
             var d = app._collectOutputData();
             var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
             for (var pi = 0; pi < neighbourQuoteData.contacts.length; pi++) {
               var pContact = neighbourQuoteData.contacts[pi];
               if (!pContact.upload_url) continue;
-              // Map contact index to neighbourCosts key
               var nbKey = pi === 0 ? '__client__' : (nbs[pi - 1] ? nbs[pi - 1].id : null);
-              if (!nbKey || !d.neighbourCosts[nbKey]) {
-                console.warn('[SendQuote] No cost data for contact', pi, pContact.client_name);
-                continue;
-              }
+              if (!nbKey || !d.neighbourCosts[nbKey]) continue;
               var blob = app.generateNeighbourPDF(pContact, d, nbKey);
               if (!blob) continue;
               try {
@@ -10732,11 +10961,7 @@
                   headers: { 'Content-Type': 'application/pdf' },
                   body: blob
                 });
-                if (upRes.ok) {
-                  console.log('[SendQuote] Uploaded PDF for', pContact.client_name);
-                } else {
-                  console.warn('[SendQuote] PDF upload failed for', pContact.client_name, upRes.status);
-                }
+                if (upRes.ok) console.log('[SendQuote] Uploaded PDF for', pContact.client_name);
               } catch(ue) {
                 console.warn('[SendQuote] PDF upload error for', pContact.client_name, ue.message);
               }
@@ -10746,61 +10971,170 @@
           }
         }
 
-        // Step 3: Update job status to "quoted" in the cloud
+        // Step 3: Update job status
         if (cloud && jobId) {
-          statusEl.textContent = 'Updating job status...';
+          updateStep('Updating job status...', '');
           await cloud.jobs.updateJobStatus(jobId, 'quoted');
         }
 
-        // Step 4: Send per-neighbour emails if we have neighbour quote data
-        var emailsSent = 0;
-        if (cloud && neighbourQuoteData && neighbourQuoteData.contacts) {
-          statusEl.textContent = 'Sending quote emails...';
+        // Step 4: Send emails
+        var sendResults = []; // { name, email, status: 'sent'|'skipped'|'failed'|'no-email' }
+
+        if (hasNeighbours && neighbourQuoteData && neighbourQuoteData.contacts) {
+          updateStep('Sending quote emails...', '');
           for (var ci = 0; ci < neighbourQuoteData.contacts.length; ci++) {
             var contact = neighbourQuoteData.contacts[ci];
-            if (!contact.document_id) continue;
+            var sendInfo = neighbourSend[ci] || {};
+            if (!sendInfo.send && ci > 0) {
+              sendResults.push({ name: sendInfo.name || contact.client_name, email: '', status: 'skipped' });
+              continue;
+            }
+            var contactEmail = sendInfo.email || '';
+            if (!contactEmail || !contactEmail.includes('@')) {
+              sendResults.push({ name: sendInfo.name || contact.client_name, email: '', status: 'no-email' });
+              continue;
+            }
+            if (!contact.document_id) {
+              sendResults.push({ name: sendInfo.name || contact.client_name, email: contactEmail, status: 'failed' });
+              continue;
+            }
             try {
+              updateStep('Sending email...', 'to ' + contactEmail);
               var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   document_id: contact.document_id,
+                  client_email: contactEmail,
+                  client_name: sendInfo.name,
+                  message: message || '',
+                  cc_emails: ccEmails.length > 0 ? ccEmails : undefined,
+                  subject: customSubject || undefined,
+                  attachment_paths: libraryPaths.length > 0 ? libraryPaths : undefined,
+                  scoper_name: scoperName !== 'The SecureWorks Team' ? scoperName : undefined,
                 })
               });
-              if (sendRes.ok) emailsSent++;
+              if (sendRes.ok) {
+                var sendData = await sendRes.json();
+                sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'sent', viewUrl: sendData.view_url });
+              } else {
+                sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed' });
+              }
             } catch(e) {
-              console.warn('[SendQuote] Email send failed for', contact.client_name, e.message);
+              console.warn('[SendQuote] Email send failed for', sendInfo.name, e.message);
+              sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed' });
+            }
+          }
+        } else if (!hasNeighbours && cloud && jobId) {
+          // Single recipient send
+          var toEmail = singleTo;
+          if (toEmail && toEmail.includes('@')) {
+            updateStep('Sending email...', 'to ' + toEmail);
+            // Need a document_id — for single non-neighbour, use prepData
+            if (prepData && prepData.documentId) {
+              // Upload PDF first (fencing tool generates PDF via app.generateQuotePDF() which downloads it,
+              // but the prepare_quote gave us an upload URL)
+              // The fencing tool's generateQuotePDF downloads the PDF directly. We need to capture it instead.
+              // For now, just send the email with the document_id — the PDF is already stored via prepare_quote
+              try {
+                var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    document_id: prepData.documentId,
+                    client_email: toEmail,
+                    client_name: clientName,
+                    message: message || '',
+                    cc_emails: ccEmails.length > 0 ? ccEmails : undefined,
+                    subject: customSubject || undefined,
+                    attachment_paths: libraryPaths.length > 0 ? libraryPaths : undefined,
+                    scoper_name: scoperName !== 'The SecureWorks Team' ? scoperName : undefined,
+                  })
+                });
+                var sendData = await sendRes.json();
+                if (sendRes.ok) {
+                  sendResults.push({ name: clientName, email: toEmail, status: 'sent', viewUrl: sendData.view_url });
+                } else {
+                  sendResults.push({ name: clientName, email: toEmail, status: 'failed' });
+                }
+              } catch(e) {
+                sendResults.push({ name: clientName, email: toEmail, status: 'failed' });
+              }
             }
           }
         }
 
-        statusEl.style.display = '';
-        statusEl.style.background = '#DCFCE7';
-        statusEl.style.color = '#166534';
-        var doneMsg = '<strong>PDF downloaded.</strong>' + (quoteNumber ? ' Quote ' + quoteNumber + '.' : '') + ' Job marked as Quoted.';
-        if (neighbourQuoteData && neighbourQuoteData.contacts) {
-          doneMsg += '<br><strong>' + neighbourQuoteData.contacts.length + ' neighbour quote tokens created.</strong>';
-          if (emailsSent > 0) {
-            doneMsg += ' <strong>' + emailsSent + ' email(s) sent</strong> to contacts with email addresses.';
-          } else {
-            doneMsg += ' Each contact has their own acceptance link. Send via Outlook.';
+        // Step 5: Show success screen
+        var sentCount = sendResults.filter(function(r) { return r.status === 'sent'; }).length;
+        var firstViewUrl = (sendResults.find(function(r) { return r.viewUrl; }) || {}).viewUrl || '';
+
+        var resultRows = sendResults.map(function(r) {
+          var icon = r.status === 'sent' ? '✓' : r.status === 'skipped' ? '—' : r.status === 'no-email' ? '✉' : '✕';
+          var iconColor = r.status === 'sent' ? '#22C55E' : r.status === 'skipped' ? '#999' : r.status === 'no-email' ? '#F59E0B' : '#EF4444';
+          var detail = r.status === 'sent' ? r.email : r.status === 'no-email' ? 'No email address' : r.status === 'skipped' ? 'Skipped' : 'Failed';
+          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">' +
+            '<span style="color:' + iconColor + ';font-size:18px;width:24px;text-align:center;">' + icon + '</span>' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:14px;font-weight:600;color:#293C46;">' + r.name + '</div>' +
+              '<div style="font-size:12px;color:#4C6A7C;">' + detail + '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+        overlay.innerHTML =
+          '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;">' +
+            '<div style="width:64px;height:64px;border-radius:50%;background:#DCFCE7;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">' +
+              '<span style="font-size:32px;color:#22C55E;">✓</span>' +
+            '</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#293C46;margin-bottom:4px;">' +
+              (quoteNumber ? 'Quote ' + quoteNumber + ' ' : '') + (sentCount > 0 ? 'Sent!' : 'Done!') +
+            '</div>' +
+            '<div style="font-size:13px;color:#999;margin-bottom:24px;">' + sentCount + ' email' + (sentCount !== 1 ? 's' : '') + ' sent</div>' +
+
+            // Per-recipient results
+            '<div style="width:100%;max-width:360px;text-align:left;margin-bottom:24px;">' + resultRows + '</div>' +
+
+            (firstViewUrl ? '<button id="sqCopyLink" style="width:100%;max-width:360px;padding:14px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">Copy Acceptance Link</button>' : '') +
+            '<button id="sqDone" style="width:100%;max-width:360px;padding:14px;background:#fff;color:#4C6A7C;border:1px solid #D4DEE4;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Done</button>' +
+          '</div>';
+
+        setTimeout(function() {
+          if (firstViewUrl && document.getElementById('sqCopyLink')) {
+            document.getElementById('sqCopyLink').onclick = function() {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(firstViewUrl).then(function() {
+                  document.getElementById('sqCopyLink').textContent = 'Copied! ✓';
+                  setTimeout(function() {
+                    var el = document.getElementById('sqCopyLink');
+                    if (el) el.textContent = 'Copy Acceptance Link';
+                  }, 2000);
+                });
+              }
+            };
           }
-        }
-        if (!neighbourQuoteData) doneMsg += ' Send via Outlook.';
-        statusEl.innerHTML = doneMsg;
-        sendBtn.textContent = 'Done ✓';
-        sendBtn.style.background = '#22C55E';
-        app.showToast('Quote ' + (quoteNumber || 'PDF') + ' downloaded — send via Outlook', 'success');
-        setTimeout(function() { var modal = document.getElementById('sendQuoteModal'); if (modal) modal.remove(); }, 2500);
+          document.getElementById('sqDone').onclick = function() {
+            document.getElementById('sendQuoteModal').remove();
+          };
+        }, 50);
+
+        app.showToast('Quote ' + (quoteNumber || '') + ' — ' + sentCount + ' email(s) sent', 'success');
+
       } catch(e) {
         console.error('[SendQuote] Error:', e);
-        statusEl.style.display = '';
-        statusEl.style.background = '#FEE2E2';
-        statusEl.style.color = '#991B1B';
-        statusEl.textContent = 'Failed: ' + e.message;
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Retry';
-        sendBtn.style.opacity = '1';
+        overlay.innerHTML =
+          '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;">' +
+            '<div style="width:64px;height:64px;border-radius:50%;background:#FEE2E2;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">' +
+              '<span style="font-size:32px;color:#991B1B;">✕</span>' +
+            '</div>' +
+            '<div style="font-size:18px;font-weight:700;color:#991B1B;margin-bottom:8px;">Send Failed</div>' +
+            '<div style="font-size:14px;color:#4C6A7C;margin-bottom:32px;max-width:360px;">' + (e.message || 'Unknown error') + '</div>' +
+            '<button id="sqRetry" style="width:100%;max-width:360px;padding:14px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">Try Again</button>' +
+            '<button id="sqCancel" style="width:100%;max-width:360px;padding:14px;background:#fff;color:#4C6A7C;border:1px solid #D4DEE4;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Cancel</button>' +
+          '</div>';
+        setTimeout(function() {
+          document.getElementById('sqRetry').onclick = function() { _showSendQuoteModalInternal(); };
+          document.getElementById('sqCancel').onclick = function() { overlay.remove(); };
+        }, 50);
       }
     }
 
