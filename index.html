@@ -4387,6 +4387,17 @@
         return Math.sqrt(dx * dx + dy * dy) < 20;
       },
 
+      _spMetresPerPixel() {
+        if (!this._spLatlng) return 0.3; // fallback
+        var C = 40075016.686;
+        var zoom = this._spZoomLevel || 19;
+        var mPerPx = (C / (256 * Math.pow(2, zoom))) * Math.cos(this._spLatlng.lat * Math.PI / 180);
+        var canvasW = this._spCanvasW || 400;
+        var reqW = Math.min(canvasW, 640);
+        var scale = canvasW / reqW;
+        return mPerPx / scale;
+      },
+
       _spDrawLineOnCtx(ctx, line, scale, isDashed) {
         if (!line || line.length < 1) return;
         var s = scale || 1;
@@ -4427,6 +4438,53 @@
           ctx.lineWidth = 2 * s;
           ctx.stroke();
         }
+
+        // Distance labels on segments
+        if (!isDashed && line.length >= 2) {
+          var mpp = this._spMetresPerPixel();
+          for (var i = 0; i < line.length - 1; i++) {
+            var x1 = line[i].x * s, y1 = line[i].y * s;
+            var x2 = line[i+1].x * s, y2 = line[i+1].y * s;
+            var dx = x2 - x1, dy = y2 - y1;
+            var pxDist = Math.sqrt(dx*dx + dy*dy);
+            var metres = (pxDist / s) * mpp;
+            if (metres < 0.5) continue;
+
+            var mx = (x1 + x2) / 2;
+            var my = (y1 + y2) / 2;
+            var angle = Math.atan2(dy, dx);
+            if (angle > Math.PI/2 || angle < -Math.PI/2) angle += Math.PI;
+
+            var label = metres.toFixed(1) + 'm';
+
+            ctx.save();
+            ctx.translate(mx, my);
+            ctx.rotate(angle);
+            ctx.translate(0, -12 * s);
+
+            ctx.font = 'bold ' + (11 * s) + 'px sans-serif';
+            var tw = ctx.measureText(label).width;
+            var pad = 4 * s;
+
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.beginPath();
+            var r = 3 * s;
+            var rx = -(tw/2+pad), ry = -(8*s), rw = tw+pad*2, rh = 16*s;
+            if (ctx.roundRect) {
+              ctx.roundRect(rx, ry, rw, rh, r);
+            } else {
+              ctx.rect(rx, ry, rw, rh);
+            }
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, 0, 0);
+
+            ctx.restore();
+          }
+        }
       },
 
       _spRedraw() {
@@ -4466,6 +4524,64 @@
             ctx.stroke();
             ctx.setLineDash([]);
           }
+        }
+
+        // Total measurement bar
+        this._spDrawTotalBar(ctx, 1);
+      },
+
+      _spDrawTotalBar(ctx, scale) {
+        var s = scale || 1;
+        var totalDrawnM = 0;
+        var mpp = this._spMetresPerPixel();
+        var self = this;
+        this._spStrokes.forEach(function(line) {
+          for (var i = 0; i < line.length - 1; i++) {
+            var dx = line[i+1].x - line[i].x;
+            var dy = line[i+1].y - line[i].y;
+            totalDrawnM += Math.sqrt(dx*dx + dy*dy) * mpp;
+          }
+        });
+        if (this._spCurrentLine && this._spCurrentLine.length >= 2) {
+          for (var i = 0; i < this._spCurrentLine.length - 1; i++) {
+            var dx = this._spCurrentLine[i+1].x - this._spCurrentLine[i].x;
+            var dy = this._spCurrentLine[i+1].y - this._spCurrentLine[i].y;
+            totalDrawnM += Math.sqrt(dx*dx + dy*dy) * mpp;
+          }
+        }
+
+        var totalRunsM = 0;
+        if (this.job && this.job.runs) {
+          this.job.runs.forEach(function(run) {
+            totalRunsM += (run.length || 0);
+          });
+        }
+
+        if (totalDrawnM > 0 || totalRunsM > 0) {
+          var barText = 'Drawn: ' + totalDrawnM.toFixed(1) + 'm';
+          if (totalRunsM > 0) barText += '  |  Runs total: ' + totalRunsM.toFixed(1) + 'm';
+
+          ctx.font = 'bold ' + (13 * s) + 'px sans-serif';
+          var tw = ctx.measureText(barText).width;
+          var pad = 10 * s;
+          var canvasW = (this._spCanvasW || 400) * s;
+          var bx = (canvasW - tw) / 2 - pad;
+          var by = 10 * s;
+          var bh = 28 * s;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.75)';
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(bx, by, tw + pad*2, bh, 6 * s);
+          } else {
+            ctx.rect(bx, by, tw + pad*2, bh);
+          }
+          ctx.fill();
+
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(barText, canvasW / 2, by + bh / 2);
         }
       },
 
@@ -4537,6 +4653,9 @@
           self._spDrawLineOnCtx(outCtx, line, scale, false);
         });
 
+        // Draw total measurement bar on capture
+        self._spDrawTotalBar(outCtx, scale);
+
         try {
           var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
           self.job.sitePlanImage = dataUrl;
@@ -4588,6 +4707,9 @@
           self._spStrokes.forEach(function(line) {
             self._spDrawLineOnCtx(outCtx, line, scale, false);
           });
+
+          // Draw total measurement bar on capture
+          self._spDrawTotalBar(outCtx, scale);
 
           try {
             var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
