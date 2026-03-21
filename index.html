@@ -10058,6 +10058,9 @@
       },
 
       isSignedOff() {
+        // Only trust sign-off if a job is actually loaded and the sign-off
+        // belongs to this session (prevents stale localStorage bleed)
+        if (!app.job || !app.job.clientFirstName) return false;
         return !!(this._verificationState.scoper && this._verificationState.scoper.signedOff);
       },
 
@@ -11210,9 +11213,9 @@
       var j = app.job;
       if (!j) return 1;
 
-      // Stage 4: Scope complete (has job number)
-      var hasJobNumber = !!(j.ref && j.ref.startsWith('SWF')) || !!(window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber());
-      if (hasJobNumber) return 4;
+      // Stage 4: Scope complete (has real job number from backend)
+      var backendJobNum = window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber();
+      if (backendJobNum && /^SW[PFD]-\d+/.test(backendJobNum)) return 4;
       if (j.scopeComplete) return 4;
 
       // Stage 3: Has runs + client + valid pricing — ready for output
