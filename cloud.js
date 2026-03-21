@@ -128,16 +128,10 @@
     async sendMagicLink(email) {
       // Use current URL if on GitHub Pages, otherwise fall back to GitHub Pages patio URL
       var redirectUrl = window.location.href.split('?')[0].split('#')[0];
-      if (redirectUrl.startsWith('file:')) {
-        // Local file — redirect to localhost server so the link actually works
+      if (redirectUrl.startsWith('file:') || redirectUrl.includes('127.0.0.1') || redirectUrl.includes('localhost')) {
+        // Local dev — redirect to GitHub Pages so the link actually works
         var title = (document.title || '').toLowerCase();
-        if (title.includes('dashboard') || title.includes('job')) {
-          redirectUrl = 'http://localhost:8080/dashboard/index.html';
-        } else if (title.includes('fence')) {
-          redirectUrl = 'https://marninms98-dotcom.github.io/fence-designer/';
-        } else {
-          redirectUrl = 'https://marninms98-dotcom.github.io/patio/';
-        }
+        redirectUrl = title.includes('fence') ? 'https://marninms98-dotcom.github.io/fence-designer/' : 'https://marninms98-dotcom.github.io/patio/';
       }
       var result = await sb.auth.signInWithOtp({
         email: email,
@@ -358,58 +352,6 @@
       var result = await sb.from('upcoming_schedule').select('*');
       if (result.error) throw result.error;
       return result.data;
-    },
-
-    // ── Calendar CRUD (used by ops dashboard) ──
-    async assignJob(jobId, userId, date, opts) {
-      opts = opts || {};
-      var result = await sb.from('job_assignments').insert({
-        job_id: jobId,
-        user_id: userId || null,
-        scheduled_date: date,
-        scheduled_end: opts.scheduledEnd || null,
-        start_time: opts.startTime || null,
-        end_time: opts.endTime || null,
-        assignment_type: opts.assignmentType || 'install',
-        crew_name: opts.crewName || null,
-        notes: opts.notes || null,
-        role: opts.role || 'lead_installer',
-        status: 'scheduled'
-      }).select().single();
-      if (result.error) throw result.error;
-      emit('assignment:created', result.data);
-      return result.data;
-    },
-
-    async getCalendarSchedule(from, to) {
-      var query = sb.from('calendar_events').select('*')
-        .eq('org_id', _orgId || '00000000-0000-0000-0000-000000000001')
-        .gte('scheduled_date', from)
-        .lte('scheduled_date', to)
-        .neq('assignment_status', 'cancelled')
-        .order('scheduled_date', { ascending: true });
-      var result = await query;
-      if (result.error) throw result.error;
-      return result.data;
-    },
-
-    async updateAssignment(assignmentId, updates) {
-      var result = await sb.from('job_assignments')
-        .update(updates)
-        .eq('id', assignmentId)
-        .select().single();
-      if (result.error) throw result.error;
-      emit('assignment:updated', result.data);
-      return result.data;
-    },
-
-    async deleteAssignment(assignmentId) {
-      var result = await sb.from('job_assignments')
-        .delete()
-        .eq('id', assignmentId);
-      if (result.error) throw result.error;
-      emit('assignment:deleted', { id: assignmentId });
-      return true;
     }
   };
 
@@ -554,7 +496,7 @@
 
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
     async createJobForOpportunity(opportunityId, toolType, contact) {
-      console.log('[Cloud] createJobForOpportunity:', opportunityId || '(no GHL opp)', toolType);
+      console.log('[Cloud] createJobForOpportunity:', opportunityId, toolType);
       var payload = {
         toolType: toolType,
         clientName: contact.name || '',
@@ -563,7 +505,6 @@
         siteAddress: contact.address || '',
         siteSuburb: contact.suburb || ''
       };
-      // GHL opportunity is optional — walk-up scopes may not have one
       if (opportunityId) payload.opportunityId = opportunityId;
       if (contact.contactId) payload.contactId = contact.contactId;
       var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
@@ -876,15 +817,10 @@
       try {
         var state = getStateFn();
         if (!state) return;
+
+        // Build meta so auto-save keeps jobs table fields current
         var meta = {};
-        // Always sync client details so jobs table stays current
-        if (state.job) {
-          meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
-          meta.client_phone = state.job.phone || '';
-          meta.client_email = state.job.email || '';
-          meta.site_address = state.job.address || '';
-          meta.site_suburb = state.job.suburb || '';
-        } else if (state.customer || state.client) {
+        if (state.customer || state.client) {
           var c = state.customer || {};
           var cl = state.client || {};
           meta.client_name = c.name || cl.name || '';
@@ -892,17 +828,19 @@
           meta.client_email = c.email || cl.email || '';
           meta.site_address = c.address || cl.address || '';
           meta.site_suburb = cl.suburb || '';
+        } else if (state.job) {
+          meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+          meta.client_phone = state.job.phone || '';
+          meta.client_email = state.job.email || '';
+          meta.site_address = state.job.address || '';
+          meta.site_suburb = state.job.suburb || '';
         }
         if (state.job && state.job._pricing_json) {
           meta.pricing_json = state.job._pricing_json;
         } else if (state._pricing_json) {
           meta.pricing_json = state._pricing_json;
         }
-        if (state.job && state.job.materialVerification) {
-          meta.material_verified = true;
-          meta.material_verified_at = state.job.materialVerification.timestamp;
-          meta.material_verified_by = state.job.materialVerification.verifier;
-        }
+
         await ghl.saveScope(jobId, state, meta);
         emit('autosave:success', { jobId: jobId });
       } catch(e) {
@@ -931,11 +869,12 @@
       overlay.id = 'sw-login-overlay';
       overlay.innerHTML =
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;">' +
-          '<div style="background:#fff;border-radius:12px;padding:32px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+          '<div style="background:#fff;border-radius:12px;padding:32px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;">' +
             '<h2 style="margin:0 0 8px;color:' + hex.dark + ';font-size:18px;">Sign In</h2>' +
-            '<p style="margin:0 0 20px;color:' + hex.mid + ';font-size:13px;">Enter your email to receive a magic link</p>' +
-            '<input type="email" id="sw-login-email" placeholder="your@email.com" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:12px;">' +
-            '<button id="sw-login-btn" style="width:100%;padding:10px;background:' + hex.orange + ';color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Send Magic Link</button>' +
+            '<p style="margin:0 0 20px;color:' + hex.mid + ';font-size:13px;">Enter your email and password</p>' +
+            '<input type="email" id="sw-login-email" placeholder="your@email.com" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:10px;">' +
+            '<input type="password" id="sw-login-password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:12px;">' +
+            '<button id="sw-login-btn" style="width:100%;padding:10px;background:' + hex.orange + ';color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Log In</button>' +
             '<p id="sw-login-status" style="margin:12px 0 0;font-size:12px;color:' + hex.mid + ';text-align:center;"></p>' +
             '<button id="sw-login-close" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;">&times;</button>' +
           '</div>' +
@@ -947,22 +886,28 @@
         overlay.remove();
       };
 
+      // Enter key on password field
+      document.getElementById('sw-login-password').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') document.getElementById('sw-login-btn').click();
+      });
+
       document.getElementById('sw-login-btn').onclick = async function() {
         var email = document.getElementById('sw-login-email').value.trim();
+        var password = document.getElementById('sw-login-password').value;
         var status = document.getElementById('sw-login-status');
-        if (!email) { status.textContent = 'Please enter your email'; return; }
+        if (!email || !password) { status.textContent = 'Please enter email and password'; return; }
 
         try {
           document.getElementById('sw-login-btn').disabled = true;
-          document.getElementById('sw-login-btn').textContent = 'Sending...';
-          await auth.sendMagicLink(email);
-          status.style.color = '#34C759';
-          status.textContent = 'Check your email for the login link!';
+          document.getElementById('sw-login-btn').textContent = 'Logging in...';
+          await auth.signIn(email, password);
+          overlay.remove();
+          if (onSuccess) onSuccess(_userProfile);
         } catch(e) {
           status.style.color = '#FF3B30';
-          status.textContent = e.message || 'Failed to send link';
+          status.textContent = e.message || 'Wrong email or password';
           document.getElementById('sw-login-btn').disabled = false;
-          document.getElementById('sw-login-btn').textContent = 'Send Magic Link';
+          document.getElementById('sw-login-btn').textContent = 'Log In';
         }
       };
 
@@ -1051,15 +996,11 @@
         _searchTimer = setTimeout(function() { _loadList(val); }, 300);
       };
 
-      // New job button
-      document.getElementById('sw-job-new').onclick = async function() {
-        try {
-          var job = await cloud.createJob(toolType, {});
-          overlay.remove();
-          if (onSelect) onSelect(job.id);
-        } catch(e) {
-          alert('Failed to create job: ' + e.message);
-        }
+      // New job button — local-only until explicit cloud save
+      document.getElementById('sw-job-new').onclick = function() {
+        var localId = 'local-' + Date.now();
+        overlay.remove();
+        if (onSelect) onSelect(localId);
       };
     },
 
@@ -1067,21 +1008,18 @@
     showGHLPicker: function(toolType, onSelect) {
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
+      var pipelineLabel = (toolType === 'fencing') ? 'Fencing' : 'Patio';
       var overlay = document.createElement('div');
       overlay.id = 'sw-ghlpicker-overlay';
       overlay.innerHTML =
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;">' +
           '<div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load from GHL</h2>' +
+              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load from GHL <span style="font-size:13px;font-weight:400;color:' + hex.mid + ';">(' + pipelineLabel + ' Pipeline)</span></h2>' +
               '<button id="sw-ghl-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">&times;</button>' +
             '</div>' +
-            '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
-              '<select id="sw-ghl-pipeline" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;">' +
-                '<option value="patio"' + (pipelineKey === 'patio' ? ' selected' : '') + '>Patios Sales</option>' +
-                '<option value="fencing"' + (pipelineKey === 'fencing' ? ' selected' : '') + '>Fencing Sales</option>' +
-              '</select>' +
-              '<input type="text" id="sw-ghl-search" placeholder="Search by name..." style="flex:2;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;">' +
+            '<div style="margin-bottom:12px;">' +
+              '<input type="text" id="sw-ghl-search" placeholder="Search by name..." style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">' +
             '</div>' +
             '<div id="sw-ghl-list" style="overflow-y:auto;flex:1;min-height:200px;">' +
               '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading opportunities...</p>' +
@@ -1093,7 +1031,7 @@
 
       document.getElementById('sw-ghl-close').onclick = function() { overlay.remove(); };
 
-      // Load opportunities with enriched display
+      // Load opportunities and check for existing Supabase jobs
       var _loadOpps = async function(pipeline, search) {
         var list = document.getElementById('sw-ghl-list');
         list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading...</p>';
@@ -1110,51 +1048,21 @@
             return;
           }
 
-          // Check for existing Supabase jobs for each opportunity (batch)
-          var jobLookup = {};
-          try {
-            var lookups = opps.map(function(opp) {
-              return ghl.findJobByOpportunity(opp.id, toolType).then(function(job) {
-                if (job) jobLookup[opp.id] = job;
-              }).catch(function() {});
-            });
-            await Promise.all(lookups);
-          } catch(e) { /* non-blocking */ }
-
+          // Render cards first (fast), then enrich with Supabase data (async)
           list.innerHTML = opps.map(function(opp) {
-            var existingJob = jobLookup[opp.id] || null;
-            var name = opp.contactName || opp.name || 'Unknown';
-            var address = opp.contactAddress || opp.address || '';
-            var phone = opp.contactPhone || '';
-            var stage = opp.stageName || opp.status || '';
-
-            // Build detail lines
-            var details = [];
-            if (address) details.push('<span style="color:' + hex.dark + ';">' + address + '</span>');
-            if (phone) details.push(phone);
-            var detailLine = details.length > 0
-              ? '<div style="font-size:12px;color:' + hex.mid + ';margin-top:4px;">' + details.join(' &middot; ') + '</div>'
-              : '';
-
-            // Existing job badge
-            var jobBadge = '';
-            var actionLabel = 'Start new scope';
-            if (existingJob) {
-              var jn = existingJob.job_number || '';
-              jobBadge = '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(34,197,94,0.15);color:#16a34a;font-weight:700;margin-left:6px;">' + (jn || 'Existing') + '</span>';
-              actionLabel = 'Resume scope';
-            }
-
-            return '<div class="sw-ghl-item" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' style="padding:12px;border:1px solid ' + (existingJob ? '#bbf7d0' : '#eee') + ';border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;' + (existingJob ? 'background:#f0fdf4;' : '') + '" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.08)\'" onmouseout="this.style.boxShadow=\'\'">' +
+            var infoParts = [opp.contactPhone, opp.contactEmail].filter(Boolean);
+            var addrParts = [opp.contactAddress, opp.contactCity].filter(Boolean);
+            var subtitle = infoParts.join(' \u00b7 ');
+            var addrLine = addrParts.length ? addrParts.join(', ') : '';
+            return '<div class="sw-ghl-item" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' data-oppid="' + opp.id + '" style="padding:12px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                '<div style="display:flex;align-items:center;gap:4px;">' +
-                  '<strong style="color:' + hex.dark + ';">' + name + '</strong>' +
-                  jobBadge +
-                '</div>' +
-                '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;">' + stage + '</span>' +
+                '<strong style="color:' + hex.dark + ';">' + (opp.contactName || opp.name || 'Unknown') + '</strong>' +
+                '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;">' + (opp.stageName || opp.status || '') + '</span>' +
               '</div>' +
-              detailLine +
-              '<div style="font-size:11px;color:' + hex.mid + ';margin-top:6px;font-weight:600;">' + actionLabel + ' &rarr;</div>' +
+              (subtitle ? '<div style="font-size:12px;color:' + hex.mid + ';margin-top:4px;">' + subtitle + '</div>' : '') +
+              (addrLine ? '<div style="font-size:11px;color:#999;margin-top:2px;">' + addrLine + '</div>' : '') +
+              '<div class="sw-ghl-job-info" data-oppid="' + opp.id + '" style="margin-top:6px;font-size:11px;color:' + hex.mid + ';"></div>' +
+              '<div class="sw-ghl-action" data-oppid="' + opp.id + '" style="margin-top:6px;"><span style="font-size:11px;padding:3px 10px;border-radius:6px;background:' + hex.orange + '18;color:' + hex.orange + ';font-weight:600;">Start New Scope</span></div>' +
             '</div>';
           }).join('');
 
@@ -1166,20 +1074,86 @@
               if (onSelect) onSelect(opp);
             };
           });
+
+          // Async: check each opportunity for existing Supabase job data
+          opps.forEach(function(opp) {
+            ghl.findJobByOpportunity(opp.id, toolType).then(function(job) {
+              var infoEl = list.querySelector('.sw-ghl-job-info[data-oppid="' + opp.id + '"]');
+              if (!infoEl) return;
+              if (job) {
+                var card = infoEl.parentElement;
+                var hasScope = job.scope_json && Object.keys(job.scope_json).length > 0;
+
+                // Backfill address from Supabase if GHL didn't provide one
+                var cardAddrLine = card.querySelector('div[style*="color:#999"]');
+                if (!cardAddrLine && job.site_address) {
+                    var addrDiv = document.createElement('div');
+                    addrDiv.style.cssText = 'font-size:11px;color:#999;margin-top:2px;';
+                    addrDiv.textContent = job.site_address;
+                    var infoParent = infoEl.parentElement;
+                    infoParent.insertBefore(addrDiv, infoEl);
+                }
+
+                // Build job number headline (bold, prominent)
+                var html = '';
+                if (job.job_number) {
+                  html += '<div style="margin-bottom:4px;"><strong style="font-size:14px;color:#293C46;letter-spacing:0.5px;">' + job.job_number + '</strong>';
+                  if (job.status) html += ' <span style="font-size:11px;color:' + hex.mid + ';">(' + job.status + ')</span>';
+                  html += '</div>';
+                }
+
+                // Build scope description from scope_json
+                var desc = '';
+                if (hasScope && job.scope_json.config) {
+                  var c = job.scope_json.config;
+                  var parts = [];
+                  if (c.length && c.projection) parts.push(c.length + 'm x ' + c.projection + 'm');
+                  if (c.roofStyle) parts.push(c.roofStyle.charAt(0).toUpperCase() + c.roofStyle.slice(1));
+                  if (c.roofing) parts.push(c.roofing);
+                  if (job.scope_json.client && job.scope_json.client.suburb) parts.push(job.scope_json.client.suburb);
+                  if (parts.length) desc = parts.join(' \u2014 ');
+                } else if (hasScope && job.scope_json.job && job.scope_json.job.runs) {
+                  // Fencing: show total metres + run count
+                  var runs = job.scope_json.job.runs;
+                  var totalM = runs.reduce(function(s, r) { return s + (r.totalLength || 0); }, 0);
+                  if (totalM > 0) desc = totalM.toFixed(0) + 'm total \u2014 ' + runs.length + ' run(s)';
+                }
+                if (desc) html += '<div style="font-size:11px;color:' + hex.mid + ';">' + desc + '</div>';
+
+                // Status badges row
+                var badges = [];
+                if (hasScope) badges.push('<span style="background:#34C75920;color:#34C759;padding:1px 6px;border-radius:4px;font-size:10px;">Scope saved</span>');
+                else badges.push('<span style="background:#FF950020;color:#FF9500;padding:1px 6px;border-radius:4px;font-size:10px;">No scope data</span>');
+                if (job.pricing_json && job.pricing_json.totalIncGST) {
+                  badges.push('<span style="font-size:10px;color:' + hex.mid + ';">$' + Number(job.pricing_json.totalIncGST).toLocaleString() + ' inc GST</span>');
+                }
+                if (job.updated_at) {
+                  var d = new Date(job.updated_at);
+                  badges.push('<span style="font-size:10px;color:#aaa;">Updated ' + d.toLocaleDateString('en-AU') + '</span>');
+                }
+                if (badges.length) html += '<div style="margin-top:3px;">' + badges.join(' ') + '</div>';
+
+                infoEl.innerHTML = html;
+                // Update action badge
+                var actionEl = list.querySelector('.sw-ghl-action[data-oppid="' + opp.id + '"]');
+                if (actionEl) {
+                    if (hasScope) {
+                        actionEl.innerHTML = '<span style="font-size:11px;padding:3px 10px;border-radius:6px;background:#22C55E18;color:#22C55E;font-weight:600;">Resume Scope \u2192</span>';
+                    }
+                }
+                // Highlight the card border to show it has a linked job
+                card.style.borderColor = '#34C759';
+                card.style.borderWidth = '2px';
+              }
+            }).catch(function() { /* ignore lookup failures */ });
+          });
         } catch(e) {
           list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:40px 0;">Error: ' + e.message + '</p>';
         }
       };
 
-      // Initial load
+      // Initial load — auto-selects correct pipeline for this tool
       _loadOpps(pipelineKey, '');
-
-      // Pipeline change
-      document.getElementById('sw-ghl-pipeline').onchange = function() {
-        pipelineKey = this.value;
-        document.getElementById('sw-ghl-search').value = '';
-        _loadOpps(pipelineKey, '');
-      };
 
       // Search debounce
       var _searchTimer;
@@ -1208,9 +1182,9 @@
       } else if (status === 'saved') {
         el.style.background = '#34C75920';
         el.style.color = '#34C759';
-        el.textContent = 'Saved to cloud';
+        el.textContent = message || 'Saved to cloud';
         el.style.opacity = '1';
-        setTimeout(function() { el.style.opacity = '0'; }, 2000);
+        setTimeout(function() { el.style.opacity = '0'; }, message ? 4000 : 2000);
       } else if (status === 'offline') {
         el.style.background = '#FF950020';
         el.style.color = '#FF9500';
@@ -1248,6 +1222,27 @@
   })();
 
   // ════════════════════════════════════════════════════════════
+  // PRICING — fetch scope_tool_defaults from DB
+  // ════════════════════════════════════════════════════════════
+
+  var pricing = {
+    async getDefaults(scopeTool) {
+      try {
+        var { data, error } = await sb.from('scope_tool_defaults')
+          .select('category, item_key, item_description, unit, default_price, default_cost_rate, default_sqm_rate, last_updated_at')
+          .eq('scope_tool', scopeTool);
+        if (error || !data) return null;
+        var map = {};
+        data.forEach(function(row) { map[row.item_key] = row; });
+        return { defaults: map, fetched_at: new Date().toISOString() };
+      } catch(e) {
+        console.warn('[Cloud] pricing.getDefaults failed:', e);
+        return null;
+      }
+    }
+  };
+
+  // ════════════════════════════════════════════════════════════
   // EXPORT
   // ════════════════════════════════════════════════════════════
 
@@ -1258,6 +1253,7 @@
     media: media,
     ghl: ghl,
     ui: ui,
+    pricing: pricing,
 
     // Auto-save helpers
     startAutoSave: startAutoSave,

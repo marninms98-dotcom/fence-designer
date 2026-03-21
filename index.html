@@ -1552,44 +1552,48 @@
       delivery: 95             // actual delivery cost — R&R charges ~$95
     };
 
-    // Async: fetch confirmed prices from Supabase and merge into COST_PRICES (non-blocking)
-    (function loadSupabaseFencePrices() {
-      var url = 'https://kevgrhcjxspbxgovpmfl.supabase.co/functions/v1/ops-api?action=confirmed_prices';
-      fetch(url).then(function(res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      }).then(function(data) {
-        var prices = data.prices || data;
-        if (!prices || typeof prices !== 'object') return;
-        var priceMap = {};
-        if (Array.isArray(prices)) {
-          prices.forEach(function(item) {
-            var key = item.rate_key || item.key || item.name;
-            var val = parseFloat(item.confirmed_rate || item.rate || item.price);
-            if (key && !isNaN(val)) priceMap[key] = val;
-          });
-        } else {
-          priceMap = prices;
-        }
-        // Only override keys that exist in COST_PRICES
-        var updated = false;
-        Object.keys(priceMap).forEach(function(k) {
-          if (k in COST_PRICES && typeof priceMap[k] === 'number' && !isNaN(priceMap[k])) {
-            COST_PRICES[k] = priceMap[k];
-            updated = true;
+    // Async: fetch live pricing from scope_tool_defaults via cloud.js (non-blocking)
+    // Falls back to hardcoded JS defaults if offline or cloud.js not loaded
+    (function loadDbFencePrices() {
+      if (!window.SECUREWORKS_CLOUD || !window.SECUREWORKS_CLOUD.pricing) return;
+      SECUREWORKS_CLOUD.pricing.getDefaults('fence-designer').then(function(result) {
+        if (!result) return;
+        var d = result.defaults;
+        // DB item_key → JS COST_PRICES key mapping
+        // Sell prices (cb-1800-sell etc.) are stored for reference but the fence designer
+        // uses a per-job pricePerMetre input, so only cost prices overlay COST_PRICES here.
+        var costMap = {
+          'cb-1800-cost': 'panelKit1800_2400',
+          'cb-2100-cost': 'panelKit2100_2700',
+          'solid-fill-150-cost': null,  // no direct COST_PRICES key
+          'plinth-cost': 'plinth',
+          'ped-gate-bundled-cost': 'gateKitPedestrian',
+          'dbl-swing-gate-cost': 'gateKitDouble',
+          'remove-hardie-cost': 'removeHardie',
+          'remove-timber-cost': 'removeTimberLap',
+          'remove-asbestos-cost': 'removeAsbestos',
+          'delivery-cost': 'delivery',
+          'veg-clear-cost': 'vegClear',
+          'addl-labour-cost': null,  // no direct key
+          'mulch-cost': 'groundMulch',
+          'white-stones-cost': 'groundStones',
+          'turf-prep-cost': 'groundTurf',
+          'base-labour': 'labourPerMetre'
+        };
+        var updated = 0;
+        Object.keys(costMap).forEach(function(dbKey) {
+          var jsKey = costMap[dbKey];
+          if (!jsKey) return;
+          if (d[dbKey] && d[dbKey].default_price != null) {
+            COST_PRICES[jsKey] = Number(d[dbKey].default_price);
+            updated++;
           }
         });
-        if (updated) {
-          // Recalculate if the app is already initialized
-          if (typeof app !== 'undefined' && app.recalculateAll) {
-            app.recalculateAll();
-          }
-          console.log('[FenceDesigner] Supabase prices merged into COST_PRICES');
+        if (updated > 0 && typeof app !== 'undefined' && app.recalculateAll) {
+          app.recalculateAll();
         }
-      }).catch(function(err) {
-        // Silent fallback — offline or endpoint not yet available
-        console.log('[FenceDesigner] Supabase price fetch skipped:', err.message);
-      });
+        console.log('[Fence] Live pricing loaded:', Object.keys(d).length, 'DB items, updated', updated, 'cost prices');
+      }).catch(function() { /* offline — use JS defaults */ });
     })();
 
     const MARGIN = 0.30; // 30% margin: sell = cost / (1 - 0.30)
