@@ -11237,42 +11237,44 @@
       return 1;
     }
 
+    // ── Workflow mode (matches patio tool pattern) ──
+    function getFenceWorkflowMode() {
+      var jobNum = window._swIntegration && window._swIntegration.getLastJobNumber
+          ? window._swIntegration.getLastJobNumber() : '';
+      if (jobNum && /^SW[PFD]-\d+/.test(jobNum)) return 'job';
+      return 'draft';
+    }
+
     function updateButtonStages() {
-      var stage = detectJobStage();
       var bar = document.getElementById('generateBar');
       var inner = document.getElementById('genBarButtons');
       if (!bar || !inner) return;
 
-      // Always show the bar — save buttons are always available
       bar.style.display = '';
       document.body.style.paddingBottom = '70px';
       var html = '';
-      var qaPassed = typeof fenceQA !== 'undefined' && fenceQA.isSignedOff();
+      var mode = getFenceWorkflowMode();
 
-      if (!qaPassed) {
-        // ── Pre-QA: Save Local + Save Draft to Cloud + QA ──
+      if (mode === 'draft') {
+        // ── DRAFT: Save Local + Save Draft + Create Job ──
         html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">' +
-                  '<span style="font-size:16px;line-height:1;">&#128190;</span> Save to Local' +
+                  'Save Local' +
                 '</button>';
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Draft saved to cloud\',\'success\')}else{app.showToast(\'Not logged in — saved locally only\',\'warning\');app.save()}">' +
-                  '<span style="font-size:16px;line-height:1;">&#9729;</span> Save Draft to Cloud' +
+                  'Save Draft ☁' +
                 '</button>';
-        html += '<button class="gen-btn gen-btn-qa" onclick="fenceQA.showScopeVerification()">QA Check</button>';
+        html += '<button class="gen-btn gen-btn-send" onclick="scopeComplete()">' +
+                  'Create Job ▶' +
+                '</button>';
       } else {
-        // ── Post-QA: Save to Cloud + Send Quote + output buttons ──
-        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
-                  '<span style="font-size:16px;line-height:1;">&#9729;</span> Save to Cloud' +
+        // ── JOB: Preview + Send Quote + Save (if dirty) ──
+        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">' +
+                  'Save Local' +
                 '</button>';
-        html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote</button>';
-        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateQuotePDF()">Quote PDF</button>';
-        html += '<div class="gen-more-wrap">' +
-                  '<button class="gen-btn gen-btn-more" onclick="toggleGenMore(event)">More \u22EF</button>' +
-                  '<div class="gen-more-menu" id="genMoreMenu">' +
-                    '<button class="gen-more-item" onclick="app.generateMaterialOrder()">Material Order</button>' +
-                    '<button class="gen-more-item" onclick="app.generateWorkOrder()">Work Order</button>' +
-                  '</div>' +
-                '</div>';
-        html += '<button class="gen-btn gen-btn-scope" onclick="scopeComplete()">Scope Complete</button>';
+        html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote ✉</button>';
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
+                  'Save ☁' +
+                '</button>';
       }
 
       inner.innerHTML = html;
