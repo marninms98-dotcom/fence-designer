@@ -4495,7 +4495,10 @@
       },
 
       _spCapture() {
-        if (!this._spLatlng || !this._spCanvas) return;
+        if (!this._spCanvas) {
+          this.showToast('Site plan not ready — try reopening the modal', 'error');
+          return;
+        }
         // Finish any in-progress line first
         if (this._spCurrentLine && this._spCurrentLine.length > 1) {
           this._spStrokes.push(this._spCurrentLine);
@@ -4503,15 +4506,72 @@
           this._spDrawing = false;
         }
         var self = this;
+        var mapImg = document.getElementById('spMapImg');
+        var container = this._spContainer || document.getElementById('spMapContainer');
+        if (!container || !mapImg) {
+          this.showToast('Cannot capture — map not loaded', 'error');
+          return;
+        }
+
+        var rect = container.getBoundingClientRect();
+        var w = Math.round(rect.width);
+        var h = Math.round(rect.height);
+        var scale = 2; // retina
+
+        var outCanvas = document.createElement('canvas');
+        outCanvas.width = w * scale;
+        outCanvas.height = h * scale;
+        var outCtx = outCanvas.getContext('2d');
+
+        // Draw the satellite background from the visible map image
+        try {
+          outCtx.drawImage(mapImg, 0, 0, outCanvas.width, outCanvas.height);
+        } catch(e) {
+          // If cross-origin tainted, fall back to fetching a fresh static image
+          self._spCaptureFallback(w, h);
+          return;
+        }
+
+        // Draw user lines on top (scaled 2x for retina)
+        self._spStrokes.forEach(function(line) {
+          self._spDrawLineOnCtx(outCtx, line, scale, false);
+        });
+
+        try {
+          var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
+          self.job.sitePlanImage = dataUrl;
+        } catch(e) {
+          // Canvas tainted by cross-origin image — use fallback
+          self._spCaptureFallback(w, h);
+          return;
+        }
+
+        // Remove any old site plan from checklist photos
+        if (self.job.checklist && self.job.checklist.photos) {
+          self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+        }
+
+        self.save();
+        self.showToast('Site plan captured', 'success');
+        var modal = document.getElementById('sitePlanModal');
+        if (modal) modal.remove();
+        self.renderSiteInfo();
+      },
+
+      _spCaptureFallback(w, h) {
+        // Re-fetch static map with crossOrigin=anonymous for clean canvas export
+        var self = this;
+        if (!this._spLatlng) {
+          this.showToast('No location data — cannot capture', 'error');
+          return;
+        }
         var lat = this._spLatlng.lat;
         var lng = this._spLatlng.lng;
         var zoom = this._spZoomLevel;
-        var w = this._spCanvasW;
-        var h = this._spCanvasH;
-
-        // Use Static Maps API for the background
         var reqW = Math.min(Math.round(w), 640);
         var reqH = Math.min(Math.round(h), 640);
+        var scale = 2;
+
         var staticUrl = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
           lat + ',' + lng + '&zoom=' + zoom +
           '&size=' + reqW + 'x' + reqH + '&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
@@ -4520,34 +4580,34 @@
         bgImg.crossOrigin = 'anonymous';
         bgImg.onload = function() {
           var outCanvas = document.createElement('canvas');
-          outCanvas.width = w * 2;
-          outCanvas.height = h * 2;
+          outCanvas.width = w * scale;
+          outCanvas.height = h * scale;
           var outCtx = outCanvas.getContext('2d');
-
-          // Draw satellite background
           outCtx.drawImage(bgImg, 0, 0, outCanvas.width, outCanvas.height);
 
-          // Draw user lines on top (scaled 2x for retina)
           self._spStrokes.forEach(function(line) {
-            self._spDrawLineOnCtx(outCtx, line, 2, false);
+            self._spDrawLineOnCtx(outCtx, line, scale, false);
           });
 
-          var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
-          self.job.sitePlanImage = dataUrl;
+          try {
+            var dataUrl = outCanvas.toDataURL('image/jpeg', 0.85);
+            self.job.sitePlanImage = dataUrl;
 
-          // Remove any old site plan from checklist photos (no longer duplicated — stored as sitePlanImage)
-          if (self.job.checklist && self.job.checklist.photos) {
-            self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+            if (self.job.checklist && self.job.checklist.photos) {
+              self.job.checklist.photos = self.job.checklist.photos.filter(function(p) { return p.label !== 'Site Plan'; });
+            }
+
+            self.save();
+            self.showToast('Site plan captured', 'success');
+            var modal = document.getElementById('sitePlanModal');
+            if (modal) modal.remove();
+            self.renderSiteInfo();
+          } catch(e) {
+            self.showToast('Failed to capture: ' + e.message, 'error');
           }
-
-          self.save();
-          self.showToast('Site plan captured', 'success');
-          var modal = document.getElementById('sitePlanModal');
-          if (modal) modal.remove();
-          self.renderSiteInfo();
         };
         bgImg.onerror = function() {
-          self.showToast('Failed to capture map image — check API key', 'error');
+          self.showToast('Failed to load map image for capture', 'error');
         };
         bgImg.src = staticUrl;
       },
@@ -8842,6 +8902,32 @@
             y += 4;
             doc.addImage(screenshot3D, 'PNG', mx, y, imgW, imgH);
             y += imgH + 6;
+          } catch(e) { /* skip if image fails */ }
+        }
+
+        // Site Plan
+        var _spImg = this.job.sitePlanImage || null;
+        if (!_spImg && this.job._latlng && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
+          // Fallback: use static satellite map if no annotated site plan
+          _spImg = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
+            this.job._latlng.lat + ',' + this.job._latlng.lng +
+            '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+        }
+        if (_spImg) {
+          try {
+            var spLabel = this.job.sitePlanImage ? 'SITE PLAN' : 'SITE LOCATION';
+            var spW = pw - mx * 2;
+            var spH = spW * 0.45;
+            if (y + spH + 12 > ph - 40) { doc.addPage(); y = 20; }
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.setTextColor(41, 60, 70);
+            doc.text(spLabel, mx, y);
+            doc.setDrawColor(76, 106, 124);
+            doc.line(mx, y + 1, pw - mx, y + 1);
+            y += 4;
+            doc.addImage(_spImg, 'JPEG', mx, y, spW, spH);
+            y += spH + 6;
           } catch(e) { /* skip if image fails */ }
         }
 
