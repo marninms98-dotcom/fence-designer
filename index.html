@@ -9979,71 +9979,8 @@
 
     // Scope Complete — validation gate + cloud chain trigger
     async function scopeComplete() {
-      // Sync client name
-      app.job.client = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ');
-
-      // Validate required fields
-      var errors = validateForScopeComplete();
-      if (errors.length > 0) {
-        app.showToast('Cannot complete scope — ' + errors.length + ' issues found', 'error');
-        return;
-      }
-
-      // Run compliance checks
-      var checks = app._runComplianceChecks();
-      if (checks.errors.length > 0) {
-        app.showToast('Compliance errors — fix before completing', 'error');
-        return;
-      }
-
-      // Warnings
-      var warnings = checks.warnings.slice();
-      var photos = (app.job.checklist && app.job.checklist.photos) || [];
-      if (photos.length < 5) warnings.push('Fewer than 5 site photos (' + photos.length + ').');
-      if (!(app.job.checklist && app.job.checklist.videoWalkthrough)) warnings.push('Video walkthrough not marked as done.');
-      if (!app.job.scoper) warnings.push('Scoper name not filled in.');
-
-      if (warnings.length > 0) {
-        if (!confirm('Warnings:\n\n' + warnings.map(function(w) { return '• ' + w; }).join('\n') + '\n\nProceed anyway?')) return;
-      }
-
-      // Final confirmation
-      var _yr = String(new Date().getFullYear()).slice(-2);
-      if (!confirm('Mark scope COMPLETE?\n\nThis will:\n• Lock the scope and generate all documents\n• Generate a job number (SWF-' + _yr + 'XXX)\n• Create 3 draft POs (materials, labour, commission)\n• Upload quote PDF to ops\n• Create Xero contact\n• Update GHL opportunity stage\n\nProceed?')) return;
-
-      // Gate behind QA sign-off
-      if (!fenceQA.isSignedOff()) {
-        app.showToast('QA must be passed before completing scope — run QA Check first', 'error');
-        return;
-      }
-
-      // Auto-generate quote PDF blob for upload (don't download)
-      try {
-        app._capturePdfBlob = undefined; // sentinel: trigger blob capture mode
-        await app.generateQuotePDF();
-      } catch(pdfErr) {
-        console.warn('[ScopeComplete] PDF generation failed (non-blocking):', pdfErr);
-      }
-
-      // Enrich job state before cloud save
-      app.job._pricing_json = app.buildPricingJson();
-
-      // Trigger full cloud save + link chain via saveAfterSignOff (gates GHL link + job number + PO + doc upload)
-      if (window._swIntegration) {
-        try {
-          var result = await window._swIntegration.saveAfterSignOff();
-          if (result.success) {
-            app.showToast('Scope locked. Quote PDF + POs sent to ops. Job: ' + (result.jobNumber || 'pending'), 'success');
-            if (typeof updateButtonStages === 'function') updateButtonStages();
-          } else {
-            app.showToast('Scope complete failed: ' + (result.reason || 'unknown'), 'error');
-          }
-        } catch (e) {
-          app.showToast('Scope complete failed: ' + e.message, 'error');
-        }
-      } else {
-        app.showToast('Cloud integration not available — sign in first', 'warning');
-      }
+      // Redirect to the 5-screen QA wizard (replaces old confirm() dialogs)
+      showCreateJobWizard();
     }
 
     // ════════════════════════════════════════════════════════
@@ -11245,6 +11182,408 @@
       return 'draft';
     }
 
+    // ── Dirty State Tracking ──
+    var _isDirty = false;
+    var _lastSavedHash = null;
+    var _savingInProgress = false;
+
+    function _computeStateHash() {
+      try {
+        var str = JSON.stringify(app.job || {});
+        var hash = 5381;
+        for (var i = 0; i < str.length; i++) hash = ((hash << 5) + hash) + str.charCodeAt(i);
+        return hash;
+      } catch(e) { return Math.random(); }
+    }
+    function _markDirty() { if (!_isDirty) { _isDirty = true; updateButtonStages(); } }
+    function _markClean() { _isDirty = false; _lastSavedHash = _computeStateHash(); updateButtonStages(); }
+
+    document.addEventListener('input', function(e) {
+      if (getFenceWorkflowMode() === 'job' && e.target.closest('.panel, .section, .scope-section, .config-section')) _markDirty();
+    }, true);
+
+    // ── Save Draft ──
+    async function saveDraft(opts) {
+      opts = opts || {};
+      if (_savingInProgress) return;
+      if (!window._swIntegration || !window._swIntegration.isCloudReady()) {
+        app.save();
+        if (!opts.silent) app.showToast('Saved locally (not logged in)', 'warning');
+        return;
+      }
+      try {
+        _savingInProgress = true;
+        if (!opts.silent) app.showToast('Saving draft...', 'info');
+        await window._swIntegration.save();
+        _markClean();
+        if (!opts.silent) app.showToast('Draft saved', 'success');
+      } catch(e) {
+        if (!opts.silent) app.showToast('Save failed: ' + e.message, 'error');
+      } finally { _savingInProgress = false; }
+    }
+
+    // ── Auto-Save (5 min + tab hide) ──
+    var _autoSaveTimer = null;
+    function _startDraftAutoSave() {
+      if (_autoSaveTimer) return;
+      _autoSaveTimer = setInterval(function() {
+        if (getFenceWorkflowMode() === 'draft' && !_savingInProgress && window._swIntegration && window._swIntegration.isCloudReady()) {
+          saveDraft({ silent: true });
+        }
+      }, 300000);
+    }
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden && getFenceWorkflowMode() === 'draft' && !_savingInProgress && window._swIntegration && window._swIntegration.isCloudReady()) {
+        saveDraft({ silent: true });
+      }
+    });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _startDraftAutoSave);
+    else _startDraftAutoSave();
+
+    // ── Save Job Edit (Job Mode) ──
+    async function saveJobEdit() {
+      if (_savingInProgress) return;
+      if (window._quoteStatusCache && window._quoteStatusCache.status) {
+        if (!confirm('A quote has already been sent. Saving updates internal docs but the client still has the old quote.\n\nContinue?')) return;
+      }
+      try {
+        _savingInProgress = true;
+        app.showToast('Saving changes...', 'info');
+        app.job._pricing_json = app.buildPricingJson();
+        await window._swIntegration.save();
+        // Regenerate + upload quote PDF
+        var jobId = window._swIntegration.getJobId();
+        var _cloud = window.SECUREWORKS_CLOUD;
+        if (jobId && _cloud) {
+          try {
+            app._capturePdfBlob = undefined;
+            await app.generateQuotePDF();
+            if (app._capturePdfBlob) {
+              await _cloud.docs.uploadPDF(jobId, app._capturePdfBlob, 'quote', app.job);
+            }
+            app._capturePdfBlob = null;
+          } catch(pe) { console.warn('[saveJobEdit] Quote PDF regen failed:', pe); }
+          // Increment scope version
+          try {
+            var token = _cloud.auth ? (typeof _cloud.auth.session === 'function' ? _cloud.auth.session()?.access_token : null) : null;
+            var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+            await fetch(_cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=increment_scope_version', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+              body: JSON.stringify({ job_id: jobId })
+            });
+          } catch(ve) { console.warn('[saveJobEdit] Version increment failed:', ve); }
+        }
+        _markClean();
+        app.showToast('Changes saved — documents updated', 'success');
+      } catch(e) {
+        app.showToast('Save failed: ' + e.message, 'error');
+      } finally { _savingInProgress = false; }
+    }
+
+    // ==================== CREATE JOB WIZARD (5 Screens) ====================
+    var _wizardScreen = 1;
+    var _wizardAmberAcks = new Set();
+
+    function showCreateJobWizard() {
+      _wizardScreen = 1;
+      _wizardAmberAcks = new Set();
+      _renderWizard();
+    }
+
+    function _renderWizard() {
+      var existing = document.getElementById('createJobWizard');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'createJobWizard';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#F3F4F6;z-index:9999;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,sans-serif;';
+      var screenData = _getWizardScreenData(_wizardScreen);
+      var totalScreens = 5;
+      var progressPct = (_wizardScreen / totalScreens * 100);
+      var headerHtml = '<div style="position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #E5E7EB;padding:12px 16px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+              '<button onclick="_closeWizard()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;color:#6B7280;">✕</button>' +
+              '<span style="font-weight:700;color:#293C46;font-size:15px;">Create Job — Step ' + _wizardScreen + ' of ' + totalScreens + '</span>' +
+              '<span style="width:40px;"></span></div>' +
+          '<div style="background:#E5E7EB;border-radius:4px;height:4px;"><div style="background:#F15A29;height:4px;border-radius:4px;width:' + progressPct + '%;transition:width 0.3s;"></div></div>' +
+          '<div style="text-align:center;margin-top:8px;font-size:13px;color:#6B7280;">' + screenData.title + '</div></div>';
+      var contentHtml = '<div style="padding:16px;max-width:600px;margin:0 auto;">' + screenData.html + '</div>';
+      var canProceed = screenData.canProceed;
+      var navHtml = '<div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #E5E7EB;padding:12px 16px;"><div style="display:flex;gap:8px;max-width:600px;margin:0 auto;">';
+      if (_wizardScreen > 1) navHtml += '<button onclick="_wizardBack()" style="flex:1;padding:12px;border:1px solid #D1D5DB;background:#fff;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;color:#374151;">← Back</button>';
+      if (_wizardScreen < totalScreens) {
+        navHtml += '<button onclick="_wizardNext()" style="flex:2;padding:12px;border:none;background:' + (canProceed ? '#F15A29' : '#D1D5DB') + ';color:#fff;border-radius:8px;font-size:14px;font-weight:600;cursor:' + (canProceed ? 'pointer' : 'not-allowed') + ';"' + (canProceed ? '' : ' disabled') + '>Next →</button>';
+      } else {
+        navHtml += '<button onclick="_fenceExecuteCreateJob()" style="flex:2;padding:12px;border:none;background:' + (canProceed ? '#F15A29' : '#D1D5DB') + ';color:#fff;border-radius:8px;font-size:14px;font-weight:700;cursor:' + (canProceed ? 'pointer' : 'not-allowed') + ';"' + (canProceed ? '' : ' disabled') + '>Create Job & Send to Ops 🚀</button>';
+      }
+      navHtml += '</div></div>';
+      overlay.innerHTML = headerHtml + contentHtml + navHtml;
+      document.body.appendChild(overlay);
+      document.body.style.overflow = 'hidden';
+    }
+
+    function _closeWizard() { var el = document.getElementById('createJobWizard'); if (el) el.remove(); document.body.style.overflow = ''; }
+    function _wizardBack() { _wizardScreen--; _renderWizard(); }
+    function _wizardNext() { var sd = _getWizardScreenData(_wizardScreen); if (!sd.canProceed) return; _wizardScreen++; _renderWizard(); }
+    function _wizardAckAmber(flagId, checked) { if (checked) _wizardAmberAcks.add(flagId); else _wizardAmberAcks.delete(flagId); _renderWizard(); }
+    function _wizardFixField(fieldId) { _closeWizard(); var el = document.getElementById(fieldId); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } }
+
+    function _getWizardScreenData(screen) {
+      switch(screen) {
+        case 1: return _fenceWizardScreen1();
+        case 2: return _fenceWizardScreen2();
+        case 3: return _fenceWizardScreen3();
+        case 4: return _fenceWizardScreen4();
+        case 5: return _fenceWizardScreen5();
+        default: return { title: '', html: '', canProceed: false };
+      }
+    }
+
+    // ── Screen 1: Customer Details ──
+    function _fenceWizardScreen1() {
+      var j = app.job || {};
+      var fullName = [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ');
+      var emailValid = j.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(j.email);
+      var fields = [
+        { label: 'Client Name', value: fullName || '(empty)', ok: !!(j.clientFirstName && j.clientLastName), field: 'clientFirstName' },
+        { label: 'Email', value: j.email || '(empty)', ok: emailValid, field: 'clientEmail' },
+        { label: 'Phone', value: j.phone || '(empty)', ok: !!j.phone, field: 'clientPhone' },
+        { label: 'Site Address', value: j.address || '(empty)', ok: !!j.address, field: 'addressField' }
+      ];
+      var allOk = fields.every(function(f) { return f.ok; });
+      var html = '';
+      fields.forEach(function(f) {
+        var icon = f.ok ? '<span style="color:#22C55E;font-size:18px;">✓</span>' : '<span style="color:#EF4444;font-size:18px;">✗</span>';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:#fff;border-radius:8px;margin-bottom:8px;border:1px solid ' + (f.ok ? '#D1FAE5' : '#FEE2E2') + ';">' +
+            icon + '<div style="flex:1;"><div style="font-weight:600;color:#293C46;font-size:14px;">' + f.label + '</div><div style="color:#6B7280;font-size:13px;">' + f.value + '</div></div>' +
+            (!f.ok ? '<button onclick="_wizardFixField(\'' + f.field + '\')" style="padding:6px 12px;background:#F15A29;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Fix</button>' : '') + '</div>';
+      });
+      // Neighbour info
+      if (j.neighboursRequired === true) {
+        var nb = (j.neighbours && j.neighbours[0]) || {};
+        var nbOk = !!(nb.firstName);
+        html += '<div style="margin-top:12px;font-weight:700;color:#293C46;font-size:13px;">Neighbour Details</div>';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:#fff;border-radius:8px;margin-top:6px;border:1px solid ' + (nbOk ? '#D1FAE5' : '#FDE68A') + ';">' +
+            '<span style="color:' + (nbOk ? '#22C55E' : '#D97706') + ';font-size:18px;">' + (nbOk ? '✓' : '⚠') + '</span>' +
+            '<div style="flex:1;"><div style="font-weight:600;color:#293C46;font-size:14px;">Neighbour Name</div><div style="color:#6B7280;font-size:13px;">' + (nb.firstName ? nb.firstName + ' ' + (nb.lastName || '') : '(empty)') + '</div></div></div>';
+        if (!nb.email) html += '<div style="padding:8px 12px;background:#FFFBEB;border-radius:6px;font-size:12px;color:#92400E;margin-top:6px;">⚠ Neighbour email missing — won\'t be able to send neighbour quote</div>';
+      }
+      if (!allOk) html += '<div style="padding:8px 12px;background:#FEF3CD;border-radius:6px;font-size:13px;color:#92400E;margin-top:8px;">Fix all red items to continue.</div>';
+      return { title: 'Customer Details', html: html, canProceed: allOk };
+    }
+
+    // ── Screen 2: Scope Validation ──
+    function _fenceWizardScreen2() {
+      var flags = fenceQA.runScopeChecks();
+      var reds = flags.filter(function(f) { return f.severity === 'red'; });
+      var ambers = flags.filter(function(f) { return f.severity === 'amber'; });
+      var html = '';
+      if (reds.length > 0) {
+        html += '<div style="padding:10px 14px;background:#FEE2E2;border-radius:8px;margin-bottom:12px;font-size:13px;color:#991B1B;font-weight:600;">' + reds.length + ' issue' + (reds.length > 1 ? 's' : '') + ' must be fixed</div>';
+      } else {
+        var unacked = ambers.filter(function(f) { return !_wizardAmberAcks.has(f.card + f.message); });
+        if (unacked.length > 0) html += '<div style="padding:10px 14px;background:#FEF3CD;border-radius:8px;margin-bottom:12px;font-size:13px;color:#92400E;">' + unacked.length + ' warning' + (unacked.length > 1 ? 's' : '') + ' need acknowledgment</div>';
+        else html += '<div style="padding:10px 14px;background:#D1FAE5;border-radius:8px;margin-bottom:12px;font-size:13px;color:#065F46;font-weight:600;">All scope checks passed ✓</div>';
+      }
+      reds.forEach(function(f) {
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;margin-bottom:6px;">' +
+            '<span style="color:#EF4444;font-size:16px;">✗</span><span style="flex:1;font-size:13px;color:#991B1B;">' + f.message + '</span>' +
+            (f.field ? '<button onclick="_wizardFixField(\'' + f.field + '\')" style="padding:4px 10px;background:#EF4444;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">Fix</button>' : '') + '</div>';
+      });
+      ambers.forEach(function(f) {
+        var fid = f.card + f.message;
+        var acked = _wizardAmberAcks.has(fid);
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (acked ? '#F0FDF4' : '#FFFBEB') + ';border:1px solid ' + (acked ? '#BBF7D0' : '#FDE68A') + ';border-radius:6px;margin-bottom:6px;">' +
+            '<span style="color:' + (acked ? '#22C55E' : '#D97706') + ';font-size:16px;">' + (acked ? '✓' : '⚠') + '</span>' +
+            '<span style="flex:1;font-size:13px;color:' + (acked ? '#065F46' : '#92400E') + ';">' + f.message + '</span>' +
+            '<label style="font-size:11px;color:#6B7280;cursor:pointer;white-space:nowrap;"><input type="checkbox" ' + (acked ? 'checked' : '') + ' onchange="_wizardAckAmber(\'' + fid.replace(/'/g, "\\'") + '\', this.checked)"> Noted</label></div>';
+      });
+      flags.filter(function(f) { return f.severity === 'info'; }).forEach(function(f) {
+        html += '<div style="padding:10px 12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;margin-bottom:6px;font-size:13px;color:#1E40AF;">ℹ ' + f.message + '</div>';
+      });
+      var unackedAmbers = ambers.filter(function(f) { return !_wizardAmberAcks.has(f.card + f.message); });
+      return { title: 'Scope Validation', html: html, canProceed: reds.length === 0 && unackedAmbers.length === 0 };
+    }
+
+    // ── Screen 3: Cost Breakdown + Margin ──
+    function _fenceWizardScreen3() {
+      var f = function(v) { return '$' + Math.round(v || 0).toLocaleString(); };
+      var flags = [];
+      var d;
+      try { d = app._collectOutputData(); } catch(e) { return { title: 'Cost Breakdown', html: '<div style="color:#EF4444;padding:20px;">Cannot calculate pricing — check fence run data</div>', canProceed: false }; }
+      var commAmt = d.grandTotal * 0.0525;
+      var marginPct = d.subtotal > 0 ? ((d.subtotal - d.internalCost - d.internalLabour - commAmt) / d.subtotal * 100) : 0;
+      if (marginPct < 15) flags.push({ id: 'W-M1', severity: 'red', message: 'Margin is ' + marginPct.toFixed(1) + '% — below 15% minimum' });
+      if (d.grandTotal <= 0) flags.push({ id: 'W-M2', severity: 'red', message: 'Total is $0' });
+      if (marginPct >= 15 && marginPct < 20) flags.push({ id: 'W-M3', severity: 'amber', message: 'Margin is ' + marginPct.toFixed(1) + '% — below 20% target' });
+      if (marginPct > 60) flags.push({ id: 'W-M4', severity: 'amber', message: 'Margin is ' + marginPct.toFixed(1) + '% — unusually high' });
+      var html = '<div style="background:#fff;border-radius:8px;border:1px solid #E5E7EB;overflow:hidden;margin-bottom:12px;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr style="background:#F9FAFB;"><th style="text-align:left;padding:10px 12px;font-weight:600;">Item</th><th style="text-align:right;padding:10px 12px;color:#6B7280;">Cost</th><th style="text-align:right;padding:10px 12px;">Sell</th></tr></thead><tbody>';
+      html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Fencing (' + d.totalMetres.toFixed(1) + 'm)</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">' + f(d.internalCost) + '</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.fencingTotal) + '</td></tr>';
+      if (d.plinthsTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Plinths (' + d.totalPlinths + ')</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.plinthsTotal) + '</td></tr>';
+      if (d.gatesTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Gates</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.gatesTotal) + '</td></tr>';
+      if (d.removalTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Removal</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">' + f(d.internalRemovalCost) + '</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.removalTotal) + '</td></tr>';
+      if (d.addonsTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Add-ons</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.addonsTotal) + '</td></tr>';
+      if (d.deliveryFee > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Delivery</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.deliveryFee) + '</td></tr>';
+      html += '<tr style="border-top:2px solid #293C46;background:#F9FAFB;"><td style="padding:10px 12px;font-weight:700;">Subtotal (ex GST)</td><td style="text-align:right;padding:10px 12px;color:#6B7280;">' + f(d.internalCost + d.internalLabour) + '</td><td style="text-align:right;padding:10px 12px;font-weight:700;">' + f(d.subtotal) + '</td></tr>';
+      html += '<tr style="border-top:1px solid #E5E7EB;"><td style="padding:8px 12px;">GST</td><td></td><td style="text-align:right;padding:8px 12px;">' + f(d.gst) + '</td></tr>';
+      html += '<tr style="border-top:1px solid #E5E7EB;background:#F0FDF4;"><td style="padding:10px 12px;font-weight:700;font-size:15px;">Total (inc GST)</td><td></td><td style="text-align:right;padding:10px 12px;font-weight:700;font-size:15px;color:#065F46;">' + f(d.grandTotal) + '</td></tr>';
+      html += '</tbody></table></div>';
+      // Margin summary
+      var gpCol = marginPct < 20 ? '#EF4444' : marginPct < 30 ? '#D97706' : '#22C55E';
+      html += '<div style="background:#fff;border-radius:8px;border:1px solid #E5E7EB;padding:14px;margin-bottom:12px;">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#6B7280;">Material Margin</span><span style="font-weight:700;color:' + gpCol + ';">' + f(d.materialMargin) + '</span></div>';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#6B7280;">Commission (5.25%)</span><span>' + f(commAmt) + '</span></div>';
+      html += '<div style="display:flex;justify-content:space-between;"><span style="font-weight:700;">Net Margin</span><span style="font-weight:700;color:' + gpCol + ';">' + f(d.materialMargin - commAmt) + ' (' + marginPct.toFixed(1) + '%)</span></div>';
+      html += '<div style="background:#E5E7EB;border-radius:4px;height:6px;margin-top:8px;"><div style="background:' + gpCol + ';height:6px;border-radius:4px;width:' + Math.min(100, Math.max(0, marginPct)) + '%;"></div></div></div>';
+      // Flags
+      flags.filter(function(fl) { return fl.severity === 'red'; }).forEach(function(fl) {
+        html += '<div style="padding:10px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;margin-bottom:6px;font-size:13px;color:#991B1B;">✗ ' + fl.message + '</div>';
+      });
+      flags.filter(function(fl) { return fl.severity === 'amber'; }).forEach(function(fl) {
+        var acked = _wizardAmberAcks.has(fl.id);
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:' + (acked ? '#F0FDF4' : '#FFFBEB') + ';border:1px solid ' + (acked ? '#BBF7D0' : '#FDE68A') + ';border-radius:6px;margin-bottom:6px;"><span style="flex:1;font-size:13px;color:' + (acked ? '#065F46' : '#92400E') + ';">⚠ ' + fl.message + '</span><label style="font-size:11px;color:#6B7280;cursor:pointer;white-space:nowrap;"><input type="checkbox" ' + (acked ? 'checked' : '') + ' onchange="_wizardAckAmber(\'' + fl.id + '\', this.checked)"> Noted</label></div>';
+      });
+      var unacked = flags.filter(function(fl) { return fl.severity === 'amber' && !_wizardAmberAcks.has(fl.id); });
+      return { title: 'Cost Breakdown & Margin', html: html, canProceed: flags.filter(function(fl) { return fl.severity === 'red'; }).length === 0 && unacked.length === 0 };
+    }
+
+    // ── Screen 4: Tips & Blind Spots ──
+    function _fenceWizardScreen4() {
+      var j = app.job || {};
+      var tips = [];
+      // Colour
+      if (!j.colour) tips.push({ severity: 'amber', message: 'No fence colour selected' });
+      // R-code / dividing fence
+      if (j.neighboursRequired === true) {
+        tips.push({ severity: 'green', message: 'WA Dividing Fences Act: both parties are liable for 50% unless agreed otherwise' });
+        var nb = (j.neighbours && j.neighbours[0]) || {};
+        if (!nb.email) tips.push({ severity: 'amber', message: 'Neighbour email missing — can\'t send neighbour quote automatically' });
+      }
+      // Retaining
+      var comp = app._runComplianceChecks();
+      if (comp.warnings.length > 0) tips.push({ severity: 'amber', message: 'Retaining >500mm detected — Building Permit + Engineer Cert required in WA' });
+      // Asbestos
+      var rem = j.removal || {};
+      if (rem.existingFenceType === 'asbestos') tips.push({ severity: 'green', message: 'Asbestos removal included — licenced removalist cert will be provided' });
+      // Photos
+      var photos = (j.checklist && j.checklist.photos) || [];
+      if (photos.length < 5) tips.push({ severity: 'amber', message: 'Only ' + photos.length + ' site photos — recommend at least 5' });
+      // Video
+      if (!(j.checklist && j.checklist.videoWalkthrough)) tips.push({ severity: 'amber', message: 'Video walkthrough not marked done' });
+      // Supplier
+      if (!j.supplier) tips.push({ severity: 'amber', message: 'No supplier selected — needed for lead times' });
+      var html = '';
+      if (tips.length === 0) html += '<div style="padding:20px;text-align:center;color:#065F46;font-weight:600;font-size:15px;">No blind spots found ✓</div>';
+      tips.forEach(function(tip) {
+        var bg = tip.severity === 'amber' ? '#FFFBEB' : '#F0FDF4';
+        var border = tip.severity === 'amber' ? '#FDE68A' : '#BBF7D0';
+        var col = tip.severity === 'amber' ? '#92400E' : '#065F46';
+        var icon = tip.severity === 'amber' ? '⚠' : '💡';
+        html += '<div style="padding:12px;background:' + bg + ';border:1px solid ' + border + ';border-radius:8px;margin-bottom:8px;font-size:13px;color:' + col + ';">' + icon + ' ' + tip.message + '</div>';
+      });
+      html += '<div style="padding:10px 12px;background:#EFF6FF;border-radius:6px;font-size:12px;color:#1E40AF;margin-top:12px;">Advisory only — scroll through and continue.</div>';
+      return { title: 'Tips, Tricks & Blind Spots', html: html, canProceed: true };
+    }
+
+    // ── Screen 5: POs + Message to Ops ──
+    function _fenceWizardScreen5() {
+      var f = function(v) { return '$' + Math.round(v || 0).toLocaleString(); };
+      var d; try { d = app._collectOutputData(); } catch(e) { d = { internalCost: 0, internalLabour: 0, grandTotal: 0 }; }
+      var commAmt = d.grandTotal * 0.0525;
+      var html = '<div style="font-weight:700;color:#293C46;margin-bottom:8px;font-size:14px;">Draft Purchase Orders</div>';
+      // PO-1: Materials
+      html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-1: Materials</span><br><span style="font-size:12px;color:#6B7280;">Panels, posts, plinths, concrete, tek screws, gates, delivery</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(d.internalCost) + '</span></div></div>';
+      // PO-2: Labour
+      html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-2: Labour</span><br><span style="font-size:12px;color:#6B7280;">Install crew cost (inc access surcharge)</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(d.internalLabour) + '</span></div></div>';
+      // PO-3: Commission
+      html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:12px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-3: Commission</span><br><span style="font-size:12px;color:#6B7280;">5.25% of total inc GST (' + f(d.grandTotal) + ')</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(commAmt) + '</span></div></div>';
+      // Ops message
+      html += '<div style="font-weight:700;color:#293C46;margin-bottom:8px;margin-top:16px;font-size:14px;">Message to Ops (optional)</div>';
+      html += '<textarea id="wizardOpsMessage" rows="3" placeholder="Any notes for the ops team..." style="width:100%;padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
+      // Info
+      html += '<div style="margin-top:16px;padding:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;"><div style="font-weight:700;color:#1E40AF;margin-bottom:8px;font-size:13px;">When you tap "Create Job":</div><ul style="margin:0;padding-left:20px;font-size:12px;color:#1E40AF;line-height:1.8;"><li>Scope data saved to cloud</li><li>Job number assigned (SWF-XXXX)</li><li>Quote PDF generated & uploaded</li><li>Draft POs created for ops</li><li>Xero contact created</li><li>GHL opportunity stage updated</li></ul></div>';
+      return { title: 'Purchase Orders & Notify Ops', html: html, canProceed: true };
+    }
+
+    // ── Execute Create Job ──
+    async function _fenceExecuteCreateJob() {
+      var opsMsg = ''; try { opsMsg = (document.getElementById('wizardOpsMessage') || {}).value || ''; } catch(e) {}
+      _closeWizard();
+      var overlay = document.createElement('div');
+      overlay.id = 'createJobProgress';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;';
+      var steps = ['Saving scope data...','Assigning job number...','Generating quote PDF...','Uploading documents...','Creating purchase orders...','Notifying ops...'];
+      function renderProgress(step, done, error, jobNumber) {
+        var html = '<div style="background:#fff;border-radius:16px;width:90%;max-width:400px;padding:32px;text-align:center;">';
+        if (done) {
+          html += '<div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:20px;font-weight:700;color:#065F46;margin-bottom:4px;">Job Created!</div>';
+          if (jobNumber) html += '<div style="font-size:28px;font-weight:800;color:#F15A29;margin:8px 0;">' + jobNumber + '</div>';
+          html += '<div style="font-size:13px;color:#6B7280;margin-bottom:16px;">Scope locked. Quote PDF + POs sent to ops.</div>';
+          html += '<button onclick="document.getElementById(\'createJobProgress\').remove()" style="padding:12px 32px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>';
+        } else if (error) {
+          html += '<div style="font-size:48px;margin-bottom:12px;">❌</div><div style="font-size:18px;font-weight:700;color:#991B1B;margin-bottom:8px;">Failed</div><div style="font-size:13px;color:#6B7280;margin-bottom:16px;">' + error + '</div>';
+          html += '<button onclick="document.getElementById(\'createJobProgress\').remove()" style="padding:12px 32px;background:#6B7280;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Close</button>';
+        } else {
+          if (!document.getElementById('sw-spin-style')) { var s = document.createElement('style'); s.id = 'sw-spin-style'; s.textContent = '@keyframes sw-spin{to{transform:rotate(360deg)}}'; document.head.appendChild(s); }
+          html += '<div style="width:48px;height:48px;border:4px solid #EAEDF0;border-top-color:#F15A29;border-radius:50%;margin:0 auto 16px;animation:sw-spin 0.8s linear infinite;"></div>';
+          html += '<div style="font-size:16px;font-weight:700;color:#293C46;margin-bottom:16px;">Creating Job...</div>';
+          steps.forEach(function(s, i) {
+            var state = i < step ? 'done' : (i === step ? 'active' : 'pending');
+            var col = state === 'done' ? '#22C55E' : (state === 'active' ? '#F15A29' : '#D1D5DB');
+            html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:' + col + ';text-align:left;"><span style="width:16px;text-align:center;">' + (state === 'done' ? '✓' : state === 'active' ? '●' : '○') + '</span><span' + (state === 'active' ? ' style="font-weight:600;"' : '') + '>' + (i + 1) + '/' + steps.length + ' ' + s + '</span></div>';
+          });
+        }
+        html += '</div>';
+        overlay.innerHTML = html;
+      }
+      renderProgress(0); document.body.appendChild(overlay);
+      try {
+        renderProgress(0); await new Promise(function(r) { setTimeout(r, 300); });
+        // Sync client name + pricing
+        app.job.client = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ');
+        app.job._pricing_json = app.buildPricingJson();
+        // Record QA state
+        var scoperName = app.job.scoper || 'unknown';
+        fenceQA._verificationState = fenceQA._verificationState || {};
+        fenceQA._verificationState.scoper = { signedOff: true, by: scoperName, at: new Date().toISOString(), amberAcknowledged: Array.from(_wizardAmberAcks) };
+        fenceQA._saveState();
+        // Generate PDF blob
+        renderProgress(2);
+        try { app._capturePdfBlob = undefined; await app.generateQuotePDF(); } catch(pe) { console.warn('[CreateJob] PDF gen failed:', pe); app._capturePdfBlob = null; }
+        // Cloud save
+        renderProgress(3);
+        if (window._swIntegration && window._swIntegration.isCloudReady()) {
+          renderProgress(4);
+          var result = await window._swIntegration.saveAfterSignOff();
+          renderProgress(5);
+          // Ops message
+          if (opsMsg.trim() && result.success && window._swIntegration.getJobId()) {
+            try {
+              var _cloud = window.SECUREWORKS_CLOUD;
+              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+              await fetch(_cloud.supabaseUrl + '/functions/v1/ops-api', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ action: 'add_job_event', job_id: window._swIntegration.getJobId(), event_type: 'scoper_note', detail_json: { message: opsMsg.trim(), source: 'create_job_wizard' } })
+              });
+            } catch(me) { console.warn('[CreateJob] Ops message failed:', me); }
+          }
+          if (result.success) {
+            app.save(); _markClean();
+            renderProgress(5, true, null, result.jobNumber || null);
+            if (app._updateHeaderStatus) app._updateHeaderStatus();
+            updateButtonStages();
+          } else { renderProgress(0, false, 'Cloud save failed: ' + (result.reason || 'unknown')); }
+        } else {
+          app.save();
+          renderProgress(0, false, 'Not logged in. Saved locally but no job number assigned.');
+        }
+      } catch(err) { renderProgress(0, false, err.message || 'Unexpected error'); }
+    }
+
+    // ════════════════════════════════════════════════════════
+    // BOTTOM TOOLBAR
+    // ════════════════════════════════════════════════════════
     function updateButtonStages() {
       var bar = document.getElementById('generateBar');
       var inner = document.getElementById('genBarButtons');
@@ -11256,25 +11595,19 @@
       var mode = getFenceWorkflowMode();
 
       if (mode === 'draft') {
-        // ── DRAFT: Save Local + Save Draft + Create Job ──
-        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">' +
-                  'Save Local' +
-                '</button>';
-        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Draft saved to cloud\',\'success\')}else{app.showToast(\'Not logged in — saved locally only\',\'warning\');app.save()}">' +
-                  'Save Draft ☁' +
-                '</button>';
-        html += '<button class="gen-btn gen-btn-send" onclick="scopeComplete()">' +
-                  'Create Job ▶' +
-                '</button>';
+        // ── DRAFT: Save Local + Save Draft + Create/Update Job ──
+        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">Save Local</button>';
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveDraft()">Save Draft ☁</button>';
+        var hasCloudJob = window._swIntegration && window._swIntegration.getJobId && window._swIntegration.getJobId();
+        html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Update Job ▶' : 'Create Job ▶') + '</button>';
       } else {
-        // ── JOB: Preview + Send Quote + Save (if dirty) ──
-        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">' +
-                  'Save Local' +
-                '</button>';
+        // ── JOB: Save Local + PDFs + Send Quote + Save ──
+        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">💾 Local</button>';
+        html += '<button class="gen-btn gen-btn-ops" onclick="app.generateQuotePDF()">📄 Quote PDF</button>';
+        html += '<button class="gen-btn gen-btn-ops" onclick="app.generateMaterialOrder()">📄 Material PDF</button>';
+        html += '<button class="gen-btn gen-btn-ops" onclick="app.generateWorkOrder()">📄 Work Order PDF</button>';
         html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote ✉</button>';
-        html += '<button class="gen-btn gen-btn-save-cloud" onclick="if(window._swIntegration){window._swIntegration.save();app.showToast(\'Saved to cloud\',\'success\')}else{app.showToast(\'Not logged in\',\'warning\')}">' +
-                  'Save ☁' +
-                '</button>';
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveJobEdit()">Save ☁</button>';
       }
 
       inner.innerHTML = html;
