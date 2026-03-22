@@ -882,6 +882,26 @@
             }
           }
 
+          // Fallback: if no GHL opportunity linked, still assign job number directly
+          if (!_lastJobNumber && _jobId) {
+            try {
+              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+              var assignRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=assign_job_number', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ jobId: _jobId, toolType: _toolType })
+              });
+              var assignData = await assignRes.json();
+              if (assignData.jobNumber) {
+                _lastJobNumber = assignData.jobNumber;
+                linkResult = { jobNumber: assignData.jobNumber };
+                console.log('[Integration] Job number assigned (no GHL):', assignData.jobNumber);
+              }
+            } catch(assignErr) {
+              console.warn('[Integration] Direct job number assignment failed:', assignErr);
+            }
+          }
+
           // Auto-create TWO draft POs from scope: Materials + Labour (non-blocking)
           if (linkResult && linkResult.jobNumber && _jobId) {
             try {
