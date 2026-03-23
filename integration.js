@@ -716,7 +716,13 @@
             contact.firstName = state.job.clientFirstName;
             contact.lastName = state.job.clientLastName || '';
           }
-          if (!_ghlOpportunityId && (meta.client_phone || meta.client_email)) {
+          if (!_ghlOpportunityId) {
+            // Phone is required — every contact must be reachable via SMS
+            if (!meta.client_phone) {
+              alert('Phone number is required to save this job. Please enter the client\'s phone number.');
+              cloud.ui.showSaveStatus('error');
+              return;
+            }
             try {
               var ghlResult = await cloud.ghl.createContactAndOpportunity(contact, _toolType);
               if (ghlResult.opportunityId) _ghlOpportunityId = ghlResult.opportunityId;
@@ -724,8 +730,10 @@
               contact.contactId = _ghlContactId;
               console.log('[Integration] Walk-up GHL creation:', ghlResult.contactExisted ? 'existing contact' : 'new contact', 'opp:', _ghlOpportunityId);
             } catch (ghlErr) {
-              console.warn('[Integration] Walk-up GHL creation failed (non-blocking):', ghlErr);
-              // Falls through — Supabase job still created without GHL link
+              console.error('[Integration] GHL contact creation FAILED:', ghlErr);
+              alert('Could not create contact in GHL. Check your internet connection and try again.\n\n' + (ghlErr.message || 'Unknown error'));
+              cloud.ui.showSaveStatus('error');
+              return; // DO NOT create a Supabase-only orphan job
             }
           }
 

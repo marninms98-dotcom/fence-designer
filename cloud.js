@@ -1032,7 +1032,7 @@
             '<div id="sw-ghl-list" style="overflow-y:auto;flex:1;min-height:200px;">' +
               '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading opportunities...</p>' +
             '</div>' +
-            '<div style="text-align:center;border-top:1px solid #eee;padding-top:10px;margin-top:8px;">' +
+            '<div style="text-align:center;border-top:1px solid #eee;padding-top:10px;margin-top:8px;flex-shrink:0;">' +
               '<a href="#" id="sw-ghl-db-fallback" style="font-size:12px;color:' + hex.mid + ';text-decoration:underline;">Can\'t find it? Search all saved jobs</a>' +
             '</div>' +
           '</div>' +
