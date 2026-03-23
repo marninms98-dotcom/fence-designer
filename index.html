@@ -16,6 +16,24 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 
+    /* ── View Mode (read-only viewer for iframe embed) ── */
+    body.view-mode { overflow: hidden; padding-bottom: 0; background: #f5f5f5; }
+    body.view-mode .header,
+    body.view-mode #sw-cloud-bar,
+    body.view-mode .scope-section:not(#sectionVisualizer),
+    body.view-mode .scope-form > .scope-section:not(#sectionVisualizer),
+    body.view-mode .view-tabs,
+    body.view-mode .pv-reset-btn,
+    body.view-mode .fence-3d-view-btns,
+    body.view-mode .siteplan-overlay,
+    body.view-mode .modal { display: none !important; }
+    body.view-mode .scope-form { padding: 0; max-width: none; }
+    body.view-mode #sectionVisualizer { border: none; margin: 0; border-radius: 0; }
+    body.view-mode #sectionVisualizer .scope-section-header { display: none; }
+    body.view-mode #sectionVisualizer .scope-section-body { padding: 0; }
+    body.view-mode #profileViewContainer { height: 100vh; }
+    body.view-mode #profileCanvas { height: 100vh !important; }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       font-weight: 400;
@@ -11708,6 +11726,42 @@
 </script>
 <script src="cloud.js?v=20260313a"></script>
 <script src="integration.js?v=20260313a"></script>
+
+<script>
+// ── View Mode: read-only viewer for iframe embed ──
+(function() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('mode') !== 'view') return;
+
+    document.body.classList.add('view-mode');
+
+    // Ensure the visualizer section is open and visible
+    var vizSection = document.getElementById('sectionVisualizer');
+    if (vizSection) vizSection.classList.add('open');
+
+    // Show profile view container
+    var profileContainer = document.getElementById('profileViewContainer');
+    if (profileContainer) profileContainer.style.display = 'block';
+
+    // Resize profile canvas after data loads
+    var resizeInterval = setInterval(function() {
+        if (typeof app !== 'undefined' && app && app.drawProfile) {
+            clearInterval(resizeInterval);
+            // Re-draw at full viewport size
+            setTimeout(function() {
+                app.drawProfile();
+            }, 500);
+        }
+    }, 200);
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (typeof app !== 'undefined' && app && app.drawProfile) {
+            app.drawProfile();
+        }
+    });
+})();
+</script>
 
 </body>
 </html>
