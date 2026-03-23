@@ -11742,23 +11742,28 @@
 
     // Show profile view container
     var profileContainer = document.getElementById('profileViewContainer');
-    if (profileContainer) profileContainer.style.display = 'block';
+    if (profileContainer) {
+        profileContainer.style.display = 'block';
+        profileContainer.style.height = '100vh';
+    }
 
-    // Resize profile canvas after data loads
+    // Wait for app + job data to load, then render
     var resizeInterval = setInterval(function() {
-        if (typeof app !== 'undefined' && app && app.drawProfile) {
+        if (typeof app !== 'undefined' && app && app.renderProfileView && app.job && app.job.runs && app.job.runs.length > 0) {
             clearInterval(resizeInterval);
-            // Re-draw at full viewport size
+            // Mark visualizer section as open so renderProfileView doesn't bail
+            app._openSections.visualizer = true;
+            // Give container time to have dimensions
             setTimeout(function() {
-                app.drawProfile();
-            }, 500);
+                app.renderProfileView();
+            }, 300);
         }
     }, 200);
 
     // Handle window resize
     window.addEventListener('resize', function() {
-        if (typeof app !== 'undefined' && app && app.drawProfile) {
-            app.drawProfile();
+        if (typeof app !== 'undefined' && app && app.renderProfileView) {
+            app.renderProfileView();
         }
     });
 })();
