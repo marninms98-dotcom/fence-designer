@@ -8477,7 +8477,18 @@
           return;
         }
         const data = this._collectOutputData();
+        // Primary client quote (always generated — shows their full view)
         this._openOutputTab('Client Quote', this._generateQuoteHTML(data));
+        // Per-neighbour quotes (ADDITIVE — only when neighbours exist with assigned runs)
+        if (data.hasRunAssignments && data.neighbourCosts && this.job.neighbours) {
+          this.job.neighbours.forEach(function(nb) {
+            if (!nb.firstName) return;
+            var nbCosts = data.neighbourCosts[nb.id];
+            if (!nbCosts) return;
+            var nbName = [nb.firstName, nb.lastName].filter(Boolean).join(' ');
+            this._openOutputTab('Quote — ' + nbName, this._generateNeighbourQuoteHTML(data, nb, nbCosts));
+          }.bind(this));
+        }
         this._openOutputTab('Material Order', this._generateMaterialOrderHTML(data));
         this._openOutputTab('Work Order', this._generateWorkOrderHTML(data));
         this.showToast('All outputs generated', 'success');
@@ -8698,9 +8709,94 @@
             ${disclaimersHtml}
           </div>
           <div style="text-align:center;margin-top:30px;font-size:11px;color:#4C6A70;">
-            SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772
+            SecureWorks Group Pty Ltd | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772
           </div>
         </body></html>`;
+      },
+
+      // Per-neighbour quote HTML — shows only the shared run(s) and their portion
+      _generateNeighbourQuoteHTML(d, nb, nbCosts) {
+        const nbName = [nb.firstName, nb.lastName].filter(Boolean).join(' ');
+        const clientName = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+        const addr = this.job.address || '';
+        const suburb = this.job.suburb || '';
+        const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        // Filter runs assigned to this neighbour
+        const nbRuns = d.runDetails.filter(r => r.neighbourId === nb.id);
+        const totalM = nbRuns.reduce((s, r) => s + r.length, 0);
+
+        const depositPct = 50;
+        const nbTotalIncGst = nbCosts.totalIncGst;
+        const nbDepositIncGst = Math.round(nbTotalIncGst * (depositPct / 100) * 100) / 100;
+
+        let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <title>Shared Boundary Fencing Quote — ${this._esc(nbName)}</title>
+        <style>
+          body { font-family: Helvetica, Arial, sans-serif; color: #293C46; margin: 0; padding: 20px; font-size: 13px; line-height: 1.5; }
+          .header { background: #293C46; color: #fff; padding: 20px 24px; margin: -20px -20px 20px; }
+          .header h1 { margin: 0; font-size: 18px; } .header p { margin: 4px 0 0; color: rgba(255,255,255,0.7); font-size: 13px; }
+          .accent { height: 4px; background: #F15A29; margin: 0 -20px 20px; }
+          .section { margin-bottom: 16px; } .section-title { font-size: 14px; font-weight: 700; color: #293C46; border-bottom: 2px solid #F15A29; padding-bottom: 4px; margin-bottom: 8px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; } th { text-align: left; background: #EDF1F4; padding: 6px 8px; font-weight: 600; } td { padding: 6px 8px; border-bottom: 1px solid #EDF1F4; } .r { text-align: right; }
+          .total-row { font-weight: 700; font-size: 14px; background: #F8F6F3; } .deposit-box { background: #293C46; color: #fff; padding: 16px; border-radius: 8px; margin: 16px 0; text-align: center; }
+          .deposit-amount { font-size: 24px; font-weight: 800; color: #F15A29; } .footer { font-size: 11px; color: #4C6A70; text-align: center; margin-top: 20px; border-top: 1px solid #EDF1F4; padding-top: 12px; }
+        </style></head><body>
+        <div class="header"><h1>Shared Boundary Fencing Quote</h1><p>${this._esc(nbName)} &amp; ${this._esc(clientName)} — ${this._esc(suburb)}</p></div>
+        <div class="accent"></div>
+
+        <div class="section">
+          <div class="section-title">Quote Details</div>
+          <table>
+            <tr><td><strong>Prepared for:</strong></td><td>${this._esc(nbName)}</td></tr>
+            <tr><td><strong>Property:</strong></td><td>${this._esc(nb.address || addr)}</td></tr>
+            <tr><td><strong>Shared with:</strong></td><td>${this._esc(clientName)} (${this._esc(addr)})</td></tr>
+            <tr><td><strong>Date:</strong></td><td>${today}</td></tr>
+            <tr><td><strong>Valid for:</strong></td><td>30 days</td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Fence Specification</div>
+          <table>
+            <tr><td><strong>Profile:</strong></td><td>${this._esc(d.profile || '')} — ${this._esc(d.colour || '')}</td></tr>
+            <tr><td><strong>Shared boundary:</strong></td><td>${totalM.toFixed(1)}m across ${nbRuns.length} run${nbRuns.length > 1 ? 's' : ''}</td></tr>`;
+
+        nbRuns.forEach(r => {
+          html += `<tr><td style="padding-left:24px">${this._esc(r.name || 'Run')}</td><td>${r.length}m, ${r.panels[0] ? r.panels[0].height : d.job.sheetHeight || 1800}mm high${r.plinths > 0 ? ', ' + r.plinths + ' plinths' : ''}</td></tr>`;
+        });
+
+        html += `</table></div>
+
+        <div class="section">
+          <div class="section-title">Your Share — Per WA Dividing Fences Act</div>
+          <table>
+            <tr><td>Shared boundary fencing (${totalM.toFixed(1)}m)</td><td class="r">$${f(nbCosts.directCost)}</td></tr>
+            <tr><td>Your share of shared costs (delivery, removal)</td><td class="r">$${f(nbCosts.sharedCost)}</td></tr>
+            <tr class="total-row"><td>Subtotal (ex GST)</td><td class="r">$${f(nbCosts.totalExGst)}</td></tr>
+            <tr><td>GST (10%)</td><td class="r">$${f(nbCosts.gst)}</td></tr>
+            <tr class="total-row"><td>Total (inc GST)</td><td class="r">$${f(nbCosts.totalIncGst)}</td></tr>
+          </table>
+        </div>
+
+        <div class="deposit-box">
+          <div style="font-size:12px;margin-bottom:4px">Deposit Required (${depositPct}%)</div>
+          <div class="deposit-amount">$${f(nbDepositIncGst)}</div>
+          <div style="font-size:11px;margin-top:4px;color:rgba(255,255,255,0.7)">Balance of $${f(nbTotalIncGst - nbDepositIncGst)} due on completion</div>
+        </div>
+
+        <div class="section" style="font-size:11px;color:#4C6A70;line-height:1.6">
+          <div class="section-title">Dividing Fences Act 1961 (WA)</div>
+          <p>Under the WA Dividing Fences Act, adjoining property owners share the cost of a "sufficient dividing fence" equally. This quote reflects your share of the agreed fencing works along the shared boundary between your property and ${this._esc(clientName)}'s property.</p>
+          <p>By accepting this quote, you agree to pay your share as outlined above. SecureWorks Group Pty Ltd manages the full installation — you don't need to coordinate separately.</p>
+        </div>
+
+        <div class="footer">
+          SecureWorks Group Pty Ltd | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772
+        </div>
+        </body></html>`;
+        return html;
       },
 
       _generateMaterialOrderHTML(d) {
