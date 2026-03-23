@@ -750,6 +750,17 @@
         await cloud.ghl.saveScope(_jobId, state, meta);
         console.log('[Integration] Scope saved successfully');
 
+        // Sync fencing neighbours to job_contacts (if neighbours exist)
+        if (_toolType === 'fencing' && state.job && state.job.neighboursRequired && state.job.neighbours && state.job.neighbours.length > 0 && state.job.neighbours[0].firstName) {
+          fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=sync_fencing_neighbours', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+            body: JSON.stringify({ job_id: _jobId })
+          }).then(function(r) { return r.json(); }).then(function(res) {
+            if (res.synced_count > 0) console.log('[Integration] Neighbours synced:', res.synced_count, 'contacts');
+          }).catch(function(e) { console.warn('[Integration] Neighbour sync failed (non-blocking):', e); });
+        }
+
         // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
         var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
