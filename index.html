@@ -5740,6 +5740,9 @@
         if (!container || container._pvBound) return;
         container._pvBound = true;
 
+        // View mode: skip all edit handlers (soil handles, slope points, etc.)
+        if (document.documentElement.classList.contains('view-mode')) return;
+
         const isTouchDevice = 'ontouchstart' in window;
 
         container.addEventListener('mousedown', (e) => {
