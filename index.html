@@ -8808,7 +8808,7 @@
         });
 
         let order = '';
-        order += `SECUREWORKS WA PTY LTD\nMaterial Order\n\n`;
+        order += `SECUREWORKS GROUP PTY LTD\nMaterial Order\n\n`;
         order += `Job Ref: ${d.job.ref || '\u2014'}\n`;
         order += `Customer: ${d.job.client || '\u2014'}\n`;
         order += `Delivery Address: ${d.job.address || '\u2014'}\n`;
@@ -9098,7 +9098,7 @@
         doc.setTextColor(241, 90, 41);
         doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
-        doc.text('SECUREWORKS WA PTY LTD', pw / 2, 14, { align: 'center' });
+        doc.text('SECUREWORKS GROUP PTY LTD', pw / 2, 14, { align: 'center' });
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
@@ -9163,9 +9163,24 @@
         if (_spImg) {
           try {
             var spLabel = this.job.sitePlanImage ? 'SITE PLAN' : 'SITE LOCATION';
-            var spW = pw - mx * 2;
-            var spH = spW * 0.45;
+            var spW = pw - mx * 2; // full content width
+
+            // Calculate aspect ratio from actual image dimensions
+            var spH = spW * 0.55; // default: slightly less than square
+            try {
+              var tmpImg = new Image();
+              tmpImg.src = _spImg;
+              if (tmpImg.naturalWidth > 0 && tmpImg.naturalHeight > 0) {
+                var ratio = tmpImg.naturalHeight / tmpImg.naturalWidth;
+                spH = spW * Math.min(ratio, 0.75); // cap at 3:4 to not exceed page
+              }
+            } catch(dimErr) { /* use default ratio */ }
+
+            // Ensure it fits on the page
+            var maxH = ph - y - 50;
+            if (spH > maxH) spH = maxH;
             if (y + spH + 12 > ph - 40) { doc.addPage(); y = 20; }
+
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(11);
             doc.setTextColor(41, 60, 70);
@@ -9173,9 +9188,14 @@
             doc.setDrawColor(76, 106, 124);
             doc.line(mx, y + 1, pw - mx, y + 1);
             y += 4;
-            doc.addImage(_spImg, 'JPEG', mx, y, spW, spH);
+
+            // Use PNG format if it's a data URL PNG (preserves fence line overlays)
+            var imgFormat = _spImg.indexOf('data:image/png') === 0 ? 'PNG' : 'JPEG';
+            doc.addImage(_spImg, imgFormat, mx, y, spW, spH);
             y += spH + 6;
-          } catch(e) { /* skip if image fails */ }
+          } catch(e) {
+            console.warn('[QuotePDF] Site plan image failed:', e.message);
+          }
         }
 
         // Material selection — colour swatch + profile name
@@ -9362,7 +9382,7 @@
         doc.setTextColor(241, 90, 41);
         doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
-        doc.text('SECUREWORKS WA PTY LTD', pw / 2, 14, { align: 'center' });
+        doc.text('SECUREWORKS GROUP PTY LTD', pw / 2, 14, { align: 'center' });
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
@@ -9699,7 +9719,7 @@
             c.height = img.naturalHeight || 600;
             var ctx = c.getContext('2d');
             ctx.drawImage(img, 0, 0);
-            this.job.sitePlanImage = c.toDataURL('image/jpeg', 0.7);
+            this.job.sitePlanImage = c.toDataURL('image/jpeg', 0.85);
             changed = true;
           } catch(e) { /* ignore conversion errors */ }
         }
