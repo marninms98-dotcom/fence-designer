@@ -1032,12 +1032,42 @@
             '<div id="sw-ghl-list" style="overflow-y:auto;flex:1;min-height:200px;">' +
               '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading opportunities...</p>' +
             '</div>' +
+            '<div style="text-align:center;border-top:1px solid #eee;padding-top:10px;margin-top:8px;">' +
+              '<a href="#" id="sw-ghl-db-fallback" style="font-size:12px;color:' + hex.mid + ';text-decoration:underline;">Can\'t find it? Search all saved jobs</a>' +
+            '</div>' +
           '</div>' +
         '</div>';
 
       document.body.appendChild(overlay);
 
       document.getElementById('sw-ghl-close').onclick = function() { overlay.remove(); };
+
+      // Fallback: search Supabase jobs directly
+      document.getElementById('sw-ghl-db-fallback').onclick = function(e) {
+        e.preventDefault();
+        overlay.remove();
+        cloud.ui.showJobPicker(toolType, function(jobId) {
+          // When a job is selected from Supabase picker, create a synthetic opp-like object
+          // and let the caller handle it via the same callback
+          cloud.ghl.loadJob(jobId).then(function(job) {
+            if (!job) { alert('Job not found'); return; }
+            var syntheticOpp = {
+              id: job.ghl_opportunity_id || null,
+              contactId: job.ghl_contact_id || null,
+              contactName: job.client_name || '',
+              contactEmail: job.client_email || '',
+              contactPhone: job.client_phone || '',
+              contactAddress: job.site_address || '',
+              contactCity: job.site_suburb || '',
+              _supabaseJobId: job.id,
+              _loadedFromSupabase: true
+            };
+            if (onSelect) onSelect(syntheticOpp);
+          }).catch(function(err) {
+            alert('Error loading job: ' + err.message);
+          });
+        });
+      };
 
       // Load opportunities and check for existing Supabase jobs
       var _loadOpps = async function(pipeline, search) {

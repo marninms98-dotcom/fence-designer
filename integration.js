@@ -1148,6 +1148,30 @@
             contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
           }
 
+          // ── Supabase-loaded job (from "Search all jobs" fallback) ──
+          if (opp._loadedFromSupabase && opp._supabaseJobId) {
+            console.log('[Integration] Loading directly from Supabase job:', opp._supabaseJobId);
+            var sbJob = await cloud.ghl.loadJob(opp._supabaseJobId);
+            if (sbJob) {
+              _jobId = sbJob.id;
+              _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
+              _ghlContactId = sbJob.ghl_contact_id || null;
+              _lastJobNumber = sbJob.job_number || null;
+              if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
+                _loadStateFn(sbJob.scope_json);
+              }
+              _applyJobNumber(_lastJobNumber);
+              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              if (contact) _prefillContact(contact);
+              var newUrl = window.location.pathname + '?jobId=' + _jobId;
+              window.history.replaceState({}, '', newUrl);
+              console.log('[Integration] Supabase job loaded, URL updated:', newUrl);
+              updateUI();
+              cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              return;
+            }
+          }
+
           // Check if a Supabase job already exists for this opportunity + tool type
           // Passing _toolType prevents cross-division overwrite (patio vs fencing)
           var existingJob = null;
