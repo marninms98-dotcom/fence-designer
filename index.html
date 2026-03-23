@@ -10997,10 +10997,13 @@
           }
         }
 
-        // Step 2: Generate PDF
+        // Step 2: Generate PDF (capture mode — don't auto-download, capture blob for upload)
         updateStep('Generating PDF...', '');
         window._currentQuoteNumber = quoteNumber;
+        app._capturePdfBlob = undefined; // Signal capture mode (prevents auto-download)
         app.generateQuotePDF();
+        var capturedPdfBlob = app._capturePdfBlob;
+        app._capturePdfBlob = null; // Reset capture mode
         window._currentQuoteNumber = null;
 
         // Step 2b: Generate + upload per-neighbour PDFs
@@ -11091,12 +11094,21 @@
           var toEmail = singleTo;
           if (toEmail && toEmail.includes('@')) {
             updateStep('Sending email...', 'to ' + toEmail);
-            // Need a document_id — for single non-neighbour, use prepData
             if (prepData && prepData.documentId) {
-              // Upload PDF first (fencing tool generates PDF via app.generateQuotePDF() which downloads it,
-              // but the prepare_quote gave us an upload URL)
-              // The fencing tool's generateQuotePDF downloads the PDF directly. We need to capture it instead.
-              // For now, just send the email with the document_id — the PDF is already stored via prepare_quote
+              // Upload captured PDF blob to storage if we have one + an upload URL
+              if (capturedPdfBlob && prepData.uploadUrl) {
+                try {
+                  updateStep('Uploading PDF...', '');
+                  await fetch(prepData.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/pdf' },
+                    body: capturedPdfBlob
+                  });
+                  console.log('[SendQuote] PDF uploaded for single recipient');
+                } catch (upErr) {
+                  console.warn('[SendQuote] PDF upload failed (non-blocking):', upErr.message);
+                }
+              }
               try {
                 var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                   method: 'POST',
