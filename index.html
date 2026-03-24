@@ -10071,9 +10071,137 @@
         }
       }
 
+      // ── Build per-run items array for multi-neighbour quoting ──
+      var runs = [];
+      var allocs = (j.quote && j.quote.itemAllocations) || {};
+      var neighbours = j.neighbours || [];
+
+      function normaliseRunLabel(name) {
+        var n = (name || '').toLowerCase().trim();
+        if (n.match(/rear|back/)) return 'REAR';
+        if (n.match(/left|lhs/)) return 'LHS';
+        if (n.match(/right|rhs/)) return 'RHS';
+        if (n.match(/front/)) return 'FRONT';
+        return (name || 'RUN').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 10);
+      }
+
+      // Deduplicate run labels (split boundaries get -1, -2 suffix)
+      var labelCounts = {};
+      var runLabels = (d.runDetails || []).map(function(rd) {
+        var label = normaliseRunLabel(rd.name);
+        labelCounts[label] = (labelCounts[label] || 0) + 1;
+        return label;
+      });
+      var labelIdx = {};
+      runLabels = runLabels.map(function(label) {
+        if (labelCounts[label] > 1) {
+          labelIdx[label] = (labelIdx[label] || 0) + 1;
+          return label + '-' + labelIdx[label];
+        }
+        return label;
+      });
+
+      (d.runDetails || []).forEach(function(rd, ri) {
+        var runLabel = runLabels[ri] || ('RUN-' + (ri + 1));
+        var nb = rd.neighbourId ? neighbours.find(function(n) { return n.id === rd.neighbourId; }) : null;
+        var hasNeighbour = !!nb;
+        var defaultSplit = hasNeighbour ? (nb.sharePercent ? (100 - nb.sharePercent) : 50) : 100;
+
+        var runItems = [];
+        var sortIdx = 0;
+
+        // Helper to get allocation for an item
+        function getAlloc(key) {
+          var a = allocs[runLabel + '_' + key] || allocs[key] || {};
+          var allocation = a.allocation || 'shared';
+          var splitPct = allocation === 'client_only' ? 100 : allocation === 'neighbour_only' ? 0 : (a.split_pct != null ? a.split_pct : defaultSplit);
+          return { allocation: allocation, split_pct: splitPct, note: a.note || null };
+        }
+
+        function addItem(desc, qty, unit, unitPrice, totalEx, key) {
+          var al = hasNeighbour ? getAlloc(key) : { allocation: 'client_only', split_pct: 100, note: null };
+          var clientAmt = Math.round(totalEx * (al.split_pct / 100) * 100) / 100;
+          var nbAmt = Math.round(totalEx * ((100 - al.split_pct) / 100) * 100) / 100;
+          runItems.push({
+            description: desc, quantity: qty, unit: unit,
+            unit_price_ex: unitPrice, line_total_ex: totalEx,
+            allocation: hasNeighbour ? al.allocation : 'client_only',
+            split_pct: al.split_pct,
+            client_amount_ex: clientAmt, neighbour_amount_ex: nbAmt,
+            allocation_note: al.note, sort_order: sortIdx++
+          });
+        }
+
+        // Fencing
+        if (rd.length > 0) {
+          addItem(
+            (d.colour || '') + ' ' + (d.profile || 'Colorbond') + ' fencing — ' + rd.length.toFixed(1) + 'm',
+            rd.length, 'm', d.pricePerMetre, rd.runFencing, 'fencing'
+          );
+        }
+        // Plinths
+        if (rd.plinths > 0) {
+          addItem('Retaining plinths (150mm)', rd.plinths, 'ea', d.plinthSell, rd.runPlinthsCost, 'plinths');
+        }
+        // Patio tubes
+        if (rd.patioTubes > 0) {
+          addItem('Patio tubes (76×38 RHS)', rd.patioTubes, 'ea', d.patioSell, rd.runPatioCost, 'patio_tubes');
+        }
+        // Gates on this run
+        (d.gateLineItems || []).forEach(function(g, gi) {
+          var gate = (j.gates || [])[gi];
+          if (gate && gate.runIndex === ri) {
+            addItem(g.desc, g.qty, 'ea', g.total, g.total, 'gate_' + gi);
+          }
+        });
+
+        // Pro-rate job-level costs to this run (by proportion of run subtotal to total)
+        var runProportion = d.subtotal > 0 ? rd.runSubtotal / d.subtotal : 0;
+
+        // Delivery (pro-rated)
+        if (d.deliveryFee > 0 && runProportion > 0) {
+          var runDelivery = Math.round(d.deliveryFee * runProportion * 100) / 100;
+          addItem('Delivery (pro-rated)', 1, 'lot', runDelivery, runDelivery, 'delivery');
+        }
+        // Access surcharge (pro-rated)
+        if (d.accessSurcharge > 0 && runProportion > 0) {
+          var runAccess = Math.round(d.accessSurcharge * runProportion * 100) / 100;
+          addItem('Access surcharge', 1, 'lot', runAccess, runAccess, 'access_surcharge');
+        }
+        // Urgency surcharge (pro-rated)
+        if (d.urgencySurcharge > 0 && runProportion > 0) {
+          var runUrgency = Math.round(d.urgencySurcharge * runProportion * 100) / 100;
+          addItem('Urgency surcharge', 1, 'lot', runUrgency, runUrgency, 'urgency_surcharge');
+        }
+
+        // Totals
+        var runTotalEx = runItems.reduce(function(s, i) { return s + i.line_total_ex; }, 0);
+        var clientTotalEx = runItems.reduce(function(s, i) { return s + i.client_amount_ex; }, 0);
+        var nbTotalEx = runItems.reduce(function(s, i) { return s + i.neighbour_amount_ex; }, 0);
+
+        runs.push({
+          run_label: runLabel,
+          run_name: rd.name || runLabel,
+          neighbour_id: rd.neighbourId || null,
+          neighbour_name: nb ? [nb.firstName, nb.lastName].filter(Boolean).join(' ') : null,
+          neighbour_address: nb ? (nb.address || '') : null,
+          default_split_pct: defaultSplit,
+          items: runItems,
+          totals: {
+            run_total_ex: Math.round(runTotalEx * 100) / 100,
+            client_share_ex: Math.round(clientTotalEx * 100) / 100,
+            neighbour_share_ex: Math.round(nbTotalEx * 100) / 100,
+            run_total_inc: Math.round(runTotalEx * 1.1 * 100) / 100,
+            client_share_inc: Math.round(clientTotalEx * 1.1 * 100) / 100,
+            neighbour_share_inc: Math.round(nbTotalEx * 1.1 * 100) / 100
+          }
+        });
+      });
+
       return {
-        source: 'scoping_tool', version: '2.1', generated_at: new Date().toISOString(),
+        source: 'scoping_tool', version: '3.0', generated_at: new Date().toISOString(),
         line_items: lineItems,
+        runs: runs.length > 0 ? runs : undefined,
         subtotal: d.subtotal, gst: d.gst, totalExGST: d.subtotal, totalIncGST: d.grandTotal,
         totalCostEstimate: totalCostEstimate,
         materialCostEstimate: materialCostEstimate,
