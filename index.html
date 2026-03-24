@@ -11000,6 +11000,8 @@
               if (nbRes.ok && nbData.success) {
                 neighbourQuoteData = nbData;
                 quoteNumber = nbData.contacts[0]?.quote_number || null;
+              } else {
+                console.warn('[SendQuote] prepare_neighbour_quotes failed:', nbData.error || 'Unknown error');
               }
             } else {
               var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
