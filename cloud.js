@@ -428,6 +428,18 @@
       return data.job || null;
     },
 
+    // Search Supabase jobs (via edge function, bypasses RLS)
+    async searchJobs(query, type, limit) {
+      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search_jobs';
+      if (query) url += '&q=' + encodeURIComponent(query);
+      if (type) url += '&type=' + encodeURIComponent(type);
+      if (limit) url += '&limit=' + limit;
+      var res = await fetch(url, { headers: { 'x-api-key': SW_API_KEY } });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Search failed');
+      return data.jobs || [];
+    },
+
     // Load a job by ID (via edge function, bypasses RLS)
     async loadJob(jobId) {
       console.log('[Cloud] loadJob:', jobId);
@@ -826,6 +838,13 @@
         var state = getStateFn();
         if (!state) return;
 
+        // Prevent orphan auto-saves — skip if no client name set
+        var clientName = '';
+        if (state.customer) clientName = state.customer.name || '';
+        else if (state.client) clientName = state.client.name || '';
+        else if (state.job) clientName = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim();
+        if (!clientName) return; // Don't auto-save empty/ghost records
+
         // Build meta so auto-save keeps jobs table fields current
         var meta = {};
         if (state.customer || state.client) {
@@ -1021,184 +1040,211 @@
       overlay.id = 'sw-ghlpicker-overlay';
       overlay.innerHTML =
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;">' +
-          '<div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;">' +
+          '<div style="background:#fff;border-radius:12px;padding:24px;max-width:560px;width:92%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load from GHL <span style="font-size:13px;font-weight:400;color:' + hex.mid + ';">(' + pipelineLabel + ' Pipeline)</span></h2>' +
+              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load Job <span style="font-size:13px;font-weight:400;color:' + hex.mid + ';">(' + pipelineLabel + ')</span></h2>' +
               '<button id="sw-ghl-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">&times;</button>' +
             '</div>' +
             '<div style="margin-bottom:12px;">' +
-              '<input type="text" id="sw-ghl-search" placeholder="Search by name..." style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">' +
+              '<input type="text" id="sw-ghl-search" placeholder="Search by name, job number, address, phone..." style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;box-sizing:border-box;">' +
             '</div>' +
             '<div id="sw-ghl-list" style="overflow-y:auto;flex:1;min-height:200px;">' +
-              '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading opportunities...</p>' +
+              '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading jobs...</p>' +
             '</div>' +
-            '<div style="text-align:center;border-top:1px solid #eee;padding-top:10px;margin-top:8px;flex-shrink:0;">' +
-              '<a href="#" id="sw-ghl-db-fallback" style="font-size:12px;color:' + hex.mid + ';text-decoration:underline;">Can\'t find it? Search all saved jobs</a>' +
+            '<div id="sw-ghl-newleads" style="display:none;border-top:2px solid #eee;margin-top:8px;padding-top:8px;">' +
+              '<div style="font-size:12px;font-weight:600;color:' + hex.mid + ';margin-bottom:6px;">New Leads from GHL</div>' +
+              '<div id="sw-ghl-leads-list"></div>' +
             '</div>' +
+            '<button id="sw-ghl-new" style="margin-top:10px;width:100%;padding:10px;background:' + hex.dark + ';color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0;">+ New Job</button>' +
           '</div>' +
         '</div>';
 
       document.body.appendChild(overlay);
-
       document.getElementById('sw-ghl-close').onclick = function() { overlay.remove(); };
 
-      // Fallback: search Supabase jobs directly
-      document.getElementById('sw-ghl-db-fallback').onclick = function(e) {
-        e.preventDefault();
+      // New job button
+      document.getElementById('sw-ghl-new').onclick = function() {
+        var localId = 'local-' + Date.now();
         overlay.remove();
-        cloud.ui.showJobPicker(toolType, function(jobId) {
-          // When a job is selected from Supabase picker, create a synthetic opp-like object
-          // and let the caller handle it via the same callback
-          cloud.ghl.loadJob(jobId).then(function(job) {
-            if (!job) { alert('Job not found'); return; }
-            var syntheticOpp = {
-              id: job.ghl_opportunity_id || null,
-              contactId: job.ghl_contact_id || null,
-              contactName: job.client_name || '',
-              contactEmail: job.client_email || '',
-              contactPhone: job.client_phone || '',
-              contactAddress: job.site_address || '',
-              contactCity: job.site_suburb || '',
-              _supabaseJobId: job.id,
-              _loadedFromSupabase: true
-            };
-            if (onSelect) onSelect(syntheticOpp);
-          }).catch(function(err) {
-            alert('Error loading job: ' + err.message);
-          });
-        });
+        // Create synthetic opp for the integration callback
+        var syntheticOpp = { id: null, contactId: null, contactName: '', _supabaseJobId: localId, _loadedFromSupabase: true, _isNew: true };
+        if (onSelect) onSelect(syntheticOpp);
       };
 
-      // Load opportunities and check for existing Supabase jobs
-      var _loadOpps = async function(pipeline, search) {
+      // Helper: build scope description from scope_json
+      function _scopeDesc(job) {
+        var scope = job.scope_json;
+        if (!scope || typeof scope !== 'object') return '';
+        // Patio
+        if (scope.config) {
+          var c = scope.config;
+          var parts = [];
+          if (c.length && c.projection) parts.push(c.length + 'm \u00d7 ' + c.projection + 'm');
+          if (c.roofStyle) parts.push(c.roofStyle.charAt(0).toUpperCase() + c.roofStyle.slice(1));
+          if (c.roofing) parts.push(c.roofing);
+          return parts.join(' \u2014 ');
+        }
+        // Fencing
+        if (scope.job && scope.job.runs) {
+          var runs = scope.job.runs;
+          var totalM = runs.reduce(function(s, r) { return s + (r.totalLength || r.lengthM || 0); }, 0);
+          return totalM > 0 ? Math.round(totalM) + 'm \u2014 ' + runs.length + ' run(s)' : '';
+        }
+        return '';
+      }
+
+      // Helper: render a job card
+      function _renderJobCard(job) {
+        var hasScope = job.scope_json && Object.keys(job.scope_json).length > 0;
+        var hasJobNum = !!job.job_number;
+        var isPosted = hasJobNum && job.status !== 'draft';
+        var price = job.pricing_json?.totalIncGST;
+        var priceStr = price ? '$' + Number(price).toLocaleString() : '';
+        var desc = _scopeDesc(job);
+        var addrParts = [job.site_address, job.site_suburb].filter(Boolean);
+        var addrLine = addrParts.join(', ');
+        var statusColors = { draft: '#999', quoted: '#007AFF', accepted: '#34C759', scheduled: '#FF9500', in_progress: '#FF9500', complete: '#34C759', invoiced: '#8E8E93', cancelled: '#FF3B30' };
+        var statusColor = statusColors[job.status] || '#999';
+        var borderColor = isPosted ? '#34C759' : hasScope ? '#007AFF' : '#eee';
+        var borderWidth = (isPosted || hasScope) ? '2px' : '1px';
+
+        var html = '<div class="sw-job-card" data-jobid="' + job.id + '" style="padding:12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">';
+        // Row 1: Name + status
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+        html += '<strong style="color:' + hex.dark + ';">' + (job.client_name || 'Untitled') + '</strong>';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + statusColor + '20;color:' + statusColor + ';font-weight:600;">' + (job.status || 'draft') + '</span>';
+        html += '</div>';
+        // Row 2: Job number (if posted) or draft label
+        if (hasJobNum) {
+          html += '<div style="margin-top:3px;"><strong style="font-size:14px;color:' + hex.dark + ';letter-spacing:0.5px;">' + job.job_number + '</strong></div>';
+        } else if (hasScope) {
+          html += '<div style="margin-top:3px;font-size:11px;color:#FF9500;font-weight:600;">DRAFT \u2014 not yet posted</div>';
+        }
+        // Row 3: Address
+        if (addrLine) html += '<div style="font-size:11px;color:#999;margin-top:2px;">' + addrLine + '</div>';
+        // Row 4: Scope description
+        if (desc) html += '<div style="font-size:11px;color:' + hex.mid + ';margin-top:2px;">' + desc + '</div>';
+        // Row 5: Badges
+        var badges = [];
+        if (hasScope) badges.push('<span style="background:#34C75920;color:#34C759;padding:1px 6px;border-radius:4px;font-size:10px;">Scope saved</span>');
+        if (priceStr) badges.push('<span style="font-size:10px;color:' + hex.mid + ';">' + priceStr + ' inc GST</span>');
+        if (job.updated_at) badges.push('<span style="font-size:10px;color:#aaa;">Updated ' + new Date(job.updated_at).toLocaleDateString('en-AU') + '</span>');
+        if (badges.length) html += '<div style="margin-top:3px;">' + badges.join(' ') + '</div>';
+        // Row 6: GHL stage (enriched async)
+        html += '<div class="sw-ghl-stage" data-jobid="' + job.id + '" style="margin-top:3px;"></div>';
+        // Action label
+        html += '<div style="margin-top:4px;">';
+        if (hasScope) html += '<span style="font-size:11px;padding:3px 10px;border-radius:6px;background:#22C55E18;color:#22C55E;font-weight:600;">Resume Scope \u2192</span>';
+        else html += '<span style="font-size:11px;padding:3px 10px;border-radius:6px;background:' + hex.orange + '18;color:' + hex.orange + ';font-weight:600;">Start Scope</span>';
+        html += '</div>';
+        html += '</div>';
+        return html;
+      }
+
+      // Main load function — Supabase-first
+      var _loadJobs = async function(search) {
         var list = document.getElementById('sw-ghl-list');
+        var leadsSection = document.getElementById('sw-ghl-newleads');
+        var leadsList = document.getElementById('sw-ghl-leads-list');
         list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading...</p>';
+        leadsSection.style.display = 'none';
+
         try {
-          var opps;
-          if (search) {
-            opps = await ghl.search(search);
+          // PRIMARY: Search Supabase jobs
+          var jobs = await ghl.searchJobs(search || '', toolType, 30);
+
+          if (jobs.length === 0 && !search) {
+            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No saved jobs yet. Click "+ New Job" to start.</p>';
+          } else if (jobs.length === 0) {
+            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No jobs matching "' + search + '"</p>';
           } else {
-            opps = await ghl.getOpportunities(pipeline);
+            list.innerHTML = jobs.map(function(job) { return _renderJobCard(job); }).join('');
+
+            // Click handlers
+            list.querySelectorAll('.sw-job-card').forEach(function(el) {
+              el.onclick = function() {
+                var jobId = el.dataset.jobid;
+                var job = jobs.find(function(j) { return j.id === jobId; });
+                if (!job) return;
+                overlay.remove();
+                // Create synthetic opp for integration callback
+                var syntheticOpp = {
+                  id: job.ghl_opportunity_id || null,
+                  contactId: job.ghl_contact_id || null,
+                  contactName: job.client_name || '',
+                  contactEmail: job.client_email || '',
+                  contactPhone: job.client_phone || '',
+                  contactAddress: job.site_address || '',
+                  contactCity: job.site_suburb || '',
+                  _supabaseJobId: job.id,
+                  _loadedFromSupabase: true
+                };
+                if (onSelect) onSelect(syntheticOpp);
+              };
+            });
+
+            // ASYNC ENRICHMENT: For jobs with GHL link, fetch stage from GHL
+            jobs.forEach(function(job) {
+              if (!job.ghl_opportunity_id) return;
+              ghl.search(job.client_name).then(function(opps) {
+                var match = opps.find(function(o) { return o.id === job.ghl_opportunity_id; });
+                if (!match) return;
+                var stageEl = list.querySelector('.sw-ghl-stage[data-jobid="' + job.id + '"]');
+                if (stageEl && match.stageName) {
+                  stageEl.innerHTML = '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + hex.orange + '15;color:' + hex.orange + ';">GHL: ' + match.stageName + '</span>';
+                }
+              }).catch(function() {});
+            });
           }
 
-          if (opps.length === 0) {
-            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No opportunities found</p>';
-            return;
-          }
+          // SECONDARY: Load GHL opportunities that DON'T have Supabase jobs yet
+          // Only show on initial load (no search) or short searches
+          if (!search || search.length <= 2) {
+            try {
+              var opps = await ghl.getOpportunities(pipelineKey);
+              var jobOppIds = {};
+              jobs.forEach(function(j) { if (j.ghl_opportunity_id) jobOppIds[j.ghl_opportunity_id] = true; });
+              var unlinkedOpps = opps.filter(function(o) { return !jobOppIds[o.id]; });
 
-          // Render cards first (fast), then enrich with Supabase data (async)
-          list.innerHTML = opps.map(function(opp) {
-            var infoParts = [opp.contactPhone, opp.contactEmail].filter(Boolean);
-            var addrParts = [opp.contactAddress, opp.contactCity].filter(Boolean);
-            var subtitle = infoParts.join(' \u00b7 ');
-            var addrLine = addrParts.length ? addrParts.join(', ') : '';
-            return '<div class="sw-ghl-item" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' data-oppid="' + opp.id + '" style="padding:12px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">' +
-              '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                '<strong style="color:' + hex.dark + ';">' + (opp.contactName || opp.name || 'Unknown') + '</strong>' +
-                '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;">' + (opp.stageName || opp.status || '') + '</span>' +
-              '</div>' +
-              (subtitle ? '<div style="font-size:12px;color:' + hex.mid + ';margin-top:4px;">' + subtitle + '</div>' : '') +
-              (addrLine ? '<div style="font-size:11px;color:#999;margin-top:2px;">' + addrLine + '</div>' : '') +
-              '<div class="sw-ghl-job-info" data-oppid="' + opp.id + '" style="margin-top:6px;font-size:11px;color:' + hex.mid + ';"></div>' +
-              '<div class="sw-ghl-action" data-oppid="' + opp.id + '" style="margin-top:6px;"><span style="font-size:11px;padding:3px 10px;border-radius:6px;background:' + hex.orange + '18;color:' + hex.orange + ';font-weight:600;">Start New Scope</span></div>' +
-            '</div>';
-          }).join('');
+              if (unlinkedOpps.length > 0) {
+                leadsSection.style.display = '';
+                leadsList.innerHTML = unlinkedOpps.slice(0, 10).map(function(opp) {
+                  var infoParts = [opp.contactPhone, opp.contactEmail].filter(Boolean);
+                  return '<div class="sw-lead-card" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' style="padding:8px 10px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:12px;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                      '<strong style="color:' + hex.dark + ';">' + (opp.contactName || opp.name || 'Unknown') + '</strong>' +
+                      '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + hex.orange + '15;color:' + hex.orange + ';">' + (opp.stageName || '') + '</span>' +
+                    '</div>' +
+                    (infoParts.length ? '<div style="color:#999;margin-top:2px;">' + infoParts.join(' \u00b7 ') + '</div>' : '') +
+                    '<div style="margin-top:3px;"><span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + hex.orange + '18;color:' + hex.orange + ';font-weight:600;">Start New Scope</span></div>' +
+                  '</div>';
+                }).join('');
 
-          // Click handlers
-          list.querySelectorAll('.sw-ghl-item').forEach(function(el) {
-            el.onclick = function() {
-              var opp = JSON.parse(el.dataset.opp);
-              overlay.remove();
-              if (onSelect) onSelect(opp);
-            };
-          });
-
-          // Async: check each opportunity for existing Supabase job data
-          opps.forEach(function(opp) {
-            ghl.findJobByOpportunity(opp.id, toolType).then(function(job) {
-              var infoEl = list.querySelector('.sw-ghl-job-info[data-oppid="' + opp.id + '"]');
-              if (!infoEl) return;
-              if (job) {
-                var card = infoEl.parentElement;
-                var hasScope = job.scope_json && Object.keys(job.scope_json).length > 0;
-
-                // Backfill address from Supabase if GHL didn't provide one
-                var cardAddrLine = card.querySelector('div[style*="color:#999"]');
-                if (!cardAddrLine && job.site_address) {
-                    var addrDiv = document.createElement('div');
-                    addrDiv.style.cssText = 'font-size:11px;color:#999;margin-top:2px;';
-                    addrDiv.textContent = job.site_address;
-                    var infoParent = infoEl.parentElement;
-                    infoParent.insertBefore(addrDiv, infoEl);
-                }
-
-                // Build job number headline (bold, prominent)
-                var html = '';
-                if (job.job_number) {
-                  html += '<div style="margin-bottom:4px;"><strong style="font-size:14px;color:#293C46;letter-spacing:0.5px;">' + job.job_number + '</strong>';
-                  if (job.status) html += ' <span style="font-size:11px;color:' + hex.mid + ';">(' + job.status + ')</span>';
-                  html += '</div>';
-                }
-
-                // Build scope description from scope_json
-                var desc = '';
-                if (hasScope && job.scope_json.config) {
-                  var c = job.scope_json.config;
-                  var parts = [];
-                  if (c.length && c.projection) parts.push(c.length + 'm x ' + c.projection + 'm');
-                  if (c.roofStyle) parts.push(c.roofStyle.charAt(0).toUpperCase() + c.roofStyle.slice(1));
-                  if (c.roofing) parts.push(c.roofing);
-                  if (job.scope_json.client && job.scope_json.client.suburb) parts.push(job.scope_json.client.suburb);
-                  if (parts.length) desc = parts.join(' \u2014 ');
-                } else if (hasScope && job.scope_json.job && job.scope_json.job.runs) {
-                  // Fencing: show total metres + run count
-                  var runs = job.scope_json.job.runs;
-                  var totalM = runs.reduce(function(s, r) { return s + (r.totalLength || 0); }, 0);
-                  if (totalM > 0) desc = totalM.toFixed(0) + 'm total \u2014 ' + runs.length + ' run(s)';
-                }
-                if (desc) html += '<div style="font-size:11px;color:' + hex.mid + ';">' + desc + '</div>';
-
-                // Status badges row
-                var badges = [];
-                if (hasScope) badges.push('<span style="background:#34C75920;color:#34C759;padding:1px 6px;border-radius:4px;font-size:10px;">Scope saved</span>');
-                else badges.push('<span style="background:#FF950020;color:#FF9500;padding:1px 6px;border-radius:4px;font-size:10px;">No scope data</span>');
-                if (job.pricing_json && job.pricing_json.totalIncGST) {
-                  badges.push('<span style="font-size:10px;color:' + hex.mid + ';">$' + Number(job.pricing_json.totalIncGST).toLocaleString() + ' inc GST</span>');
-                }
-                if (job.updated_at) {
-                  var d = new Date(job.updated_at);
-                  badges.push('<span style="font-size:10px;color:#aaa;">Updated ' + d.toLocaleDateString('en-AU') + '</span>');
-                }
-                if (badges.length) html += '<div style="margin-top:3px;">' + badges.join(' ') + '</div>';
-
-                infoEl.innerHTML = html;
-                // Update action badge
-                var actionEl = list.querySelector('.sw-ghl-action[data-oppid="' + opp.id + '"]');
-                if (actionEl) {
-                    if (hasScope) {
-                        actionEl.innerHTML = '<span style="font-size:11px;padding:3px 10px;border-radius:6px;background:#22C55E18;color:#22C55E;font-weight:600;">Resume Scope \u2192</span>';
-                    }
-                }
-                // Highlight the card border to show it has a linked job
-                card.style.borderColor = '#34C759';
-                card.style.borderWidth = '2px';
+                // Click handlers for GHL leads
+                leadsList.querySelectorAll('.sw-lead-card').forEach(function(el) {
+                  el.onclick = function() {
+                    var opp = JSON.parse(el.dataset.opp);
+                    overlay.remove();
+                    if (onSelect) onSelect(opp);
+                  };
+                });
               }
-            }).catch(function() { /* ignore lookup failures */ });
-          });
+            } catch(e) { console.log('[Cloud] GHL leads load failed:', e); }
+          }
         } catch(e) {
           list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:40px 0;">Error: ' + e.message + '</p>';
         }
       };
 
-      // Initial load — auto-selects correct pipeline for this tool
-      _loadOpps(pipelineKey, '');
+      // Initial load
+      _loadJobs('');
 
       // Search debounce
       var _searchTimer;
       document.getElementById('sw-ghl-search').oninput = function() {
         clearTimeout(_searchTimer);
         var val = this.value;
-        _searchTimer = setTimeout(function() { _loadOpps(pipelineKey, val); }, 300);
+        _searchTimer = setTimeout(function() { _loadJobs(val); }, 300);
       };
     },
 
