@@ -9664,6 +9664,236 @@
         return doc.output('blob');
       },
 
+      // Generate per-RUN quote PDF for multi-neighbour fencing
+      // Shows both parties, all items, allocation notes, and share breakdown
+      generateRunQuotePDF(run, d) {
+        if (!run || !run.items) return null;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const pw = 210, ph = 297, mx = 20;
+        const f = (n) => (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        let y = 20;
+
+        // Header bar
+        doc.setFillColor(41, 60, 70);
+        doc.rect(0, 0, pw, 32, 'F');
+        doc.setTextColor(241, 90, 41);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text('SECUREWORKS GROUP PTY LTD', pw / 2, 14, { align: 'center' });
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text('ABN 64 689 223 416  |  fencing@secureworkswa.com.au  |  +61 489 267 772', pw / 2, 22, { align: 'center' });
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        var quoteRef = (d.job.ref || '') + '-' + (run.run_label || '');
+        doc.text('FENCING QUOTE  \u2014  ' + quoteRef, pw / 2, 29, { align: 'center' });
+        y = 38;
+
+        // Run badge
+        doc.setFillColor(241, 90, 41);
+        doc.roundedRect(mx, y, 30, 7, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(run.run_label || '', mx + 15, y + 5, { align: 'center' });
+        doc.setTextColor(41, 60, 70);
+        doc.setFontSize(13);
+        doc.text(run.run_name || run.run_label || '', mx + 34, y + 5);
+        y += 14;
+
+        // Parties
+        var clientName = d.job.client || [d.job.clientFirstName, d.job.clientLastName].filter(Boolean).join(' ') || 'Client';
+        var clientAddr = d.job.address || '';
+        var nbName = run.neighbour_name || null;
+        var nbAddr = run.neighbour_address || '';
+        var hasNb = !!nbName;
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(76, 106, 124);
+        doc.text('CLIENT', mx, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(41, 60, 70);
+        doc.text(clientName, mx + 25, y);
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        doc.text(clientAddr, mx + 25, y + 4);
+        if (hasNb) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(76, 106, 124);
+          doc.text('ADJOINING OWNER', pw / 2 + 5, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          doc.setTextColor(41, 60, 70);
+          doc.text(nbName, pw / 2 + 40, y);
+          doc.setFontSize(8);
+          doc.setTextColor(100, 100, 100);
+          doc.text(nbAddr, pw / 2 + 40, y + 4);
+        }
+        y += 12;
+
+        // Date + validity
+        var date = d.job.date || new Date().toISOString().slice(0, 10);
+        var validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+        doc.setFontSize(8);
+        doc.setTextColor(76, 106, 124);
+        doc.text('Date: ' + date + '   |   Valid until: ' + validUntil + '   |   Suburb: ' + (d.job.suburb || ''), mx, y);
+        y += 8;
+
+        // Material selection
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
+        doc.text('MATERIAL', mx, y);
+        doc.setDrawColor(76, 106, 124);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text('COLORBOND ' + (d.colour || '') + '  |  Profile: ' + (d.profile || ''), mx, y);
+        y += 8;
+
+        // Line items table
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('ITEMS', mx, y);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 5;
+
+        // Table header
+        doc.setFillColor(245, 245, 245);
+        doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
+        doc.setFontSize(7);
+        doc.setTextColor(76, 106, 124);
+        doc.text('DESCRIPTION', mx + 2, y);
+        doc.text('QTY', mx + 95, y);
+        doc.text('AMOUNT', pw - mx - 2, y, { align: 'right' });
+        y += 5;
+
+        // Items
+        doc.setTextColor(41, 60, 70);
+        (run.items || []).forEach(function(item) {
+          if (y > ph - 40) { doc.addPage(); y = 20; }
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.text(item.description || '', mx + 2, y);
+          doc.text((item.quantity || '') + ' ' + (item.unit || ''), mx + 95, y);
+          doc.text('$' + f(item.line_total_ex), pw - mx - 2, y, { align: 'right' });
+          // Allocation note
+          if (item.allocation !== 'shared' || item.allocation_note) {
+            y += 3.5;
+            doc.setFontSize(7);
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(76, 106, 124);
+            var note = item.allocation_note || (item.allocation === 'client_only' ? 'Client\'s cost in full' : item.allocation === 'neighbour_only' ? (nbName || 'Neighbour') + '\'s cost in full' : '');
+            if (note) doc.text(note, mx + 2, y);
+            doc.setTextColor(41, 60, 70);
+          }
+          y += 5;
+          doc.setDrawColor(230, 230, 230);
+          doc.line(mx, y - 2, pw - mx, y - 2);
+        });
+
+        // Totals
+        y += 2;
+        doc.setDrawColor(41, 60, 70);
+        doc.setLineWidth(0.5);
+        doc.line(mx, y, pw - mx, y);
+        y += 5;
+        var t = run.totals || {};
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Run Total (excl. GST)', mx + 2, y);
+        doc.text('$' + f(t.run_total_ex), pw - mx - 2, y, { align: 'right' });
+        y += 5;
+        doc.setFont('helvetica', 'normal');
+        doc.text('GST (10%)', mx + 2, y);
+        doc.text('$' + f((t.run_total_inc || 0) - (t.run_total_ex || 0)), pw - mx - 2, y, { align: 'right' });
+        y += 5;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(241, 90, 41);
+        doc.text('TOTAL (incl. GST)', mx + 2, y);
+        doc.text('$' + f(t.run_total_inc), pw - mx - 2, y, { align: 'right' });
+        y += 8;
+
+        // Share breakdown (only if neighbour)
+        if (hasNb) {
+          doc.setTextColor(41, 60, 70);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.text('COST SHARE', mx, y);
+          doc.line(mx, y + 1, pw - mx, y + 1);
+          y += 6;
+          doc.setFontSize(9);
+          doc.text(clientName + '\'s Share (incl. GST):', mx + 2, y);
+          doc.text('$' + f(t.client_share_inc), pw - mx - 2, y, { align: 'right' });
+          y += 5;
+          doc.text(nbName + '\'s Share (incl. GST):', mx + 2, y);
+          doc.text('$' + f(t.neighbour_share_inc), pw - mx - 2, y, { align: 'right' });
+          y += 8;
+
+          // Deposit per party
+          doc.setFontSize(9);
+          var depPct = 50;
+          doc.text('Deposit Required (50%):', mx + 2, y);
+          y += 5;
+          doc.setFont('helvetica', 'normal');
+          doc.text(clientName + ': $' + f((t.client_share_inc || 0) * depPct / 100), mx + 4, y);
+          y += 4;
+          doc.text(nbName + ': $' + f((t.neighbour_share_inc || 0) * depPct / 100), mx + 4, y);
+          y += 8;
+        } else {
+          // No neighbour — simple deposit
+          doc.setTextColor(41, 60, 70);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.text('Deposit Required (50%): $' + f((t.run_total_inc || 0) * 0.5), mx, y);
+          y += 8;
+        }
+
+        // Payment terms
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(41, 60, 70);
+        doc.text('PAYMENT TERMS', mx, y);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text('50% deposit required to confirm booking. Balance due on completion.', mx, y);
+        y += 10;
+
+        // T&C
+        if (y > ph - 60) { doc.addPage(); y = 20; }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('TERMS & CONDITIONS', mx, y);
+        doc.line(mx, y + 1, pw - mx, y + 1);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 100, 100);
+        DISCLAIMERS.forEach((disc, i) => {
+          if (y > ph - 15) { doc.addPage(); y = 20; }
+          const lines = doc.splitTextToSize((i + 1) + '. ' + disc, pw - mx * 2);
+          doc.text(lines, mx, y);
+          y += lines.length * 3.2 + 2;
+        });
+
+        // Footer
+        y = ph - 8;
+        doc.setTextColor(150, 150, 150);
+        doc.setFontSize(7);
+        doc.text('SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, y, { align: 'center' });
+
+        return doc.output('blob');
+      },
+
       // ── Generate Material Order (categorised) ──
       generateMaterialOrder() {
         const missing = this._validateRequired();
@@ -11146,7 +11376,67 @@
         var jobRef = app.job.ref || '';
         var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
 
-        // Step 1: Reserve quote numbers
+        // ── PER-RUN QUOTE FLOW (multi-neighbour fencing) ──
+        var pricingJsonForRuns = app.buildPricingJson();
+        if (pricingJsonForRuns.runs && pricingJsonForRuns.runs.length > 0 && pricingJsonForRuns.runs.some(function(r) { return r.neighbour_id; })) {
+          updateStep('Generating per-run PDFs...', '');
+          var d = app._collectOutputData();
+          var runPdfs = {};
+          var cloud = window.SECUREWORKS_CLOUD;
+
+          for (var ri = 0; ri < pricingJsonForRuns.runs.length; ri++) {
+            var run = pricingJsonForRuns.runs[ri];
+            updateStep('Generating PDF...', run.run_name || run.run_label);
+            var runBlob = app.generateRunQuotePDF(run, d);
+            if (!runBlob) continue;
+
+            // Upload to Supabase storage
+            if (cloud && jobId) {
+              var runFileName = 'Quote_' + (jobRef || 'SWF') + '_' + (run.run_label || 'RUN') + '.pdf';
+              try {
+                updateStep('Uploading...', run.run_label);
+                var upRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                  body: JSON.stringify({ job_id: jobId, file_name: runFileName, content_type: 'application/pdf' })
+                });
+                var upData = await upRes.json();
+                if (upData.signedUrl) {
+                  await fetch(upData.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: runBlob });
+                  runPdfs[run.run_label] = upData.publicUrl || '';
+                }
+              } catch(ue) {
+                console.warn('[SendQuote] Run PDF upload failed for', run.run_label, ue.message);
+              }
+            }
+          }
+
+          // Call send-runs endpoint with PDF URLs
+          updateStep('Sending quotes...', '');
+          var sendRes = await fetch((cloud ? cloud.supabaseUrl : '') + '/functions/v1/send-quote/send-runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+            body: JSON.stringify({
+              job_id: jobId,
+              message: message,
+              run_pdfs: Object.keys(runPdfs).length > 0 ? runPdfs : undefined,
+            })
+          });
+          var sendData = await sendRes.json();
+          if (!sendRes.ok || sendData.error) throw new Error(sendData.error || 'Failed to send');
+
+          // Success
+          overlay.innerHTML =
+            '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;">' +
+            '<div style="font-size:48px;margin-bottom:16px;">&#9989;</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#293C46;margin-bottom:8px;">Run Quotes Sent!</div>' +
+            '<div style="font-size:14px;color:#4C6A7C;margin-bottom:24px;">' + (sendData.runs_sent || 0) + ' run quotes sent to ' + (sendData.emails_sent || 0) + ' recipients</div>' +
+            '<button onclick="document.getElementById(\'sendQuoteModal\').remove()" style="padding:12px 32px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>' +
+            '</div>';
+          return; // Exit — don't fall through to single-quote flow
+        }
+
+        // Step 1: Reserve quote numbers (single-quote flow)
         var quoteNumber = null;
         var neighbourQuoteData = null;
         var hasNeighbours = !!(neighbourSend && neighbourSend.length > 1);
