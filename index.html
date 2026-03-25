@@ -2382,6 +2382,21 @@
         this.render();
       },
 
+      _setAlloc(key, field, value) {
+        if (!this.job.quote) this.job.quote = {};
+        if (!this.job.quote.itemAllocations) this.job.quote.itemAllocations = {};
+        var a = this.job.quote.itemAllocations[key] || {};
+        a[field] = value;
+        // Auto-set split_pct based on allocation type
+        if (field === 'allocation') {
+          if (value === 'client_only') a.split_pct = 100;
+          else if (value === 'neighbour_only') a.split_pct = 0;
+          else if (!a.split_pct) a.split_pct = 50;
+        }
+        this.job.quote.itemAllocations[key] = a;
+        this.renderQuoteAndOrders();
+      },
+
       applyHeightToAll(runId) {
         const run = this.job.runs.find(r => r.id === runId);
         if (!run) return;
@@ -2654,6 +2669,75 @@
         rows += `<tr class="qb-internal"><td>Deposit (50%)</td><td></td><td class="r" style="font-weight:700;color:#F15A29;">$${f(d.grandTotal * 0.5)}</td></tr>`;
 
         let html = `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+        // ═══════════════════════════════════════
+        // 1b. COST ALLOCATION (multi-neighbour)
+        // ═══════════════════════════════════════
+        const j = this.job;
+        const nbs = (j.neighbours || []).filter(n => n.firstName || n.lastName);
+        const hasNbs = j.neighboursRequired && nbs.length > 0;
+        if (hasNbs && (d.runDetails || []).some(r => r.neighbourId)) {
+          html += `<div style="margin:16px 0 8px;padding:8px 12px;background:var(--sw-orange,#F15A29);color:#fff;border-radius:6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Cost Allocation — Neighbour Splits</div>`;
+
+          const allocs = (j.quote && j.quote.itemAllocations) || {};
+
+          (d.runDetails || []).forEach((rd, ri) => {
+            if (!rd.neighbourId) return;
+            const nb = nbs.find(n => n.id === rd.neighbourId);
+            if (!nb) return;
+            const nbName = [nb.firstName, nb.lastName].filter(Boolean).join(' ') || 'Neighbour';
+            const runLabel = this._normaliseRunLabel ? this._normaliseRunLabel(rd.name) : (rd.name || 'RUN').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 10);
+            const defaultSplit = nb.sharePercent ? (100 - nb.sharePercent) : 50;
+
+            // Build per-run allocation items
+            const items = [];
+            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'} — ${rd.length.toFixed(1)}m`, total: rd.runFencing });
+            if (rd.plinths > 0) items.push({ key: 'plinths', desc: `Retaining plinths ×${rd.plinths}`, total: rd.runPlinthsCost });
+            if (rd.patioTubes > 0) items.push({ key: 'patio_tubes', desc: `Patio tubes ×${rd.patioTubes}`, total: rd.runPatioCost });
+            // Pro-rated delivery
+            const runProp = d.subtotal > 0 ? rd.runSubtotal / d.subtotal : 0;
+            if (d.deliveryFee > 0 && runProp > 0) items.push({ key: 'delivery', desc: 'Delivery (pro-rated)', total: Math.round(d.deliveryFee * runProp * 100) / 100 });
+
+            html += `<div style="background:var(--sw-card,#fff);border:1px solid var(--sw-border,#e5e5e5);border-radius:8px;padding:12px;margin-bottom:8px;">`;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">`;
+            html += `<div><strong>${this._esc(rd.name || runLabel)}</strong> — <span style="color:var(--sw-text-sec)">${this._esc(nbName)}</span></div>`;
+            html += `<div style="font-size:11px;color:var(--sw-text-sec);">Default split: ${defaultSplit}% client</div>`;
+            html += `</div>`;
+
+            let runClientTotal = 0, runNbTotal = 0;
+            items.forEach(item => {
+              const allocKey = runLabel + '_' + item.key;
+              const a = allocs[allocKey] || {};
+              const alloc = a.allocation || 'shared';
+              const splitPct = alloc === 'client_only' ? 100 : alloc === 'neighbour_only' ? 0 : (a.split_pct != null ? a.split_pct : defaultSplit);
+              const clientAmt = Math.round(item.total * (splitPct / 100) * 100) / 100;
+              const nbAmt = Math.round(item.total * ((100 - splitPct) / 100) * 100) / 100;
+              runClientTotal += clientAmt;
+              runNbTotal += nbAmt;
+
+              html += `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--sw-border,#e5e5e5);font-size:12px;">`;
+              html += `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this._esc(item.desc)}</span>`;
+              html += `<select style="font-size:11px;padding:2px 4px;border:1px solid var(--sw-border);border-radius:3px;min-width:90px;" onchange="app._setAlloc('${allocKey}','allocation',this.value)">`
+              html += `<option value="shared" ${alloc === 'shared' ? 'selected' : ''}>Shared</option>`;
+              html += `<option value="client_only" ${alloc === 'client_only' ? 'selected' : ''}>Client Only</option>`;
+              html += `<option value="neighbour_only" ${alloc === 'neighbour_only' ? 'selected' : ''}>Neighbour Only</option>`;
+              html += `</select>`;
+              if (alloc === 'shared') {
+                html += `<input type="number" value="${splitPct}" min="0" max="100" step="5" style="width:48px;font-size:11px;padding:2px 4px;border:1px solid var(--sw-border);border-radius:3px;text-align:center;" onchange="app._setAlloc('${allocKey}','split_pct',parseFloat(this.value)||50)">%`;
+              }
+              html += `<span style="min-width:100px;text-align:right;font-size:11px;color:var(--sw-text-sec);">$${f(clientAmt)} / $${f(nbAmt)}</span>`;
+              html += `</div>`;
+            });
+
+            // Run totals
+            const runTotal = runClientTotal + runNbTotal;
+            html += `<div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;font-size:12px;font-weight:600;">`;
+            html += `<span>Run total: $${f(runTotal)}</span>`;
+            html += `<span>Client: $${f(runClientTotal)} · ${this._esc(nbName)}: $${f(runNbTotal)}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+          });
+        }
 
         // ═══════════════════════════════════════
         // 2. INTERNAL COSTS DIVIDER
