@@ -37,6 +37,15 @@
   var _loadStateFn = null;
   var _jobLoaded = false;
   var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
+  var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
+  var _isReadonly = new URLSearchParams(window.location.search).get('mode') === 'readonly';
+
+  // Auto-save only allowed for draft/new jobs — never for quoted/accepted/scheduled/in_progress/completed
+  function _shouldAutoSave() {
+    if (_isReadonly) return false;
+    var blocked = ['quoted', 'accepted', 'scheduled', 'in_progress', 'completed'];
+    return blocked.indexOf(_jobStatus) === -1;
+  }
 
   // Upload a document blob to Supabase storage + register in job_documents
   async function _uploadDocBlob(cloudRef, jobId, jobNumber, blob, fileName, docType) {
@@ -423,6 +432,23 @@
             try { verification = JSON.parse(localStorage.getItem('patio-verification-' + jobRef)); } catch(e) {}
           }
         }
+        // Multi-patio mode: save all patios with current option updated
+        if (window._multiPatioMode && window._allPatios && window._allPatios.length > 0) {
+          if (typeof window._saveActiveToMemory === 'function') window._saveActiveToMemory();
+          return {
+            tool: 'patio',
+            version: '2.0',
+            client: base.client,
+            patios: window._allPatios,
+            job_costs: window._jobCosts || {},
+            customer: window.customer || {},
+            siteDetails: window.siteDetails || {},
+            verification: verification,
+            savedAt: new Date().toISOString()
+          };
+        }
+
+        // Single patio (standard mode)
         return {
           tool: 'patio',
           version: '1.0',
@@ -450,9 +476,33 @@
   function loadPatioState(scopeJson) {
     if (!scopeJson) return false;
     try {
+      // Initialize multi-patio state if v2.0 format
+      if (typeof window._initMultiPatioFromScope === 'function') {
+        window._initMultiPatioFromScope(scopeJson);
+      }
+
+      // For v2.0 multi-patio: load the first option of the first patio
+      var stateToLoad = scopeJson;
+      if (scopeJson.patios && scopeJson.patios.length > 0) {
+        var firstOpt = scopeJson.patios[0].options[0];
+        stateToLoad = {
+          client: scopeJson.client,
+          config: firstOpt.config || {},
+          existingSite: firstOpt.existingSite || {},
+          complexity: firstOpt.complexity || {},
+          pricing: firstOpt.pricing || {},
+          flashings: firstOpt.flashings || [],
+          scope: firstOpt.scope || {},
+          notes: firstOpt.notes || {},
+          customer: scopeJson.customer || {},
+          siteDetails: scopeJson.siteDetails || {},
+          _pricing_json: firstOpt._pricing_json || null,
+        };
+      }
+
       var textarea = document.getElementById('loadJobTextarea');
       if (textarea && typeof window.loadJobData === 'function') {
-        textarea.value = JSON.stringify(scopeJson);
+        textarea.value = JSON.stringify(stateToLoad);
         window.loadJobData();
         var modal = document.getElementById('loadJobModal');
         if (modal) modal.style.display = 'none';
@@ -652,6 +702,10 @@
     },
 
     save: async function() {
+      if (_isReadonly) {
+        console.warn('[Integration] Save blocked — readonly mode');
+        return;
+      }
       if (!cloud || !cloud.auth.isLoggedIn()) {
         cloud.ui.showLoginModal();
         return;
@@ -1099,8 +1153,8 @@
           }
         }
 
-        // Start auto-save now that we have a real cloud job ID
-        if (_jobId && _jobId.indexOf('local-') !== 0) {
+        // Start auto-save now that we have a real cloud job ID (only for draft jobs)
+        if (_jobId && _jobId.indexOf('local-') !== 0 && _shouldAutoSave()) {
           cloud.startAutoSave(_jobId, _getStateFn, 30000);
         }
 
@@ -1176,6 +1230,7 @@
               _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
               _ghlContactId = sbJob.ghl_contact_id || null;
               _lastJobNumber = sbJob.job_number || null;
+              _jobStatus = sbJob.status || 'draft';
               if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
                 _loadStateFn(sbJob.scope_json);
               }
@@ -1186,7 +1241,11 @@
               window.history.replaceState({}, '', newUrl);
               console.log('[Integration] Supabase job loaded, URL updated:', newUrl);
               updateUI();
-              cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              if (_shouldAutoSave()) {
+                cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              } else {
+                console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+              }
               return;
             }
           }
@@ -1204,6 +1263,7 @@
           if (existingJob) {
             _jobId = existingJob.id;
             _lastJobNumber = existingJob.job_number || null;
+            _jobStatus = existingJob.status || 'draft';
             console.log('[Integration] Found existing job:', _jobId, 'number:', _lastJobNumber);
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
               _loadStateFn(existingJob.scope_json);
@@ -1228,7 +1288,11 @@
           window.history.replaceState({}, '', newUrl);
           console.log('[Integration] Job loaded, URL updated:', newUrl);
           updateUI();
-          cloud.startAutoSave(_jobId, _getStateFn, 30000);
+          if (_shouldAutoSave()) {
+            cloud.startAutoSave(_jobId, _getStateFn, 30000);
+          } else {
+            console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+          }
 
         } catch(e) {
           console.error('[Integration] GHL load error:', e);
@@ -1284,6 +1348,7 @@
           }
 
           var job = await cloud.jobs.loadJob(jobId);
+          _jobStatus = job.status || 'draft';
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
             var loaded = _loadStateFn(job.scope_json);
             if (loaded) {
@@ -1293,7 +1358,11 @@
               window.history.replaceState({}, '', newUrl);
               updateUI();
               cloud.ui.showSaveStatus('saved');
-              cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              if (_shouldAutoSave()) {
+                cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              } else {
+                console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+              }
             } else {
               alert('Failed to load job data into the tool.');
             }
@@ -1309,7 +1378,11 @@
               nameFields.forEach(function(f) { f.value = job.client_name; });
             }
 
-            cloud.startAutoSave(_jobId, _getStateFn, 30000);
+            if (_shouldAutoSave()) {
+              cloud.startAutoSave(_jobId, _getStateFn, 30000);
+            } else {
+              console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+            }
           }
         } catch(e) {
           alert('Error loading job: ' + e.message);
@@ -1326,6 +1399,10 @@
     // Runs validation, saves scope + pricing + verification state to Supabase,
     // uploads photos/video, and links to GHL. Shows progress overlay.
     saveAfterSignOff: async function() {
+      if (_isReadonly) {
+        console.warn('[Integration] Sign-off blocked — readonly mode');
+        return { success: false, reason: 'readonly' };
+      }
       if (!cloud) {
         console.warn('[Integration] Cloud not available — sign-off saved locally only');
         return { success: false, reason: 'no_cloud' };
@@ -1376,10 +1453,11 @@
 
     // Connect integration state from an external load path (e.g. inline name search).
     // Ensures _jobId, _ghlOpportunityId, _ghlContactId are set so saves work correctly.
-    _connectJob: function(jobId, opportunityId, contactId) {
+    _connectJob: function(jobId, opportunityId, contactId, status) {
       _lastJobNumber = null;
       _ghlOpportunityId = opportunityId || null;
       _ghlContactId = contactId || null;
+      if (status) _jobStatus = status;
       if (jobId) {
         _jobId = jobId;
         _jobLoaded = true;
@@ -1387,7 +1465,11 @@
         if (jobId.indexOf('local-') !== 0) {
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
-          if (cloud) cloud.startAutoSave(_jobId, _getStateFn, 30000);
+          if (cloud && _shouldAutoSave()) {
+            cloud.startAutoSave(_jobId, _getStateFn, 30000);
+          } else if (cloud && !_shouldAutoSave()) {
+            console.log('[Integration] Auto-save skipped in _connectJob — job status:', _jobStatus);
+          }
         }
         console.log('[Integration] _connectJob: connected to job', _jobId);
       } else if (opportunityId) {
@@ -1484,6 +1566,7 @@
     console.log('[Integration] Auto-loading job:', urlJobId);
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
+      _jobStatus = job.status || 'draft';
       if (job.scope_json && Object.keys(job.scope_json).length > 0) {
         _loadStateFn(job.scope_json);
       }
@@ -1492,7 +1575,11 @@
       // Apply job number AFTER loadStateFn has finished setting the local ref
       _applyJobNumber(_lastJobNumber);
       try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
-      cloud.startAutoSave(_jobId, _getStateFn, 30000);
+      if (_shouldAutoSave()) {
+        cloud.startAutoSave(_jobId, _getStateFn, 30000);
+      } else {
+        console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+      }
       updateUI();
     } catch(e) {
       console.warn('[Integration] Failed to auto-load job:', e);
