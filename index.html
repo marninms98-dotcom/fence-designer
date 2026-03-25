@@ -2727,6 +2727,10 @@
               }
               html += `<span style="min-width:100px;text-align:right;font-size:11px;color:var(--sw-text-sec);">$${f(clientAmt)} / $${f(nbAmt)}</span>`;
               html += `</div>`;
+              // Warn if removal/clearing item is still set to shared
+              if (alloc === 'shared' && /remov|tree|shed|clear|dismantle|asbestos/i.test(item.desc || '')) {
+                html += `<div style="font-size:10px;color:#D97706;padding:2px 0 2px 20px;">⚠ Usually allocated to one party — check allocation</div>`;
+              }
             });
 
             // Run totals
@@ -11188,6 +11192,40 @@
 
           (hasNeighbours ? neighbourHtml : '') +
 
+          // Per-run share summary (multi-neighbour only)
+          (function() {
+            var pj = app.buildPricingJson();
+            if (!pj.runs || pj.runs.length === 0) return '';
+            var f = function(n) { return '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); };
+            var runSummaryHtml = '<div style="font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Run Breakdown</div>';
+            runSummaryHtml += '<div style="background:#f0f4f8;border-radius:6px;padding:8px 12px;margin-bottom:12px;">';
+            var allocationWarnings = 0;
+            var removalPattern = /remov|tree|shed|clear|dismantle|asbestos/i;
+            pj.runs.forEach(function(run) {
+              var t = run.totals || {};
+              var nbName = run.neighbour_name || null;
+              runSummaryHtml += '<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-size:13px;display:flex;justify-content:space-between;align-items:center;">';
+              runSummaryHtml += '<div><strong>' + (run.run_label || '') + '</strong> — ' + (run.run_name || '') + '</div>';
+              runSummaryHtml += '<div style="text-align:right;font-size:12px;">';
+              runSummaryHtml += '<span style="color:#293C46;font-weight:600;">Client: ' + f(t.client_share_inc) + '</span>';
+              if (nbName) runSummaryHtml += ' + <span style="color:#F15A29;font-weight:600;">' + nbName + ': ' + f(t.neighbour_share_inc) + '</span>';
+              else runSummaryHtml += ' <span style="color:#999;">[100% client]</span>';
+              runSummaryHtml += '</div></div>';
+              // Check for allocation warnings
+              (run.items || []).forEach(function(item) {
+                if (item.allocation === 'shared' && removalPattern.test(item.description || '')) allocationWarnings++;
+              });
+            });
+            runSummaryHtml += '</div>';
+            // Allocation warning
+            if (allocationWarnings > 0) {
+              runSummaryHtml += '<div style="background:#FFF3CD;border:1px solid #F59E0B;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#92400E;">';
+              runSummaryHtml += '&#9888; <strong>' + allocationWarnings + ' removal/clearing item' + (allocationWarnings > 1 ? 's are' : ' is') + ' set to Shared</strong> — usually these are allocated to one party. Check allocations in Section 9 before sending.';
+              runSummaryHtml += '</div>';
+            }
+            return runSummaryHtml;
+          })() +
+
           // CC field
           '<label style="display:block;font-size:12px;font-weight:600;color:#4C6A7C;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">CC (optional)</label>' +
           '<input type="text" id="sqCC" placeholder="partner@example.com, builder@example.com" ' +
@@ -11425,12 +11463,25 @@
           var sendData = await sendRes.json();
           if (!sendRes.ok || sendData.error) throw new Error(sendData.error || 'Failed to send');
 
-          // Success
+          // Detailed success receipt
+          var receiptRows = '';
+          var pjRuns = pricingJsonForRuns.runs || [];
+          pjRuns.forEach(function(run) {
+            var pdfOk = runPdfs[run.run_label] ? '&#9989; PDF uploaded' : '&#10060; No PDF';
+            var clientOk = '&#9989; Email to ' + (app.job.email || 'client').split('@')[0] + '@...';
+            var nbOk = run.neighbour_name ? ('&#9989; Email to ' + (run.neighbour_name || 'neighbour')) : '<span style="color:#999;">[No neighbour]</span>';
+            receiptRows += '<div style="padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+              '<strong>' + (run.run_label || '') + '</strong> — ' +
+              '<span style="color:' + (runPdfs[run.run_label] ? '#16a34a' : '#dc2626') + ';">' + pdfOk + '</span> · ' +
+              clientOk + ' · ' + nbOk +
+              '</div>';
+          });
           overlay.innerHTML =
-            '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;">' +
+            '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;max-width:500px;margin:0 auto;">' +
             '<div style="font-size:48px;margin-bottom:16px;">&#9989;</div>' +
             '<div style="font-size:20px;font-weight:700;color:#293C46;margin-bottom:8px;">Run Quotes Sent!</div>' +
-            '<div style="font-size:14px;color:#4C6A7C;margin-bottom:24px;">' + (sendData.runs_sent || 0) + ' run quotes sent to ' + (sendData.emails_sent || 0) + ' recipients</div>' +
+            '<div style="width:100%;background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:16px;">' + receiptRows + '</div>' +
+            '<div style="font-size:13px;color:#4C6A7C;margin-bottom:24px;">' + Object.keys(runPdfs).length + ' PDFs generated · ' + (sendData.emails_sent || 0) + ' emails sent</div>' +
             '<button onclick="document.getElementById(\'sendQuoteModal\').remove()" style="padding:12px 32px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>' +
             '</div>';
           return; // Exit — don't fall through to single-quote flow
