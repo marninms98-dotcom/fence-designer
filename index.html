@@ -2602,6 +2602,11 @@
         const trueGPPct = d.subtotal > 0 ? (trueGP / d.subtotal * 100) : 0;
         const gpCol = trueGPPct < 20 ? '#dc2626' : trueGPPct < 30 ? '#d97706' : '#16a34a';
 
+        // Neighbour allocation banner (top of section for visibility)
+        const _j = this.job;
+        const _nbs = (_j.neighbours || []).filter(n => n.firstName || n.lastName);
+        const _hasNbs = _j.neighboursRequired && _nbs.length > 0 && (d.runDetails || []).some(r => r.neighbourId);
+
         // ═══════════════════════════════════════
         // 1. QUOTE BREAKDOWN TABLE (client-facing)
         // ═══════════════════════════════════════
@@ -2668,7 +2673,17 @@
         // Deposit
         rows += `<tr class="qb-internal"><td>Deposit (50%)</td><td></td><td class="r" style="font-weight:700;color:#F15A29;">$${f(d.grandTotal * 0.5)}</td></tr>`;
 
-        let html = `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+        let html = '';
+        if (_hasNbs) {
+          html += `<div style="background:#F15A2915;border:2px solid #F15A29;border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px;">🏘️</span>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#293C46;">Multi-Neighbour Job — ${_nbs.length} neighbour${_nbs.length > 1 ? 's' : ''}</div>
+              <div style="font-size:11px;color:#4C6A7C;">Scroll down to <strong>Cost Allocation</strong> to review per-run splits before sending quotes.</div>
+            </div>
+          </div>`;
+        }
+        html += `<table class="qb-table"><thead><tr><th>Item</th><th class="r">Detail</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
 
         // ═══════════════════════════════════════
         // 1b. COST ALLOCATION (multi-neighbour)
@@ -11253,8 +11268,9 @@
 
         '</div>' +
 
-        // Bottom send button
+        // Bottom buttons
         '<div style="padding:16px 20px;border-top:1px solid #eee;flex-shrink:0;background:#fff;">' +
+          (hasNeighbours ? '<button id="sqPreviewBtn" style="width:100%;padding:12px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;">Preview Run PDFs</button>' : '') +
           '<button id="sqSendBtnBottom" style="width:100%;padding:16px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:17px;font-weight:700;cursor:pointer;min-height:56px;">Send Quote</button>' +
         '</div>';
 
@@ -11263,6 +11279,23 @@
       // Wire events
       setTimeout(function() {
         document.getElementById('sqBackBtn').onclick = function() { overlay.remove(); };
+
+        // Preview button — generates per-run PDFs and opens in new tabs
+        var previewBtn = document.getElementById('sqPreviewBtn');
+        if (previewBtn) {
+          previewBtn.onclick = function() {
+            var pj = app.buildPricingJson();
+            if (!pj.runs || pj.runs.length === 0) { app.showToast('No runs to preview', 'error'); return; }
+            var d = app._collectOutputData();
+            pj.runs.forEach(function(run) {
+              var blob = app.generateRunQuotePDF(run, d);
+              if (blob) {
+                var url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+              }
+            });
+          };
+        }
 
         var sendHandler = function() {
           // Save form values before send
