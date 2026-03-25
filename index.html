@@ -11590,7 +11590,7 @@
               updateStep('Sending email...', 'to ' + contactEmail);
               var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
                 body: JSON.stringify({
                   document_id: contact.document_id,
                   client_email: contactEmail,
@@ -11636,7 +11636,7 @@
               try {
                 var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
                   body: JSON.stringify({
                     document_id: prepData.documentId,
                     client_email: toEmail,
