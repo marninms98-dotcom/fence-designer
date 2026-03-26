@@ -19,6 +19,17 @@
 (function() {
   'use strict';
 
+  // ── Iframe Guard ──
+  // If loaded inside an iframe with noAuth=true (e.g. trade app 3D viewer),
+  // skip Supabase auth to prevent session conflicts with the parent window.
+  var _isEmbedded = window !== window.top;
+  var _noAuth = new URLSearchParams(window.location.search).get('noAuth') === 'true';
+  if (_isEmbedded && _noAuth) {
+    console.log('[SecureWorks Cloud] Embedded mode (noAuth) — skipping auth init');
+    window.SECUREWORKS_CLOUD = { embedded: true, noAuth: true };
+    return; // Exit IIFE — no Supabase client, no auth, no redirects
+  }
+
   // ── Configuration ──
   var metaUrl = document.querySelector('meta[name="supabase-url"]');
   var metaKey = document.querySelector('meta[name="supabase-anon-key"]');
