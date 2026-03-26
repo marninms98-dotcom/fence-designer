@@ -1301,6 +1301,128 @@
       });
     },
 
+    // Search GHL leads — opens dropdown below header search bar
+    searchLeads: function(query) {
+      if (!cloud || !cloud.auth.isLoggedIn()) {
+        cloud.ui.showLoginModal();
+        return;
+      }
+      // Don't reopen if already showing
+      if (document.getElementById('sw-lead-search-dropdown')) return;
+
+      cloud.ui.showLeadSearch(_toolType, async function(lead) {
+        console.log('[Integration] Lead selected:', lead.id, lead.contactName);
+        try {
+          _ghlOpportunityId = lead.id;
+          _ghlContactId = lead.contactId || null;
+
+          // Reset tool to clean state
+          if (cloud) cloud.stopAutoSave();
+          _jobId = null;
+          _lastJobNumber = null;
+          _jobLoaded = false;
+
+          if (_toolType === 'fencing' && window.app) {
+            localStorage.removeItem('fenceJob');
+            window.app.job = null;
+            window.app.currentRunId = null;
+            if (typeof window.app._resetSections === 'function') window.app._resetSections();
+            window.app.init();
+            localStorage.removeItem('fenceQA_verification');
+            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+          } else {
+            _resetPatioForm();
+          }
+
+          // Fetch full contact details
+          var contact = null;
+          if (_ghlContactId) {
+            try {
+              contact = await cloud.ghl.getContact(_ghlContactId);
+            } catch(e) {
+              console.warn('[Integration] Contact fetch failed, using lead data:', e);
+              contact = { name: lead.contactName, email: lead.contactEmail, phone: lead.contactPhone };
+            }
+          } else {
+            contact = { name: lead.contactName, email: lead.contactEmail, phone: lead.contactPhone };
+          }
+
+          // If lead already has a Supabase job, load it
+          if (lead.supabaseJobId) {
+            console.log('[Integration] Lead has existing job, loading:', lead.supabaseJobId);
+            var sbJob = await cloud.ghl.loadJob(lead.supabaseJobId);
+            if (sbJob) {
+              _jobId = sbJob.id;
+              _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
+              _ghlContactId = sbJob.ghl_contact_id || null;
+              _lastJobNumber = sbJob.job_number || null;
+              _jobStatus = sbJob.status || 'draft';
+              if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
+                _loadStateFn(sbJob.scope_json);
+              }
+              _applyJobNumber(_lastJobNumber);
+              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              if (contact) _prefillContact(contact);
+              var newUrl = window.location.pathname + '?jobId=' + _jobId;
+              window.history.replaceState({}, '', newUrl);
+              updateUI();
+              if (_shouldAutoSave()) {
+                cloud.startAutoSave(_jobId, _getStateFn, 30000);
+              }
+              return;
+            }
+          }
+
+          // No existing job — check by opportunity ID then create
+          var existingJob = null;
+          if (lead.id) {
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(lead.id, _toolType);
+            } catch(e) {
+              console.warn('[Integration] findJobByOpportunity failed:', e);
+            }
+          }
+
+          if (existingJob) {
+            _jobId = existingJob.id;
+            _lastJobNumber = existingJob.job_number || null;
+            _jobStatus = existingJob.status || 'draft';
+            if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
+              _loadStateFn(existingJob.scope_json);
+            }
+            _applyJobNumber(_lastJobNumber);
+            try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+          } else if (lead.id) {
+            var contactForJob = contact || { name: lead.contactName, phone: lead.contactPhone, email: lead.contactEmail };
+            var job = await cloud.ghl.createJobForOpportunity(lead.id, _toolType, contactForJob);
+            _jobId = job.id;
+          }
+
+          if (contact) _prefillContact(contact);
+          if (_jobId) {
+            var newUrl = window.location.pathname + '?jobId=' + _jobId;
+            window.history.replaceState({}, '', newUrl);
+          }
+          updateUI();
+          if (_shouldAutoSave()) {
+            cloud.startAutoSave(_jobId, _getStateFn, 30000);
+          }
+        } catch(e) {
+          console.error('[Integration] Lead load error:', e);
+          alert('Error loading lead: ' + e.message);
+        }
+      }, query || '');
+    },
+
+    // Debounced version — called by oninput on header search bar
+    searchLeadsDebounced: function(query) {
+      // If dropdown is already open, the input handler inside showLeadSearch handles debounce
+      // If not open yet, open it
+      if (!document.getElementById('sw-lead-search-dropdown')) {
+        this.searchLeads(query);
+      }
+    },
+
     // Legacy: load from Supabase job list directly
     loadFromSupabase: function() {
       if (!cloud || !cloud.auth.isLoggedIn()) {
@@ -1495,6 +1617,13 @@
   function init() {
     console.log('[Integration] init() called');
     cloud = window.SECUREWORKS_CLOUD;
+
+    // Skip init if embedded in an iframe with noAuth (e.g. trade app 3D viewer)
+    if (cloud && cloud.noAuth) {
+      console.log('[Integration] Embedded noAuth mode — skipping integration init');
+      return;
+    }
+
     _toolType = detectToolType();
     console.log('[Integration] Tool type:', _toolType, '| Cloud:', !!cloud);
 

@@ -455,12 +455,24 @@
       return data.job || null;
     },
 
+    // Search GHL leads with pipeline filter + Supabase cross-reference
+    async searchLeads(query, pipeline) {
+      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search';
+      if (pipeline) url += '&pipeline=' + encodeURIComponent(pipeline);
+      if (query) url += '&q=' + encodeURIComponent(query);
+      var res = await fetch(url, { headers: { 'x-api-key': SW_API_KEY } });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Search failed');
+      return data.opportunities || [];
+    },
+
     // Search Supabase jobs (via edge function, bypasses RLS)
-    async searchJobs(query, type, limit) {
+    async searchJobs(query, type, limit, hasScope) {
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search_jobs';
       if (query) url += '&q=' + encodeURIComponent(query);
       if (type) url += '&type=' + encodeURIComponent(type);
       if (limit) url += '&limit=' + limit;
+      if (hasScope) url += '&has_scope=true';
       var res = await fetch(url, { headers: { 'x-api-key': SW_API_KEY } });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
@@ -1058,10 +1070,9 @@
       };
     },
 
-    // Show GHL opportunity picker modal
+    // Show GHL opportunity picker modal — simplified to "Load Previous Scope" (Supabase jobs with scope data only)
     showGHLPicker: function(toolType, onSelect) {
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
-      var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
       var pipelineLabel = (toolType === 'fencing') ? 'Fencing' : 'Patio';
       var overlay = document.createElement('div');
       overlay.id = 'sw-ghlpicker-overlay';
@@ -1069,7 +1080,7 @@
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;">' +
           '<div style="background:#fff;border-radius:12px;padding:24px;max-width:560px;width:92%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load Job <span style="font-size:13px;font-weight:400;color:' + hex.mid + ';">(' + pipelineLabel + ')</span></h2>' +
+              '<h2 style="margin:0;color:' + hex.dark + ';font-size:18px;">Load Previous Scope <span style="font-size:13px;font-weight:400;color:' + hex.mid + ';">(' + pipelineLabel + ')</span></h2>' +
               '<button id="sw-ghl-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">&times;</button>' +
             '</div>' +
             '<div style="margin-bottom:12px;">' +
@@ -1078,25 +1089,11 @@
             '<div id="sw-ghl-list" style="overflow-y:auto;flex:1;min-height:200px;">' +
               '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading jobs...</p>' +
             '</div>' +
-            '<div id="sw-ghl-newleads" style="display:none;border-top:1px solid #eee;margin-top:8px;padding-top:6px;">' +
-              '<div id="sw-ghl-leads-toggle" style="font-size:11px;color:' + hex.mid + ';cursor:pointer;padding:4px 0;user-select:none;">&#9654; Show new GHL leads <span id="sw-ghl-leads-count" style="color:#999;"></span></div>' +
-              '<div id="sw-ghl-leads-list" style="display:none;"></div>' +
-            '</div>' +
-            '<button id="sw-ghl-new" style="margin-top:10px;width:100%;padding:10px;background:' + hex.dark + ';color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;flex-shrink:0;">+ New Job</button>' +
           '</div>' +
         '</div>';
 
       document.body.appendChild(overlay);
       document.getElementById('sw-ghl-close').onclick = function() { overlay.remove(); };
-
-      // New job button
-      document.getElementById('sw-ghl-new').onclick = function() {
-        var localId = 'local-' + Date.now();
-        overlay.remove();
-        // Create synthetic opp for the integration callback
-        var syntheticOpp = { id: null, contactId: null, contactName: '', _supabaseJobId: localId, _loadedFromSupabase: true, _isNew: true };
-        if (onSelect) onSelect(syntheticOpp);
-      };
 
       // Helper: build scope description from scope_json
       function _scopeDesc(job) {
@@ -1168,20 +1165,16 @@
         return html;
       }
 
-      // Main load function — Supabase-first
+      // Main load function — Supabase jobs with scope data only
       var _loadJobs = async function(search) {
         var list = document.getElementById('sw-ghl-list');
-        var leadsSection = document.getElementById('sw-ghl-newleads');
-        var leadsList = document.getElementById('sw-ghl-leads-list');
         list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">Loading...</p>';
-        leadsSection.style.display = 'none';
 
         try {
-          // PRIMARY: Search Supabase jobs
-          var jobs = await ghl.searchJobs(search || '', toolType, 30);
+          var jobs = await ghl.searchJobs(search || '', toolType, 30, true);
 
           if (jobs.length === 0 && !search) {
-            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No saved jobs yet. Click "+ New Job" to start.</p>';
+            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No saved scopes yet. Use the search bar to find a lead and start scoping.</p>';
           } else if (jobs.length === 0) {
             list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:40px 0;">No jobs matching "' + search + '"</p>';
           } else {
@@ -1194,7 +1187,6 @@
                 var job = jobs.find(function(j) { return j.id === jobId; });
                 if (!job) return;
                 overlay.remove();
-                // Create synthetic opp for integration callback
                 var syntheticOpp = {
                   id: job.ghl_opportunity_id || null,
                   contactId: job.ghl_contact_id || null,
@@ -1210,7 +1202,7 @@
               };
             });
 
-            // ASYNC ENRICHMENT: For jobs with GHL link, fetch stage from GHL
+            // Async GHL stage enrichment
             jobs.forEach(function(job) {
               if (!job.ghl_opportunity_id) return;
               ghl.search(job.client_name).then(function(opps) {
@@ -1222,54 +1214,6 @@
                 }
               }).catch(function() {});
             });
-          }
-
-          // SECONDARY: Load GHL opportunities that DON'T have Supabase jobs yet
-          // Only on initial load (not during search)
-          if (!search) {
-            try {
-              var opps = await ghl.getOpportunities(pipelineKey);
-              var jobOppIds = {};
-              jobs.forEach(function(j) { if (j.ghl_opportunity_id) jobOppIds[j.ghl_opportunity_id] = true; });
-              // Filter: must have a real name (not just a phone number) and not already linked
-              var unlinkedOpps = opps.filter(function(o) {
-                if (jobOppIds[o.id]) return false;
-                var name = (o.contactName || o.name || '').trim();
-                if (!name || /^\+?\d[\d\s\-]+$/.test(name)) return false; // Skip phone-only names
-                return true;
-              });
-
-              if (unlinkedOpps.length > 0) {
-                leadsSection.style.display = '';
-                var countEl = document.getElementById('sw-ghl-leads-count');
-                if (countEl) countEl.textContent = '(' + unlinkedOpps.length + ')';
-
-                // Toggle click handler
-                var toggleEl = document.getElementById('sw-ghl-leads-toggle');
-                if (toggleEl) {
-                  toggleEl.onclick = function() {
-                    var expanded = leadsList.style.display !== 'none';
-                    leadsList.style.display = expanded ? 'none' : '';
-                    toggleEl.innerHTML = (expanded ? '&#9654;' : '&#9660;') + ' ' + (expanded ? 'Show' : 'Hide') + ' new GHL leads <span style="color:#999;">(' + unlinkedOpps.length + ')</span>';
-                  };
-                }
-
-                leadsList.innerHTML = unlinkedOpps.slice(0, 8).map(function(opp) {
-                  return '<div class="sw-lead-card" data-opp=\'' + JSON.stringify(opp).replace(/'/g, '&#39;') + '\' style="padding:6px 10px;border:1px solid #eee;border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">' +
-                    '<span style="color:' + hex.dark + ';font-weight:600;">' + (opp.contactName || opp.name) + '</span>' +
-                    '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + hex.orange + '15;color:' + hex.orange + ';">' + (opp.stageName || 'New') + '</span>' +
-                  '</div>';
-                }).join('');
-
-                leadsList.querySelectorAll('.sw-lead-card').forEach(function(el) {
-                  el.onclick = function() {
-                    var opp = JSON.parse(el.dataset.opp);
-                    overlay.remove();
-                    if (onSelect) onSelect(opp);
-                  };
-                });
-              }
-            } catch(e) { console.log('[Cloud] GHL leads load failed:', e); }
           }
         } catch(e) {
           list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:40px 0;">Error: ' + e.message + '</p>';
@@ -1285,6 +1229,153 @@
         clearTimeout(_searchTimer);
         var val = this.value;
         _searchTimer = setTimeout(function() { _loadJobs(val); }, 300);
+      };
+    },
+
+    // Lead search dropdown — anchored below header search bar
+    showLeadSearch: function(toolType, onSelect, initialQuery) {
+      var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
+      var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
+
+      // Remove any existing dropdown
+      var existing = document.getElementById('sw-lead-search-dropdown');
+      if (existing) existing.remove();
+      var existingBackdrop = document.getElementById('sw-lead-search-backdrop');
+      if (existingBackdrop) existingBackdrop.remove();
+
+      var anchor = document.getElementById('headerSearchWrap');
+      if (!anchor) return;
+
+      // Backdrop for click-away dismissal
+      var backdrop = document.createElement('div');
+      backdrop.id = 'sw-lead-search-backdrop';
+      backdrop.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.25);';
+      backdrop.onclick = function() { _close(); };
+
+      // Dropdown panel
+      var dropdown = document.createElement('div');
+      dropdown.id = 'sw-lead-search-dropdown';
+      dropdown.style.cssText = 'position:fixed;left:0;right:0;top:' + (anchor.getBoundingClientRect().bottom + 2) + 'px;background:#fff;max-height:70vh;overflow-y:auto;z-index:10001;box-shadow:0 8px 32px rgba(41,60,70,0.25);border-bottom-left-radius:12px;border-bottom-right-radius:12px;';
+      dropdown.innerHTML = '<div id="sw-lead-list" style="padding:8px 12px;"><p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Loading leads...</p></div>';
+
+      // Prevent clicks inside dropdown from closing
+      dropdown.onclick = function(e) { e.stopPropagation(); };
+
+      document.body.appendChild(backdrop);
+      document.body.appendChild(dropdown);
+
+      function _close() {
+        dropdown.remove();
+        backdrop.remove();
+        var searchInput = document.getElementById('headerSearch');
+        if (searchInput) searchInput.blur();
+      }
+
+      // Escape key to close
+      function _escHandler(e) {
+        if (e.key === 'Escape') { _close(); document.removeEventListener('keydown', _escHandler); }
+      }
+      document.addEventListener('keydown', _escHandler);
+
+      // Render a lead card
+      function _renderLeadCard(lead) {
+        var name = (lead.contactName || lead.name || 'Unknown').trim();
+        var phone = lead.contactPhone || '';
+        var stage = lead.stageName || 'New';
+        var hasJob = !!lead.supabaseJobId;
+        var hasScope = !!lead.hasScope;
+
+        var borderColor = hasScope ? '#34C759' : hasJob ? '#007AFF' : '#eee';
+        var borderWidth = (hasScope || hasJob) ? '2px' : '1px';
+
+        var html = '<div class="sw-lead-item" data-oppid="' + lead.id + '" style="padding:10px 12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background 0.15s;display:flex;justify-content:space-between;align-items:center;gap:8px;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">';
+        html += '<div style="flex:1;min-width:0;">';
+        html += '<div style="font-weight:600;color:' + hex.dark + ';font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + name + '</div>';
+        if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + phone + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
+        if (hasScope) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#34C75920;color:#34C759;font-weight:600;">Scope saved</span>';
+        } else if (hasJob) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#007AFF20;color:#007AFF;font-weight:600;">Job linked</span>';
+        }
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '15;color:' + hex.orange + ';font-weight:500;">' + stage + '</span>';
+        html += '</div>';
+        html += '</div>';
+        return html;
+      }
+
+      // Load leads
+      var _loadLeads = async function(query) {
+        var list = document.getElementById('sw-lead-list');
+        if (!list) return;
+        list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching...</p>';
+
+        try {
+          var leads = await ghl.searchLeads(query || '', pipelineKey);
+
+          // Filter out phone-only names
+          leads = leads.filter(function(o) {
+            var name = (o.contactName || o.name || '').trim();
+            return name && !/^\+?\d[\d\s\-]+$/.test(name);
+          });
+
+          if (leads.length === 0) {
+            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">' + (query ? 'No leads matching "' + query + '"' : 'No leads in pipeline') + '</p>';
+          } else {
+            // Sort: leads with scope first, then by most recent
+            leads.sort(function(a, b) {
+              if (a.hasScope && !b.hasScope) return -1;
+              if (!a.hasScope && b.hasScope) return 1;
+              return 0; // GHL already returns most recent first
+            });
+
+            list.innerHTML = leads.map(function(lead) { return _renderLeadCard(lead); }).join('');
+
+            // Click handlers
+            list.querySelectorAll('.sw-lead-item').forEach(function(el) {
+              el.onclick = function() {
+                var oppId = el.dataset.oppid;
+                var lead = leads.find(function(l) { return l.id === oppId; });
+                if (!lead) return;
+                _close();
+                document.removeEventListener('keydown', _escHandler);
+                // Clear search bar
+                var searchInput = document.getElementById('headerSearch');
+                if (searchInput) searchInput.value = '';
+                if (onSelect) onSelect(lead);
+              };
+            });
+          }
+        } catch(e) {
+          list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + e.message + '</p>';
+        }
+      };
+
+      // Initial load
+      _loadLeads(initialQuery || '');
+
+      // Wire up live search from the header input
+      var searchInput = document.getElementById('headerSearch');
+      var _searchTimer;
+      if (searchInput) {
+        searchInput._leadSearchHandler = function() {
+          clearTimeout(_searchTimer);
+          var val = searchInput.value;
+          _searchTimer = setTimeout(function() { _loadLeads(val); }, 300);
+        };
+        searchInput.addEventListener('input', searchInput._leadSearchHandler);
+      }
+
+      // Cleanup handler — remove input listener when dropdown closes
+      var _origClose = _close;
+      _close = function() {
+        if (searchInput && searchInput._leadSearchHandler) {
+          searchInput.removeEventListener('input', searchInput._leadSearchHandler);
+          delete searchInput._leadSearchHandler;
+        }
+        document.removeEventListener('keydown', _escHandler);
+        _origClose();
       };
     },
 
