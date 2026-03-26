@@ -21,13 +21,29 @@
 
   // ── Iframe Guard ──
   // If loaded inside an iframe with noAuth=true (e.g. trade app 3D viewer),
-  // skip Supabase auth to prevent session conflicts with the parent window.
+  // provide a stub cloud object that won't crash but skips auth, redirects, and auto-save.
   var _isEmbedded = window !== window.top;
   var _noAuth = new URLSearchParams(window.location.search).get('noAuth') === 'true';
   if (_isEmbedded && _noAuth) {
     console.log('[SecureWorks Cloud] Embedded mode (noAuth) — skipping auth init');
-    window.SECUREWORKS_CLOUD = { embedded: true, noAuth: true };
-    return; // Exit IIFE — no Supabase client, no auth, no redirects
+    // Stub object with no-op methods so patio tool code doesn't crash
+    var _noop = function() {};
+    var _noopPromise = function() { return Promise.resolve(null); };
+    window.SECUREWORKS_CLOUD = {
+      embedded: true, noAuth: true,
+      on: _noop, off: _noop, emit: _noop,
+      startAutoSave: _noop, stopAutoSave: _noop,
+      auth: { isLoggedIn: function() { return false; }, getUser: _noopPromise },
+      ghl: {
+        search: _noopPromise, getContact: _noopPromise, loadJob: _noopPromise,
+        saveScope: _noopPromise, findJobByOpportunity: _noopPromise, listMedia: _noopPromise,
+        searchJobs: _noopPromise, linkScope: _noopPromise, createJobForOpportunity: _noopPromise,
+        createContactAndOpportunity: _noopPromise, uploadPhoto: _noopPromise,
+      },
+      ui: { showGHLPicker: _noop, showJobPicker: _noop, showLoginModal: _noop, showSaveStatus: _noop },
+      supabase: null,
+    };
+    return;
   }
 
   // ── Configuration ──
