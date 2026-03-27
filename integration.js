@@ -361,7 +361,20 @@
     if (!jobNumber) return;
     // Set the Job Ref input field (used by PDFs, exports, QA)
     var refEl = document.getElementById('jobRef');
-    if (refEl) refEl.value = jobNumber;
+    if (refEl) {
+      // Migrate verification localStorage from old key to new key (patio tool uses jobRef-keyed keys)
+      var oldRef = refEl.value.trim();
+      if (oldRef && oldRef !== jobNumber) {
+        var verKey = 'patio-verification-' + oldRef;
+        var saved = localStorage.getItem(verKey);
+        if (saved) {
+          localStorage.setItem('patio-verification-' + jobNumber, saved);
+          localStorage.removeItem(verKey);
+          console.log('[Integration] Verification state migrated:', oldRef, '→', jobNumber);
+        }
+      }
+      refEl.value = jobNumber;
+    }
     // Update header badge if the tool has one
     if (typeof window.updateHeaderBadge === 'function') {
       window.updateHeaderBadge();
@@ -818,6 +831,7 @@
         // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
         var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
+        var _failedUploads = 0;
         if (photosToUpload.length > 0) {
           console.log('[Integration] Uploading', photosToUpload.length, 'photos via signed URLs...');
           cloud.ui.showSaveStatus('saving', 'Uploading photos 0/' + photosToUpload.length);
@@ -872,6 +886,7 @@
               photo.cloudUrl = urlData.publicUrl;
               console.log('[Integration] Photo uploaded:', photo.label, (blob.size / 1024).toFixed(0) + 'KB');
             } catch(photoErr) {
+              _failedUploads++;
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
           }
@@ -932,9 +947,15 @@
               siteVideo.cloudUrl = urlData.publicUrl;
               console.log('[Integration] Video uploaded:', urlData.publicUrl);
             } catch(vidErr) {
+              _failedUploads++;
               console.warn('[Integration] Video upload failed:', vidErr);
             }
           }
+        }
+
+        // Warn user if any media uploads failed
+        if (_failedUploads > 0) {
+          if (window.showToast) window.showToast(_failedUploads + ' upload(s) failed — they\'ll retry on next save', 'warning');
         }
 
         // ── Post-QA only: GHL link, job number, PO, contact push ──
@@ -973,6 +994,13 @@
             } catch(assignErr) {
               console.warn('[Integration] Direct job number assignment failed:', assignErr);
             }
+          }
+
+          // Apply job number to DOM so PDFs, toolbar, and header show the real number
+          // Update local status to match DB (assign_job_number sets status='quoted')
+          if (_lastJobNumber) {
+            _jobStatus = 'quoted';
+            _applyJobNumber(_lastJobNumber);
           }
 
           // Auto-create TWO draft POs from scope: Materials + Labour (non-blocking)
