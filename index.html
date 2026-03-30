@@ -1615,6 +1615,39 @@
           app.recalculateAll();
         }
         console.log('[Fence] Live pricing loaded:', Object.keys(d).length, 'DB items, updated', updated, 'cost prices');
+
+        // ── Ledger override: fetch confirmed supplier prices for the default fencing supplier ──
+        var defaultSupplier = '';
+        for (var dk in d) {
+          if (d[dk].default_supplier_name) { defaultSupplier = d[dk].default_supplier_name; break; }
+        }
+        if (defaultSupplier && window.SECUREWORKS_CLOUD && SECUREWORKS_CLOUD.pricing.getSupplierPrices) {
+          SECUREWORKS_CLOUD.pricing.getSupplierPrices(defaultSupplier, 'fencing').then(function(prices) {
+            if (!prices || prices.length === 0) return;
+            // Build reverse map: material_code (lowercase no dashes) → COST_PRICES key
+            var codeToKey = {};
+            Object.keys(costMap).forEach(function(dbKey) {
+              if (!costMap[dbKey]) return;
+              // dbKey like 'cb-1800-cost' → code prefix 'cb1800'
+              var codePrefix = dbKey.replace(/-cost$/, '').replace(/-sell$/, '').replace(/-/g, '');
+              codeToKey[codePrefix] = costMap[dbKey];
+            });
+            var overrides = 0;
+            prices.forEach(function(p) {
+              if (!p.material_code || !p.unit_price) return;
+              var normCode = p.material_code.toLowerCase().replace(/[-_\s]/g, '');
+              if (codeToKey[normCode]) {
+                COST_PRICES[codeToKey[normCode]] = Number(p.unit_price);
+                overrides++;
+                console.log('[Fence] Ledger override:', codeToKey[normCode], '→ $' + p.unit_price, 'from', defaultSupplier);
+              }
+            });
+            if (overrides > 0 && typeof app !== 'undefined' && app.recalculateAll) {
+              app.recalculateAll();
+              console.log('[Fence] Applied', overrides, 'supplier price(s) from', defaultSupplier);
+            }
+          }).catch(function() { /* non-blocking */ });
+        }
       }).catch(function() { /* offline — use JS defaults */ });
     })();
 
