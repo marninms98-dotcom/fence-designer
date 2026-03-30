@@ -10278,6 +10278,11 @@
     app.buildPricingJson = function() {
       var d = this._collectOutputData();
       var lineItems = [];
+      // Resolve supplier name for material line items
+      var fencingSupplier = (d.supplier || app.job.supplier || '');
+      // Map internal key to supplier table name (RNR → R&R Fencing, etc.)
+      var SUPPLIER_NAME_MAP = { 'RNR': 'R&R Fencing', 'Metroll': 'Metroll', 'Lysaght': 'Lysaght' };
+      var supplierDisplayName = SUPPLIER_NAME_MAP[fencingSupplier] || fencingSupplier;
 
       if (d.totalMetres > 0) {
         lineItems.push({
@@ -10285,7 +10290,7 @@
           quantity: d.totalMetres, unit: 'm',
           cost_price: null, sell_price: d.pricePerMetre,
           total_cost: null, total_sell: d.fencingTotal,
-          category: 'fencing'
+          category: 'fencing', supplier_name: supplierDisplayName
         });
       }
       if (d.totalPlinths > 0) {
@@ -10294,7 +10299,7 @@
           quantity: d.totalPlinths, unit: 'each',
           cost_price: COST_PRICES.plinth, sell_price: d.plinthSell,
           total_cost: d.totalPlinths * COST_PRICES.plinth, total_sell: d.plinthsTotal,
-          category: 'materials'
+          category: 'materials', supplier_name: supplierDisplayName
         });
       }
       if (d.totalPatioTubes > 0) {
@@ -10303,11 +10308,11 @@
           quantity: d.totalPatioTubes, unit: 'each',
           cost_price: COST_PRICES.patioTube, sell_price: d.patioSell,
           total_cost: d.totalPatioTubes * COST_PRICES.patioTube, total_sell: d.patioTotal,
-          category: 'materials'
+          category: 'materials', supplier_name: supplierDisplayName
         });
       }
       (d.gateLineItems || []).forEach(function(g) {
-        lineItems.push({ description: g.desc, quantity: g.qty, unit: 'each', total_sell: g.total, category: 'gates' });
+        lineItems.push({ description: g.desc, quantity: g.qty, unit: 'each', total_sell: g.total, category: 'gates', supplier_name: supplierDisplayName });
       });
       (d.removalItems || []).forEach(function(r) {
         lineItems.push({ description: r.desc, quantity: r.qty, unit: r.unit, total_sell: r.total, category: 'removal' });
