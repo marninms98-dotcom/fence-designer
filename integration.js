@@ -362,7 +362,7 @@
     // Set the Job Ref input field (used by PDFs, exports, QA)
     var refEl = document.getElementById('jobRef');
     if (refEl) {
-      // Migrate verification localStorage from old key to new key (patio tool uses jobRef-keyed keys)
+      // Migrate verification localStorage from old key to new key
       var oldRef = refEl.value.trim();
       if (oldRef && oldRef !== jobNumber) {
         var verKey = 'patio-verification-' + oldRef;
@@ -830,24 +830,6 @@
 
         // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
-
-        // Bridge: fencing tool stores photos in app.job.checklist.photos + window._photoFiles
-        if (sitePhotos.length === 0 && window.app && window.app.job &&
-            window.app.job.checklist && window.app.job.checklist.photos &&
-            window.app.job.checklist.photos.length > 0) {
-          var fencePhotos = window.app.job.checklist.photos;
-          var photoFiles = window._photoFiles || {};
-          sitePhotos = fencePhotos.map(function(p) {
-            return {
-              id: p.id,
-              label: p.name || p.label || 'Photo',
-              dataUrl: photoFiles[p.id] || p.dataUrl,  // prefer upload-quality (1200px) over thumbnail (200px)
-              cloudUrl: null
-            };
-          }).filter(function(p) { return p.dataUrl; });
-          console.log('[Integration] Bridged', sitePhotos.length, 'fencing photos for upload');
-        }
-
         var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
         var _failedUploads = 0;
         if (photosToUpload.length > 0) {
@@ -1053,7 +1035,8 @@
               var materialCategories = ['steel', 'roofing', 'fencing', 'materials', 'concrete', 'flashings', 'fixings', 'guttering', 'delivery', 'gates'];
               var labourCategories = ['labour', 'installation', 'demolition', 'electrical'];
 
-              var materialItems = [];
+              // Group material items by supplier, keep labour separate
+              var supplierGroups = {};  // { 'Bondor': [...], 'Metroll': [...], '': [...] }
               var labourItems = [];
 
               if (lineItems.length > 0) {
@@ -1068,41 +1051,50 @@
                   if (labourCategories.indexOf(cat) >= 0) {
                     labourItems.push(poItem);
                   } else {
-                    materialItems.push(poItem);
+                    var supplier = item.supplier_name || '';
+                    if (!supplierGroups[supplier]) supplierGroups[supplier] = [];
+                    supplierGroups[supplier].push(poItem);
                   }
                 });
               }
 
               // Fallback: if no line items but we have totals, create summary items
-              if (materialItems.length === 0 && materialCost > 0) {
+              if (Object.keys(supplierGroups).length === 0 && materialCost > 0) {
                 // Fall back to scope_to_po extraction
                 var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
                 var poMaterials = await poRes.json();
                 if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
-                  materialItems = poMaterials.materials;
+                  supplierGroups[''] = poMaterials.materials;
                 } else {
-                  materialItems = [{ description: 'Materials (per scope)', quantity: 1, unit: 'lot', unit_price: materialCost }];
+                  supplierGroups[''] = [{ description: 'Materials (per scope)', quantity: 1, unit: 'lot', unit_price: materialCost }];
                 }
               }
               if (labourItems.length === 0 && labourCost > 0) {
                 labourItems = [{ description: 'Installation labour (per scope)', quantity: 1, unit: 'lot', unit_price: labourCost }];
               }
 
-              // Create Materials PO
-              if (materialItems.length > 0) {
+              // Create one PO per supplier group
+              var supplierNames = Object.keys(supplierGroups);
+              for (var si = 0; si < supplierNames.length; si++) {
+                var sName = supplierNames[si];
+                var sItems = supplierGroups[sName];
+                if (sItems.length === 0) continue;
+                var poNotes = sName
+                  ? 'MATERIALS — ' + sName + '. Auto-generated from scope.'
+                  : 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.';
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     job_id: _jobId,
                     status: 'draft',
-                    supplier_name: '',
-                    line_items: materialItems,
+                    supplier_name: sName,
+                    line_items: sItems,
                     reference: linkResult.jobNumber,
-                    notes: 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.'
+                    notes: poNotes
                   })
                 });
-                console.log('[Integration] Draft Materials PO created');
+                console.log('[Integration] Draft PO created for ' + (sName || 'unassigned') + ': ' + sItems.length + ' items');
               }
 
               // Create Labour PO
