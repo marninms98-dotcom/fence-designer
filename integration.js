@@ -67,7 +67,7 @@
     // Step 3: Confirm upload (insert into job_documents)
     await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
       body: JSON.stringify({
         job_id: jobId,
         file_name: fileName,
@@ -830,6 +830,24 @@
 
         // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
+
+        // Bridge: fencing tool stores photos in app.job.checklist.photos + window._photoFiles
+        if (sitePhotos.length === 0 && window.app && window.app.job &&
+            window.app.job.checklist && window.app.job.checklist.photos &&
+            window.app.job.checklist.photos.length > 0) {
+          var fencePhotos = window.app.job.checklist.photos;
+          var photoFiles = window._photoFiles || {};
+          sitePhotos = fencePhotos.map(function(p) {
+            return {
+              id: p.id,
+              label: p.name || p.label || 'Photo',
+              dataUrl: photoFiles[p.id] || p.dataUrl,  // prefer upload-quality (1200px) over thumbnail (200px)
+              cloudUrl: null
+            };
+          }).filter(function(p) { return p.dataUrl; });
+          console.log('[Integration] Bridged', sitePhotos.length, 'fencing photos for upload');
+        }
+
         var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
         var _failedUploads = 0;
         if (photosToUpload.length > 0) {
