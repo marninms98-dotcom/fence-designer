@@ -1444,7 +1444,7 @@
     async getDefaults(scopeTool) {
       try {
         var { data, error } = await sb.from('scope_tool_defaults')
-          .select('category, item_key, item_description, unit, default_price, default_cost_rate, default_sqm_rate, last_updated_at')
+          .select('category, item_key, item_description, unit, default_price, default_cost_rate, default_sqm_rate, last_updated_at, default_supplier_name, default_supplier_id')
           .eq('scope_tool', scopeTool);
         if (error || !data) return null;
         var map = {};
@@ -1453,6 +1453,38 @@
       } catch(e) {
         console.warn('[Cloud] pricing.getDefaults failed:', e);
         return null;
+      }
+    },
+
+    async getSuppliers() {
+      try {
+        var { data, error } = await sb.from('suppliers')
+          .select('id, name, email, categories, default_for, delivery_lead_days')
+          .eq('is_active', true)
+          .not('categories', 'is', null)
+          .order('name');
+        if (error || !data) return [];
+        return data;
+      } catch(e) {
+        console.warn('[Cloud] pricing.getSuppliers failed:', e);
+        return [];
+      }
+    },
+
+    async getSupplierPrices(supplierName, category) {
+      try {
+        var query = sb.from('material_price_ledger')
+          .select('item_description, material_code, unit, unit_price, raw_supplier_price, raw_supplier_unit, captured_at')
+          .eq('supplier_name', supplierName)
+          .eq('status', 'confirmed')
+          .order('captured_at', { ascending: false });
+        if (category) query = query.eq('material_category', category);
+        var { data, error } = await query;
+        if (error || !data) return [];
+        return data;
+      } catch(e) {
+        console.warn('[Cloud] pricing.getSupplierPrices failed:', e);
+        return [];
       }
     }
   };
