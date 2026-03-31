@@ -363,7 +363,10 @@
     var refEl = document.getElementById('jobRef');
     if (refEl) {
       // Migrate verification localStorage from old key to new key
-      var oldRef = refEl.value.trim();
+      // jobRef may be an <input> (patio) or a <span> (fencing) — read accordingly
+      var oldRef = (refEl.tagName === 'INPUT' || refEl.tagName === 'TEXTAREA' || refEl.tagName === 'SELECT')
+        ? (refEl.value || '').trim()
+        : (refEl.textContent || '').trim();
       if (oldRef && oldRef !== jobNumber) {
         var verKey = 'patio-verification-' + oldRef;
         var saved = localStorage.getItem(verKey);
@@ -373,7 +376,11 @@
           console.log('[Integration] Verification state migrated:', oldRef, '→', jobNumber);
         }
       }
-      refEl.value = jobNumber;
+      if (refEl.tagName === 'INPUT' || refEl.tagName === 'TEXTAREA' || refEl.tagName === 'SELECT') {
+        refEl.value = jobNumber;
+      } else {
+        refEl.textContent = jobNumber;
+      }
     }
     // Update header badge if the tool has one
     if (typeof window.updateHeaderBadge === 'function') {
