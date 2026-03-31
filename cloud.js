@@ -482,7 +482,15 @@
     // Load a job by ID (via edge function, bypasses RLS)
     async loadJob(jobId) {
       console.log('[Cloud] loadJob:', jobId);
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=load_job&jobId=' + encodeURIComponent(jobId), { headers: { 'x-api-key': SW_API_KEY } });
+      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=load_job&jobId=' + encodeURIComponent(jobId);
+      var headers = { 'x-api-key': SW_API_KEY };
+      // Retry once on 503 (Supabase cold start / transient timeout)
+      var res = await fetch(url, { headers: headers });
+      if (res.status === 503) {
+        console.warn('[Cloud] loadJob got 503, retrying...');
+        await new Promise(function(r) { setTimeout(r, 1500); });
+        res = await fetch(url, { headers: headers });
+      }
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load job');
       return data.job;
