@@ -11491,6 +11491,7 @@
           updateStep('Generating per-run PDFs...', '');
           var d = app._collectOutputData();
           var runPdfs = {};
+          var _failedRunUploads = [];
           var cloud = window.SECUREWORKS_CLOUD;
 
           for (var ri = 0; ri < pricingJsonForRuns.runs.length; ri++) {
@@ -11516,13 +11517,20 @@
                 }
               } catch(ue) {
                 console.warn('[SendQuote] Run PDF upload failed for', run.run_label, ue.message);
+                _failedRunUploads.push(run.run_label);
               }
             }
           }
 
+          // Warn user if any PDF uploads failed
+          if (_failedRunUploads.length > 0) {
+            var goAhead = confirm('PDF upload failed for: ' + _failedRunUploads.join(', ') + '.\n\nEmails will be sent without those PDFs attached.\n\nContinue sending?');
+            if (!goAhead) { overlay.remove(); return; }
+          }
+
           // Call send-runs endpoint with PDF URLs
           updateStep('Sending quotes...', '');
-          var sendRes = await fetch((cloud ? cloud.supabaseUrl : '') + '/functions/v1/send-quote/send-runs', {
+          var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send-runs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
             body: JSON.stringify({
@@ -11531,8 +11539,17 @@
               run_pdfs: Object.keys(runPdfs).length > 0 ? runPdfs : undefined,
             })
           });
+          if (!sendRes.ok) {
+            var errText = '';
+            try { var errJson = await sendRes.json(); errText = errJson.error || ''; } catch(pe) { errText = 'Server error (' + sendRes.status + ')'; }
+            throw new Error(errText || 'Failed to send quotes (' + sendRes.status + ')');
+          }
           var sendData = await sendRes.json();
-          if (!sendRes.ok || sendData.error) throw new Error(sendData.error || 'Failed to send');
+          if (sendData.error) throw new Error(sendData.error);
+          if (sendData.emails_sent === 0) {
+            console.warn('[SendQuote] send-runs returned emails_sent=0');
+            app.showToast('Warning: quotes processed but no emails were delivered. Check email settings.', 'warning');
+          }
 
           // Detailed success receipt
           var receiptRows = '';
