@@ -11634,7 +11634,7 @@
 
               var nbRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
                 body: JSON.stringify({ jobId: jobId, contacts: contacts, fileName: fileName })
               });
               var nbData = await nbRes.json();
@@ -11642,12 +11642,12 @@
                 neighbourQuoteData = nbData;
                 quoteNumber = nbData.contacts[0]?.quote_number || null;
               } else {
-                console.warn('[SendQuote] prepare_neighbour_quotes failed:', nbData.error || 'Unknown error');
+                throw new Error('Could not prepare neighbour quotes: ' + (nbData.error || 'Unknown error. Check your connection.'));
               }
             } else {
               var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
                 body: JSON.stringify({ jobId: jobId, fileName: fileName })
               });
               var prepData = await prepRes.json();
@@ -11656,7 +11656,12 @@
               }
             }
           } catch(e) {
-            console.warn('[SendQuote] Could not reserve quote number (non-blocking):', e.message);
+            console.warn('[SendQuote] Quote preparation failed:', e.message);
+          }
+
+          // Validate: for single-quote flow, prepData must exist
+          if (!hasNeighbours && (!prepData || !prepData.documentId)) {
+            throw new Error('Could not prepare quote document. Check your connection and try again.');
           }
         }
 
@@ -11698,13 +11703,7 @@
           }
         }
 
-        // Step 3: Update job status
-        if (cloud && jobId) {
-          updateStep('Updating job status...', '');
-          await cloud.jobs.updateJobStatus(jobId, 'quoted');
-        }
-
-        // Step 4: Send emails
+        // Step 3: Send emails (status updated AFTER successful send)
         var sendResults = []; // { name, email, status: 'sent'|'skipped'|'failed'|'no-email' }
 
         if (hasNeighbours && neighbourQuoteData && neighbourQuoteData.contacts) {
@@ -11800,8 +11799,13 @@
           }
         }
 
-        // Step 5: Show success screen
+        // Step 4: Update job status after successful send
         var sentCount = sendResults.filter(function(r) { return r.status === 'sent'; }).length;
+        if (sentCount > 0 && cloud && jobId) {
+          try { await cloud.updateJobStatus(jobId, 'quoted'); } catch(e) { console.warn('[SendQuote] Status update failed:', e.message); }
+        }
+
+        // Step 5: Show success screen
         var firstViewUrl = (sendResults.find(function(r) { return r.viewUrl; }) || {}).viewUrl || '';
 
         var resultRows = sendResults.map(function(r) {
