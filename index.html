@@ -11507,7 +11507,7 @@
                 updateStep('Uploading...', run.run_label);
                 var upRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
                   body: JSON.stringify({ job_id: jobId, file_name: runFileName, content_type: 'application/pdf' })
                 });
                 var upData = await upRes.json();
@@ -11532,7 +11532,7 @@
           updateStep('Sending quotes...', '');
           var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send-runs', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+            headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
             body: JSON.stringify({
               job_id: jobId,
               message: message,
@@ -11634,7 +11634,7 @@
 
               var nbRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
                 body: JSON.stringify({ jobId: jobId, contacts: contacts, fileName: fileName })
               });
               var nbData = await nbRes.json();
@@ -11647,11 +11647,12 @@
             } else {
               var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
                 body: JSON.stringify({ jobId: jobId, fileName: fileName })
               });
               var prepData = await prepRes.json();
-              if (prepRes.ok && prepData.quoteNumber) {
+              if (!prepRes.ok) throw new Error(prepData.error || 'Quote preparation failed (HTTP ' + prepRes.status + ')');
+              if (prepData.quoteNumber) {
                 quoteNumber = prepData.quoteNumber;
               }
             }
@@ -11728,7 +11729,7 @@
               updateStep('Sending email...', 'to ' + contactEmail);
               var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
                 body: JSON.stringify({
                   document_id: contact.document_id,
                   client_email: contactEmail,
@@ -11774,7 +11775,7 @@
               try {
                 var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '' },
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
                   body: JSON.stringify({
                     document_id: prepData.documentId,
                     client_email: toEmail,
