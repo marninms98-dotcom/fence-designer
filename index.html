@@ -1795,15 +1795,32 @@
         const supplierData = SUPPLIER_PROFILES[this.job.supplier];
         if (!supplierData) {
           select.innerHTML = '<option value="">Select panel system first...</option>';
+          // Remove any existing custom input
+          const existing = document.getElementById('profileCustomInput');
+          if (existing) existing.remove();
           return;
         }
+        const profIsCustom = this.job.profile === '__custom__' || (this.job.profile && !supplierData.profiles.includes(this.job.profile));
         select.innerHTML = '<option value="" ' + (!this.job.profile ? 'selected' : '') + '>Select...</option>' +
           supplierData.profiles.map(p =>
             `<option value="${p}" ${p === this.job.profile ? 'selected' : ''}>${p}</option>`
-          ).join('');
-        if (this.job.profile && !supplierData.profiles.includes(this.job.profile)) {
-          this.job.profile = '';
-          select.value = '';
+          ).join('') +
+          '<option value="__custom__" ' + (profIsCustom ? 'selected' : '') + '>Custom...</option>';
+        // Add or remove custom text input
+        let customInput = document.getElementById('profileCustomInput');
+        if (profIsCustom) {
+          if (!customInput) {
+            customInput = document.createElement('input');
+            customInput.type = 'text';
+            customInput.id = 'profileCustomInput';
+            customInput.placeholder = 'Enter profile name...';
+            customInput.style.marginTop = '6px';
+            customInput.onchange = function() { app.updateProfile(this.value); };
+            select.parentNode.insertBefore(customInput, select.nextSibling);
+          }
+          customInput.value = (profIsCustom && this.job.profile !== '__custom__') ? this.job.profile : '';
+        } else if (customInput) {
+          customInput.remove();
         }
       },
 
@@ -3493,14 +3510,14 @@
           <div class="form-row">
             <div class="form-group">
               <label>Manufacturer</label>
-              <select onchange="app.updateInstallation('manufacturer', this.value)">
+              <select id="mfrSelect" onchange="app.updateInstallation('manufacturer', this.value)">
                 <option value="">Select...</option>
                 ${['RnR','Metroll','Lysaght'].map(m => `<option value="${m}" ${inst.manufacturer === m ? 'selected' : ''}>${m}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
               <label>Supplier (Buy From)</label>
-              <select onchange="app.updateInstallation('supplierSource', this.value)">
+              <select id="supSelect" onchange="app.updateInstallation('supplierSource', this.value)">
                 <option value="">Select...</option>
                 ${['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'].map(s => `<option value="${s}" ${inst.supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
               </select>
@@ -3526,6 +3543,11 @@
             <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_STOCK)}</div>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Special Order</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_SPECIAL)}</div>
+            <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Custom Colour</div>
+            <input type="text" id="customColourInput" placeholder="Type non-standard colour name..." value="${j.customColour || ''}"
+              style="width:100%;max-width:340px;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;transition:border 0.2s;"
+              onfocus="this.style.borderColor='#F15A29'" onblur="this.style.borderColor='#d1d5db'"
+              onchange="app.job.customColour=this.value; if(this.value.trim()){app.updateColour(this.value.trim())}">
             ${j.colour ? `<div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
               <div style="width:32px;height:32px;border-radius:6px;background:${colourHex};border:1px solid #d1d5db;"></div>
               <span style="font-size:14px;color:#293C46;font-weight:600;">${this._esc(j.colour)}</span>
@@ -3541,7 +3563,30 @@
               style="margin-top:8px;" onchange="app.updateInstallation('coreDrillHoles', this.value)">` : ''}
           </div>
         `;
+        this._addCustomOption('mfrSelect', inst.manufacturer, ['RnR','Metroll','Lysaght'], 'Enter manufacturer name...', function(v) { app.updateInstallation('manufacturer', v); });
+        this._addCustomOption('supSelect', inst.supplierSource, ['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'], 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
         this.updateProfileDropdown();
+      },
+
+      // ── Add Custom... option to a select ──
+      _addCustomOption(selectId, currentValue, presets, placeholder, onChangeCallback) {
+        var select = document.getElementById(selectId);
+        if (!select) return;
+        var isCustom = currentValue === '__custom__' || (currentValue && !presets.includes(currentValue));
+        var customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = 'Custom...';
+        if (isCustom) customOpt.selected = true;
+        select.appendChild(customOpt);
+        if (isCustom) {
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.placeholder = placeholder;
+          input.style.marginTop = '6px';
+          input.value = (currentValue && currentValue !== '__custom__') ? currentValue : '';
+          input.onchange = function() { onChangeCallback(this.value); };
+          select.parentNode.appendChild(input);
+        }
       },
 
       // ── Render Gates Section ──
@@ -8245,6 +8290,11 @@
       // ── Collect all data for outputs ──
       _collectOutputData() {
         const job = this.job;
+        // Ensure job ref is populated from integration if available
+        if (!job.ref && window._swIntegration && window._swIntegration.getLastJobNumber) {
+          var intRef = window._swIntegration.getLastJobNumber();
+          if (intRef) job.ref = intRef;
+        }
         const rem = job.removal || {};
         const q = job.quote || {};
         const js = {
@@ -8731,7 +8781,6 @@
         const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
         const scopeDesc = this._buildQuoteScopeDesc(d);
         const colourHex = this._getColourHex(d.colour);
-        const screenshot3D = this._get3DScreenshotDataUrl();
 
         // Profile image URL
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
@@ -8781,10 +8830,6 @@
             </div>
           </div>
 
-          ${screenshot3D ? `<div class="section">
-            <h2>Your Fence</h2>
-            <img src="${screenshot3D}" alt="3D Fence Preview" class="view-3d">
-          </div>` : ''}
 
           ${d.job._latlng ? `<div class="section">
             <h2>${d.job.sitePlanImage ? 'Site Plan' : 'Site Location'}</h2>
@@ -9226,7 +9271,6 @@
         let y = 20;
         const scopeDesc = this._buildQuoteScopeDesc(d);
         const colourHex = this._getColourHex(d.colour);
-        const screenshot3D = this._get3DScreenshotDataUrl();
 
         // Header bar
         doc.setFillColor(41, 60, 70);
@@ -9270,23 +9314,6 @@
         });
         y += Math.ceil(info.length / 2) * 7 + 6;
 
-        // 3D Screenshot
-        if (screenshot3D) {
-          try {
-            const imgW = pw - mx * 2;
-            const imgH = imgW * 0.5; // 2:1 aspect ratio
-            if (y + imgH + 10 > ph - 40) { doc.addPage(); y = 20; }
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(11);
-            doc.setTextColor(41, 60, 70);
-            doc.text('YOUR FENCE', mx, y);
-            doc.setDrawColor(76, 106, 124);
-            doc.line(mx, y + 1, pw - mx, y + 1);
-            y += 4;
-            doc.addImage(screenshot3D, 'PNG', mx, y, imgW, imgH);
-            y += imgH + 6;
-          } catch(e) { /* skip if image fails */ }
-        }
 
         // Site Plan
         var _spImg = this.job.sitePlanImage || null;
