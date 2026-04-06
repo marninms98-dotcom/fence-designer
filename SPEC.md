@@ -340,7 +340,6 @@ The profile view is a 2D canvas rendering showing the fence from the **side elev
 For each panel in the active run:
 - **Fence sheets** with vertical corrugation lines (pattern varies by selected profile — see Section 4B)
 - **Posts** between panels (darker grey, narrower than panels)
-- **Post caps** (small pyramid/triangle on top of each post)
 - **Top capping rail** (horizontal bar across top of fence)
 - **Plinths** below the fence sheet (stacked grey blocks under each panel)
 - **Ground line** — TWO lines if retaining present:
@@ -356,7 +355,6 @@ For each panel in the active run:
 
 - Corrugation pattern: Render according to the selected profile (see Section 4B). Standard profiles use wider pans with fewer trapezoidal ribs. Same-both-sides profiles have more frequent, narrower symmetric ribs with identical appearance on both sides.
 - Posts: Darker shade than fence sheets. Narrower. Show the C-channel profile shape or at minimum a distinct rectangular post.
-- Post caps: Small triangular/pyramid shape on top.
 - Plinths: Grey rectangular blocks, each 150mm tall. Stack visually under the panel. Slightly different shade to fence sheets.
 - Ground: Not a flat green bar. Use a gradient — green grass on top transitioning to brown earth/dirt below.
 - Footing: Posts extend below ground as dashed lines to indicate embedment depth.
@@ -535,7 +533,6 @@ Each panel consists of:
 - **Fence sheet:** A box geometry with ribbed surface matching the selected profile (see Section 4B). Standard profiles = trapezoidal ribs, same-both-sides profiles = narrower symmetric ribs. Use a displacement map or custom BufferGeometry. If custom geometry is too complex, use a normal map texture to simulate the ribs.
 - **Posts:** Box geometry, darker colour, positioned between panels. Height extends from below ground to top.
 - **Top rail / capping:** Thin box along the top of each panel.
-- **Post caps:** Small pyramid (ConeGeometry) on top of each post.
 - **Plinths:** Grey box geometries stacked below the fence sheet, each 150mm tall.
 
 ### 7.4 Materials & Lighting
@@ -625,7 +622,7 @@ CONCRETE:
 {concreteBags} × Bags Quickset Concrete
 
 FIXINGS:
-Fixings, Post Caps, Screws as required
+Fixings, Screws as required
 
 ────────────────────────────────────────
 

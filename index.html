@@ -6914,12 +6914,6 @@
           post.userData = { info: `<b>Post ${pi+1}</b><br>Height: ${postH*1000}mm<br>Above ground: ${Math.round(aboveGnd*1000)}mm<br>Embed: ${embedDepth*1000}mm` };
           f.fenceGrp.add(post);
 
-          // Post cap (small square on top)
-          const postCapGeo = new THREE.BoxGeometry(postW + 0.008, 0.006, postW + 0.008);
-          const postCap = new THREE.Mesh(postCapGeo, capMat);
-          postCap.position.set(cursorX, gndY + aboveGnd + 0.003, 0);
-          f.fenceGrp.add(postCap);
-
           // Underground elements hidden — only visible in side/section view if needed
 
           // Patio tube if needed
@@ -7014,10 +7008,6 @@
               gp.castShadow = true;
               gp.userData = { info: `<b>Gate Post</b><br>90×90mm SHS<br>${gate.type === 'double' ? 'Double' : 'Pedestrian'} gate` };
               f.fenceGrp.add(gp);
-              // Post cap
-              const gc = new THREE.Mesh(new THREE.BoxGeometry(0.098, 0.006, 0.098), capMat);
-              gc.position.set(gateX + gpi * gateW, (gatePostH - embedDepth) + 0.003, 0);
-              f.fenceGrp.add(gc);
             }
 
             // Gate panels
@@ -7427,7 +7417,6 @@
           '- Total fence length: ' + totalMetres.toFixed(1) + ' metres\n' +
           '- Total panels: ' + totalPanels + ' (each panel ~2.36m wide between posts)\n' +
           '- Posts: galvanised steel C-section posts (visible between panels as a thin vertical line), ' +
-          'with matching ' + job.colour + ' post caps on top\n' +
           '- Cap rail: continuous COLORBOND cap rail (capping) running along the top edge, same colour as panels\n' +
           '- Bottom clearance: panels sit ~25mm above ground level (small gap visible at base)\n\n' +
 
@@ -8809,7 +8798,7 @@
         parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
         if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
         if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
-        parts.push('All posts set in concrete with post caps fitted');
+        parts.push('All posts set in concrete');
         if (d.gateLineItems.length > 0) {
           const gateDescs = d.gateLineItems.map(g => {
             const qty = g.qty > 1 ? g.qty + ' \u00D7 ' : '';
