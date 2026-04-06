@@ -2835,11 +2835,31 @@
         if (d.totalPatioTubes > 0) matRows += `<tr><td>Patio tubes (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${f(COST_PRICES.patioTube)}</td><td class="r">$${f(d.totalPatioTubes * COST_PRICES.patioTube)}</td></tr>`;
         matRows += `<tr><td>Concrete (20kg bags)</td><td class="r">${d.concreteBags} × $${f(COST_PRICES.concrete)}</td><td class="r">$${f(d.concreteBags * COST_PRICES.concrete)}</td></tr>`;
         matRows += `<tr><td>Tek screw boxes</td><td class="r">${d.tekBoxes} × $${f(COST_PRICES.tekScrewBox)}</td><td class="r">$${f(d.tekBoxes * COST_PRICES.tekScrewBox)}</td></tr>`;
-        (d.job.gates || []).forEach(g => {
+        (d.job.gates || []).forEach((g, gi) => {
+          const concPerPost = 2;  // 2 bags per post
           if (g.type === 'pedestrian') {
-            matRows += `<tr><td>Ped gate kit + 2× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90)}</td></tr>`;
+            const postCost = 2 * COST_PRICES.gatePost90x90;
+            const concCost = 2 * concPerPost * COST_PRICES.concrete;
+            matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Pedestrian Gate ${gi + 1} (${g.width}mm)</td></tr>`;
+            matRows += `<tr><td>Gate kit</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitPedestrian)}</td></tr>`;
+            matRows += `<tr><td>90×90 gate posts</td><td class="r">2 × $${f(COST_PRICES.gatePost90x90)}</td><td class="r">$${f(postCost)}</td></tr>`;
+            matRows += `<tr><td>Concrete (20kg bags)</td><td class="r">${2 * concPerPost} × $${f(COST_PRICES.concrete)}</td><td class="r">$${f(concCost)}</td></tr>`;
           } else if (g.type === 'double') {
-            matRows += `<tr><td>Double gate kit + 4× posts</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90)}</td></tr>`;
+            const postCost = 4 * COST_PRICES.gatePost90x90;
+            const concCost = 4 * concPerPost * COST_PRICES.concrete;
+            matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Double Swing Gate ${gi + 1} (${g.width}mm)</td></tr>`;
+            matRows += `<tr><td>Gate kit</td><td class="r">1</td><td class="r">$${f(COST_PRICES.gateKitDouble)}</td></tr>`;
+            matRows += `<tr><td>90×90 gate posts</td><td class="r">4 × $${f(COST_PRICES.gatePost90x90)}</td><td class="r">$${f(postCost)}</td></tr>`;
+            matRows += `<tr><td>Concrete (20kg bags)</td><td class="r">${4 * concPerPost} × $${f(COST_PRICES.concrete)}</td><td class="r">$${f(concCost)}</td></tr>`;
+          } else if (g.type === 'sliding') {
+            const postCost = 2 * COST_PRICES.gatePost90x90;
+            const concCost = 2 * concPerPost * COST_PRICES.concrete;
+            const slideSell = (d.job.quote || {}).slidingGatePrice || 0;
+            matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Sliding Gate ${gi + 1} (${g.width}mm)</td></tr>`;
+            matRows += `<tr><td>Sliding gate kit/panel (custom)</td><td class="r">1</td><td class="r">$${f(slideSell * 0.7)}</td></tr>`;
+            matRows += `<tr><td>Gate posts</td><td class="r">2 × $${f(COST_PRICES.gatePost90x90)}</td><td class="r">$${f(postCost)}</td></tr>`;
+            matRows += `<tr><td>Track</td><td class="r">1</td><td class="r">incl.</td></tr>`;
+            matRows += `<tr><td>Concrete (20kg bags)</td><td class="r">${2 * concPerPost} × $${f(COST_PRICES.concrete)}</td><td class="r">$${f(concCost)}</td></tr>`;
           }
         });
         if (d.removalItems.length > 0) {
@@ -2879,8 +2899,23 @@
         if (accessPct > 0) {
           labRows += `<tr><td>Access surcharge (${(accessPct * 100).toFixed(0)}%)</td><td class="r">$${f(accessAmt)}</td></tr>`;
         }
+        (d.job.gates || []).forEach((g, gi) => {
+          if (g.type === 'pedestrian') {
+            labRows += `<tr><td>Pedestrian gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourPedestrian)}</td></tr>`;
+          } else if (g.type === 'double') {
+            labRows += `<tr><td>Double gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourDouble)}</td></tr>`;
+          } else if (g.type === 'sliding') {
+            labRows += `<tr><td>Sliding gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourDouble)}</td></tr>`;
+          }
+        });
         // Removal costs are in Material PO only — not double-counted here
-        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + plinthLabour)}</td></tr>`;
+        let totalGateLabour = 0;
+        (d.job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') totalGateLabour += COST_PRICES.gateLabourPedestrian;
+          else if (g.type === 'double') totalGateLabour += COST_PRICES.gateLabourDouble;
+          else if (g.type === 'sliding') totalGateLabour += COST_PRICES.gateLabourDouble;
+        });
+        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + plinthLabour + totalGateLabour)}</td></tr>`;
 
         const labApproved = this._poApproved.labour;
         html += `<div class="po-card" style="margin-top:8px;">
@@ -3719,6 +3754,29 @@
               <input type="number" value="${q.asbestosPrice || 90}" min="0" step="1"
                 onchange="app.updateQuote('asbestosPrice', parseFloat(this.value) || 0)">
             </div>
+          </div>
+          <div style="margin:12px 0;border-top:1px dashed #d0d5dd;padding-top:10px;">
+            <div style="font-size:11px;color:#8899a6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Gate Sell Prices</div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Pedestrian Gate ($)</label>
+              <input type="number" value="${q.pedestrianGatePrice || 1100}" min="0" step="10"
+                onchange="app.updateQuote('pedestrianGatePrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group">
+              <label>Double Swing Gate ($)</label>
+              <input type="number" value="${q.doubleGatePrice || 2400}" min="0" step="10"
+                onchange="app.updateQuote('doubleGatePrice', parseFloat(this.value) || 0)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Sliding Gate ($)</label>
+              <input type="number" value="${q.slidingGatePrice || ''}" min="0" step="10" placeholder="Enter price (custom)"
+                onchange="app.updateQuote('slidingGatePrice', parseFloat(this.value) || 0)">
+            </div>
+            <div class="form-group"></div>
           </div>
           <div style="margin:12px 0;border-top:1px dashed #d0d5dd;padding-top:10px;">
             <div style="font-size:11px;color:#8899a6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Other Adjustments</div>
@@ -8426,7 +8484,7 @@
         let gatePosts = 0;
         const gateDetails = [];
         (job.gates || []).forEach(g => {
-          const gp = g.type === 'double' ? 4 : 2;
+          const gp = g.type === 'double' ? 4 : 2;  // ped=2, double=4, sliding=2
           gatePosts += gp;
           gateDetails.push({ type: g.type, width: g.width, posts: gp });
         });
@@ -8456,13 +8514,17 @@
         const gateLineItems = [];
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') {
-            const pedSell = 1100;
+            const pedSell = q.pedestrianGatePrice || 1100;
             gatesTotal += pedSell;
             gateLineItems.push({ desc: `Pedestrian gate ${g.width}mm`, qty: 1, total: pedSell });
           } else if (g.type === 'double') {
-            const dblSell = 2400;
+            const dblSell = q.doubleGatePrice || 2400;
             gatesTotal += dblSell;
             gateLineItems.push({ desc: `Double swing gate ${g.width}mm`, qty: 1, total: dblSell });
+          } else if (g.type === 'sliding') {
+            const slideSell = q.slidingGatePrice || 0;
+            gatesTotal += slideSell;
+            gateLineItems.push({ desc: `Sliding gate ${g.width}mm`, qty: 1, total: slideSell });
           }
         });
 
@@ -8583,6 +8645,7 @@
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') internalCost += COST_PRICES.gateKitPedestrian + 2 * COST_PRICES.gatePost90x90;
           else if (g.type === 'double') internalCost += COST_PRICES.gateKitDouble + 4 * COST_PRICES.gatePost90x90;
+          else if (g.type === 'sliding') internalCost += (q.slidingGatePrice || 0) * 0.7;  // no fixed cost — estimate 70% of sell as cost
         });
         // Removal costs
         let internalRemovalCost = 0;
@@ -8598,6 +8661,7 @@
         (job.gates || []).forEach(g => {
           if (g.type === 'pedestrian') gateLabourCost += COST_PRICES.gateLabourPedestrian;
           else if (g.type === 'double') gateLabourCost += COST_PRICES.gateLabourDouble;
+          else if (g.type === 'sliding') gateLabourCost += COST_PRICES.gateLabourDouble;  // sliding labour ~ same as double
         });
         const labourCost = labourBase + plinthLabourCost + gateLabourCost;
         const internalLabour = labourCost * (1 + accessRate);
@@ -8869,8 +8933,10 @@
                     <strong>COLORBOND\u00AE Fencing — Supply & Install</strong><br>
                     <span style="font-size:11px;color:#4C6A7C;">${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}${d.totalPlinths > 0 ? ' | ' + d.totalPlinths + ' retaining plinths' : ''}${d.gateLineItems.length > 0 ? ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '') : ''}${d.removalTotal > 0 ? ' | Old fence removal' : ''}</span>
                   </td>
-                  <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(d.subtotal)}</td>
+                  <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(d.subtotal - d.customTotal)}</td>
                 </tr>
+                ${d.customItems.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
+                  d.customItems.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : ''}
               </tbody>
               <tfoot>
                 <tr class="total-row"><td>Subtotal (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>
@@ -9418,12 +9484,12 @@
         doc.text('AMOUNT', pw - mx - 2, y, { align: 'right' });
         y += 6;
 
-        // Single consolidated line
+        // Main fencing line
         doc.setTextColor(41, 60, 70);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.text('COLORBOND Fencing \u2014 Supply & Install', mx + 2, y);
-        doc.text('$' + this._fmt(d.subtotal), pw - mx - 2, y, { align: 'right' });
+        doc.text('$' + this._fmt(d.subtotal - d.customTotal), pw - mx - 2, y, { align: 'right' });
         y += 4;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
@@ -9438,6 +9504,30 @@
         doc.setDrawColor(229, 231, 235);
         doc.line(mx, y, pw - mx, y);
         y += 4;
+
+        // Custom / Additional items
+        if (d.customItems.length > 0) {
+          doc.setFillColor(245, 245, 245);
+          doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(76, 106, 124);
+          doc.text('ADDITIONAL ITEMS', mx + 2, y);
+          y += 6;
+          d.customItems.forEach(c => {
+            if (y > ph - 40) { doc.addPage(); y = 20; }
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(41, 60, 70);
+            const cDesc = c.desc + (c.qty > 1 || c.unit ? ' (' + c.qty + ' ' + c.unit + ')' : '');
+            doc.text(cDesc, mx + 2, y);
+            doc.text('$' + this._fmt(c.total), pw - mx - 2, y, { align: 'right' });
+            y += 5;
+          });
+          doc.setDrawColor(229, 231, 235);
+          doc.line(mx, y - 1, pw - mx, y - 1);
+          y += 3;
+        }
 
         // Totals
         y += 2;
