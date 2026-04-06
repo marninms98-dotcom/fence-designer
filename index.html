@@ -2534,7 +2534,6 @@
 
       // ── Gates ──
       addGate() {
-        if (!this.job.runs.length) return;
         this.job.gates.push({
           id: 'gate-' + Date.now(),
           type: 'pedestrian',
@@ -2637,8 +2636,8 @@
           if (statusEl) statusEl.className = 'section-status empty';
           return;
         }
-        if (d.totalMetres <= 0) {
-          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs and set pricing to see quote breakdown.</div>';
+        if (d.totalMetres <= 0 && d.gatesTotal <= 0) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs or gates and set pricing to see quote breakdown.</div>';
           if (statusEl) statusEl.className = 'section-status empty';
           return;
         }
@@ -7278,8 +7277,8 @@
       // ── AI Image Prompt Generator ──
       generateAIPrompt() {
         const job = this.job;
-        if (!job.runs.length || !job.colour) {
-          this.showToast('Add fence runs and select a colour first', 'warning');
+        if (!job.runs.length && !(job.gates && job.gates.length > 0)) {
+          this.showToast('Add fence runs or gates first', 'warning');
           return;
         }
 
@@ -10028,7 +10027,7 @@
         if (!this.job.address) missing.push('Site address');
         if (!this.job.phone) missing.push('Phone');
         if (!this.job.email) missing.push('Email');
-        if (!this.job.runs.some(r => r.panels.length > 0)) missing.push('At least one fence run with panels');
+        if (!this.job.runs.some(r => r.panels.length > 0) && !(this.job.gates && this.job.gates.length > 0)) missing.push('At least one fence run with panels (or at least one gate)');
         return missing;
       },
 
@@ -10628,10 +10627,13 @@
       if (!j.address || j.address.trim().length < 5) errors.push('• Site address is required');
       if (!j.email || !j.email.includes('@')) errors.push('• Valid email is required');
       if (!j.phone || j.phone.replace(/\D/g,'').length < 8) errors.push('• Phone number is required (min 8 digits)');
-      if (!j.runs || j.runs.length === 0) errors.push('• At least 1 fence run required');
-      if (j.runs && j.runs.some(function(r) { return !r.panels || r.panels.length === 0; })) errors.push('• All runs must have at least 1 panel');
-      var totalM = (j.runs || []).reduce(function(s, r) { return s + (r.length || 0); }, 0);
-      if (totalM <= 0) errors.push('• Total fence length must be > 0');
+      var hasGates = (j.gates || []).length > 0;
+      if (!hasGates) {
+        if (!j.runs || j.runs.length === 0) errors.push('• At least 1 fence run required (or add a gate)');
+        if (j.runs && j.runs.some(function(r) { return !r.panels || r.panels.length === 0; })) errors.push('• All runs must have at least 1 panel');
+        var totalM = (j.runs || []).reduce(function(s, r) { return s + (r.length || 0); }, 0);
+        if (totalM <= 0) errors.push('• Total fence length must be > 0');
+      }
       var photos = (j.checklist && j.checklist.photos) || [];
       if (photos.length < 1) errors.push('• At least 1 site photo required');
       // Check pricing
@@ -10752,7 +10754,7 @@
         }
 
         // Fence Design
-        if (!j.runs || j.runs.length === 0) flag('Fence Design', 'red', 'No fence runs added');
+        if (!j.runs || j.runs.length === 0) flag('Fence Design', (j.gates && j.gates.length > 0) ? 'amber' : 'red', (j.gates && j.gates.length > 0) ? 'No fence runs added (gate-only job)' : 'No fence runs added');
         if (j.runs && j.runs.some(r => !r.panels || r.panels.length === 0)) flag('Fence Design', 'red', 'A run has no panels');
         if (j.runs && j.runs.some(r => !r.name)) flag('Fence Design', 'amber', 'A run has no side-of-property name');
         if (j.runs && j.runs.some(r => !r.length || r.length <= 0)) flag('Fence Design', 'red', 'A run has no length set');
