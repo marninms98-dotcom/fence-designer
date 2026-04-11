@@ -400,6 +400,10 @@
 
   function getFencingState() {
     if (window.app && window.app.job) {
+      // Always build fresh pricing_json so auto-save sends current pricing to jobs table
+      if (typeof window.app.buildPricingJson === 'function') {
+        try { window.app.job._pricing_json = window.app.buildPricingJson(); } catch(e) { console.warn('[Integration] fencing buildPricingJson failed:', e); }
+      }
       return {
         tool: 'fencing',
         version: '1.0',
