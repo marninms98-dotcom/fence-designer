@@ -2630,6 +2630,10 @@
         const el = document.getElementById('bodyQuoteOrders');
         if (!el) return;
         const statusEl = document.getElementById('statusQuoteOrders');
+        // Restore approval state from saved job data so it survives reload
+        if (this.job && this.job._poApproved) {
+          Object.assign(this._poApproved, this.job._poApproved);
+        }
         let d;
         try { d = this._collectOutputData(); } catch(e) {
           el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs and set pricing to see quote breakdown.</div>';
@@ -3007,6 +3011,10 @@
 
       togglePOApproval(type) {
         this._poApproved[type] = !this._poApproved[type];
+        // Persist into job data so approval survives reload
+        if (!this.job._poApproved) this.job._poApproved = {};
+        this.job._poApproved[type] = this._poApproved[type];
+        this.save();
         this.renderQuoteAndOrders();
         if (this._poApproved[type]) {
           this.showToast(type.charAt(0).toUpperCase() + type.slice(1) + ' PO approved', 'success');
