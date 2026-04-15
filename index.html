@@ -9543,8 +9543,8 @@
         }
         y += 4;
 
-        // Pricing — single line item
-        if (y > ph - 60) { doc.addPage(); y = 20; }
+        // Pricing — always starts on a new page
+        doc.addPage(); y = 20;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(41, 60, 70);
