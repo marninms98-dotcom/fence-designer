@@ -9337,16 +9337,16 @@
         var savedRunId = this.currentRunId;
         var profileContainer = document.getElementById('profileViewContainer');
         var profileCanvas = document.getElementById('profileCanvas');
-        if (profileCanvas && this.job.runs && this.job.runs.length > 0) {
-          // Ensure container is visible and sized for high-res capture
-          var wasHidden = !profileContainer || profileContainer.style.display === 'none';
-          if (profileContainer) {
-            profileContainer.style.display = 'block';
-            profileContainer.style.width = '1200px';
-            profileContainer.style.height = '400px';
-            profileContainer.style.position = 'fixed';
-            profileContainer.style.left = '-9999px';
-          }
+        if (profileCanvas && profileContainer && this.job.runs && this.job.runs.length > 0) {
+          // Make container visible but invisible — keeps it in render flow so clientWidth works
+          var origStyles = { display: profileContainer.style.display, width: profileContainer.style.width, height: profileContainer.style.height, opacity: profileContainer.style.opacity, zIndex: profileContainer.style.zIndex, position: profileContainer.style.position };
+          profileContainer.style.display = 'block';
+          profileContainer.style.width = '1200px';
+          profileContainer.style.height = '400px';
+          profileContainer.style.opacity = '0';
+          profileContainer.style.zIndex = '-1';
+          profileContainer.style.position = 'fixed';
+          profileContainer.offsetHeight; // force reflow
           this.job.runs.forEach(function(run) {
             if (run.panels && run.panels.length > 0) {
               this.currentRunId = run.id;
@@ -9359,13 +9359,8 @@
             }
           }.bind(this));
           this.currentRunId = savedRunId;
-          if (profileContainer) {
-            if (wasHidden) profileContainer.style.display = 'none';
-            profileContainer.style.width = '';
-            profileContainer.style.height = '';
-            profileContainer.style.position = '';
-            profileContainer.style.left = '';
-          }
+          // Restore original styles
+          Object.keys(origStyles).forEach(function(k) { profileContainer.style[k] = origStyles[k] || ''; });
           try { this.renderProfileView(); } catch(e) {}
         }
 
@@ -9469,6 +9464,9 @@
           }
         }
 
+        // ═══ PAGE 2: Detail — Profiles + Scope ═══
+        doc.addPage(); y = 20;
+
         // Fence profile views — one per run
         var runKeys = Object.keys(profileImages);
         if (runKeys.length > 0) {
@@ -9543,7 +9541,7 @@
         }
         y += 4;
 
-        // Pricing — always starts on a new page
+        // ═══ PAGE 3: Commercial — Pricing + T&C ═══
         doc.addPage(); y = 20;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
