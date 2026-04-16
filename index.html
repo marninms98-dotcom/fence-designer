@@ -9541,8 +9541,7 @@
         }
         y += 4;
 
-        // ═══ PAGE 3: Commercial — Pricing + T&C ═══
-        doc.addPage(); y = 20;
+        // Pricing continues on same page as profile/material/scope
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(41, 60, 70);
@@ -9664,8 +9663,8 @@
         doc.text('50% deposit required to confirm booking. Balance due on completion.', mx, y);
         y += 10;
 
-        // T&C / Disclaimers
-        if (y > ph - 60) { doc.addPage(); y = 20; }
+        // ═══ LAST PAGE: T&C ═══
+        doc.addPage(); y = 20;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.text('TERMS & CONDITIONS', mx, y);
