@@ -912,9 +912,10 @@
               var blob = new Blob([bytes], { type: mime });
 
               // Get signed upload URL
+              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
               var urlRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                 body: JSON.stringify({
                   jobId: _jobId,
                   fileName: (photo.label || 'photo_' + i) + '.' + ext,
@@ -935,7 +936,7 @@
               // Register in database
               await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
                 body: JSON.stringify({
                   jobId: _jobId,
                   storageUrl: urlData.publicUrl,
@@ -989,9 +990,10 @@
               console.log('[Integration] Uploading video...', videoName, ((videoBody.size || 0) / 1048576).toFixed(1) + 'MB');
               cloud.ui.showSaveStatus('saving', 'Uploading video...');
 
+              var vidApiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
               var urlRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': vidApiKey },
                 body: JSON.stringify({ jobId: _jobId, fileName: videoName, contentType: videoMime })
               });
               var urlData = await urlRes.json();
@@ -1006,7 +1008,7 @@
 
               await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-api-key': vidApiKey },
                 body: JSON.stringify({
                   jobId: _jobId,
                   storageUrl: urlData.publicUrl,
