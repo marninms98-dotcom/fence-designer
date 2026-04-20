@@ -213,6 +213,31 @@
       // Re-render the photo grid if the function exists
       if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
       if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
+
+      // Also populate checklist photos (fencing tool uses job.checklist.photos for UI badges)
+      if (window.app && window.app.job) {
+        if (!window.app.job.checklist) window.app.job.checklist = {};
+        if (!window.app.job.checklist.photos) window.app.job.checklist.photos = [];
+        for (var ci = 0; ci < photos.length; ci++) {
+          var cp = photos[ci];
+          var existsAlready = window.app.job.checklist.photos.some(function(existing) {
+            return existing.cloudUrl && existing.cloudUrl === cp.storage_url;
+          });
+          if (!existsAlready) {
+            window.app.job.checklist.photos.push({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+              name: cp.label || 'Photo',
+              label: cp.label || 'Photo',
+              dataUrl: cp.storage_url,
+              cloudUrl: cp.storage_url,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+        window.app.job.checklist.photosTaken = window.app.job.checklist.photos.length;
+        if (typeof window.app.renderChecklist === 'function') window.app.renderChecklist();
+      }
+
       console.log('[Integration] Loaded', photos.length, 'photos from cloud');
     }
 
@@ -839,6 +864,31 @@
           }).catch(function(e) { console.warn('[Integration] Neighbour sync failed (non-blocking):', e); });
         }
 
+        // Bridge checklist photos into sitePhotos so they get uploaded
+        if (window.app && window.app.job && window.app.job.checklist && window.app.job.checklist.photos) {
+          if (!window.sitePhotos) window.sitePhotos = [];
+          var cpPhotos = window.app.job.checklist.photos;
+          for (var ci = 0; ci < cpPhotos.length; ci++) {
+            var cp = cpPhotos[ci];
+            if (cp.cloudUrl) continue; // already uploaded
+            // Skip if already bridged into sitePhotos
+            var alreadyBridged = window.sitePhotos.some(function(sp) { return sp._checklistId === cp.id; });
+            if (alreadyBridged) continue;
+            // Use upload-quality image from _photoFiles, fall back to thumbnail
+            var uploadDataUrl = (window._photoFiles && window._photoFiles[cp.id]) || cp.dataUrl;
+            if (!uploadDataUrl) continue;
+            window.sitePhotos.push({
+              id: Date.now() + ci,
+              _checklistId: cp.id,
+              dataUrl: uploadDataUrl,
+              label: cp.name || cp.label || 'Photo',
+              caption: '',
+              originalSize: 0,
+              compressedSize: 0
+            });
+          }
+        }
+
         // Upload site photos via signed URLs (handles large photos, no size limit)
         var sitePhotos = window.sitePhotos || [];
         var photosToUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
@@ -895,12 +945,22 @@
               });
 
               photo.cloudUrl = urlData.publicUrl;
+              // Sync cloudUrl back to checklist photo
+              if (photo._checklistId && window.app && window.app.job && window.app.job.checklist && window.app.job.checklist.photos) {
+                var cpMatch = window.app.job.checklist.photos.find(function(cp) { return cp.id === photo._checklistId; });
+                if (cpMatch) cpMatch.cloudUrl = urlData.publicUrl;
+              }
               console.log('[Integration] Photo uploaded:', photo.label, (blob.size / 1024).toFixed(0) + 'KB');
             } catch(photoErr) {
               _failedUploads++;
               console.warn('[Integration] Photo upload failed:', photo.label, photoErr);
             }
           }
+        }
+
+        // Re-render checklist badges after photo uploads
+        if (photosToUpload.length > 0 && window.app && typeof window.app.renderChecklist === 'function') {
+          window.app.renderChecklist();
         }
 
         // Upload site video via signed URL (handles large files)
