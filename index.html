@@ -3860,7 +3860,7 @@
         if (photos.length > 0) {
           thumbsHtml = '<div class="photo-thumbnails">' + photos.map(p => `
             <div class="photo-thumb">
-              <img src="${p.dataUrl}" alt="${this._esc(p.name)}">
+              <img src="${p.dataUrl}" alt="${this._esc(p.name)}" onclick="app.previewPhoto('${p.dataUrl}','${this._esc(p.name)}')" style="cursor:zoom-in;">
               <button class="photo-thumb-delete" onclick="app.deletePhoto('${p.id}')" title="Delete">&times;</button>
               <div class="photo-thumb-name">${this._esc(p.name)}</div>
               ${p.cloudUrl ? '<div style="position:absolute;top:2px;left:2px;background:#16a34a;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">&#9989;</div>' : '<div style="position:absolute;top:2px;left:2px;background:#d97706;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">pending</div>'}
@@ -5228,6 +5228,14 @@
         this.renderChecklist();
         this.updateSectionStatuses();
         this.showToast('Video attached: ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + 'MB) — will upload on Cloud Save', 'success');
+      },
+
+      previewPhoto(url, name) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+        overlay.innerHTML = '<img src="' + url + '" alt="' + name + '" style="max-width:95vw;max-height:90vh;border-radius:6px;box-shadow:0 4px 32px rgba(0,0,0,0.5);">';
+        overlay.onclick = function() { overlay.remove(); };
+        document.body.appendChild(overlay);
       },
 
       deletePhoto(photoId) {
