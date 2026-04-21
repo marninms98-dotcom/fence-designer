@@ -1031,6 +1031,19 @@
           if (window.showToast) window.showToast(_failedUploads + ' upload(s) failed — they\'ll retry on next save', 'warning');
         }
 
+        // Re-save scope so cloudUrls from uploads are persisted (prevents duplicate photos on reload)
+        if (photosToUpload.length > 0) {
+          try {
+            var updatedState = _getStateFn();
+            if (updatedState) {
+              await cloud.ghl.saveScope(_jobId, updatedState, meta);
+              console.log('[Integration] Scope re-saved with cloudUrls');
+            }
+          } catch(e) {
+            console.warn('[Integration] Re-save after uploads failed (non-blocking):', e);
+          }
+        }
+
         // ── Post-QA only: GHL link, job number, PO, contact push ──
         // Only runs during Scope Complete (saveAfterSignOff). Regular cloud saves
         // just persist scope data — no job number, no GHL side-effects.
