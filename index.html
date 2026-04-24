@@ -176,6 +176,58 @@
       padding: 12px;
     }
 
+    /* ── Scope Type Toggle ── */
+    .scope-type-toggle {
+      display: flex;
+      gap: 0;
+      background: #FFFFFF;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .scope-type-btn {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      color: #293C46;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.2s, color 0.2s;
+      letter-spacing: 0.3px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .scope-type-btn:hover { background: #f0f2f4; }
+    .scope-type-btn.active {
+      background: #F15A29;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(241,90,41,0.3);
+    }
+    .scope-type-btn.active:hover { background: #e04d1e; }
+
+    /* ── N/A banner for collapsed sections in gate-only mode ── */
+    .scope-na-banner {
+      background: #fff7ed;
+      border: 1px dashed #F15A29;
+      color: #9a3412;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .scope-section.is-na .scope-section-header { opacity: 0.55; }
+    .scope-section.is-na .scope-section-body > :not(.scope-na-banner) {
+      opacity: 0.45;
+      pointer-events: none;
+      filter: grayscale(40%);
+    }
+
     .scope-form .scope-section {
       animation: fadeInUp 0.4s ease both;
     }
@@ -1300,6 +1352,12 @@
   <!-- Scope Form -->
   <div class="scope-form" id="scopeForm">
 
+    <!-- Scope Type Toggle -->
+    <div class="scope-type-toggle" role="radiogroup" aria-label="Scope type">
+      <button type="button" class="scope-type-btn active" data-scope-type="fence-and-gate" onclick="app.setScopeType('fence-and-gate')" role="radio" aria-checked="true">Fence + Gate(s)</button>
+      <button type="button" class="scope-type-btn" data-scope-type="gate-only" onclick="app.setScopeType('gate-only')" role="radio" aria-checked="false">Gate(s) only</button>
+    </div>
+
     <!-- Section 1: Site Information -->
     <div class="scope-section open" id="sectionSiteInfo" data-section="siteInfo">
       <button class="scope-section-header" onclick="app.toggleSection('siteInfo')">
@@ -1347,7 +1405,7 @@
     <div class="scope-section" id="sectionGates" data-section="gates">
       <button class="scope-section-header" onclick="app.toggleSection('gates')">
         <span class="section-status empty" id="statusGates"></span>
-        <span class="section-title">5. Gates</span>
+        <span class="section-title" id="gatesSectionTitle">5. Gates</span>
         <span class="section-chevron"></span>
       </button>
       <div class="scope-section-body" id="bodyGates"></div>
@@ -1701,6 +1759,7 @@
 
         if (!this.job) {
           this.job = {
+            scopeType: 'fence-and-gate',
             ref: '',
             client: '',
             clientFirstName: '',
@@ -2664,14 +2723,17 @@
         // 1. QUOTE BREAKDOWN TABLE (client-facing)
         // ═══════════════════════════════════════
         let rows = '';
+        const isGateOnly = d.scopeType === 'gate-only';
 
-        // Fencing
-        rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
-        rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
-        if (d.totalPlinths > 0)
-          rows += `<tr><td>Retaining plinths (150mm COLORBOND)</td><td class="r">${d.totalPlinths} × $${d.plinthSell}</td><td class="r">$${f(d.plinthsTotal)}</td></tr>`;
-        if (d.totalPatioTubes > 0)
-          rows += `<tr><td>Patio tube bracing (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${d.patioSell}</td><td class="r">$${f(d.patioTotal)}</td></tr>`;
+        // Fencing (suppressed in gate-only mode)
+        if (!isGateOnly) {
+          rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
+          rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
+          if (d.totalPlinths > 0)
+            rows += `<tr><td>Retaining plinths (150mm COLORBOND)</td><td class="r">${d.totalPlinths} × $${d.plinthSell}</td><td class="r">$${f(d.plinthsTotal)}</td></tr>`;
+          if (d.totalPatioTubes > 0)
+            rows += `<tr><td>Patio tube bracing (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${d.patioSell}</td><td class="r">$${f(d.patioTotal)}</td></tr>`;
+        }
 
         // Gates
         if (d.gateLineItems.length > 0) {
@@ -4276,6 +4338,7 @@
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
               // Load cloud scope data
               window.app.job = existingJob.scope_json.job || window.app.job;
+              if (!window.app.job.scopeType) window.app.job.scopeType = 'fence-and-gate';
               if (window.app.job.runs && window.app.job.runs.length > 0) {
                 window.app.currentRunId = window.app.job.runs[0].id;
               }
@@ -5391,6 +5454,49 @@
         </svg>`;
       },
 
+      setScopeType(type) {
+        if (type !== 'fence-and-gate' && type !== 'gate-only') return;
+        if (!this.job) return;
+        if (this.job.scopeType === type) return;
+        this.job.scopeType = type;
+        this.applyScopeType();
+        this.render();
+        this.save();
+      },
+
+      applyScopeType() {
+        var type = (this.job && this.job.scopeType) || 'fence-and-gate';
+        // Sync toggle button state
+        document.querySelectorAll('.scope-type-btn').forEach(function(b) {
+          var isActive = b.dataset.scopeType === type;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-checked', isActive ? 'true' : 'false');
+        });
+        // Grey out fence-run + installation sections in gate-only mode
+        var isGateOnly = (type === 'gate-only');
+        ['sectionRuns', 'sectionInstallation'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el) el.classList.toggle('is-na', isGateOnly);
+        });
+        // Insert / remove N/A banners
+        var bannerHtml = '<div class="scope-na-banner">N/A &mdash; gate-only job</div>';
+        ['bodyRuns', 'bodyInstallation'].forEach(function(bodyId) {
+          var body = document.getElementById(bodyId);
+          if (!body) return;
+          var existing = body.querySelector(':scope > .scope-na-banner');
+          if (isGateOnly && !existing) {
+            body.insertAdjacentHTML('afterbegin', bannerHtml);
+          } else if (!isGateOnly && existing) {
+            existing.remove();
+          }
+        });
+        // Relabel gates section header
+        var gatesTitle = document.getElementById('gatesSectionTitle');
+        if (gatesTitle) {
+          gatesTitle.textContent = isGateOnly ? '5. Gate Supply Details' : '5. Gates';
+        }
+      },
+
       render() {
         // Sync section open/closed state to DOM
         Object.keys(this._openSections).forEach(k => {
@@ -5419,6 +5525,9 @@
         if (this._openSections.visualizer) {
           this.renderProfileView();
         }
+
+        // Apply scope-type visual state (toggle buttons, greying, N/A banners)
+        this.applyScopeType();
       },
 
       renderRunTabs() {
@@ -8404,8 +8513,9 @@
         let totalPatioTubes = 0;
         const postGroups = {}; // { "1800_2400": { sheetH, postH, count } }
         const runDetails = [];
+        const isGateOnly = job.scopeType === 'gate-only';
 
-        job.runs.forEach(run => {
+        if (!isGateOnly) job.runs.forEach(run => {
           const panelCount = run.panels.length;
           const postCount = panelCount + 1;
           totalMetres += run.length || 0;
@@ -8483,7 +8593,7 @@
         });
 
         // Corner post sharing: subtract (runs - 1) for connected runs
-        if (job.runs.length > 1) totalPosts -= (job.runs.length - 1);
+        if (!isGateOnly && job.runs.length > 1) totalPosts -= (job.runs.length - 1);
 
         // Gate posts
         let gatePosts = 0;
@@ -8700,7 +8810,8 @@
         }
 
         return {
-          job, js, supplier: job.supplier, profile: job.profile, colour: job.colour,
+          job, js, scopeType: job.scopeType || 'fence-and-gate',
+          supplier: job.supplier, profile: job.profile, colour: job.colour,
           panelWidthMm, panelWidthM, pricePerMetre,
           totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
           postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
@@ -8807,20 +8918,29 @@
       // Build a professional single-line scope description for client quote
       _buildQuoteScopeDesc(d) {
         const parts = [];
-        // Distinct heights
-        const heights = [...new Set(d.runDetails.map(r => r.panels.length > 0 ? r.panels[0].height : d.job.runs[0].sheetHeight))];
-        const heightStr = heights.length === 1 ? heights[0] + 'mm' : heights.map(h => h + 'mm').join(' / ');
+        const isGateOnly = d.scopeType === 'gate-only';
 
-        parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
-        if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
-        if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
-        parts.push('All posts set in concrete');
+        if (!isGateOnly) {
+          // Distinct heights
+          const heights = [...new Set(d.runDetails.map(r => r.panels.length > 0 ? r.panels[0].height : d.job.runs[0].sheetHeight))];
+          const heightStr = heights.length === 1 ? heights[0] + 'mm' : heights.map(h => h + 'mm').join(' / ');
+
+          parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
+          if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
+          if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
+          parts.push('All posts set in concrete');
+        }
         if (d.gateLineItems.length > 0) {
           const gateDescs = d.gateLineItems.map(g => {
             const qty = g.qty > 1 ? g.qty + ' \u00D7 ' : '';
             return qty + g.desc;
           });
-          parts.push('Gates: ' + gateDescs.join(', '));
+          if (isGateOnly) {
+            parts.push('Supply and professional installation of ' + gateDescs.join(', '));
+            parts.push('Gate posts set in concrete');
+          } else {
+            parts.push('Gates: ' + gateDescs.join(', '));
+          }
         }
         const rem = d.job.removal || {};
         const remTypes = [];
@@ -8867,6 +8987,16 @@
 
         // Single consolidated price (everything rolled in)
         const fencingLineTotal = d.subtotal;
+        const isGateOnlyHtml = d.scopeType === 'gate-only';
+        const mainRowLabelHtml = isGateOnlyHtml ? 'Gate \u2014 Supply &amp; Install' : 'COLORBOND\u00AE Fencing \u2014 Supply & Install';
+        let mainRowDetailHtml;
+        if (isGateOnlyHtml) {
+          const gateBitsHtml = d.gateLineItems.map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + this._esc(g.desc));
+          mainRowDetailHtml = gateBitsHtml.join(' | ') || 'Gate supply &amp; install';
+          if (d.removalTotal > 0) mainRowDetailHtml += ' | Old fence removal';
+        } else {
+          mainRowDetailHtml = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}${d.totalPlinths > 0 ? ' | ' + d.totalPlinths + ' retaining plinths' : ''}${d.gateLineItems.length > 0 ? ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '') : ''}${d.removalTotal > 0 ? ' | Old fence removal' : ''}`;
+        }
 
         const disclaimersHtml = DISCLAIMERS.map((d, i) => `<p class="disclaimer"><span class="disclaimer-num">${i+1}.</span> ${d}</p>`).join('');
 
@@ -8906,7 +9036,7 @@
             <p style="font-size:11px;color:#4C6A7C;margin-top:4px;">${this._esc(d.job.address || '')}</p>
           </div>` : ''}
 
-          <div class="section">
+          ${isGateOnlyHtml ? '' : `<div class="section">
             <h2>Material Selection</h2>
             <div class="spec-grid">
               <div class="spec-card">
@@ -8920,7 +9050,7 @@
                 <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(d.colour)}</div>
               </div>
             </div>
-          </div>
+          </div>`}
 
           <div class="section">
             <h2>Scope of Works</h2>
@@ -8935,8 +9065,8 @@
               <tbody>
                 <tr>
                   <td style="line-height:1.5;">
-                    <strong>COLORBOND\u00AE Fencing — Supply & Install</strong><br>
-                    <span style="font-size:11px;color:#4C6A7C;">${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}${d.totalPlinths > 0 ? ' | ' + d.totalPlinths + ' retaining plinths' : ''}${d.gateLineItems.length > 0 ? ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '') : ''}${d.removalTotal > 0 ? ' | Old fence removal' : ''}</span>
+                    <strong>${mainRowLabelHtml}</strong><br>
+                    <span style="font-size:11px;color:#4C6A7C;">${mainRowDetailHtml}</span>
                   </td>
                   <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(d.subtotal - d.customTotal)}</td>
                 </tr>
@@ -9373,6 +9503,7 @@
         }
 
         const d = this._collectOutputData();
+        const isGateOnly = d.scopeType === 'gate-only';
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ unit: 'mm', format: 'a4' });
         const pw = 210, ph = 297, mx = 20;
@@ -9472,63 +9603,65 @@
           }
         }
 
-        // ═══ PAGE 2: Detail — Profiles + Scope ═══
-        doc.addPage(); y = 20;
+        // ═══ PAGE 2: Detail — Profiles + Scope (skipped in gate-only mode) ═══
+        if (!isGateOnly) {
+          doc.addPage(); y = 20;
 
-        // Fence profile views — one per run
-        var runKeys = Object.keys(profileImages);
-        if (runKeys.length > 0) {
-          this.job.runs.forEach(function(run) {
-            if (!profileImages[run.id]) return;
-            var runLabel = (run.name || 'Run').toUpperCase() + ' (' + (run.length || 0).toFixed(1) + 'm)';
+          // Fence profile views — one per run
+          var runKeys = Object.keys(profileImages);
+          if (runKeys.length > 0) {
+            this.job.runs.forEach(function(run) {
+              if (!profileImages[run.id]) return;
+              var runLabel = (run.name || 'Run').toUpperCase() + ' (' + (run.length || 0).toFixed(1) + 'm)';
 
-            // Page break check — profile needs ~70mm
-            if (y + 72 > ph - 30) { doc.addPage(); y = 20; }
+              // Page break check — profile needs ~70mm
+              if (y + 72 > ph - 30) { doc.addPage(); y = 20; }
 
-            // Section header with orange accent
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10);
-            doc.setTextColor(41, 60, 70);
-            doc.text('FENCE PROFILE \u2014 ' + runLabel, mx, y);
-            doc.setFillColor(241, 90, 41);
-            doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-            y += 5;
+              // Section header with orange accent
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(10);
+              doc.setTextColor(41, 60, 70);
+              doc.text('FENCE PROFILE \u2014 ' + runLabel, mx, y);
+              doc.setFillColor(241, 90, 41);
+              doc.rect(mx, y + 1.5, 30, 0.8, 'F');
+              y += 5;
 
-            // Profile image with light background
-            var profW = pw - mx * 2;
-            var profH = profW * (400 / 1200); // match capture aspect ratio
-            doc.setFillColor(240, 244, 248);
-            doc.rect(mx, y - 1, profW, profH + 2, 'F');
-            doc.setDrawColor(212, 222, 228);
-            doc.rect(mx, y - 1, profW, profH + 2, 'S');
-            try {
-              doc.addImage(profileImages[run.id], 'PNG', mx + 1, y, profW - 2, profH);
-            } catch(e) { console.warn('[QuotePDF] Profile image embed failed:', e); }
-            y += profH + 8;
-          });
+              // Profile image with light background
+              var profW = pw - mx * 2;
+              var profH = profW * (400 / 1200); // match capture aspect ratio
+              doc.setFillColor(240, 244, 248);
+              doc.rect(mx, y - 1, profW, profH + 2, 'F');
+              doc.setDrawColor(212, 222, 228);
+              doc.rect(mx, y - 1, profW, profH + 2, 'S');
+              try {
+                doc.addImage(profileImages[run.id], 'PNG', mx + 1, y, profW - 2, profH);
+              } catch(e) { console.warn('[QuotePDF] Profile image embed failed:', e); }
+              y += profH + 8;
+            });
+          }
+
+          // Material selection — colour swatch + profile name
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(41, 60, 70);
+          doc.text('MATERIAL SELECTION', mx, y);
+          doc.setFillColor(241, 90, 41);
+          doc.rect(mx, y + 1.5, 30, 0.8, 'F');
+          y += 7;
+          // Colour swatch
+          const hex = colourHex.replace('#', '');
+          const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
+          doc.setFillColor(cr, cg, cb);
+          doc.rect(mx, y - 3, 10, 10, 'F');
+          doc.setDrawColor(200, 200, 200);
+          doc.rect(mx, y - 3, 10, 10, 'S');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          doc.setTextColor(41, 60, 70);
+          doc.text(`COLORBOND ${d.colour}`, mx + 14, y + 1);
+          doc.text(`Profile: ${d.profile}`, mx + 14, y + 6);
+          y += 14;
         }
-
-        // Material selection — colour swatch + profile name
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(41, 60, 70);
-        doc.text('MATERIAL SELECTION', mx, y);
-        doc.setFillColor(241, 90, 41);
-        doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-        y += 7;
-        // Colour swatch
-        const hex = colourHex.replace('#', '');
-        const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
-        doc.setFillColor(cr, cg, cb);
-        doc.rect(mx, y - 3, 10, 10, 'F');
-        doc.setDrawColor(200, 200, 200);
-        doc.rect(mx, y - 3, 10, 10, 'S');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.setTextColor(41, 60, 70);
-        doc.text(`COLORBOND ${d.colour}`, mx + 14, y + 1);
-        doc.text(`Profile: ${d.profile}`, mx + 14, y + 6);
-        y += 14;
 
         // Scope of works
         doc.setFont('helvetica', 'bold');
@@ -9567,20 +9700,28 @@
         doc.text('AMOUNT', pw - mx - 3, y, { align: 'right' });
         y += 6;
 
-        // Main fencing line
+        // Main line (fencing vs gate-only)
         doc.setTextColor(41, 60, 70);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
-        doc.text('COLORBOND Fencing \u2014 Supply & Install', mx + 2, y);
+        const mainLineLabel = isGateOnly ? 'Gate \u2014 Supply & Install' : 'COLORBOND Fencing \u2014 Supply & Install';
+        doc.text(mainLineLabel, mx + 2, y);
         doc.text('$' + this._fmt(d.subtotal - d.customTotal), pw - mx - 2, y, { align: 'right' });
         y += 4;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(76, 106, 124);
-        let detailStr = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}`;
-        if (d.totalPlinths > 0) detailStr += ` | ${d.totalPlinths} retaining plinths`;
-        if (d.gateLineItems.length > 0) detailStr += ` | ${d.gateLineItems.length} gate${d.gateLineItems.length > 1 ? 's' : ''}`;
-        if (d.removalTotal > 0) detailStr += ' | Old fence removal';
+        let detailStr;
+        if (isGateOnly) {
+          const gateBits = d.gateLineItems.map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc);
+          detailStr = gateBits.join(' | ') || 'Gate supply & install';
+          if (d.removalTotal > 0) detailStr += ' | Old fence removal';
+        } else {
+          detailStr = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}`;
+          if (d.totalPlinths > 0) detailStr += ` | ${d.totalPlinths} retaining plinths`;
+          if (d.gateLineItems.length > 0) detailStr += ` | ${d.gateLineItems.length} gate${d.gateLineItems.length > 1 ? 's' : ''}`;
+          if (d.removalTotal > 0) detailStr += ' | Old fence removal';
+        }
         const detailLines = doc.splitTextToSize(detailStr, pw - mx * 2 - 4);
         doc.text(detailLines, mx + 2, y);
         y += detailLines.length * 3.5 + 2;
@@ -10391,6 +10532,7 @@
           try {
             this.job = JSON.parse(saved);
             // Migration: ensure new fields exist
+            if (!this.job.scopeType) this.job.scopeType = 'fence-and-gate';
             if (!this.job.gates) this.job.gates = [];
             if (this.job.gatesRequired === undefined && !('gatesRequired' in this.job)) this.job.gatesRequired = undefined;
             this.job.runs.forEach(run => {
@@ -10604,10 +10746,19 @@
       // Auto-generate job description from scope data
       var heights = (d.runDetails || []).map(function(r) { return r.panels && r.panels[0] ? r.panels[0].height : null; }).filter(Boolean);
       var dominantHeight = heights.length > 0 ? heights[0] : '';
-      var job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
-        + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
-        + (d.colour ? ' ' + d.colour : '')
-        + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
+      var isGateOnlyJob = d.scopeType === 'gate-only';
+      var job_description;
+      if (isGateOnlyJob) {
+        var gateCount = (d.gateLineItems || []).length;
+        job_description = 'Gate Install'
+          + (gateCount > 1 ? ' (' + gateCount + ' gates)' : '')
+          + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
+      } else {
+        job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
+          + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
+          + (d.colour ? ' ' + d.colour : '')
+          + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
+      }
 
       // Build deposit config (fencing default: 50%)
       var depPercent = 50;
@@ -10826,8 +10977,11 @@
       if (!j.address || j.address.trim().length < 5) errors.push('• Site address is required');
       if (!j.email || !j.email.includes('@')) errors.push('• Valid email is required');
       if (!j.phone || j.phone.replace(/\D/g,'').length < 8) errors.push('• Phone number is required (min 8 digits)');
+      var isGateOnly = j.scopeType === 'gate-only';
       var hasGates = (j.gates || []).length > 0;
-      if (!hasGates) {
+      if (isGateOnly) {
+        if (!hasGates) errors.push('• At least 1 gate is required for gate-only jobs');
+      } else if (!hasGates) {
         if (!j.runs || j.runs.length === 0) errors.push('• At least 1 fence run required (or add a gate)');
         if (j.runs && j.runs.some(function(r) { return !r.panels || r.panels.length === 0; })) errors.push('• All runs must have at least 1 panel');
         var totalM = (j.runs || []).reduce(function(s, r) { return s + (r.length || 0); }, 0);
@@ -10952,20 +11106,27 @@
           flag('Job Details', 'amber', 'Neighbour name not filled in', 'neighbours');
         }
 
-        // Fence Design
-        if (!j.runs || j.runs.length === 0) flag('Fence Design', (j.gates && j.gates.length > 0) ? 'amber' : 'red', (j.gates && j.gates.length > 0) ? 'No fence runs added (gate-only job)' : 'No fence runs added');
-        if (j.runs && j.runs.some(r => !r.panels || r.panels.length === 0)) flag('Fence Design', 'red', 'A run has no panels');
-        if (j.runs && j.runs.some(r => !r.name)) flag('Fence Design', 'amber', 'A run has no side-of-property name');
-        if (j.runs && j.runs.some(r => !r.length || r.length <= 0)) flag('Fence Design', 'red', 'A run has no length set');
-        if (j.runs && j.runs.some(r => !r.sheetHeight)) flag('Fence Design', 'amber', 'A run has no sheet height set');
+        const isGateOnly = j.scopeType === 'gate-only';
 
-        // Colours & Profile
-        if (!j.colour) flag('Colours & Profile', 'red', 'No fence colour selected');
-        if (!j.profile) flag('Colours & Profile', 'amber', 'No sheet profile selected');
-        if (!j.supplier) flag('Colours & Profile', 'amber', 'No supplier selected');
+        // Fence Design (skipped in gate-only mode)
+        if (!isGateOnly) {
+          if (!j.runs || j.runs.length === 0) flag('Fence Design', (j.gates && j.gates.length > 0) ? 'amber' : 'red', (j.gates && j.gates.length > 0) ? 'No fence runs added (gate-only job)' : 'No fence runs added');
+          if (j.runs && j.runs.some(r => !r.panels || r.panels.length === 0)) flag('Fence Design', 'red', 'A run has no panels');
+          if (j.runs && j.runs.some(r => !r.name)) flag('Fence Design', 'amber', 'A run has no side-of-property name');
+          if (j.runs && j.runs.some(r => !r.length || r.length <= 0)) flag('Fence Design', 'red', 'A run has no length set');
+          if (j.runs && j.runs.some(r => !r.sheetHeight)) flag('Fence Design', 'amber', 'A run has no sheet height set');
+        }
+
+        // Colours & Profile (skipped in gate-only mode)
+        if (!isGateOnly) {
+          if (!j.colour) flag('Colours & Profile', 'red', 'No fence colour selected');
+          if (!j.profile) flag('Colours & Profile', 'amber', 'No sheet profile selected');
+          if (!j.supplier) flag('Colours & Profile', 'amber', 'No supplier selected');
+        }
 
         // Gates
-        if (j.gatesRequired === undefined) flag('Gates', 'amber', 'Gates: not answered (Yes/No)');
+        if (isGateOnly && (!j.gates || j.gates.length === 0)) flag('Gates', 'red', 'At least 1 gate is required for gate-only jobs');
+        if (!isGateOnly && j.gatesRequired === undefined) flag('Gates', 'amber', 'Gates: not answered (Yes/No)');
 
         // Removal
         const rem = j.removal || {};
@@ -10976,7 +11137,7 @@
 
         // Pricing
         const totalM = (j.runs || []).reduce((s, r) => s + (r.length || 0), 0);
-        if (totalM > 0 && (!j.pricePerMetre || j.pricePerMetre <= 0)) flag('Pricing', 'red', 'Price per metre is $0');
+        if (!isGateOnly && totalM > 0 && (!j.pricePerMetre || j.pricePerMetre <= 0)) flag('Pricing', 'red', 'Price per metre is $0');
         try {
           const d = app._collectOutputData();
           if (d.grandTotal <= 0) flag('Pricing', 'red', 'Total quote is $0');
@@ -12448,7 +12609,9 @@
       if (marginPct > 60) flags.push({ id: 'W-M4', severity: 'amber', message: 'Margin is ' + marginPct.toFixed(1) + '% — unusually high' });
       var html = '<div style="background:#fff;border-radius:8px;border:1px solid #E5E7EB;overflow:hidden;margin-bottom:12px;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
       html += '<thead><tr style="background:#F9FAFB;"><th style="text-align:left;padding:10px 12px;font-weight:600;">Item</th><th style="text-align:right;padding:10px 12px;color:#6B7280;">Cost</th><th style="text-align:right;padding:10px 12px;">Sell</th></tr></thead><tbody>';
-      html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Fencing (' + d.totalMetres.toFixed(1) + 'm)</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">' + f(d.internalCost) + '</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.fencingTotal) + '</td></tr>';
+      if (d.scopeType !== 'gate-only') {
+        html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Fencing (' + d.totalMetres.toFixed(1) + 'm)</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">' + f(d.internalCost) + '</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.fencingTotal) + '</td></tr>';
+      }
       if (d.plinthsTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Plinths (' + d.totalPlinths + ')</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.plinthsTotal) + '</td></tr>';
       if (d.gatesTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Gates</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">—</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.gatesTotal) + '</td></tr>';
       if (d.removalTotal > 0) html += '<tr style="border-top:1px solid #F3F4F6;"><td style="padding:8px 12px;">Removal</td><td style="text-align:right;padding:8px 12px;color:#6B7280;">' + f(d.internalRemovalCost) + '</td><td style="text-align:right;padding:8px 12px;font-weight:600;">' + f(d.removalTotal) + '</td></tr>';
