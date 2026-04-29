@@ -1082,10 +1082,10 @@
             }
           }
 
-          // Apply job number to DOM so PDFs, toolbar, and header show the real number
-          // Update local status to match DB (assign_job_number sets status='quoted')
+          // Apply job number to DOM so PDFs, toolbar, and header show the real number.
+          // Per ADR 2026-04-27: status remains 'draft' until the quote is actually sent
+          // to the client (release moment). assign_job_number no longer touches status.
           if (_lastJobNumber) {
-            _jobStatus = 'quoted';
             _applyJobNumber(_lastJobNumber);
           }
 
