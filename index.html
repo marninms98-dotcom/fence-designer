@@ -3170,7 +3170,8 @@
         const j = this.job;
         const clientDone = [j.clientFirstName, j.clientLastName, j.address, j.phone, j.email].every(Boolean);
         const neighboursDone = j.neighboursRequired === false ||
-          (j.neighboursRequired === true && j.neighbours && j.neighbours.length > 0 && j.neighbours[0].firstName);
+          (j.neighboursRequired === true && j.neighbours && j.neighbours.length > 0 &&
+            j.neighbours.every(n => n.firstName && n.lastName && n.address && n.email));
         const siteComplete = clientDone && (j.neighboursRequired !== undefined) && neighboursDone;
         this._setSectionStatus('SiteInfo', siteComplete ? 'complete' : 'warning');
 
@@ -10368,6 +10369,16 @@
         if (!this.job.phone) missing.push('Phone');
         if (!this.job.email) missing.push('Email');
         if (!this.job.runs.some(r => r.panels.length > 0) && !(this.job.gates && this.job.gates.length > 0)) missing.push('At least one fence run with panels (or at least one gate)');
+        // Neighbour details validation
+        if (this.job.neighboursRequired === undefined) missing.push('Neighbour details (Yes/No)');
+        if (this.job.neighboursRequired === true && this.job.neighbours) {
+          this.job.neighbours.forEach((n, i) => {
+            const label = this.job.neighbours.length > 1 ? ` (neighbour ${i + 1})` : '';
+            if (!n.lastName) missing.push('Neighbour last name' + label);
+            if (!n.address) missing.push('Neighbour address' + label);
+            if (!n.email) missing.push('Neighbour email' + label);
+          });
+        }
         return missing;
       },
 
@@ -11101,9 +11112,17 @@
         if (!j.email) flag('Job Details', 'red', 'Email missing', 'email');
         if (!j.ref) flag('Job Details', 'amber', 'Job reference not set', 'ref');
         if (!j.scoper) flag('Job Details', 'amber', 'Scoper name not filled in', 'scoper');
-        if (j.neighboursRequired === undefined) flag('Job Details', 'amber', 'Neighbour details: not answered (Yes/No)', 'neighboursRequired');
-        if (j.neighboursRequired === true && (!j.neighbours || !j.neighbours[0] || !j.neighbours[0].firstName)) {
-          flag('Job Details', 'amber', 'Neighbour name not filled in', 'neighbours');
+        if (j.neighboursRequired === undefined) flag('Job Details', 'red', 'Neighbour details: not answered (Yes/No)', 'neighboursRequired');
+        if (j.neighboursRequired === true) {
+          if (!j.neighbours || !j.neighbours[0] || !j.neighbours[0].firstName) {
+            flag('Job Details', 'red', 'Neighbour first name not filled in', 'neighbours');
+          }
+          (j.neighbours || []).forEach((n, i) => {
+            const label = (j.neighbours || []).length > 1 ? ` (neighbour ${i + 1})` : '';
+            if (!n.lastName) flag('Job Details', 'red', 'Neighbour last name missing' + label, 'neighbours');
+            if (!n.address) flag('Job Details', 'red', 'Neighbour address missing' + label, 'neighbours');
+            if (!n.email) flag('Job Details', 'red', 'Neighbour email missing' + label, 'neighbours');
+          });
         }
 
         const isGateOnly = j.scopeType === 'gate-only';
