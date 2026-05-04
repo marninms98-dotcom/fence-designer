@@ -12717,6 +12717,171 @@
       return { title: 'Purchase Orders & Notify Ops', html: html, canProceed: true };
     }
 
+    // ════════════════════════════════════════════════════════
+    // SCOPE FREEZE + RENDER ARTIFACT UPLOAD
+    // ════════════════════════════════════════════════════════
+    // Scope-Memory-Saving Loop 1, step 5. Called from the Create Job wizard
+    // success path. Best-effort: never throws, never blocks the flow.
+    // Calls ops-api ?action=freeze_scope to materialise an immutable
+    // scope_revisions row, re-runs the per-run profile capture (mirroring
+    // generateQuotePDF lines ~9479-9504), then uploads each profile render
+    // to scope-artifacts via record_scope_artifact. No artifact accepted
+    // without a sha256 (the server recomputes and refuses on mismatch).
+    function _fenceParseDataUrl(dataUrl) {
+      var m = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
+      if (!m) return null;
+      return { contentType: m[1], base64: m[2] };
+    }
+    function _fenceBase64ToBytes(b64) {
+      var bin = atob(String(b64).replace(/\s+/g, ''));
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+    async function _fenceSha256Hex(bytes) {
+      var buf = await crypto.subtle.digest('SHA-256', bytes);
+      var arr = new Uint8Array(buf);
+      var hex = '';
+      for (var i = 0; i < arr.length; i++) hex += arr[i].toString(16).padStart(2, '0');
+      return hex;
+    }
+
+    // Re-captures per-run profile PNGs at freeze time. Mirrors the loop
+    // inside app.generateQuotePDF — duplication is intentional for now
+    // because the original loop scopes profileImages locally and we don't
+    // want to mutate generateQuotePDF in this leg. Returns
+    // [{ runId, runName, dataUrl }].
+    async function _fenceCaptureProfileRenders() {
+      var images = [];
+      if (!app || !app.job || !app.job.runs || app.job.runs.length === 0) return images;
+      var profileContainer = document.getElementById('profileViewContainer');
+      var profileCanvas = document.getElementById('profileCanvas');
+      if (!profileContainer || !profileCanvas) return images;
+      var savedRunId = app.currentRunId;
+      var origStyles = {
+        display: profileContainer.style.display,
+        width: profileContainer.style.width,
+        height: profileContainer.style.height,
+        opacity: profileContainer.style.opacity,
+        zIndex: profileContainer.style.zIndex,
+        position: profileContainer.style.position,
+      };
+      try {
+        profileContainer.style.display = 'block';
+        profileContainer.style.width = '1200px';
+        profileContainer.style.height = '400px';
+        profileContainer.style.opacity = '0';
+        profileContainer.style.zIndex = '-1';
+        profileContainer.style.position = 'fixed';
+        // force reflow so profileCanvas can size correctly
+        // deno-lint-ignore no-unused-expressions
+        profileContainer.offsetHeight;
+        for (var i = 0; i < app.job.runs.length; i++) {
+          var run = app.job.runs[i];
+          if (!run.panels || run.panels.length === 0) continue;
+          app.currentRunId = run.id;
+          app._openSections = app._openSections || {};
+          app._openSections.visualizer = true;
+          try {
+            app.renderProfileView();
+            images.push({
+              runId: run.id,
+              runName: run.name || run.id,
+              dataUrl: profileCanvas.toDataURL('image/png'),
+            });
+          } catch(e) { console.warn('[ScopeFreeze] profile capture failed for run', run.name, e); }
+        }
+      } finally {
+        app.currentRunId = savedRunId;
+        Object.keys(origStyles).forEach(function(k) { profileContainer.style[k] = origStyles[k] || ''; });
+        try { app.renderProfileView(); } catch(_) {}
+      }
+      return images;
+    }
+
+    async function _fenceFreezeScopeAndUploadRenders(jobId) {
+      var cloud = window.SECUREWORKS_CLOUD;
+      if (!cloud || !cloud.auth || !cloud.auth.session()) {
+        return { ok: false, reason: 'cloud-unavailable' };
+      }
+      var token = cloud.auth.session().access_token;
+      var supabaseUrl = cloud.supabaseUrl;
+      // Step 1: freeze.
+      var freezeRes;
+      try {
+        freezeRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=freeze_scope', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: jobId, tool_kind: 'fencing' }),
+        });
+      } catch(e) {
+        return { ok: false, reason: 'freeze-network: ' + (e && e.message) };
+      }
+      if (!freezeRes.ok) {
+        var errText = '';
+        try { errText = await freezeRes.text(); } catch(_) {}
+        return { ok: false, reason: 'freeze-http-' + freezeRes.status + ': ' + errText };
+      }
+      var freezeData;
+      try { freezeData = await freezeRes.json(); } catch(_) { return { ok: false, reason: 'freeze-bad-json' }; }
+      var scopeRevisionId = freezeData && freezeData.scope_revision_id;
+      if (!scopeRevisionId) return { ok: false, reason: 'freeze-missing-id' };
+
+      // Step 2: capture per-run profile renders.
+      var renders = [];
+      try { renders = await _fenceCaptureProfileRenders(); }
+      catch(e) {
+        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: 0, artifactsFailed: 0, artifactsSkipped: 0, reason: 'render-capture-failed' };
+      }
+      if (!renders || renders.length === 0) {
+        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: 0, artifactsFailed: 0, artifactsSkipped: 0, reason: 'no-renders' };
+      }
+
+      // Step 3: upload each as render_profile, labelled with the run id.
+      var uploaded = 0, failed = 0, skipped = 0;
+      for (var i = 0; i < renders.length; i++) {
+        var r = renders[i];
+        var parsed = _fenceParseDataUrl(r.dataUrl);
+        if (!parsed) { skipped++; continue; }
+        try {
+          var bytes = _fenceBase64ToBytes(parsed.base64);
+          var sha = await _fenceSha256Hex(bytes);
+          var artRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              scope_revision_id: scopeRevisionId,
+              artifact_type: 'render_profile',
+              content_base64: parsed.base64,
+              content_type: parsed.contentType,
+              sha256: sha,
+              label: 'fencing:run=' + r.runId + (r.runName ? ':' + r.runName : ''),
+            }),
+          });
+          if (artRes.ok) { uploaded++; }
+          else {
+            failed++;
+            var errBody = '';
+            try { errBody = await artRes.text(); } catch(_) {}
+            console.warn('[ScopeFreeze] profile run=' + r.runId + ' failed (' + artRes.status + '): ' + errBody);
+          }
+        } catch(perRunErr) {
+          failed++;
+          console.warn('[ScopeFreeze] profile run=' + r.runId + ' threw:', perRunErr);
+        }
+      }
+      return {
+        ok: true,
+        scopeRevisionId: scopeRevisionId,
+        revisionNumber: freezeData.revision_number,
+        supersededRevisionId: freezeData.superseded_revision_id || null,
+        artifactsUploaded: uploaded,
+        artifactsFailed: failed,
+        artifactsSkipped: skipped,
+        renderCount: renders.length,
+      };
+    }
+
     // ── Execute Create Job ──
     async function _fenceExecuteCreateJob() {
       var opsMsg = ''; try { opsMsg = (document.getElementById('wizardOpsMessage') || {}).value || ''; } catch(e) {}
@@ -12781,6 +12946,21 @@
           }
           if (result.success) {
             app.save(); _markClean();
+
+            // Scope-Memory-Saving Loop 1, step 5 — freeze the scope + persist canonical
+            // per-run profile renders. Best-effort: never fails the Create Job flow.
+            try {
+              var __jobId = window._swIntegration.getJobId();
+              if (__jobId) {
+                var __fz = await _fenceFreezeScopeAndUploadRenders(__jobId);
+                if (__fz && __fz.ok) {
+                  console.log('[ScopeFreeze] revision=' + __fz.scopeRevisionId + ' uploaded=' + __fz.artifactsUploaded + ' failed=' + (__fz.artifactsFailed || 0) + ' skipped=' + (__fz.artifactsSkipped || 0));
+                } else {
+                  console.warn('[ScopeFreeze] not completed:', __fz && __fz.reason);
+                }
+              }
+            } catch(__fzErr) { console.warn('[ScopeFreeze] threw:', __fzErr); }
+
             renderProgress(5, true, null, result.jobNumber || null);
             if (app._updateHeaderStatus) app._updateHeaderStatus();
             updateButtonStages();
