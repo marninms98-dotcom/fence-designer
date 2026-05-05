@@ -11954,9 +11954,18 @@
           }
           var sendData = await sendRes.json();
           if (sendData.error) throw new Error(sendData.error);
-          if (sendData.emails_sent === 0) {
-            console.warn('[SendQuote] send-runs returned emails_sent=0');
+          // Defensive: after Track E (API hardening) /send-runs returns 502
+          // when 0 emails delivered against a non-empty recipient list, so
+          // this branch only runs on partial or total success. Still show
+          // partial honestly and warn the operator.
+          var emailsSentRuns = sendData.emails_sent || 0;
+          var attemptedRuns = sendData.recipients_attempted || emailsSentRuns;
+          var failedListRuns = Array.isArray(sendData.failed_recipients) ? sendData.failed_recipients : [];
+          if (emailsSentRuns === 0) {
+            console.warn('[SendQuote] send-runs returned emails_sent=0 with success:true (legacy)');
             app.showToast('Warning: quotes processed but no emails were delivered. Check email settings.', 'warning');
+          } else if (emailsSentRuns < attemptedRuns) {
+            app.showToast(emailsSentRuns + ' of ' + attemptedRuns + ' run quotes delivered. See modal for failed recipients.', 'warning');
           }
 
           // Detailed success receipt
@@ -11972,12 +11981,32 @@
               clientOk + ' · ' + nbOk +
               '</div>';
           });
+          var headlineRuns, iconRuns, iconColorRuns;
+          if (emailsSentRuns === 0) { headlineRuns = 'Run Quotes — Send Failed'; iconRuns = '&#10060;'; iconColorRuns = '#991B1B'; }
+          else if (emailsSentRuns < attemptedRuns) { headlineRuns = 'Run Quotes Partially Sent'; iconRuns = '&#9888;&#65039;'; iconColorRuns = '#B45309'; }
+          else { headlineRuns = 'Run Quotes Sent!'; iconRuns = '&#9989;'; iconColorRuns = '#22C55E'; }
+          // f.email / f.reason come from the API's failed_recipients array
+          // (Resend error message text). Escape before injecting into HTML to
+          // prevent any quoted angle brackets, ampersands, etc. from breaking
+          // out of the surrounding markup.
+          function _escRuns(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+              return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c];
+            });
+          }
+          var failedRowsRuns = failedListRuns.map(function(f) {
+            return '<div style="font-size:12px;color:#991B1B;padding:4px 0;">&#10060; ' +
+              _escRuns(f.email || 'unknown') +
+              (f.reason ? ': ' + _escRuns(f.reason) : '') +
+              '</div>';
+          }).join('');
           overlay.innerHTML =
             '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;max-width:500px;margin:0 auto;">' +
-            '<div style="font-size:48px;margin-bottom:16px;">&#9989;</div>' +
-            '<div style="font-size:20px;font-weight:700;color:#293C46;margin-bottom:8px;">Run Quotes Sent!</div>' +
+            '<div style="font-size:48px;margin-bottom:16px;color:' + iconColorRuns + ';">' + iconRuns + '</div>' +
+            '<div style="font-size:20px;font-weight:700;color:' + iconColorRuns + ';margin-bottom:8px;">' + headlineRuns + '</div>' +
             '<div style="width:100%;background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:16px;">' + receiptRows + '</div>' +
-            '<div style="font-size:13px;color:#4C6A7C;margin-bottom:24px;">' + Object.keys(runPdfs).length + ' PDFs generated · ' + (sendData.emails_sent || 0) + ' emails sent</div>' +
+            '<div style="font-size:13px;color:#4C6A7C;margin-bottom:8px;">' + Object.keys(runPdfs).length + ' PDFs generated · ' + emailsSentRuns + ' of ' + attemptedRuns + ' emails sent</div>' +
+            (failedRowsRuns ? '<div style="width:100%;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:8px 12px;margin-bottom:16px;text-align:left;">' + failedRowsRuns + '</div>' : '') +
             '<button onclick="document.getElementById(\'sendQuoteModal\').remove()" style="padding:12px 32px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>' +
             '</div>';
           return; // Exit — don't fall through to single-quote flow
@@ -12153,11 +12182,13 @@
                 var sendData = await sendRes.json();
                 sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'sent', viewUrl: sendData.view_url });
               } else {
-                sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed' });
+                var errReason = '';
+                try { var errBody = await sendRes.json(); errReason = errBody.error || ''; } catch(_) {}
+                sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed', errorReason: errReason || ('HTTP ' + sendRes.status) });
               }
             } catch(e) {
               console.warn('[SendQuote] Email send failed for', sendInfo.name, e.message);
-              sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed' });
+              sendResults.push({ name: sendInfo.name, email: contactEmail, status: 'failed', errorReason: e.message || 'network error' });
             }
           }
         } else if (!hasNeighbours && cloud && jobId) {
@@ -12195,14 +12226,15 @@
                     scoper_name: scoperName !== 'The SecureWorks Team' ? scoperName : undefined,
                   })
                 });
-                var sendData = await sendRes.json();
-                if (sendRes.ok) {
+                var sendData = {};
+                try { sendData = await sendRes.json(); } catch(_) {}
+                if (sendRes.ok && !sendData.error) {
                   sendResults.push({ name: clientName, email: toEmail, status: 'sent', viewUrl: sendData.view_url });
                 } else {
-                  sendResults.push({ name: clientName, email: toEmail, status: 'failed' });
+                  sendResults.push({ name: clientName, email: toEmail, status: 'failed', errorReason: sendData.error || ('HTTP ' + sendRes.status) });
                 }
               } catch(e) {
-                sendResults.push({ name: clientName, email: toEmail, status: 'failed' });
+                sendResults.push({ name: clientName, email: toEmail, status: 'failed', errorReason: e.message || 'network error' });
               }
             }
           }
@@ -12214,18 +12246,31 @@
           try { await cloud.updateJobStatus(jobId, 'quoted'); } catch(e) { console.warn('[SendQuote] Status update failed:', e.message); }
         }
 
-        // Step 5: Show success screen
+        // Step 5: Show outcome screen — honest about partial / total failure.
+        // Q-0108 reliability work: previously rendered "Done!" + green tick
+        // even when sentCount === 0, masking total send failure as success.
         var firstViewUrl = (sendResults.find(function(r) { return r.viewUrl; }) || {}).viewUrl || '';
+        var totalAttempted = sendResults.filter(function(r) { return r.status !== 'skipped'; }).length;
+
+        function escHtml(s) {
+          return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+            return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c];
+          });
+        }
 
         var resultRows = sendResults.map(function(r) {
           var icon = r.status === 'sent' ? '✓' : r.status === 'skipped' ? '—' : r.status === 'no-email' ? '✉' : '✕';
           var iconColor = r.status === 'sent' ? '#22C55E' : r.status === 'skipped' ? '#999' : r.status === 'no-email' ? '#F59E0B' : '#EF4444';
-          var detail = r.status === 'sent' ? r.email : r.status === 'no-email' ? 'No email address' : r.status === 'skipped' ? 'Skipped' : 'Failed';
-          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">' +
-            '<span style="color:' + iconColor + ';font-size:18px;width:24px;text-align:center;">' + icon + '</span>' +
+          var detail;
+          if (r.status === 'sent') detail = escHtml(r.email);
+          else if (r.status === 'no-email') detail = 'No email address';
+          else if (r.status === 'skipped') detail = 'Skipped';
+          else detail = 'Failed' + (r.errorReason ? ': ' + escHtml(r.errorReason) : '');
+          return '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;">' +
+            '<span style="color:' + iconColor + ';font-size:18px;width:24px;text-align:center;line-height:1.3;">' + icon + '</span>' +
             '<div style="flex:1;">' +
-              '<div style="font-size:14px;font-weight:600;color:#293C46;">' + r.name + '</div>' +
-              '<div style="font-size:12px;color:#4C6A7C;">' + detail + '</div>' +
+              '<div style="font-size:14px;font-weight:600;color:#293C46;">' + escHtml(r.name) + '</div>' +
+              '<div style="font-size:12px;color:#4C6A7C;word-break:break-word;">' + detail + '</div>' +
             '</div>' +
           '</div>';
         }).join('');
@@ -12233,20 +12278,41 @@
         // Invalidate status cache so badge re-fetches
         window._quoteStatusCache = null;
 
+        // Outcome state — drives header text, tick/cross icon, and tint.
+        var outcome;
+        if (totalAttempted === 0) {
+          outcome = { headline: (quoteNumber ? 'Quote ' + quoteNumber + ' ' : '') + 'Prepared',
+                      sub: 'No recipients selected · 0 emails sent',
+                      iconBg: '#EDF1F4', iconColor: '#4C6A7C', iconChar: '!', titleColor: '#293C46' };
+        } else if (sentCount === 0) {
+          outcome = { headline: (quoteNumber ? 'Quote ' + quoteNumber + ' — ' : '') + 'Send Failed',
+                      sub: '0 of ' + totalAttempted + ' emails delivered',
+                      iconBg: '#FEE2E2', iconColor: '#991B1B', iconChar: '✕', titleColor: '#991B1B' };
+        } else if (sentCount < totalAttempted) {
+          outcome = { headline: (quoteNumber ? 'Quote ' + quoteNumber + ' — ' : '') + 'Send Incomplete',
+                      sub: sentCount + ' of ' + totalAttempted + ' emails delivered',
+                      iconBg: '#FEF3C7', iconColor: '#B45309', iconChar: '!', titleColor: '#92400E' };
+        } else {
+          outcome = { headline: (quoteNumber ? 'Quote ' + quoteNumber + ' ' : '') + 'Sent!',
+                      sub: sentCount + ' email' + (sentCount !== 1 ? 's' : '') + ' sent',
+                      iconBg: '#DCFCE7', iconColor: '#22C55E', iconChar: '✓', titleColor: '#293C46' };
+        }
+
         overlay.innerHTML =
           '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;">' +
-            '<div style="width:64px;height:64px;border-radius:50%;background:#DCFCE7;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">' +
-              '<span style="font-size:32px;color:#22C55E;">✓</span>' +
+            '<div style="width:64px;height:64px;border-radius:50%;background:' + outcome.iconBg + ';display:flex;align-items:center;justify-content:center;margin-bottom:20px;">' +
+              '<span style="font-size:32px;color:' + outcome.iconColor + ';">' + outcome.iconChar + '</span>' +
             '</div>' +
-            '<div style="font-size:20px;font-weight:700;color:#293C46;margin-bottom:4px;">' +
-              (quoteNumber ? 'Quote ' + quoteNumber + ' ' : '') + (sentCount > 0 ? 'Sent!' : 'Done!') +
+            '<div style="font-size:20px;font-weight:700;color:' + outcome.titleColor + ';margin-bottom:4px;">' +
+              escHtml(outcome.headline) +
             '</div>' +
-            '<div style="font-size:13px;color:#999;margin-bottom:24px;">' + sentCount + ' email' + (sentCount !== 1 ? 's' : '') + ' sent</div>' +
+            '<div style="font-size:13px;color:#999;margin-bottom:24px;">' + escHtml(outcome.sub) + '</div>' +
 
             // Per-recipient results
             '<div style="width:100%;max-width:360px;text-align:left;margin-bottom:24px;">' + resultRows + '</div>' +
 
             (firstViewUrl ? '<button id="sqCopyLink" style="width:100%;max-width:360px;padding:14px;background:#293C46;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">Copy Acceptance Link</button>' : '') +
+            (sentCount === 0 && totalAttempted > 0 ? '<button id="sqRetryAll" style="width:100%;max-width:360px;padding:14px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">Try Again</button>' : '') +
             '<button id="sqDone" style="width:100%;max-width:360px;padding:14px;background:#fff;color:#4C6A7C;border:1px solid #D4DEE4;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">Done</button>' +
           '</div>';
 
@@ -12264,12 +12330,19 @@
               }
             };
           }
+          var retryAllBtn = document.getElementById('sqRetryAll');
+          if (retryAllBtn) retryAllBtn.onclick = function() { _showSendQuoteModalInternal(); };
           document.getElementById('sqDone').onclick = function() {
             document.getElementById('sendQuoteModal').remove();
           };
         }, 50);
 
-        app.showToast('Quote ' + (quoteNumber || '') + ' — ' + sentCount + ' email(s) sent', 'success');
+        // Toast severity matches outcome — don't claim success on a total failure.
+        var toastType = sentCount === 0 ? 'error' : (sentCount < totalAttempted ? 'warning' : 'success');
+        var toastMsg = sentCount === 0
+          ? 'Send failed: 0 of ' + totalAttempted + ' emails delivered'
+          : 'Quote ' + (quoteNumber || '') + ' — ' + sentCount + ' of ' + totalAttempted + ' email(s) sent';
+        app.showToast(toastMsg, toastType);
 
       } catch(e) {
         console.error('[SendQuote] Error:', e);
