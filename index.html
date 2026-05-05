@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Fence Designer Pro — SecureWorks WA</title>
-  <script>if(new URLSearchParams(window.location.search).get('mode')==='view')document.documentElement.classList.add('view-mode');</script>
+  <script>(function(){var p=new URLSearchParams(window.location.search);var m=p.get('mode');var hasFrozen=!!p.get('scope_revision_id');if(m==='view')document.documentElement.classList.add('view-mode');if(m==='readonly'||hasFrozen)document.documentElement.classList.add('readonly-mode');})();</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>

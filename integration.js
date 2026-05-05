@@ -38,7 +38,12 @@
   var _jobLoaded = false;
   var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
-  var _isReadonly = new URLSearchParams(window.location.search).get('mode') === 'readonly';
+  // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
+  // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
+  var _isReadonly = (function() {
+    var p = new URLSearchParams(window.location.search);
+    return p.get('mode') === 'readonly' || !!p.get('scope_revision_id');
+  })();
 
   // Auto-save only allowed for draft/new jobs — never for quoted/accepted/scheduled/in_progress/completed
   function _shouldAutoSave() {
@@ -1810,9 +1815,19 @@
 
   // Shared job-load logic — called from auth:login AND isLoggedIn() check.
   // Guard prevents double-load.
+  //
+  // Branches (Scope-Memory-Saving step 8 Option B):
+  //   * ?scope_revision_id=<uuid> → frozen-revision viewer mode.
+  //   * Otherwise: existing live-job auto-load path.
   async function _autoLoadJob() {
+    if (_jobLoaded) return;
+    var urlParams = new URLSearchParams(window.location.search);
+    var scopeRevId = urlParams.get('scope_revision_id');
+    if (scopeRevId) {
+      return _autoLoadFrozenRevision(scopeRevId);
+    }
     var urlJobId = getJobIdFromURL();
-    if (!urlJobId || _jobLoaded) return;
+    if (!urlJobId) return;
     _jobLoaded = true;
 
     _jobId = urlJobId;
@@ -1838,6 +1853,102 @@
       console.warn('[Integration] Failed to auto-load job:', e);
       _jobLoaded = false; // Allow retry
     }
+  }
+
+  // Frozen-revision branch of _autoLoadJob (Scope-Memory-Saving step 8 Option B).
+  // Fetches an immutable scope_revisions row via ops-api and hydrates the
+  // tool with that exact frozen scope_json. Pricing recompute still happens
+  // against the current rate tables — the frozen banner shows the SEALED
+  // total so the operator can compare. Auto-save is disabled by _isReadonly.
+  async function _autoLoadFrozenRevision(scopeRevId) {
+    _jobLoaded = true;
+    console.log('[Integration] Auto-loading frozen revision:', scopeRevId);
+    try {
+      var session = cloud.auth.session();
+      var token = session && session.access_token;
+      if (!token) {
+        console.warn('[Integration] No auth session — cannot load frozen revision');
+        _renderFrozenError(0, 'Not signed in. Sign in via the dashboard first, then re-open this URL.');
+        return;
+      }
+      var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
+      if (!supabaseUrl) {
+        console.warn('[Integration] No supabaseUrl configured');
+        _renderFrozenError(0, 'Cloud config missing supabaseUrl');
+        return;
+      }
+      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=get_scope_revision_for_viewer', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope_revision_id: scopeRevId })
+      });
+      if (!resp.ok) {
+        var errText = '';
+        try { errText = await resp.text(); } catch(_) {}
+        _renderFrozenError(resp.status, errText);
+        return;
+      }
+      var data = await resp.json();
+      if (!data || !data.ok) {
+        _renderFrozenError(0, (data && JSON.stringify(data.error || data)) || 'unknown error');
+        return;
+      }
+      _jobId = data.job_id || null;
+      _jobStatus = 'frozen';
+      if (data.scope_json && Object.keys(data.scope_json).length > 0 && _loadStateFn) {
+        _loadStateFn(data.scope_json);
+      }
+      _renderFrozenBanner(data);
+      // Skip cloud media + auto-save deliberately: frozen mode is read-only.
+      updateUI();
+    } catch (e) {
+      console.warn('[Integration] _autoLoadFrozenRevision threw:', e);
+      _renderFrozenError(0, e && e.message || String(e));
+    }
+  }
+
+  function _renderFrozenBanner(data) {
+    if (document.getElementById('sw-frozen-revision-banner')) return;
+    var pricing = data.pricing_json_public || {};
+    var sealedTotal = pricing.totalIncGST != null
+      ? '$' + Math.round(pricing.totalIncGST).toLocaleString() + ' inc GST'
+      : '—';
+    var sealedAt = data.frozen_at
+      ? new Date(data.frozen_at).toLocaleString('en-AU')
+      : '—';
+    var banner = document.createElement('div');
+    banner.id = 'sw-frozen-revision-banner';
+    banner.style.cssText = [
+      'position:fixed','top:0','left:0','right:0','z-index:99999',
+      'background:#F15A29','color:#fff','padding:6px 14px',
+      'font-family:Helvetica,Arial,sans-serif','font-size:11px','font-weight:600',
+      'letter-spacing:0.3px','text-align:center',
+      'box-shadow:0 2px 6px rgba(0,0,0,0.2)'
+    ].join(';');
+    banner.innerHTML =
+      '🔒 FROZEN REVISION r' + (data.revision_number || '?') +
+      ' · ' + (data.status || '').toUpperCase() +
+      ' · sealed ' + sealedAt +
+      ' · sealed total ' + sealedTotal +
+      ' · read-only — live pricing computed below may differ from sealed values';
+    document.body.appendChild(banner);
+    document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 28) + 'px';
+  }
+
+  function _renderFrozenError(status, msg) {
+    if (document.getElementById('sw-frozen-error-banner')) return;
+    var banner = document.createElement('div');
+    banner.id = 'sw-frozen-error-banner';
+    banner.style.cssText = [
+      'position:fixed','top:0','left:0','right:0','z-index:99999',
+      'background:#c00','color:#fff','padding:8px 14px',
+      'font-family:Helvetica,Arial,sans-serif','font-size:12px','font-weight:600',
+      'text-align:center'
+    ].join(';');
+    var prefix = status ? ('HTTP ' + status + ' — ') : '';
+    banner.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
+    document.body.appendChild(banner);
+    document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 32) + 'px';
   }
 
   if (document.readyState === 'loading') {
