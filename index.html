@@ -1851,7 +1851,8 @@
       updateProfileDropdown() {
         const select = document.getElementById('profile');
         if (!select) return;
-        const supplierData = SUPPLIER_PROFILES[this.job.supplier];
+        const isCustomSupplier = this.job.supplier === '__custom__' || (this.job.supplier && !SUPPLIER_PROFILES[this.job.supplier]);
+        const supplierData = SUPPLIER_PROFILES[this.job.supplier] || (isCustomSupplier ? { profiles: [] } : null);
         if (!supplierData) {
           select.innerHTML = '<option value="">Select panel system first...</option>';
           // Remove any existing custom input
@@ -1941,7 +1942,8 @@
       // ── Section 3.5: Panel width by supplier ──
       getPanelWidthMm() {
         const s = SUPPLIER_PROFILES[this.job.supplier];
-        return s ? s.panelWidth : 2380;
+        if (s) return s.panelWidth;
+        return Number(this.job.customPanelWidth) || 2380;
       },
 
       getPanelWidthM() {
@@ -3634,6 +3636,7 @@
               <select id="supplier" onchange="app.updateSupplier(this.value)">
                 <option value="" ${!j.supplier ? 'selected' : ''}>Select...</option>
                 ${supplierKeys.map(s => `<option value="${s}" ${j.supplier === s ? 'selected' : ''}>${s} (${SUPPLIER_PROFILES[s].panelWidth}mm)</option>`).join('')}
+                <option value="__custom__" ${(j.supplier === '__custom__' || (j.supplier && !SUPPLIER_PROFILES[j.supplier])) ? 'selected' : ''}>Custom...</option>
               </select>
             </div>
             <div class="form-group">
@@ -3670,7 +3673,43 @@
         `;
         this._addCustomOption('mfrSelect', inst.manufacturer, ['RnR','Metroll','Lysaght'], 'Enter manufacturer name...', function(v) { app.updateInstallation('manufacturer', v); });
         this._addCustomOption('supSelect', inst.supplierSource, ['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'], 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
+        this._addCustomPanelSystemInputs(j.supplier, j.customPanelWidth);
         this.updateProfileDropdown();
+      },
+
+      // ── Reveal name + panel-width inputs when Panel System is "Custom..." ──
+      _addCustomPanelSystemInputs(currentSupplier, currentPanelWidth) {
+        var select = document.getElementById('supplier');
+        if (!select) return;
+        var presetKeys = Object.keys(SUPPLIER_PROFILES);
+        var isCustom = currentSupplier === '__custom__' || (currentSupplier && !presetKeys.includes(currentSupplier));
+        if (!isCustom) return;
+        var wrap = document.createElement('div');
+        wrap.style.marginTop = '6px';
+        wrap.style.display = 'flex';
+        wrap.style.gap = '8px';
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Custom panel system name...';
+        nameInput.style.flex = '1';
+        nameInput.value = (currentSupplier && currentSupplier !== '__custom__') ? currentSupplier : '';
+        nameInput.onchange = function() { app.updateSupplier(this.value || '__custom__'); };
+        var widthInput = document.createElement('input');
+        widthInput.type = 'number';
+        widthInput.placeholder = 'Panel width (mm)';
+        widthInput.style.width = '160px';
+        widthInput.min = '100';
+        widthInput.step = '1';
+        widthInput.value = currentPanelWidth || '';
+        widthInput.onchange = function() {
+          app.job.customPanelWidth = parseInt(this.value, 10) || null;
+          app.recalculateAll();
+          app.save();
+          app.renderInstallation();
+        };
+        wrap.appendChild(nameInput);
+        wrap.appendChild(widthInput);
+        select.parentNode.appendChild(wrap);
       },
 
       // ── Add Custom... option to a select ──
@@ -5141,7 +5180,7 @@
         this.logScopeDecision('supplier_change', { supplier: value });
         this.job.supplier = value;
         const supplierData = SUPPLIER_PROFILES[value];
-        if (!supplierData.profiles.includes(this.job.profile)) {
+        if (supplierData && !supplierData.profiles.includes(this.job.profile)) {
           this.job.profile = supplierData.profiles[0];
         }
         this.recalculateAll();
@@ -6971,8 +7010,7 @@
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
 
         // Dimensions
-        const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
-        const panelWidthMm = supplier.panelWidth;
+        const panelWidthMm = this.getPanelWidthMm();
         const panelWidthM = panelWidthMm / 1000;
         const postW = 0.05;
         const railH = 0.025;
