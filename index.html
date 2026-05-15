@@ -9705,31 +9705,42 @@
         doc.text('AMOUNT', pw - mx - 3, y, { align: 'right' });
         y += 6;
 
-        // Main line (fencing vs gate-only)
-        doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        const mainLineLabel = isGateOnly ? 'Gate \u2014 Supply & Install' : 'COLORBOND Fencing \u2014 Supply & Install';
-        doc.text(mainLineLabel, mx + 2, y);
-        doc.text('$' + this._fmt(d.subtotal - d.customTotal), pw - mx - 2, y, { align: 'right' });
-        y += 4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(76, 106, 124);
-        let detailStr;
-        if (isGateOnly) {
-          const gateBits = d.gateLineItems.map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc);
-          detailStr = gateBits.join(' | ') || 'Gate supply & install';
-          if (d.removalTotal > 0) detailStr += ' | Old fence removal';
-        } else {
-          detailStr = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}`;
-          if (d.totalPlinths > 0) detailStr += ` | ${d.totalPlinths} retaining plinths`;
-          if (d.gateLineItems.length > 0) detailStr += ` | ${d.gateLineItems.length} gate${d.gateLineItems.length > 1 ? 's' : ''}`;
-          if (d.removalTotal > 0) detailStr += ' | Old fence removal';
-        }
-        const detailLines = doc.splitTextToSize(detailStr, pw - mx * 2 - 4);
-        doc.text(detailLines, mx + 2, y);
-        y += detailLines.length * 3.5 + 2;
+        // Itemised category rows \u2014 one line per non-zero category (mirrors _generateQuoteHTML)
+        const pdfFencingLabel = isGateOnly ? '' : 'COLORBOND Fencing';
+        const pdfFencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}` : '';
+        const pdfGatesDetail = (d.gateLineItems || []).map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc).join(' | ');
+        const pdfCategoryRows = [
+          { label: pdfFencingLabel,     detail: pdfFencingDetail, amount: d.fencingTotal },
+          { label: 'Retaining',         detail: d.totalPlinths > 0 ? `${d.totalPlinths} plinth${d.totalPlinths > 1 ? 's' : ''}` : '', amount: d.plinthsTotal },
+          { label: 'Patio Tubes',       detail: d.totalPatioTubes > 0 ? `${d.totalPatioTubes} tube${d.totalPatioTubes > 1 ? 's' : ''}` : '', amount: d.patioTotal },
+          { label: 'Gates',             detail: pdfGatesDetail, amount: d.gatesTotal },
+          { label: 'Old Fence Removal', detail: '', amount: d.removalTotal },
+          { label: 'Ground Finish',     detail: d.groundFinishDesc || '', amount: d.groundFinishTotal },
+          { label: 'Add-ons',           detail: (d.addonItems || []).map(a => a.desc).join(' | '), amount: d.addonsTotal },
+          { label: 'Access Surcharge',  detail: '', amount: d.accessSurcharge },
+          { label: 'Urgency Surcharge', detail: '', amount: d.urgencySurcharge },
+          { label: 'Delivery',          detail: '', amount: d.deliveryFee },
+        ].filter(r => r.amount > 0 && r.label);
+
+        pdfCategoryRows.forEach(r => {
+          if (y > ph - 40) { doc.addPage(); y = 20; }
+          doc.setTextColor(41, 60, 70);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.text(r.label, mx + 2, y);
+          doc.text('$' + this._fmt(r.amount), pw - mx - 2, y, { align: 'right' });
+          y += 4;
+          if (r.detail) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(76, 106, 124);
+            const detailLines = doc.splitTextToSize(r.detail, pw - mx * 2 - 4);
+            doc.text(detailLines, mx + 2, y);
+            y += detailLines.length * 3.5 + 2;
+          } else {
+            y += 1;
+          }
+        });
         doc.setDrawColor(229, 231, 235);
         doc.line(mx, y, pw - mx, y);
         y += 4;
@@ -11307,11 +11318,23 @@
       // ── Build quote preview summary ──
       var f = function(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
       var quoteLines = '';
-      var detailParts = d.totalMetres.toFixed(1) + 'm ' + (d.profile || 'Trimclad') + ' in ' + (d.colour || '');
-      if (d.totalPlinths > 0) detailParts += ' | ' + d.totalPlinths + ' retaining plinths';
-      if ((d.gateLineItems || []).length > 0) detailParts += ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '');
-      if (d.removalTotal > 0) detailParts += ' | Old fence removal';
-      quoteLines += '<tr><td><strong>COLORBOND Fencing — Supply &amp; Install</strong><br><span style="font-size:11px;color:#4C6A7C;">' + detailParts + '</span></td><td style="text-align:right;vertical-align:top;font-weight:600;">$' + f(d.subtotal) + '</td></tr>';
+      var mvFencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? (d.totalMetres.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour) : '';
+      var mvGatesDetail = (d.gateLineItems || []).map(function(g){ return (g.qty > 1 ? g.qty + ' × ' : '') + g.desc; }).join(' | ');
+      var mvCategoryRows = [
+        { label: 'COLORBOND Fencing', detail: mvFencingDetail, amount: d.fencingTotal },
+        { label: 'Retaining',         detail: d.totalPlinths > 0 ? (d.totalPlinths + ' plinth' + (d.totalPlinths > 1 ? 's' : '')) : '', amount: d.plinthsTotal },
+        { label: 'Patio Tubes',       detail: d.totalPatioTubes > 0 ? (d.totalPatioTubes + ' tube' + (d.totalPatioTubes > 1 ? 's' : '')) : '', amount: d.patioTotal },
+        { label: 'Gates',             detail: mvGatesDetail, amount: d.gatesTotal },
+        { label: 'Old Fence Removal', detail: '', amount: d.removalTotal },
+        { label: 'Ground Finish',     detail: d.groundFinishDesc || '', amount: d.groundFinishTotal },
+        { label: 'Add-ons',           detail: (d.addonItems || []).map(function(a){ return a.desc; }).join(' | '), amount: d.addonsTotal },
+        { label: 'Access Surcharge',  detail: '', amount: d.accessSurcharge },
+        { label: 'Urgency Surcharge', detail: '', amount: d.urgencySurcharge },
+        { label: 'Delivery',          detail: '', amount: d.deliveryFee },
+      ].filter(function(r){ return r.amount > 0 && r.label; });
+      quoteLines = mvCategoryRows.map(function(r){
+        return '<tr><td><strong>' + r.label + '</strong>' + (r.detail ? '<br><span style="font-size:11px;color:#4C6A7C;">' + r.detail + '</span>' : '') + '</td><td style="text-align:right;vertical-align:top;font-weight:600;">$' + f(r.amount) + '</td></tr>';
+      }).join('');
 
       var quoteSummaryHtml =
         '<div style="margin-bottom:16px;">' +
