@@ -8986,18 +8986,23 @@
         };
         const profileImgUrl = profileUrls[d.profile] || '';
 
-        // Single consolidated price (everything rolled in)
-        const fencingLineTotal = d.subtotal;
+        // Itemised category rows for the Pricing table (one row per non-zero category)
         const isGateOnlyHtml = d.scopeType === 'gate-only';
-        const mainRowLabelHtml = isGateOnlyHtml ? 'Gate \u2014 Supply &amp; Install' : 'COLORBOND\u00AE Fencing \u2014 Supply & Install';
-        let mainRowDetailHtml;
-        if (isGateOnlyHtml) {
-          const gateBitsHtml = d.gateLineItems.map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + this._esc(g.desc));
-          mainRowDetailHtml = gateBitsHtml.join(' | ') || 'Gate supply &amp; install';
-          if (d.removalTotal > 0) mainRowDetailHtml += ' | Old fence removal';
-        } else {
-          mainRowDetailHtml = `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}${d.totalPlinths > 0 ? ' | ' + d.totalPlinths + ' retaining plinths' : ''}${d.gateLineItems.length > 0 ? ' | ' + d.gateLineItems.length + ' gate' + (d.gateLineItems.length > 1 ? 's' : '') : ''}${d.removalTotal > 0 ? ' | Old fence removal' : ''}`;
-        }
+        const fencingLabel = isGateOnlyHtml ? '' : 'COLORBOND\u00AE Fencing';
+        const fencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}` : '';
+        const gatesDetail = (d.gateLineItems || []).map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc).join(' | ');
+        const categoryRows = [
+          { label: fencingLabel,        detail: fencingDetail, amount: d.fencingTotal },
+          { label: 'Retaining',         detail: d.totalPlinths > 0 ? `${d.totalPlinths} plinth${d.totalPlinths > 1 ? 's' : ''}` : '', amount: d.plinthsTotal },
+          { label: 'Patio Tubes',       detail: d.totalPatioTubes > 0 ? `${d.totalPatioTubes} tube${d.totalPatioTubes > 1 ? 's' : ''}` : '', amount: d.patioTotal },
+          { label: 'Gates',             detail: gatesDetail, amount: d.gatesTotal },
+          { label: 'Old Fence Removal', detail: '', amount: d.removalTotal },
+          { label: 'Ground Finish',     detail: d.groundFinishDesc || '', amount: d.groundFinishTotal },
+          { label: 'Add-ons',           detail: (d.addonItems || []).map(a => a.desc).join(' | '), amount: d.addonsTotal },
+          { label: 'Access Surcharge',  detail: '', amount: d.accessSurcharge },
+          { label: 'Urgency Surcharge', detail: '', amount: d.urgencySurcharge },
+          { label: 'Delivery',          detail: '', amount: d.deliveryFee },
+        ].filter(r => r.amount > 0 && r.label);
 
         const disclaimersHtml = DISCLAIMERS.map((d, i) => `<p class="disclaimer"><span class="disclaimer-num">${i+1}.</span> ${d}</p>`).join('');
 
@@ -9064,13 +9069,12 @@
             <table>
               <thead><tr><th>Description</th><th class="text-right">Amount</th></tr></thead>
               <tbody>
-                <tr>
+                ${categoryRows.map(r => `<tr>
                   <td style="line-height:1.5;">
-                    <strong>${mainRowLabelHtml}</strong><br>
-                    <span style="font-size:11px;color:#4C6A7C;">${mainRowDetailHtml}</span>
+                    <strong>${this._esc(r.label)}</strong>${r.detail ? '<br><span style="font-size:11px;color:#4C6A7C;">' + this._esc(r.detail) + '</span>' : ''}
                   </td>
-                  <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(d.subtotal - d.customTotal)}</td>
-                </tr>
+                  <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(r.amount)}</td>
+                </tr>`).join('')}
                 ${d.customItems.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
                   d.customItems.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : ''}
               </tbody>
