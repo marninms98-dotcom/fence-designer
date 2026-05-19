@@ -8846,6 +8846,26 @@
             nc.gst = nc.totalExGst * 0.10;
             nc.totalIncGst = nc.totalExGst + nc.gst;
           });
+        } else if (!hasRunAssignments && (job.neighbours || []).length > 0) {
+          // Flat-percentage fallback: neighbours exist but no runs assigned
+          const nbs = job.neighbours.filter(n => n.firstName || n.lastName);
+          if (nbs.length > 0) {
+            const nbTotalPct = nbs.reduce((s, n) => s + (n.sharePercent || Math.round(100 / (nbs.length + 1))), 0);
+            const clientPct = Math.max(0, 100 - nbTotalPct);
+            neighbourCosts['__client__'] = {
+              directCost: subtotal * (clientPct / 100), sharedCost: 0, runs: runDetails, runNames: runDetails.map(r => r.name),
+              totalExGst: subtotal * (clientPct / 100), gst: subtotal * (clientPct / 100) * 0.10,
+              totalIncGst: subtotal * (clientPct / 100) * 1.10, flatPercent: clientPct
+            };
+            nbs.forEach(n => {
+              const pct = n.sharePercent || Math.round(100 / (nbs.length + 1));
+              neighbourCosts[n.id] = {
+                directCost: subtotal * (pct / 100), sharedCost: 0, runs: runDetails, runNames: runDetails.map(r => r.name),
+                totalExGst: subtotal * (pct / 100), gst: subtotal * (pct / 100) * 0.10,
+                totalIncGst: subtotal * (pct / 100) * 1.10, flatPercent: pct
+              };
+            });
+          }
         }
 
         return {
@@ -11659,6 +11679,20 @@
         '</label>';
       }).join('');
 
+      // Check if neighbour cost split will work
+      var neighbourCostWarning = '';
+      if (hasNeighbours) {
+        try {
+          var _checkData = app._collectOutputData();
+          if (!_checkData.neighbourCosts || Object.keys(_checkData.neighbourCosts).length === 0) {
+            neighbourCostWarning = '<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400E;">' +
+              '<strong>Warning:</strong> Neighbour cost split could not be calculated. Neighbour quotes will not be generated. ' +
+              'Make sure neighbours have share percentages set, or assign fence runs to neighbours in Section 3.' +
+            '</div>';
+          }
+        } catch(e) { /* ignore — will be caught later */ }
+      }
+
       // Build neighbour recipients section
       var neighbourHtml = '';
       if (neighbours.length > 0) {
@@ -11716,6 +11750,7 @@
               'style="width:100%;padding:12px;border:1px solid #D4DEE4;border-radius:4px;font-size:16px;margin-bottom:16px;box-sizing:border-box;">'
           ) +
 
+          neighbourCostWarning +
           (hasNeighbours ? neighbourHtml : '') +
 
           // Per-run share summary (multi-neighbour only)
@@ -12183,11 +12218,22 @@
           try {
             var d = app._collectOutputData();
             var nbs = app.job.neighbours.filter(function(n) { return n.firstName || n.lastName; });
+
+            // Validate neighbourCosts before attempting PDF generation
+            if (!d.neighbourCosts || Object.keys(d.neighbourCosts).length === 0) {
+              console.error('[SendQuote] neighbourCosts is empty — neighbour PDFs cannot be generated.');
+              updateStep('Warning: neighbour cost split missing', 'Neighbour quotes will not be sent. Check run assignments or neighbour percentages.');
+              await new Promise(function(r) { setTimeout(r, 3000); });
+            } else {
             for (var pi = 0; pi < neighbourQuoteData.contacts.length; pi++) {
               var pContact = neighbourQuoteData.contacts[pi];
               if (!pContact.upload_url) continue;
               var nbKey = pi === 0 ? '__client__' : (nbs[pi - 1] ? nbs[pi - 1].id : null);
-              if (!nbKey || !d.neighbourCosts[nbKey]) continue;
+              if (!nbKey) continue;
+              if (!d.neighbourCosts[nbKey]) {
+                console.warn('[SendQuote] No neighbourCosts for', pContact.client_name, '(key=' + nbKey + '). Runs may not have neighbour assignments.');
+                continue;
+              }
               var blob = app.generateNeighbourPDF(pContact, d, nbKey);
               if (!blob) continue;
               try {
@@ -12201,6 +12247,7 @@
                 console.warn('[SendQuote] PDF upload error for', pContact.client_name, ue.message);
               }
             }
+            } // end else (neighbourCosts exists)
           } catch(pdfErr) {
             console.warn('[SendQuote] Neighbour PDF generation failed (non-blocking):', pdfErr.message);
           }
