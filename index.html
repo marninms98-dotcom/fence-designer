@@ -3345,7 +3345,7 @@
                 <div class="form-group" style="max-width:110px">
                   <label>Cost Share % *</label>
                   <input type="number" value="${nb.sharePercent || Math.round(100 / (nbs.length + 1))}" min="0" max="100" step="5"
-                    onchange="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
+                    oninput="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
                     style="text-align:center">
                   <div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>
                 </div>
@@ -3383,9 +3383,8 @@
                 summary += '</div>';
                 return summary;
               }
-              return '<div style="margin-top:8px;padding:10px 12px;background:#FDF2EE;border:1px solid #FADDD2;border-radius:6px;font-size:12px;">' +
-                '<strong>Client share:</strong> <span id="clientSharePct">' + (100 - nbs.reduce((s, n) => s + (n.sharePercent || Math.round(100 / (nbs.length + 1))), 0)) + '%</span>' +
-                '&nbsp;|&nbsp; <strong>Neighbours:</strong> ' + nbs.map((n, i) => (n.firstName || 'Nb' + (i+1)) + ' ' + (n.sharePercent || Math.round(100 / (nbs.length + 1))) + '%').join(', ') +
+              return '<div id="nbCostSummaryBar" style="margin-top:8px;padding:10px 12px;background:#FDF2EE;border:1px solid #FADDD2;border-radius:6px;font-size:12px;">' +
+                app._buildCostSummaryBarContent(nbs) +
                 '</div>';
             })()}
             <button class="btn-orange" style="margin-top:8px;" onclick="app.addNeighbour()">+ Add Neighbour</button>
@@ -3456,6 +3455,26 @@
         this.renderSiteInfo();
       },
 
+      _buildCostSummaryBarContent(nbs) {
+        if (!nbs) nbs = (this.job.neighbours || []).filter(n => n.firstName || n.lastName);
+        const defaultPct = Math.round(100 / (nbs.length + 1));
+        const nbTotal = nbs.reduce((s, n) => s + (n.sharePercent || defaultPct), 0);
+        const clientPct = Math.max(0, 100 - nbTotal);
+        let totalInc = 0;
+        try { totalInc = this._collectOutputData().grandTotal || 0; } catch(e) {}
+        const f = v => v.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        let html = '<strong>Client share:</strong> ' + clientPct + '%';
+        if (totalInc > 0) html += ' ($' + f(totalInc * clientPct / 100) + ')';
+        html += '&nbsp;|&nbsp; <strong>Neighbours:</strong> ';
+        html += nbs.map((n, i) => {
+          const pct = n.sharePercent || defaultPct;
+          let s = (n.firstName || 'Nb' + (i+1)) + ' ' + pct + '%';
+          if (totalInc > 0) s += ' ($' + f(totalInc * pct / 100) + ')';
+          return s;
+        }).join(', ');
+        return html;
+      },
+
       updateNeighbour(nbId, field, value) {
         if (!this.job.neighbours) return;
         if (field === 'phone') value = this._formatPhone(value);
@@ -3463,6 +3482,10 @@
         if (nb) nb[field] = value;
         this.save();
         if (field === 'phone') this.renderSiteInfo();
+        if (field === 'sharePercent') {
+          const bar = document.getElementById('nbCostSummaryBar');
+          if (bar) bar.innerHTML = this._buildCostSummaryBarContent();
+        }
       },
 
       // ── Render Removal ──
