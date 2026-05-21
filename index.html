@@ -1519,9 +1519,9 @@
   <script>
     // ── Section 4B: Supplier profiles ──
     const SUPPLIER_PROFILES = {
-      RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380 },
-      Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365 },
-      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360 }
+      RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380, longPanelWidth: 3150 },
+      Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365, longPanelWidth: 3150 },
+      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 }
     };
 
     // ── Section 9: Colorbond fencing colour palette ──
@@ -1954,6 +1954,7 @@
       },
 
       // ── Section 3.5: Panel width by supplier ──
+      // Global default (standard width). Use getRunPanelWidthMm(run) for per-run width.
       getPanelWidthMm() {
         const s = SUPPLIER_PROFILES[this.job.supplier];
         if (s) return s.panelWidth;
@@ -1964,11 +1965,21 @@
         return this.getPanelWidthMm() / 1000;
       },
 
+      // Per-run panel width: standard or long (3150mm)
+      getRunPanelWidthMm(run) {
+        if (run && run.panelSize === 'long') {
+          const s = SUPPLIER_PROFILES[this.job.supplier];
+          if (s) return s.longPanelWidth || 3150;
+          return 3150;
+        }
+        return this.getPanelWidthMm();
+      },
+
       // ── Section 6.1: Auto-calculate panel count from run length ──
-      calcPanelCount(lengthM) {
+      calcPanelCount(lengthM, run) {
         if (!lengthM || lengthM <= 0) return 0;
         const lengthMm = lengthM * 1000;
-        const panelW = this.getPanelWidthMm();
+        const panelW = run ? this.getRunPanelWidthMm(run) : this.getPanelWidthMm();
         // Rule: length ÷ panel width, round up. Order full panels, cut on site.
         // Tolerance: if remainder < 50mm (covered by post overlap), don't add a panel.
         const raw = lengthMm / panelW;
@@ -2011,7 +2022,7 @@
 
       // ── Sync panels to match calculated panel count ──
       syncPanels(run) {
-        const targetCount = this.calcPanelCount(run.length);
+        const targetCount = this.calcPanelCount(run.length, run);
         if (targetCount === 0) {
           run.panels = [];
           return;
@@ -2501,6 +2512,9 @@
           run.extension = value;
         } else if (field === 'neighbourId') {
           run.neighbourId = value || null;
+        } else if (field === 'panelSize') {
+          run.panelSize = value;
+          this.syncPanels(run);
         }
 
         this.save();
@@ -2682,13 +2696,14 @@
         let totalMetres = 0;
         let totalPlinths = 0;
         let plinthPanelCount = 0;
-        const panelWidthMm = this.getPanelWidthMm();
+        const panelWidths = new Set();
 
         this.job.runs.forEach(run => {
           const panelCount = run.panels.length;
           totalPanels += panelCount;
           totalPosts += panelCount + 1;
           totalMetres += run.length || 0;
+          if (panelCount > 0) panelWidths.add(this.getRunPanelWidthMm(run));
           run.panels.forEach(p => {
             const pl = Math.min(7, (p.slopePlinths || 0) + p.retaining / 150);
             totalPlinths += pl;
@@ -2696,8 +2711,9 @@
           });
         });
 
+        const widthStr = panelWidths.size > 1 ? 'mixed' : (panelWidths.size === 1 ? [...panelWidths][0] + 'mm' : this.getPanelWidthMm() + 'mm');
         document.getElementById('statMetres').textContent =
-          totalMetres > 0 ? `${totalMetres.toFixed(1)}m / ${totalPanels} × ${panelWidthMm}mm` : '0.0m';
+          totalMetres > 0 ? `${totalMetres.toFixed(1)}m / ${totalPanels} × ${widthStr}` : '0.0m';
         document.getElementById('statPanels').textContent = totalPanels;
         document.getElementById('statPosts').textContent = totalPosts;
         document.getElementById('statPlinths').textContent =
@@ -5674,8 +5690,8 @@
 
           // Warning badge for max capacity (capped or at limit)
           const maxWarning = derived.plinthsCapped
-            ? ' <span title="Max plinth capacity — slope + retaining exceeds 4" style="color:#e65100;font-weight:700;">\u26A0</span>'
-            : (derived.plinths >= 4 ? ' <span title="Max retaining — consider engineered wall" style="color:#e65100;font-weight:700;">\u26A0</span>' : '');
+            ? ' <span title="Max plinth capacity -- slope + retaining exceeds 7" style="color:#e65100;font-weight:700;">\u26A0</span>'
+            : (derived.plinths >= 7 ? ' <span title="Max retaining -- consider engineered wall" style="color:#e65100;font-weight:700;">\u26A0</span>' : '');
 
           return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
@@ -5746,6 +5762,13 @@
                   ${SHEET_HEIGHTS.map(h =>
                     `<option value="${h}" ${run.sheetHeight === h ? 'selected' : ''}>${h}mm</option>`
                   ).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Panel Width</label>
+                <select onchange="app.updateRunSettings('${run.id}', 'panelSize', this.value)">
+                  <option value="standard" ${run.panelSize !== 'long' ? 'selected' : ''}>Standard (${app.getPanelWidthMm()}mm)</option>
+                  <option value="long" ${run.panelSize === 'long' ? 'selected' : ''}>Long (3150mm)</option>
                 </select>
               </div>
               <div class="form-group">
@@ -7045,7 +7068,7 @@
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
 
         // Dimensions
-        const panelWidthMm = this.getPanelWidthMm();
+        const panelWidthMm = this.getRunPanelWidthMm(run);
         const panelWidthM = panelWidthMm / 1000;
         const postW = 0.05;
         const railH = 0.025;
@@ -7725,13 +7748,13 @@
         // Total retaining per panel (slope plinths + manual retaining), capped at 7 plinths (1050mm)
         function panelTotalRetaining(p) {
           const raw = (p.slopePlinths || 0) * 150 + p.retaining;
-          return Math.min(600, raw); // cap at 4 plinths
+          return Math.min(1050, raw); // cap at 7 plinths
         }
 
         // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
-        const panelWidthMm = this.getPanelWidthMm();
+        const panelWidthMm = this.getRunPanelWidthMm(run);
         const postWidthMm = 50;
         const patioWidthMm = 120;  // visual only, does not affect layout spacing
         const embedDepthMm = 600;
@@ -8572,8 +8595,8 @@
           else if (t === 'asbestos') { js.removeAsbestos = true; js.removeAsbestosQty += Math.ceil(len); }
         });
         const supplier = SUPPLIER_PROFILES[job.supplier] || SUPPLIER_PROFILES.RNR;
-        const panelWidthMm = supplier.panelWidth;
-        const panelWidthM = panelWidthMm / 1000;
+        const defaultPanelWidthMm = supplier.panelWidth;
+        const defaultPanelWidthM = defaultPanelWidthMm / 1000;
 
         // Unit prices (needed inside per-run loop for run subtotals)
         const pricePerMetre = job.pricePerMetre || 125;
@@ -8590,6 +8613,7 @@
         const isGateOnly = job.scopeType === 'gate-only';
 
         if (!isGateOnly) job.runs.forEach(run => {
+          const runPanelWidthMm = this.getRunPanelWidthMm(run);
           const panelCount = run.panels.length;
           const postCount = panelCount + 1;
           totalMetres += run.length || 0;
@@ -8614,9 +8638,9 @@
             const patio = plinths >= 3;
             if (patio) panelsWithPatio++;
 
-            // Group panels by sheet height + post height for material order
-            const key = `${panel.height}_${postH}`;
-            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, count: 0 };
+            // Group panels by sheet height + post height + panel width for material order
+            const key = `${panel.height}_${postH}_${runPanelWidthMm}`;
+            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, panelW: runPanelWidthMm, count: 0 };
             postGroups[key].count++;
 
             panelDetails.push({
@@ -8654,6 +8678,7 @@
             neighbourId: run.neighbourId || null,
             panelCount,
             postCount,
+            panelWidthMm: runPanelWidthMm,
             plinths: runPlinths,
             patioTubes,
             panelsWithPatio,
@@ -8906,7 +8931,7 @@
         return {
           job, js, scopeType: job.scopeType || 'fence-and-gate',
           supplier: job.supplier, profile: job.profile, colour: job.colour,
-          panelWidthMm, panelWidthM, pricePerMetre,
+          panelWidthMm: defaultPanelWidthMm, panelWidthM: defaultPanelWidthM, pricePerMetre,
           totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
           postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
@@ -9283,7 +9308,7 @@
 
         let panelLines = '';
         Object.values(d.postGroups).forEach(g => {
-          panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n    Colour: ${d.colour}\n\n`;
+          panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${g.panelW || d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n    Colour: ${d.colour}\n\n`;
         });
 
         let order = '';
@@ -9453,7 +9478,7 @@
               <div><span class="label">Supplier:</span> <span class="value">${d.supplier}</span></div>
               <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
               <div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>
-              <div><span class="label">Panel width:</span> <span class="value">${d.panelWidthMm}mm</span></div>
+              <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(d.runDetails.map(r => r.panelWidthMm || d.panelWidthMm)); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
             </div>
           </div>
           ${runsHtml}
@@ -11327,7 +11352,7 @@
       // ── Section 1: Panels & Posts ──
       var panelRows = [];
       Object.values(d.postGroups).forEach(function(g) {
-        var desc = g.count + ' &times; ' + g.sheetH + 'H &times; ' + d.panelWidthMm + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + (d.colour || 'Shale Grey');
+        var desc = g.count + ' &times; ' + g.sheetH + 'H &times; ' + (g.panelW || d.panelWidthMm) + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + (d.colour || 'Shale Grey');
         panelRows.push({ idx: checkIdx++, desc: desc, matQty: g.count });
       });
       // Cross-check total panels vs pricing fencing line
