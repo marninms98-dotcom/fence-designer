@@ -1563,39 +1563,54 @@
         { ret: 150, post: 1800, patio: false },
         { ret: 300, post: 1800, patio: false },
         { ret: 450, post: 2100, patio: true },
-        { ret: 600, post: 2100, patio: true }
+        { ret: 600, post: 2100, patio: true },
+        { ret: 750, post: 2400, patio: true },
+        { ret: 900, post: 2700, patio: true },
+        { ret: 1050, post: 2700, patio: true }
       ],
       1200: [
         { ret: 0,   post: 1800, patio: false },
         { ret: 150, post: 2100, patio: false },
         { ret: 300, post: 2100, patio: false },
         { ret: 450, post: 2400, patio: true },
-        { ret: 600, post: 2400, patio: true }
+        { ret: 600, post: 2400, patio: true },
+        { ret: 750, post: 2700, patio: true },
+        { ret: 900, post: 2700, patio: true },
+        { ret: 1050, post: 3000, patio: true }
       ],
       1500: [
         { ret: 0,   post: 2100, patio: false },
         { ret: 150, post: 2400, patio: false },
         { ret: 300, post: 2400, patio: false },
         { ret: 450, post: 2700, patio: true },
-        { ret: 600, post: 2700, patio: true }
+        { ret: 600, post: 2700, patio: true },
+        { ret: 750, post: 2700, patio: true },
+        { ret: 900, post: 3000, patio: true },
+        { ret: 1050, post: 3000, patio: true }
       ],
       1800: [
         { ret: 0,   post: 2400, patio: false },
         { ret: 150, post: 2700, patio: false },
         { ret: 300, post: 2700, patio: false },
         { ret: 450, post: 3000, patio: true },
-        { ret: 600, post: 3000, patio: true }
+        { ret: 600, post: 3000, patio: true },
+        { ret: 750, post: 3000, patio: true },
+        { ret: 900, post: 3000, patio: true },
+        { ret: 1050, post: 3000, patio: true }
       ],
       2100: [
         { ret: 0,   post: 2700, patio: false },
         { ret: 150, post: 3000, patio: false },
         { ret: 300, post: 3000, patio: false },
         { ret: 450, post: 3000, patio: true },
-        { ret: 600, post: 3000, patio: true }
+        { ret: 600, post: 3000, patio: true },
+        { ret: 750, post: 3000, patio: true },
+        { ret: 900, post: 3000, patio: true },
+        { ret: 1050, post: 3000, patio: true }
       ]
     };
 
-    const RETAINING_OPTIONS = [0, 150, 300, 450, 600];
+    const RETAINING_OPTIONS = [0, 150, 300, 450, 600, 750, 900, 1050];
     const SHEET_HEIGHTS = [900, 1200, 1500, 1800, 2100];
     const RUN_NAME_OPTIONS = ['', 'LHS', 'RHS', 'Rear', 'Front', 'LHS Rear', 'RHS Rear', 'LHS Front', 'RHS Front', 'Side Return', 'Other'];
     const RUN_NAME_CYCLE = ['Rear', 'LHS', 'RHS', 'Front'];
@@ -1744,7 +1759,7 @@
       else if (required <= 2700) postSize = 2700;
       else postSize = 3000;
       const plinths = retaining / 150;
-      return { ret: retaining, post: postSize, patio: plinths >= 3 && plinths <= 4 };
+      return { ret: retaining, post: postSize, patio: plinths >= 3 };
     }
 
     // ── Application ──
@@ -1795,7 +1810,6 @@
               coreDrill: false,
               coreDrillHoles: 0,
               fenceLocation: [],
-              manufacturer: '',
               supplierSource: ''
             },
             quote: {
@@ -2028,11 +2042,11 @@
         const slopePlinths = panel.slopePlinths || 0;
         const manualPlinths = panel.retaining / 150;
         const rawPlinths = slopePlinths + manualPlinths;
-        const plinths = Math.min(4, rawPlinths); // Total capped at 4
-        const plinthsCapped = rawPlinths > 4;
+        const plinths = Math.min(7, rawPlinths); // Total capped at 7
+        const plinthsCapped = rawPlinths > 7;
         const totalRetaining = plinths * 150;
         const totalHeight = panel.height + totalRetaining;
-        const lookup = lookupPost(panel.height, Math.min(600, totalRetaining));
+        const lookup = lookupPost(panel.height, Math.min(1050, totalRetaining));
         return {
           plinths,
           rawPlinths,
@@ -2043,7 +2057,7 @@
           totalHeight,
           postSize: lookup.post,
           patio: lookup.patio,
-          needsPatioTube: plinths >= 3 && plinths <= 4
+          needsPatioTube: plinths >= 3
         };
       },
 
@@ -2085,7 +2099,7 @@
         const runLengthM = run.length || 0;
         const slopePoints = (run.slope && run.slope.points) || [];
         const plinthH = 150;
-        const maxStepsPerPanel = 4; // 600mm max step between adjacent panels
+        const maxStepsPerPanel = 7; // 1050mm max step between adjacent panels
 
         // Get the interpolated ground height at each post position (panelCount + 1 posts)
         const groundHeights = [];
@@ -2110,11 +2124,11 @@
           const prevBase = baseLevels[i - 1];
           const dropFromPrevBase = prevBase - groundAtPost; // positive = ground is lower
           if (dropFromPrevBase >= plinthH) {
-            // Step down by however many full plinths fit, capped at 4 (600mm)
+            // Step down by however many full plinths fit, capped at 7 (1050mm)
             const steps = Math.min(maxStepsPerPanel, Math.floor(dropFromPrevBase / plinthH));
             baseLevels[i] = prevBase - steps * plinthH;
           } else if (dropFromPrevBase <= -plinthH) {
-            // Ground has risen — step up, capped at 4 (600mm)
+            // Ground has risen -- step up, capped at 7 (1050mm)
             const steps = Math.min(maxStepsPerPanel, Math.floor(-dropFromPrevBase / plinthH));
             baseLevels[i] = prevBase + steps * plinthH;
           } else {
@@ -2132,7 +2146,7 @@
           const groundRight = groundHeights[i + 1];
           const lowestGround = Math.min(groundLeft, groundRight);
           const gapMm = baseLevels[i] - lowestGround; // how far base is above ground
-          const slopePlinths = Math.max(0, Math.min(4, Math.round(gapMm / plinthH)));
+          const slopePlinths = Math.max(0, Math.min(7, Math.round(gapMm / plinthH)));
           panel.slopePlinths = slopePlinths;
 
           // Step direction and magnitude: compare this panel's base to previous
@@ -2638,10 +2652,16 @@
           run.panels.forEach((panel, idx) => {
             const totalRetaining = panel.retaining + (panel.slopePlinths || 0) * 150;
             const totalPlinths = totalRetaining / 150;
-            if (totalPlinths >= 4) {
+            if (totalPlinths >= 7) {
               warnings.push({
                 type: 'warn',
                 msg: `${run.name} P${idx + 1}: Panel at maximum plinth capacity (${totalRetaining}mm). Additional retaining requires engineered solution.`
+              });
+            }
+            if (totalPlinths >= 6) {
+              warnings.push({
+                type: 'warn',
+                msg: `${run.name} P${idx + 1}: ${totalRetaining}mm retaining (${totalPlinths} plinths) may require engineered retaining solution. Confirm with site supervisor.`
               });
             }
             if (totalRetaining > 500) {
@@ -2670,7 +2690,7 @@
           totalPosts += panelCount + 1;
           totalMetres += run.length || 0;
           run.panels.forEach(p => {
-            const pl = Math.min(4, (p.slopePlinths || 0) + p.retaining / 150);
+            const pl = Math.min(7, (p.slopePlinths || 0) + p.retaining / 150);
             totalPlinths += pl;
             if (pl > 0) plinthPanelCount++;
           });
@@ -3639,13 +3659,6 @@
         document.getElementById('bodyInstallation').innerHTML = `
           <div class="form-row">
             <div class="form-group">
-              <label>Manufacturer</label>
-              <select id="mfrSelect" onchange="app.updateInstallation('manufacturer', this.value)">
-                <option value="">Select...</option>
-                ${['RnR','Metroll','Lysaght'].map(m => `<option value="${m}" ${inst.manufacturer === m ? 'selected' : ''}>${m}</option>`).join('')}
-              </select>
-            </div>
-            <div class="form-group">
               <label>Supplier (Buy From)</label>
               <select id="supSelect" onchange="app.updateInstallation('supplierSource', this.value)">
                 <option value="">Select...</option>
@@ -3694,7 +3707,6 @@
               style="margin-top:8px;" onchange="app.updateInstallation('coreDrillHoles', this.value)">` : ''}
           </div>
         `;
-        this._addCustomOption('mfrSelect', inst.manufacturer, ['RnR','Metroll','Lysaght'], 'Enter manufacturer name...', function(v) { app.updateInstallation('manufacturer', v); });
         this._addCustomOption('supSelect', inst.supplierSource, ['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'], 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
         this._addCustomPanelSystemInputs(j.supplier, j.customPanelWidth);
         this.updateProfileDropdown();
@@ -6128,7 +6140,7 @@
         const lowGndY = layout.groundY + lowOff * layout.scale;
         const rawRetMm = (lowGndY - worldY) / layout.scale;
         const snapped = Math.round(rawRetMm / plinthHeightMm) * plinthHeightMm;
-        run.panels[panelIdx].retaining = Math.max(0, Math.min(600, snapped));
+        run.panels[panelIdx].retaining = Math.max(0, Math.min(1050, snapped));
       },
 
       // Show the retaining handle drag tooltip
@@ -6450,7 +6462,7 @@
               sel.value = panel.retaining;
             }
 
-            // Update plinths display (total, capped at 4)
+            // Update plinths display (total, capped at 7)
             const plTd = row.querySelector('.col-pl');
             if (plTd) {
               const maxW = derived.plinthsCapped
@@ -7082,11 +7094,11 @@
           const leftPanel = pi > 0 ? run.panels[pi-1] : null;
           const rightPanel = pi < panelCount ? run.panels[pi] : null;
           if (leftPanel) {
-            const lk = lookupPost(leftPanel.height, Math.min(4, (leftPanel.slopePlinths||0) + leftPanel.retaining/150) * 150);
+            const lk = lookupPost(leftPanel.height, Math.min(7, (leftPanel.slopePlinths||0) + leftPanel.retaining/150) * 150);
             postH = Math.max(postH, lk.post / 1000);
           }
           if (rightPanel) {
-            const rk = lookupPost(rightPanel.height, Math.min(4, (rightPanel.slopePlinths||0) + rightPanel.retaining/150) * 150);
+            const rk = lookupPost(rightPanel.height, Math.min(7, (rightPanel.slopePlinths||0) + rightPanel.retaining/150) * 150);
             postH = Math.max(postH, rk.post / 1000);
           }
           if (postH === 0) postH = (run.sheetHeight + 600) / 1000; // fallback
@@ -7106,8 +7118,8 @@
           // Patio tube if needed
           if (leftPanel || rightPanel) {
             const checkP = rightPanel || leftPanel;
-            const totalPl = Math.min(4, (checkP.slopePlinths||0) + checkP.retaining/150);
-            if (totalPl >= 3 && totalPl <= 4) {
+            const totalPl = Math.min(7, (checkP.slopePlinths||0) + checkP.retaining/150);
+            if (totalPl >= 3) {
               const tube = new THREE.Mesh(new THREE.BoxGeometry(0.076, aboveGnd, 0.038), galvMat);
               tube.position.set(cursorX, gndY + aboveGnd/2, -0.04);
               tube.castShadow = true;
@@ -7124,7 +7136,7 @@
 
             const slopePl = panel.slopePlinths || 0;
             const manualPl = panel.retaining / 150;
-            const totalPl = Math.min(4, slopePl + manualPl);
+            const totalPl = Math.min(7, slopePl + manualPl);
             const retH = totalPl * plinthH;
             let stackY = panelGnd;
 
@@ -7315,7 +7327,7 @@
         panelPositions.forEach((pp, pi) => {
           const panel = run.panels[pi];
           if (!panel) return;
-          const totalPl = Math.min(4, (panel.slopePlinths||0) + panel.retaining/150);
+          const totalPl = Math.min(7, (panel.slopePlinths||0) + panel.retaining/150);
           if (totalPl <= 0) return;
           const retH = totalPl * plinthH;
           const pX = pp.x;
@@ -7528,7 +7540,7 @@
           run.panels.forEach(p => {
             const sp = p.slopePlinths || 0;
             const mp = p.retaining / 150;
-            totalPlinths += Math.min(4, sp + mp);
+            totalPlinths += Math.min(7, sp + mp);
           });
           if (run.slope && run.slope.simple && run.slope.simple.totalFallMm > 0) hasSlope = true;
         });
@@ -7710,7 +7722,7 @@
           return `rgb(${Math.round(Math.min(255, r * factor))},${Math.round(Math.min(255, g * factor))},${Math.round(Math.min(255, b * factor))})`;
         }
 
-        // Total retaining per panel (slope plinths + manual retaining), capped at 4 plinths (600mm)
+        // Total retaining per panel (slope plinths + manual retaining), capped at 7 plinths (1050mm)
         function panelTotalRetaining(p) {
           const raw = (p.slopePlinths || 0) * 150 + p.retaining;
           return Math.min(600, raw); // cap at 4 plinths
@@ -8328,10 +8340,10 @@
             const slopePl = panel.slopePlinths || 0;
             const manualPl = panel.retaining / 150;
             const totalPl = slopePl + manualPl;
-            if (totalPl > 4) {
-              errors.push(`${run.name} P${idx+1}: ${totalPl} plinths exceeds maximum 4. Requires engineered retaining solution.`);
+            if (totalPl > 7) {
+              errors.push(`${run.name} P${idx+1}: ${totalPl} plinths exceeds maximum 7. Requires engineered retaining solution.`);
             }
-            const totalRet = Math.min(4, totalPl) * 150;
+            const totalRet = Math.min(7, totalPl) * 150;
             if (totalRet > 500) {
               warnings.push(`${run.name} P${idx+1}: Retaining ${totalRet}mm > 500mm requires Building Permit + Engineer Cert in WA.`);
             }
@@ -8592,14 +8604,14 @@
           run.panels.forEach((panel, idx) => {
             const slopePl = panel.slopePlinths || 0;
             const manualPl = panel.retaining / 150;
-            const totalPl = Math.min(4, slopePl + manualPl);
+            const totalPl = Math.min(7, slopePl + manualPl);
             const totalRet = totalPl * 150;
             const plinths = totalPl;
             runPlinths += plinths;
 
             const lookup = lookupPost(panel.height, totalRet);
             const postH = lookup.post;
-            const patio = plinths >= 3 && plinths <= 4;
+            const patio = plinths >= 3;
             if (patio) panelsWithPatio++;
 
             // Group panels by sheet height + post height for material order
@@ -10700,8 +10712,8 @@
                 if (p.step === undefined) p.step = p.ground || 'level';
                 if (p.slopePlinths === undefined) p.slopePlinths = 0;
                 if (p.stepMm === undefined) p.stepMm = 0;
-                // Clamp any legacy 750mm retaining to 600mm max
-                if (p.retaining > 600) p.retaining = 600;
+                // Clamp any legacy retaining to 1050mm max
+                if (p.retaining > 1050) p.retaining = 1050;
               });
             });
             // Migration: new scope form fields
@@ -10732,7 +10744,6 @@
                 coreDrill: false,
                 coreDrillHoles: 0,
                 fenceLocation: [],
-                manufacturer: '',
                 supplierSource: ''
               };
             }
