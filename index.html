@@ -803,6 +803,7 @@
     }
 
     .panel-table .col-pnum { width: 36px; font-weight: 700; color: #293C46; }
+    .panel-table .col-w { width: 44px; text-align: center; }
     .panel-table .col-ht { width: 60px; }
     .panel-table .col-slope { width: 44px; color: #8B7355; text-align: center; }
     .panel-table .col-ret { width: 70px; }
@@ -1954,7 +1955,7 @@
       },
 
       // ── Section 3.5: Panel width by supplier ──
-      // Global default (standard width). Use getRunPanelWidthMm(run) for per-run width.
+      // Global default (standard width). Use getPanelW(panel) for per-panel width.
       getPanelWidthMm() {
         const s = SUPPLIER_PROFILES[this.job.supplier];
         if (s) return s.panelWidth;
@@ -1965,9 +1966,9 @@
         return this.getPanelWidthMm() / 1000;
       },
 
-      // Per-run panel width: standard or long (3150mm)
-      getRunPanelWidthMm(run) {
-        if (run && run.panelSize === 'long') {
+      // Per-panel width: standard or long (3150mm)
+      getPanelW(panel) {
+        if (panel && panel.panelWidth === 'long') {
           const s = SUPPLIER_PROFILES[this.job.supplier];
           if (s) return s.longPanelWidth || 3150;
           return 3150;
@@ -1976,11 +1977,15 @@
       },
 
       // ── Section 6.1: Auto-calculate panel count from run length ──
-      calcPanelCount(lengthM, run) {
+      // Fixed widths for panel count calc (actual supplier widths used for pricing/materials)
+      CALC_STANDARD_W: 2400,
+      CALC_LONG_W: 3150,
+
+      calcPanelCount(lengthM) {
         if (!lengthM || lengthM <= 0) return 0;
         const lengthMm = lengthM * 1000;
-        const panelW = run ? this.getRunPanelWidthMm(run) : this.getPanelWidthMm();
-        // Rule: length ÷ panel width, round up. Order full panels, cut on site.
+        const panelW = this.CALC_STANDARD_W;
+        // Rule: length / panel width, round up. Order full panels, cut on site.
         // Tolerance: if remainder < 50mm (covered by post overlap), don't add a panel.
         const raw = lengthMm / panelW;
         const remainder = lengthMm - Math.floor(raw) * panelW;
@@ -2022,7 +2027,7 @@
 
       // ── Sync panels to match calculated panel count ──
       syncPanels(run) {
-        const targetCount = this.calcPanelCount(run.length, run);
+        const targetCount = this.calcPanelCount(run.length);
         if (targetCount === 0) {
           run.panels = [];
           return;
@@ -2035,13 +2040,32 @@
             retaining: 0,
             step: 'level',
             stepMm: 0,
-            slopePlinths: 0
+            slopePlinths: 0,
+            panelWidth: 'standard'
           });
         }
 
         // If decreased, remove from end (but only excess)
         if (run.panels.length > targetCount) {
           run.panels = run.panels.slice(0, targetCount);
+        }
+
+        // Reset all panels to standard before optimizing
+        run.panels.forEach(p => { p.panelWidth = 'standard'; });
+
+        // Long-panel optimization: if swapping the last panel to long saves a panel, do it.
+        // E.g. 22m: 10 standard (24m, wasted last panel) vs 8 std + 1 long (22.35m, 9 panels)
+        if (run.length > 0 && targetCount >= 2) {
+          const lengthMm = run.length * 1000;
+          const stdW = this.CALC_STANDARD_W;
+          const lngW = this.CALC_LONG_W;
+          // Can we cover the length with (targetCount - 2) standard + 1 long?
+          const reducedCoverage = (targetCount - 2) * stdW + lngW;
+          if (reducedCoverage >= lengthMm) {
+            // Remove the last panel and set the new last panel to long
+            run.panels = run.panels.slice(0, targetCount - 1);
+            run.panels[run.panels.length - 1].panelWidth = 'long';
+          }
         }
 
         // Sync slope points to match current run length
@@ -2058,6 +2082,8 @@
         const totalRetaining = plinths * 150;
         const totalHeight = panel.height + totalRetaining;
         const lookup = lookupPost(panel.height, Math.min(1050, totalRetaining));
+        const isLong = panel.panelWidth === 'long';
+        const panelWidthMm = isLong ? this.getPanelW(panel) : this.getPanelWidthMm();
         return {
           plinths,
           rawPlinths,
@@ -2068,7 +2094,9 @@
           totalHeight,
           postSize: lookup.post,
           patio: lookup.patio,
-          needsPatioTube: plinths >= 3
+          needsPatioTube: plinths >= 3,
+          isLong,
+          panelWidthMm
         };
       },
 
@@ -2512,9 +2540,6 @@
           run.extension = value;
         } else if (field === 'neighbourId') {
           run.neighbourId = value || null;
-        } else if (field === 'panelSize') {
-          run.panelSize = value;
-          this.syncPanels(run);
         }
 
         this.save();
@@ -2586,6 +2611,8 @@
           panel.retaining = parseInt(value);
         } else if (field === 'step') {
           panel.step = value;
+        } else if (field === 'panelWidth') {
+          panel.panelWidth = value;
         }
 
         this.save();
@@ -2703,7 +2730,9 @@
           totalPanels += panelCount;
           totalPosts += panelCount + 1;
           totalMetres += run.length || 0;
-          if (panelCount > 0) panelWidths.add(this.getRunPanelWidthMm(run));
+          run.panels.forEach(p => {
+            panelWidths.add(this.getPanelW(p));
+          });
           run.panels.forEach(p => {
             const pl = Math.min(7, (p.slopePlinths || 0) + p.retaining / 150);
             totalPlinths += pl;
@@ -3521,6 +3550,7 @@
         if (field === 'sharePercent') {
           const bar = document.getElementById('nbCostSummaryBar');
           if (bar) bar.innerHTML = this._buildCostSummaryBarContent();
+          this.renderQuoteAndOrders();
         }
       },
 
@@ -5695,6 +5725,12 @@
 
           return `<tr data-panel-idx="${idx}" onclick="app.selectPanel(${idx})" style="cursor:pointer;" class="${this.highlightedPanelIdx === idx ? 'panel-row-highlight' : ''}">
             <td class="col-pnum">P${idx + 1}</td>
+            <td class="col-w">
+              <select onchange="app.updatePanel('${run.id}', ${idx}, 'panelWidth', this.value)" style="width:42px;font-size:11px;padding:2px;">
+                <option value="standard" ${panel.panelWidth !== 'long' ? 'selected' : ''}>Std</option>
+                <option value="long" ${panel.panelWidth === 'long' ? 'selected' : ''}>Lng</option>
+              </select>
+            </td>
             <td class="col-ht">
               <select onchange="app.updatePanel('${run.id}', ${idx}, 'height', this.value)">
                 ${SHEET_HEIGHTS.map(h =>
@@ -5762,13 +5798,6 @@
                   ${SHEET_HEIGHTS.map(h =>
                     `<option value="${h}" ${run.sheetHeight === h ? 'selected' : ''}>${h}mm</option>`
                   ).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Panel Width</label>
-                <select onchange="app.updateRunSettings('${run.id}', 'panelSize', this.value)">
-                  <option value="standard" ${run.panelSize !== 'long' ? 'selected' : ''}>Standard (${app.getPanelWidthMm()}mm)</option>
-                  <option value="long" ${run.panelSize === 'long' ? 'selected' : ''}>Long (3150mm)</option>
                 </select>
               </div>
               <div class="form-group">
@@ -5925,6 +5954,7 @@
                 <thead>
                   <tr>
                     <th>P#</th>
+                    <th>W</th>
                     <th>Sheet Ht</th>
                     <th title="Slope-generated plinths (auto)">Slope</th>
                     <th title="Manual retaining (mm)">Ret (mm)</th>
@@ -7068,8 +7098,8 @@
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
 
         // Dimensions
-        const panelWidthMm = this.getRunPanelWidthMm(run);
-        const panelWidthM = panelWidthMm / 1000;
+        const defaultPanelWidthMm = this.getPanelWidthMm();
+        const defaultPanelWidthM = defaultPanelWidthMm / 1000;
         const postW = 0.05;
         const railH = 0.025;
         const plinthH = 0.15;
@@ -7084,9 +7114,16 @@
         const groundOffsets = new Array(panelCount + 1).fill(0);
         if (run.slope && run.slope.points && run.slope.points.length >= 2) {
           const pts = run.slope.points;
-          const totalLen = run.length || (panelCount * panelWidthMm / 1000);
+          const totalLen = run.length || (panelCount * defaultPanelWidthMm / 1000);
+          // Compute cumulative X positions for ground offset interpolation
+          let _cumX = 0;
+          const _panelXEnds = [];
+          for (let _pi = 0; _pi < panelCount; _pi++) {
+            _cumX += this.getPanelW(run.panels[_pi]) / 1000;
+            _panelXEnds.push(_cumX);
+          }
           for (let pi = 0; pi <= panelCount; pi++) {
-            const xM = pi * panelWidthM;
+            const xM = pi === 0 ? 0 : _panelXEnds[pi - 1];
             let hMm = 0;
             for (let si = 0; si < pts.length - 1; si++) {
               const dS = pts[si].distanceM || 0;
@@ -7154,7 +7191,9 @@
           // ── PANEL ──
           if (pi < panelCount) {
             const panel = run.panels[pi];
-            const panelX = cursorX + postW/2 + panelWidthM/2;
+            const thisPanelWMm = this.getPanelW(panel);
+            const thisPanelW = thisPanelWMm / 1000;
+            const panelX = cursorX + postW/2 + thisPanelW/2;
             const panelGnd = Math.min(groundOffsets[pi], groundOffsets[pi+1]);
 
             const slopePl = panel.slopePlinths || 0;
@@ -7165,7 +7204,7 @@
 
             // Plinths (single block, same depth as fence sheet)
             if (totalPl > 0) {
-              const plGeo = new THREE.BoxGeometry(panelWidthM, retH, 0.015);
+              const plGeo = new THREE.BoxGeometry(thisPanelW, retH, 0.015);
               const pl = new THREE.Mesh(plGeo, plinthMat.clone());
               pl.material.color = fenceCol.clone().multiplyScalar(0.75);
               pl.position.set(panelX, panelGnd + retH/2, 0);
@@ -7174,7 +7213,7 @@
               f.fenceGrp.add(pl);
               // Horizontal lines to show plinth divisions
               for (let pli = 1; pli < totalPl; pli++) {
-                const line = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, 0.003, 0.017), postMat);
+                const line = new THREE.Mesh(new THREE.BoxGeometry(thisPanelW, 0.003, 0.017), postMat);
                 line.position.set(panelX, panelGnd + pli * plinthH, 0);
                 f.fenceGrp.add(line);
               }
@@ -7182,7 +7221,7 @@
             }
 
             // Bottom rail
-            const bRail = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, railH, 0.04), railMat);
+            const bRail = new THREE.Mesh(new THREE.BoxGeometry(thisPanelW, railH, 0.04), railMat);
             bRail.position.set(panelX, stackY + railH/2, 0);
             bRail.castShadow = true;
             f.fenceGrp.add(bRail);
@@ -7190,16 +7229,16 @@
 
             // Sheet (corrugated)
             const sheetH = panel.height / 1000;
-            const sheetGeo = this._createFenceSheetGeo(panelWidthM, sheetH, profile);
+            const sheetGeo = this._createFenceSheetGeo(thisPanelW, sheetH, profile);
             const sheet = new THREE.Mesh(sheetGeo, panelMat);
             sheet.position.set(panelX, stackY + sheetH/2, 0);
             sheet.castShadow = true; sheet.receiveShadow = true;
-            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${panelWidthMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
+            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
             f.fenceGrp.add(sheet);
             stackY += sheetH;
 
             // Cap rail
-            const cRail = new THREE.Mesh(new THREE.BoxGeometry(panelWidthM, railH, 0.045), capMat);
+            const cRail = new THREE.Mesh(new THREE.BoxGeometry(thisPanelW, railH, 0.045), capMat);
             cRail.position.set(panelX, stackY + railH/2, 0);
             cRail.castShadow = true;
             f.fenceGrp.add(cRail);
@@ -7209,7 +7248,7 @@
             maxFenceTop = Math.max(maxFenceTop, panelTop);
             panelPositions.push({ x: panelX, gnd: panelGnd, top: panelTop, retH, sheetH, panelIdx: pi });
 
-            cursorX += postW + panelWidthM;
+            cursorX += postW + thisPanelW;
           }
         }
 
@@ -7283,7 +7322,7 @@
         }
 
         // ══ DIMENSIONS ══
-        const totalLenM = run.length || (panelCount * panelWidthM);
+        const totalLenM = run.length || (panelCount * defaultPanelWidthM);
         // Run length dimension (along top)
         const dimOffY = maxFenceTop + 0.3;
         f.dimGrp.add(this._createDimLine(
@@ -7364,15 +7403,16 @@
           bankShape.lineTo(-bankDepth, pGnd + retH * 0.1);
           bankShape.lineTo(-bankDepth, pGnd);
           bankShape.closePath();
-          const bankGeo = new THREE.ExtrudeGeometry(bankShape, { depth: panelWidthM, bevelEnabled: false });
+          const ppPanelW = this.getPanelW(panel) / 1000;
+          const bankGeo = new THREE.ExtrudeGeometry(bankShape, { depth: ppPanelW, bevelEnabled: false });
           const bank = new THREE.Mesh(bankGeo, nbEarthMat);
           bank.rotation.y = Math.PI/2;
-          bank.position.set(pX + panelWidthM/2, 0, -postW/2);
+          bank.position.set(pX + ppPanelW/2, 0, -postW/2);
           bank.castShadow = true; bank.receiveShadow = true;
           bank.userData = { info: '<b>Neighbour Ground</b><br>Raised ' + Math.round(retH*1000) + 'mm<br>Retaining wall holds this earth back' };
           f.envGrp.add(bank);
           // Grass cap on top of bank
-          const grassCap = new THREE.Mesh(new THREE.PlaneGeometry(panelWidthM, bankDepth * 0.35),
+          const grassCap = new THREE.Mesh(new THREE.PlaneGeometry(ppPanelW, bankDepth * 0.35),
             nbGrassMat);
           grassCap.rotation.x = -Math.PI/2;
           grassCap.position.set(pX, pGnd + retH + 0.002, -postW/2 - bankDepth * 0.15);
@@ -7754,7 +7794,6 @@
         // ── Dimensions in mm ──
         const panelCount = run.panels.length;
         const postCount = panelCount + 1;
-        const panelWidthMm = this.getRunPanelWidthMm(run);
         const postWidthMm = 50;
         const patioWidthMm = 120;  // visual only, does not affect layout spacing
         const embedDepthMm = 600;
@@ -7799,7 +7838,9 @@
           const above = panelTopMm - lowOffset;
           if (above > maxAboveGndYMm) maxAboveGndYMm = above;
         });
-        const totalFenceWidthMm = panelCount * panelWidthMm + postCount * postWidthMm;
+        let totalPanelWidthMm = 0;
+        run.panels.forEach(p => { totalPanelWidthMm += this.getPanelW(p); });
+        const totalFenceWidthMm = totalPanelWidthMm + postCount * postWidthMm;
         const totalAboveMm = maxAboveGndYMm + 50; // small padding above fence top
         const totalBelowMm = maxGndOffset + embedDepthMm + 200;
         const totalVisualHeightMm = totalAboveMm + totalBelowMm + 150;
@@ -7825,7 +7866,7 @@
         const groundY = (ch / this.profileZoom) * 0.55 + totalAboveMm * scale * 0.1;
 
         // Cache layout for soil handle drag math
-        this._soilHandleLayout = { groundY, scale, groundOffsets, originX, postWidthMm, panelWidthMm };
+        this._soilHandleLayout = { groundY, scale, groundOffsets, originX, postWidthMm, run };
 
         const railH = railHeightMm * scale;
         const footingWMm = 300;
@@ -7860,7 +7901,7 @@
             const postGnd = groundY + groundOffsets[ei] * scale;
             const epanel = ei < panelCount ? run.panels[ei] : null;
             const epw = postWidthMm * scale;
-            const epanelW = panelWidthMm * scale;
+            const epanelW = epanel ? this.getPanelW(epanel) * scale : 0;
 
             // High-side ground at this post = low-side ground of adjacent panel - plinth stack
             // For a post, we use the highest adjacent panel's high-side level
@@ -7924,8 +7965,8 @@
           for (let ei = 0; ei <= panelCount; ei++) {
             const postGnd = groundY + groundOffsets[ei] * scale;
             const epw = postWidthMm * scale;
-            const epanelW = panelWidthMm * scale;
             const epanel = ei < panelCount ? run.panels[ei] : null;
+            const epanelW = epanel ? this.getPanelW(epanel) * scale : 0;
 
             let highSideAtPost = postGnd;
             if (ei > 0) {
@@ -8044,7 +8085,7 @@
 
           // ── PANEL (correct construction stacking: plinths → bottom rail → sheets → cap rail) ──
           if (panel) {
-            const panelW = panelWidthMm * scale;
+            const panelW = this.getPanelW(panel) * scale;
             const sheetH = panel.height * scale;
             const totalRet = panelTotalRetaining(panel);
             const plinths = totalRet / plinthHeightMm;
@@ -8119,7 +8160,7 @@
             if (this._panelTextureLoaded) {
               const ss = this.SRC_SHEET;
               const sheetWidthMm = 762;
-              const numSheets = Math.max(1, Math.floor(panelWidthMm / sheetWidthMm));
+              const numSheets = Math.max(1, Math.floor(this.getPanelW(panel) / sheetWidthMm));
               const tileW = panelW / numSheets;
               for (let si = 0; si < numSheets; si++) {
                 ctx.drawImage(this._panelTextureImg, ss.sx, ss.sy, ss.sw, ss.sh,
@@ -8295,7 +8336,6 @@
           const showHandles = isTouchDevice || this._soilHandleProximity || (this._soilHandleDrag && this._soilHandleDrag.active);
           const handleR = isTouchDevice ? 12 : 8;
           const epw = postWidthMm * scale;
-          const epanelW = panelWidthMm * scale;
 
           // Calculate handle positions (world coords) at each panel centre
           this._soilHandlePositions = [];
@@ -8303,6 +8343,7 @@
 
           for (let hi = 0; hi < panelCount; hi++) {
             const panel = run.panels[hi];
+            const epanelW = this.getPanelW(panel) * scale;
             const totalRet = panelTotalRetaining(panel);
 
             // Panel X start = after post hi
@@ -8613,7 +8654,6 @@
         const isGateOnly = job.scopeType === 'gate-only';
 
         if (!isGateOnly) job.runs.forEach(run => {
-          const runPanelWidthMm = this.getRunPanelWidthMm(run);
           const panelCount = run.panels.length;
           const postCount = panelCount + 1;
           totalMetres += run.length || 0;
@@ -8639,8 +8679,9 @@
             if (patio) panelsWithPatio++;
 
             // Group panels by sheet height + post height + panel width for material order
-            const key = `${panel.height}_${postH}_${runPanelWidthMm}`;
-            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, panelW: runPanelWidthMm, count: 0 };
+            const panelWidthMm = this.getPanelW(panel);
+            const key = `${panel.height}_${postH}_${panelWidthMm}`;
+            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, panelW: panelWidthMm, count: 0 };
             postGroups[key].count++;
 
             panelDetails.push({
@@ -8678,7 +8719,6 @@
             neighbourId: run.neighbourId || null,
             panelCount,
             postCount,
-            panelWidthMm: runPanelWidthMm,
             plinths: runPlinths,
             patioTubes,
             panelsWithPatio,
@@ -9478,7 +9518,7 @@
               <div><span class="label">Supplier:</span> <span class="value">${d.supplier}</span></div>
               <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
               <div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>
-              <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(d.runDetails.map(r => r.panelWidthMm || d.panelWidthMm)); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
+              <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(Object.values(d.postGroups).map(g => g.panelW)); if (ws.size === 0) ws.add(d.panelWidthMm); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
             </div>
           </div>
           ${runsHtml}
