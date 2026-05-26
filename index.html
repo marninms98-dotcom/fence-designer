@@ -8605,28 +8605,29 @@
           if (intRef) job.ref = intRef;
         }
         const rem = job.removal || {};
+        const removalActive = rem.removalRequired === true;
         const q = job.quote || {};
         const js = {
           access: rem.access || 'easy',
           urgency: q.urgency || 'standard',
           delivery: q.deliveryFee != null ? q.deliveryFee : 200,
-          removeHardie: rem.existingFenceType === 'hardie',
-          removeHardieQty: rem.existingFenceType === 'hardie' ? Math.ceil(rem.existingFenceLength || 0) : 0,
-          removeTimber: rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap',
-          removeTimberQty: (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
-          removeColorbond: rem.existingFenceType === 'colourbond',
-          removeColorbondQty: rem.existingFenceType === 'colourbond' ? (rem.existingFenceLength || 0) : 0,
-          removeAsbestos: rem.existingFenceType === 'asbestos',
-          removeAsbestosQty: rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
-          vegClear: rem.vegetation,
+          removeHardie: removalActive && rem.existingFenceType === 'hardie',
+          removeHardieQty: removalActive && rem.existingFenceType === 'hardie' ? Math.ceil(rem.existingFenceLength || 0) : 0,
+          removeTimber: removalActive && (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap'),
+          removeTimberQty: removalActive && (rem.existingFenceType === 'timber' || rem.existingFenceType === 'lap') ? (rem.existingFenceLength || 0) : 0,
+          removeColorbond: removalActive && rem.existingFenceType === 'colourbond',
+          removeColorbondQty: removalActive && rem.existingFenceType === 'colourbond' ? (rem.existingFenceLength || 0) : 0,
+          removeAsbestos: removalActive && rem.existingFenceType === 'asbestos',
+          removeAsbestosQty: removalActive && rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
+          vegClear: removalActive && rem.vegetation,
           groundFinish: q.groundFinish || 'none',
           custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 })),
           notes: job.siteNotes || '',
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
         };
-        // Aggregate removalExtras into the same qty totals
-        (rem.removalExtras || []).forEach(ex => {
+        // Only aggregate removalExtras if removal is active
+        if (removalActive) (rem.removalExtras || []).forEach(ex => {
           const t = (ex.fenceType || '').toLowerCase();
           const len = parseFloat(ex.length) || 0;
           if (!t || len <= 0) return;
