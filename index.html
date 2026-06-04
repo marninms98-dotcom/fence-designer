@@ -10102,6 +10102,24 @@
         doc.text('Your portion of the shared fencing project at ' + address, mx, y);
         y += 8;
 
+        // Quote description (if scoper entered one)
+        const quoteDesc = (d.job.quote && d.job.quote.customDescription) || (d.js && d.js.notes) || '';
+        if (quoteDesc.trim()) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(41, 60, 70);
+          doc.text('DESCRIPTION', mx, y);
+          doc.setDrawColor(76, 106, 124);
+          doc.line(mx, y + 1, pw - mx, y + 1);
+          y += 6;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(41, 60, 70);
+          const descLines = doc.splitTextToSize(quoteDesc.trim(), pw - mx * 2);
+          doc.text(descLines, mx, y);
+          y += descLines.length * 4 + 6;
+        }
+
         // Material selection
         const colourHex = this._getColourHex(d.colour);
         doc.setFont('helvetica', 'bold');
@@ -12295,6 +12313,10 @@
             }
           } catch(e) {
             console.warn('[SendQuote] Quote preparation failed:', e.message);
+            // For single-quote flow, surface the error immediately instead of silently skipping
+            if (!hasNeighbours) {
+              throw new Error('Could not prepare quote document: ' + (e.message || 'Unknown error') + '. Check your connection and try again.');
+            }
           }
 
           // Validate: for single-quote flow, prepData must exist
@@ -12325,11 +12347,33 @@
               updateStep('Warning: neighbour cost split missing', 'Neighbour quotes will not be sent. Check run assignments or neighbour percentages.');
               await new Promise(function(r) { setTimeout(r, 3000); });
             } else {
+            // Build ordered list of neighbourCosts keys to match backend contact order
+            var ncKeys = Object.keys(d.neighbourCosts);
+            var clientKey = ncKeys.indexOf('__client__') >= 0 ? '__client__' : ncKeys[0];
+            var nbOnlyKeys = ncKeys.filter(function(k) { return k !== '__client__'; });
+
             for (var pi = 0; pi < neighbourQuoteData.contacts.length; pi++) {
               var pContact = neighbourQuoteData.contacts[pi];
               if (!pContact.upload_url) continue;
-              var nbKey = pi === 0 ? '__client__' : (nbs[pi - 1] ? nbs[pi - 1].id : null);
-              if (!nbKey) continue;
+
+              // Primary client is always first contact (pi===0), neighbours follow in order
+              var nbKey;
+              if (pi === 0) {
+                nbKey = clientKey;
+              } else {
+                // Try exact neighbour id match first
+                var candidateId = nbs[pi - 1] ? nbs[pi - 1].id : null;
+                if (candidateId && d.neighbourCosts[candidateId]) {
+                  nbKey = candidateId;
+                } else {
+                  // Fallback: positional match from non-client keys
+                  nbKey = nbOnlyKeys[pi - 1] || null;
+                }
+              }
+              if (!nbKey) {
+                console.warn('[SendQuote] No neighbourCosts key for', pContact.client_name, '(pi=' + pi + '). Skipping PDF.');
+                continue;
+              }
               if (!d.neighbourCosts[nbKey]) {
                 console.warn('[SendQuote] No neighbourCosts for', pContact.client_name, '(key=' + nbKey + '). Runs may not have neighbour assignments.');
                 continue;
