@@ -13211,5 +13211,43 @@
 })();
 </script>
 
+<script>
+// ── Materials Workshop deep-link from ops dashboard ──
+(function() {
+    var params = new URLSearchParams(window.location.search || '');
+    if (params.get('mode') !== 'materials') return;
+
+    var attempts = 0;
+    function openFenceMaterialsWorkshop() {
+        attempts++;
+        var appReady = typeof app !== 'undefined' && app && app.job && typeof app.generateMaterialOrder === 'function';
+        var integrationReady = !params.get('jobId') || (
+            window._swIntegration &&
+            typeof window._swIntegration.getJobId === 'function' &&
+            window._swIntegration.getJobId()
+        );
+
+        if (appReady && integrationReady) {
+            try {
+                if (typeof fenceQA !== 'undefined' && fenceQA && typeof fenceQA.isSignedOff === 'function' && !fenceQA.isSignedOff()) {
+                    fenceQA.showScopeVerification();
+                } else {
+                    app.generateMaterialOrder();
+                }
+                if (app.showToast) app.showToast('Materials workshop opened from ops dashboard', 'success');
+            } catch(e) {
+                console.warn('[MaterialsWorkshop] failed to open:', e);
+            }
+            return;
+        }
+
+        if (attempts < 40) setTimeout(openFenceMaterialsWorkshop, 500);
+        else if (typeof app !== 'undefined' && app && app.showToast) app.showToast('Materials workshop could not open until the job finishes loading', 'error');
+    }
+
+    setTimeout(openFenceMaterialsWorkshop, 700);
+})();
+</script>
+
 </body>
 </html>
