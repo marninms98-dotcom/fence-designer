@@ -12803,7 +12803,8 @@
           } catch(pe) { console.warn('[saveJobEdit] Quote PDF regen failed:', pe); }
           // Increment scope version
           try {
-            var token = _cloud.auth ? (typeof _cloud.auth.session === 'function' ? _cloud.auth.session()?.access_token : null) : null;
+            var _sess = (_cloud.auth && typeof _cloud.auth.session === 'function') ? await _cloud.auth.session() : null;
+            var token = _sess?.access_token || null;
             var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
             await fetch(_cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=increment_scope_version', {
               method: 'POST',
@@ -13130,10 +13131,14 @@
 
     async function _fenceFreezeScopeAndUploadRenders(jobId) {
       var cloud = window.SECUREWORKS_CLOUD;
-      if (!cloud || !cloud.auth || !cloud.auth.session()) {
+      if (!cloud || !cloud.auth) {
         return { ok: false, reason: 'cloud-unavailable' };
       }
-      var token = cloud.auth.session().access_token;
+      var session = await cloud.auth.session();
+      if (!session) {
+        return { ok: false, reason: 'cloud-unavailable' };
+      }
+      var token = session.access_token;
       var supabaseUrl = cloud.supabaseUrl;
       // Step 1: freeze.
       var freezeRes;
