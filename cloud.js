@@ -202,7 +202,10 @@
     isLoggedIn() { return !!_user; },
 
     // Get current user role
-    getRole() { return _userProfile?.role || null; }
+    getRole() { return _userProfile?.role || null; },
+
+    // Get current Supabase session (v2 API - reads local storage, auto-refreshes). Returns null if not signed in.
+    async session() { var r = await sb.auth.getSession(); return r.data?.session || null; }
   };
 
   // Load user profile via edge function (bypasses RLS)

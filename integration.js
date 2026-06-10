@@ -1864,7 +1864,7 @@
     _jobLoaded = true;
     console.log('[Integration] Auto-loading frozen revision:', scopeRevId);
     try {
-      var session = cloud.auth.session();
+      var session = await cloud.auth.session();
       var token = session && session.access_token;
       if (!token) {
         console.warn('[Integration] No auth session — cannot load frozen revision');
