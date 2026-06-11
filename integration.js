@@ -38,6 +38,7 @@
   var _jobLoaded = false;
   var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
+  var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
   var _isReadonly = (function() {
@@ -334,8 +335,22 @@
     }
   }
 
+  // ── Notify tools that subscribed via integration.onAuthChange() ──
+  function _notifyAuthChange() {
+    var loggedIn = !!(cloud && cloud.auth && cloud.auth.isLoggedIn());
+    var user = (cloud && cloud.auth && cloud.auth.getUser) ? cloud.auth.getUser() : null;
+    for (var i = 0; i < _authChangeSubscribers.length; i++) {
+      try { _authChangeSubscribers[i](loggedIn, user); }
+      catch (e) { console.warn('[Integration] auth-change subscriber error:', e); }
+    }
+  }
+
   // ── Update UI based on auth state ──
   function updateUI() {
+    // Always keep tool-side sign-in buttons in sync, even if the built-in
+    // cloud-bar buttons aren't present (tool may render its own).
+    _notifyAuthChange();
+
     var loginBtn = document.getElementById('sw-btn-login');
     var saveBtn = document.getElementById('sw-btn-save');
     var loadBtn = document.getElementById('sw-btn-load');
@@ -343,7 +358,7 @@
     var status = document.getElementById('sw-cloud-status');
 
     if (!loginBtn) {
-      console.warn('[Integration] updateUI: buttons not found in DOM');
+      console.warn('[Integration] updateUI: cloud-bar buttons not found in DOM (tool may render its own)');
       return;
     }
 
@@ -753,6 +768,39 @@
   var integration = {
     login: function() {
       if (cloud) cloud.ui.showLoginModal();
+    },
+
+    // Sign out the current user (clears auth + stops auto-save via auth:logout).
+    logout: function() {
+      if (cloud && cloud.auth && cloud.auth.signOut) cloud.auth.signOut();
+    },
+
+    // Auth-state helpers so a tool can render its own prominent sign-in button.
+    isLoggedIn: function() {
+      return !!(cloud && cloud.auth && cloud.auth.isLoggedIn());
+    },
+    getUser: function() {
+      return (cloud && cloud.auth && cloud.auth.getUser) ? cloud.auth.getUser() : null;
+    },
+    // Convenience: a human label for the signed-in user (name, else email).
+    getUserLabel: function() {
+      var u = this.getUser();
+      if (!u) return '';
+      return u.name || u.full_name || u.email || '';
+    },
+
+    // Subscribe to auth changes (login/logout). The callback is invoked
+    // immediately with the current state and on every subsequent change, so a
+    // tool's own sign-in button stays in sync with the integration layer.
+    // Returns an unsubscribe function.
+    onAuthChange: function(cb) {
+      if (typeof cb !== 'function') return function() {};
+      _authChangeSubscribers.push(cb);
+      try { cb(this.isLoggedIn(), this.getUser()); } catch (e) { console.warn('[Integration] onAuthChange cb error:', e); }
+      return function() {
+        var i = _authChangeSubscribers.indexOf(cb);
+        if (i !== -1) _authChangeSubscribers.splice(i, 1);
+      };
     },
 
     save: async function() {

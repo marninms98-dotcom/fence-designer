@@ -168,6 +168,16 @@
     }
     .btn-header:hover { box-shadow: 0 2px 8px rgba(76,106,124,0.4); }
     .btn-header:active { transform: scale(0.96); }
+    /* Prominent sign-in button — signed-out state is loud (orange) so scopers
+       know they must sign in to save/freeze; signed-in state is calm (green). */
+    .btn-signin { display: flex; align-items: center; gap: 7px; padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; min-height: 32px; color: #FFFFFF; background: #F15A29; transition: transform 0.15s, box-shadow 0.15s, background 0.15s; white-space: nowrap; }
+    .btn-signin:hover { box-shadow: 0 2px 8px rgba(241,90,41,0.45); }
+    .btn-signin:active { transform: scale(0.96); }
+    .btn-signin.signed-in { background: #34C759; }
+    .btn-signin.signed-in:hover { box-shadow: 0 2px 8px rgba(52,199,89,0.45); }
+    .btn-signin .signin-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.85); flex-shrink: 0; }
+    .btn-signin.signed-out { animation: swSignInPulse 2s ease-in-out infinite; }
+    @keyframes swSignInPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(241,90,41,0.5); } 50% { box-shadow: 0 0 0 4px rgba(241,90,41,0); } }
 
     /* ── Scope Form Layout ── */
     .scope-form {
@@ -1339,6 +1349,10 @@
             <button id="syncRetryBtn" style="display:none;padding:6px 12px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;" onclick="event.stopPropagation();window._swIntegration&&window._swIntegration.save()">Retry</button>
           </div>
         </div>
+        <button id="swSignInBtn" class="btn-signin" onclick="swSignInClick()" title="Sign in to save and freeze your scope">
+          <span class="signin-dot" id="swSignInDot"></span>
+          <span id="swSignInLabel">Sign in to save &amp; freeze</span>
+        </button>
         <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()">Load Job</button>
         <button class="btn-header" onclick="app.newJob()">New</button>
       </div>
@@ -13433,6 +13447,59 @@
 </script>
 <script src="cloud.js?v=20260323a"></script>
 <script src="integration.js?v=20260323a"></script>
+
+<script>
+// ── Prominent sign-in button (header) ──
+// Makes the sign-in entry point clear and shows signed-in/out state. Login is
+// MANDATORY for freeze/cloud-save, so the signed-OUT state is loud and tells the
+// scoper why. Mirrors the patio tool's header sign-in button.
+(function() {
+    var btn = document.getElementById('swSignInBtn');
+    var label = document.getElementById('swSignInLabel');
+    if (!btn || !label) return;
+
+    function render(loggedIn, user) {
+        if (loggedIn) {
+            var who = (user && (user.name || user.full_name || user.email)) || 'Signed in';
+            btn.classList.add('signed-in');
+            btn.classList.remove('signed-out');
+            label.textContent = who;
+            btn.title = 'Signed in as ' + who + ' — click to sign out';
+        } else {
+            btn.classList.add('signed-out');
+            btn.classList.remove('signed-in');
+            label.textContent = 'Sign in to save & freeze';
+            btn.title = 'You must sign in to save and freeze your scope';
+        }
+    }
+
+    window.swSignInClick = function() {
+        var integ = window._swIntegration;
+        if (!integ) return;
+        if (integ.isLoggedIn && integ.isLoggedIn()) {
+            if (confirm('Sign out? You will need to sign back in to save or freeze.')) {
+                integ.logout && integ.logout();
+            }
+        } else {
+            integ.login && integ.login();
+        }
+    };
+
+    function wire() {
+        var integ = window._swIntegration;
+        if (integ && integ.onAuthChange) {
+            integ.onAuthChange(render);
+        } else if (integ && integ.isLoggedIn) {
+            render(integ.isLoggedIn(), integ.getUser ? integ.getUser() : null);
+            setTimeout(wire, 500);
+        } else {
+            render(false, null);
+            setTimeout(wire, 500);
+        }
+    }
+    wire();
+})();
+</script>
 
 <script>
 // ── View Mode: read-only viewer for iframe embed ──
