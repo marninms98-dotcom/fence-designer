@@ -1340,6 +1340,7 @@
       <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
       <span class="header-tag hidden" id="headerStatusTag">DRAFT</span>
       <div class="header-actions" id="headerActions">
+        <span id="priceSource" title="Where the price table came from" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:10px;background:#FEF3CD;color:#92400E;white-space:nowrap;">⚠ default prices</span>
         <div id="headerSyncStatus" class="sync-indicator" onclick="toggleSyncDetail()">
           <span class="sync-dot"></span>
           <span class="sync-label">Local</span>
@@ -1662,47 +1663,85 @@
       delivery: 95             // actual delivery cost — R&R charges ~$95
     };
 
+    // ── Central price table overlay (scope_tool_defaults → COST_PRICES) ──
+    // COST_PRICES above is the embedded OFFLINE FALLBACK snapshot. When the
+    // central table is reachable, every cost row below is overlaid from it.
+    //
+    // SAFETY (money-sensitive):
+    //  * _tableWins: a table value only wins when it is a finite number > 0.
+    //    A 0/blank/null table row NEVER overwrites a real hardcoded rate — it
+    //    falls back to the embedded snapshot.
+    //  * Each COST_PRICES key maps to the seed item_key whose cost MATCHES the
+    //    live hardcoded value, so the overlay is price-identical (parity).
+    //  * 7 rows where the seed value DIFFERS from the live tool (different unit
+    //    model or unreconciled source — flagged in the seed notes.md) are
+    //    mapped to null: they stay on the hardcoded value until Marnin picks a
+    //    canonical figure. They are NOT silently changed.
+    function _tableWins(row, field, fallback) {
+      if (!row) return fallback;
+      var v = row[field];
+      if (v == null) return fallback;
+      v = Number(v);
+      if (!isFinite(v) || !(v > 0)) return fallback;  // 0/blank/NaN → keep hardcode
+      return v;
+    }
+
+    // COST_PRICES key → central-table item_key (cost). null = intentionally
+    // NOT table-driven (see EXCLUDED note). Built from the
+    // seed-from-tool-hardcoded 2026-06-11 dataset.
+    var FENCE_COST_MAP = {
+      panelKit1800_2400: 'panel-kit-1800-2400',
+      panelKit1800_2700: 'panel-kit-1800-2700',
+      panelKit1800_3000: 'panel-kit-1800-3000',
+      panelKit1500_2400: 'panel-kit-1500-2400',
+      panelKit1200_2400: 'panel-kit-1200-2400',
+      panelKit2100_2700: 'panel-kit-2100-2700',
+      panelKit2100_3000: 'panel-kit-2100-3000',
+      plinth:            null, // EXCLUDED: seed plinth-cost=55 (bundled) vs live 42 (material only). Reconcile before table-driving.
+      plinthInstall:     'plinth-install',
+      patioTube:         'patio-tube-76x38',
+      gateKitPedestrian: 'gate-kit-pedestrian',
+      gateKitDouble:     'gate-kit-double',
+      gatePost90x90:     'gate-post-90x90',
+      gateLabourPedestrian: 'gate-labour-pedestrian',
+      gateLabourDouble:  'gate-labour-double',
+      concrete:          'concrete-bag',
+      tekScrewBox:       'tek-screw-box',
+      removeHardie:      'remove-hardie-cost',
+      removeTimberLap:   'remove-timber-cost',
+      removeColorbond:   'remove-colorbond-cost',
+      removeAsbestos:    null, // EXCLUDED: seed remove-asbestos-cost=60/sheet vs live 65/m (different unit model). Reconcile first.
+      vegClear:          null, // EXCLUDED: seed veg-clear-cost=100 vs live 150 (source disagreement). Reconcile first.
+      groundMulch:       null, // EXCLUDED: seed mulch-cost=5/m2 vs live 12/LM (different unit model). Reconcile first.
+      groundStones:      null, // EXCLUDED: seed white-stones-cost=10/m2 vs live 18/LM (different unit model). Reconcile first.
+      groundTurf:        null, // EXCLUDED: seed turf-prep-cost=7/m2 vs live 22/LM (different unit model). Reconcile first.
+      labourPerMetre:    'base-labour',
+      delivery:          null  // EXCLUDED: seed delivery-cost=200 vs live 95 (R&R actual). Reconcile first.
+    };
+
     // Async: fetch live pricing from scope_tool_defaults via cloud.js (non-blocking)
     // Falls back to hardcoded JS defaults if offline or cloud.js not loaded
     (function loadDbFencePrices() {
-      if (!window.SECUREWORKS_CLOUD || !window.SECUREWORKS_CLOUD.pricing) return;
+      if (!window.SECUREWORKS_CLOUD || !window.SECUREWORKS_CLOUD.pricing) { setFencePriceSource(null); return; }
       SECUREWORKS_CLOUD.pricing.getDefaults('fence-designer').then(function(result) {
-        if (!result) return;
+        if (!result) { setFencePriceSource(null); return; }
         var d = result.defaults;
-        // DB item_key → JS COST_PRICES key mapping
-        // Sell prices (cb-1800-sell etc.) are stored for reference but the fence designer
-        // uses a per-job pricePerMetre input, so only cost prices overlay COST_PRICES here.
-        var costMap = {
-          'cb-1800-cost': 'panelKit1800_2400',
-          'cb-2100-cost': 'panelKit2100_2700',
-          'solid-fill-150-cost': null,  // no direct COST_PRICES key
-          'plinth-cost': 'plinth',
-          'ped-gate-bundled-cost': 'gateKitPedestrian',
-          'dbl-swing-gate-cost': 'gateKitDouble',
-          'remove-hardie-cost': 'removeHardie',
-          'remove-timber-cost': 'removeTimberLap',
-          'remove-asbestos-cost': 'removeAsbestos',
-          'delivery-cost': 'delivery',
-          'veg-clear-cost': 'vegClear',
-          'addl-labour-cost': null,  // no direct key
-          'mulch-cost': 'groundMulch',
-          'white-stones-cost': 'groundStones',
-          'turf-prep-cost': 'groundTurf',
-          'base-labour': 'labourPerMetre'
-        };
+        // costMap kept for the ledger-override block below (material_code → key).
+        var costMap = FENCE_COST_MAP;
         var updated = 0;
-        Object.keys(costMap).forEach(function(dbKey) {
-          var jsKey = costMap[dbKey];
-          if (!jsKey) return;
-          if (d[dbKey] && d[dbKey].default_price != null) {
-            COST_PRICES[jsKey] = Number(d[dbKey].default_price);
-            updated++;
-          }
+        Object.keys(FENCE_COST_MAP).forEach(function(jsKey) {
+          var dbKey = FENCE_COST_MAP[jsKey];
+          if (!dbKey) return;                       // EXCLUDED row — keep hardcode
+          var row = d[dbKey];
+          if (!row) return;
+          var nv = _tableWins(row, 'default_cost_rate', COST_PRICES[jsKey]);
+          if (nv !== COST_PRICES[jsKey]) { COST_PRICES[jsKey] = nv; updated++; }
         });
-        if (updated > 0 && typeof app !== 'undefined' && app.recalculateAll) {
+        if (typeof app !== 'undefined' && app.recalculateAll) {
           app.recalculateAll();
         }
-        console.log('[Fence] Live pricing loaded:', Object.keys(d).length, 'DB items, updated', updated, 'cost prices');
+        setFencePriceSource(result.fetched_at);
+        console.log('[Fence] Live pricing loaded:', Object.keys(d).length, 'DB items, applied', updated, 'cost overrides (7 rows excluded pending Marnin reconciliation)');
 
         // ── Ledger override: fetch confirmed supplier prices for the default fencing supplier ──
         var defaultSupplier = '';
@@ -1712,13 +1751,16 @@
         if (defaultSupplier && window.SECUREWORKS_CLOUD && SECUREWORKS_CLOUD.pricing.getSupplierPrices) {
           SECUREWORKS_CLOUD.pricing.getSupplierPrices(defaultSupplier, 'fencing').then(function(prices) {
             if (!prices || prices.length === 0) return;
-            // Build reverse map: material_code (lowercase no dashes) → COST_PRICES key
+            // Build reverse map: material_code (lowercase no dashes) → COST_PRICES key.
+            // FENCE_COST_MAP is jsKey → dbKey; only table-driven (non-null) rows
+            // are eligible for a supplier-ledger override.
             var codeToKey = {};
-            Object.keys(costMap).forEach(function(dbKey) {
-              if (!costMap[dbKey]) return;
-              // dbKey like 'cb-1800-cost' → code prefix 'cb1800'
+            Object.keys(costMap).forEach(function(jsKey) {
+              var dbKey = costMap[jsKey];
+              if (!dbKey) return;
+              // dbKey like 'panel-kit-1800-2400' → code prefix 'panelkit18002400'
               var codePrefix = dbKey.replace(/-cost$/, '').replace(/-sell$/, '').replace(/-/g, '');
-              codeToKey[codePrefix] = costMap[dbKey];
+              codeToKey[codePrefix] = jsKey;
             });
             var overrides = 0;
             prices.forEach(function(p) {
@@ -1736,8 +1778,29 @@
             }
           }).catch(function() { /* non-blocking */ });
         }
-      }).catch(function() { /* offline — use JS defaults */ });
+      }).catch(function(e) {
+        // Loud offline fallback: keep the embedded snapshot, mark not-live.
+        console.warn('[Fence] Pricing load failed — using embedded fallback rates (offline):', e);
+        setFencePriceSource(null);
+      });
     })();
+
+    // Visible staleness / offline marker for the central price table. Updates
+    // the #priceSource pill in the header.
+    function setFencePriceSource(fetchedAt) {
+      var el = document.getElementById('priceSource');
+      if (!el) return;
+      var live = !!fetchedAt;
+      if (live) {
+        el.textContent = '✓ Live DB prices ' + new Date(fetchedAt).toLocaleDateString();
+        el.style.background = '#D1FAE5';
+        el.style.color = '#065F46';
+      } else {
+        el.textContent = '⚠ OFFLINE — built-in fallback prices';
+        el.style.background = '#FEF3CD';
+        el.style.color = '#92400E';
+      }
+    }
 
     const MARGIN = 0.30; // 30% margin: sell = cost / (1 - 0.30)
 

@@ -1,0 +1,24 @@
+=== FENCE PARITY HARNESS ===
+Overlay applied 0 cost overrides (count of values that changed).
+Table-driven keys: 20 | Excluded (held on hardcode): 7
+
+Reference scope cost totals ($):
+  small   BEFORE 1914.13 | AFTER 1914.13
+  medium  BEFORE 3217.95 | AFTER 3217.95
+  complex BEFORE 4649.6 | AFTER 4649.6
+
+COST_PRICES DIFFS: NONE — every table-driven cost identical before/after.
+
+SCOPE TOTAL DIFFS: NONE — all reference scope totals IDENTICAL.
+
+INTENTIONALLY EXCLUDED rows (seed conflicts live tool — held until Marnin reconciles):
+  plinth: live=42 | seed(plinth-cost)=55 | HELD (would change price by 13.00)
+  removeAsbestos: live=65 | seed(remove-asbestos-cost)=60 | HELD (would change price by -5.00)
+  vegClear: live=150 | seed(veg-clear-cost)=100 | HELD (would change price by -50.00)
+  groundMulch: live=12 | seed(mulch-cost)=5 | HELD (would change price by -7.00)
+  groundStones: live=18 | seed(white-stones-cost)=10 | HELD (would change price by -8.00)
+  groundTurf: live=22 | seed(turf-prep-cost)=7 | HELD (would change price by -15.00)
+  delivery: live=95 | seed(delivery-cost)=200 | HELD (would change price by 105.00)
+
+RESULT: PARITY PROVEN ✓ (identical; 7 conflicting rows safely held back)
+exit 0
