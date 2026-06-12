@@ -1499,6 +1499,16 @@
       <div class="scope-section-body" id="bodyQuote"></div>
     </div>
 
+    <!-- Section 8b: Component Cost Breakdown (internal — pricing visibility layer) -->
+    <div class="scope-section" id="sectionCostBreakdown" data-section="costBreakdown">
+      <button class="scope-section-header" onclick="app.toggleSection('costBreakdown')">
+        <span class="section-status empty" id="statusCostBreakdown"></span>
+        <span class="section-title">8b. Component Cost Breakdown</span>
+        <span class="section-chevron"></span>
+      </button>
+      <div class="scope-section-body" id="bodyCostBreakdown"></div>
+    </div>
+
     <!-- Section 9: Quote & Orders (breakdown + POs + GP) -->
     <div class="scope-section" id="sectionQuoteOrders" data-section="quoteOrders">
       <button class="scope-section-header" onclick="app.toggleSection('quoteOrders')">
@@ -3296,7 +3306,7 @@
 
       // ── Render ──
       // ── Section toggle & status system ──
-      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, quote: false, quoteOrders: false, checklist: false },
+      _openSections: { siteInfo: true, removal: false, installation: false, runs: false, gates: false, visualizer: false, stats: false, quote: false, costBreakdown: false, quoteOrders: false, checklist: false },
 
       toggleSection(sectionId) {
         const opening = !this._openSections[sectionId];
@@ -4112,6 +4122,267 @@
             </div>
           `).join('')}
         `;
+      },
+
+      // ── Render Component Cost Breakdown (Section 8b) ──
+      // Read-only visibility layer. Reads engine output via _collectOutputData().
+      // Markup % input controls a per-session sell multiplier stored in app._cbMarkup.
+      // Does NOT modify COST_PRICES, FENCE_COST_MAP, or any engine calculation.
+      renderCostBreakdown() {
+        const el = document.getElementById('bodyCostBreakdown');
+        const statusEl = document.getElementById('statusCostBreakdown');
+        if (!el) return;
+
+        let d;
+        try { d = this._collectOutputData(); } catch(e) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs to see component costs.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
+          return;
+        }
+        if (d.totalMetres <= 0 && d.gatesTotal <= 0) {
+          el.innerHTML = '<div style="padding:12px;color:#4C6A70;font-size:13px;">Add fence runs or gates to see component costs.</div>';
+          if (statusEl) statusEl.className = 'section-status empty';
+          return;
+        }
+
+        // Per-session markup % (not persisted — scoper use only)
+        if (this._cbMarkup == null) this._cbMarkup = 35; // default 35% markup
+        const markupPct = this._cbMarkup;
+        const markupMult = 1 + (markupPct / 100);
+
+        const f2 = n => (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const f0 = n => (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+        // ── Build component rows from engine output data (d = _collectOutputData()) ──
+        // Source: index.html line 8685 (_collectOutputData), lines 8967-8997 (internalCost build)
+        const rows = [];
+
+        // Panel kits — from d.postGroups (engine-built, line 8770)
+        Object.values(d.postGroups).forEach(g => {
+          let unitCost = COST_PRICES.panelKit1800_2400;
+          if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
+          else if (g.sheetH === 1500) unitCost = COST_PRICES.panelKit1500_2400;
+          else if (g.sheetH === 1800) {
+            if (g.postH <= 2400) unitCost = COST_PRICES.panelKit1800_2400;
+            else if (g.postH <= 2700) unitCost = COST_PRICES.panelKit1800_2700;
+            else unitCost = COST_PRICES.panelKit1800_3000;
+          } else if (g.sheetH === 2100) {
+            unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
+          }
+          rows.push({
+            label: `Panel kit ${g.sheetH}H + ${g.postH}H post (${g.panelW}mm wide)`,
+            category: 'panels',
+            qty: g.count,
+            unitCost: unitCost,
+            lineCost: g.count * unitCost,
+            lineSell: g.count * unitCost * markupMult
+          });
+        });
+
+        // Plinths
+        if (d.totalPlinths > 0) {
+          rows.push({
+            label: 'Retaining plinth 150mm COLORBOND',
+            category: 'materials',
+            qty: d.totalPlinths,
+            unitCost: COST_PRICES.plinth,
+            lineCost: d.totalPlinths * COST_PRICES.plinth,
+            lineSell: d.totalPlinths * COST_PRICES.plinth * markupMult
+          });
+        }
+
+        // Patio tubes
+        if (d.totalPatioTubes > 0) {
+          rows.push({
+            label: 'Patio tube 76×38 RHS 3000mm',
+            category: 'materials',
+            qty: d.totalPatioTubes,
+            unitCost: COST_PRICES.patioTube,
+            lineCost: d.totalPatioTubes * COST_PRICES.patioTube,
+            lineSell: d.totalPatioTubes * COST_PRICES.patioTube * markupMult
+          });
+        }
+
+        // Concrete bags
+        if (d.concreteBags > 0) {
+          rows.push({
+            label: 'Concrete 20kg bag (Kwikset)',
+            category: 'materials',
+            qty: d.concreteBags,
+            unitCost: COST_PRICES.concrete,
+            lineCost: d.concreteBags * COST_PRICES.concrete,
+            lineSell: d.concreteBags * COST_PRICES.concrete * markupMult
+          });
+        }
+
+        // Tek screw boxes
+        if (d.tekBoxes > 0) {
+          rows.push({
+            label: 'Tek screw box',
+            category: 'materials',
+            qty: d.tekBoxes,
+            unitCost: COST_PRICES.tekScrewBox,
+            lineCost: d.tekBoxes * COST_PRICES.tekScrewBox,
+            lineSell: d.tekBoxes * COST_PRICES.tekScrewBox * markupMult
+          });
+        }
+
+        // Gates (kits + posts)
+        (d.job.gates || []).forEach((g, gi) => {
+          if (g.type === 'pedestrian') {
+            const kitCost = COST_PRICES.gateKitPedestrian;
+            const postCost = 2 * COST_PRICES.gatePost90x90;
+            rows.push({ label: `Pedestrian gate kit (${g.width}mm)`, category: 'gates', qty: 1, unitCost: kitCost, lineCost: kitCost, lineSell: kitCost * markupMult });
+            rows.push({ label: `90×90mm SHS gate posts ×2 (gate ${gi+1})`, category: 'gates', qty: 2, unitCost: COST_PRICES.gatePost90x90, lineCost: postCost, lineSell: postCost * markupMult });
+          } else if (g.type === 'double') {
+            const kitCost = COST_PRICES.gateKitDouble;
+            const postCost = 4 * COST_PRICES.gatePost90x90;
+            rows.push({ label: `Double swing gate kit (${g.width}mm)`, category: 'gates', qty: 1, unitCost: kitCost, lineCost: kitCost, lineSell: kitCost * markupMult });
+            rows.push({ label: `90×90mm SHS gate posts ×4 (gate ${gi+1})`, category: 'gates', qty: 4, unitCost: COST_PRICES.gatePost90x90, lineCost: postCost, lineSell: postCost * markupMult });
+          } else if (g.type === 'sliding') {
+            const slideSell = (d.job.quote || {}).slidingGatePrice || 0;
+            const estimatedCost = slideSell * 0.7;
+            rows.push({ label: `Sliding gate (${g.width}mm) — estimated cost`, category: 'gates', qty: 1, unitCost: estimatedCost, lineCost: estimatedCost, lineSell: estimatedCost * markupMult });
+          }
+        });
+
+        // Removal items (use costPrice from removalItems, engine-built line 8874+)
+        d.removalItems.forEach(r => {
+          if (r.costPrice && r.qty > 0) {
+            rows.push({
+              label: r.desc,
+              category: 'removal',
+              qty: r.qty,
+              unitCost: r.costPrice,
+              lineCost: r.qty * r.costPrice,
+              lineSell: r.qty * r.costPrice * markupMult
+            });
+          }
+        });
+
+        // Delivery
+        rows.push({
+          label: 'Delivery (R&R)',
+          category: 'delivery',
+          qty: 1,
+          unitCost: COST_PRICES.delivery,
+          lineCost: COST_PRICES.delivery,
+          lineSell: COST_PRICES.delivery * markupMult
+        });
+
+        // Labour — base + plinth install + gate labour (engine lines 8999-9007)
+        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
+        const labAccess = labBase * (d.accessRate || 0);
+        const labPlinth = d.totalPlinths * (COST_PRICES.plinthInstall || 10);
+        let labGate = 0;
+        (d.job.gates || []).forEach(g => {
+          if (g.type === 'pedestrian') labGate += COST_PRICES.gateLabourPedestrian;
+          else if (g.type === 'double') labGate += COST_PRICES.gateLabourDouble;
+          else if (g.type === 'sliding') labGate += COST_PRICES.gateLabourDouble;
+        });
+        const totalLabourCost = labBase + labAccess + labPlinth + labGate;
+        rows.push({
+          label: `Labour — ${d.totalMetres.toFixed(1)}m × $${COST_PRICES.labourPerMetre}/m` +
+                 (labAccess > 0 ? ` + ${Math.round((d.accessRate||0)*100)}% access` : '') +
+                 (labPlinth > 0 ? ` + plinth install` : '') +
+                 (labGate > 0 ? ` + gate labour` : ''),
+          category: 'labour',
+          qty: 1,
+          unitCost: totalLabourCost,
+          lineCost: totalLabourCost,
+          lineSell: totalLabourCost * markupMult
+        });
+
+        // ── Totals ──
+        const totalCost = rows.reduce((s, r) => s + r.lineCost, 0);
+        const totalSell = rows.reduce((s, r) => s + r.lineSell, 0);
+        const marginPct = totalSell > 0 ? ((totalSell - totalCost) / totalSell * 100) : 0;
+        const marginCol = marginPct < 20 ? '#dc2626' : marginPct < 30 ? '#d97706' : '#16a34a';
+
+        // Category colour map
+        const catCol = { panels: '#293C46', materials: '#4C6A7C', gates: '#7C3AED', removal: '#D97706', delivery: '#4C6A7C', labour: '#F15A29' };
+
+        // ── Build table HTML ──
+        const catOrder = ['panels', 'materials', 'gates', 'removal', 'delivery', 'labour'];
+        const catLabel = { panels: 'Panel Kits', materials: 'Materials', gates: 'Gates', removal: 'Removal / Extras', delivery: 'Delivery', labour: 'Labour' };
+
+        let tableRows = '';
+        catOrder.forEach(cat => {
+          const catRows = rows.filter(r => r.category === cat);
+          if (!catRows.length) return;
+          const col = catCol[cat] || '#293C46';
+          tableRows += `<tr style="background:#f8fafc;"><td colspan="5" style="padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:${col};letter-spacing:0.5px;">${catLabel[cat]}</td></tr>`;
+          catRows.forEach(r => {
+            tableRows += `<tr>
+              <td style="padding:6px 8px;font-size:12px;">${this._esc(r.label)}</td>
+              <td style="text-align:right;padding:6px 8px;font-size:12px;color:#4C6A7C;">$${f2(r.unitCost)}</td>
+              <td style="text-align:right;padding:6px 8px;font-size:12px;color:#293C46;">${f0(r.qty)}</td>
+              <td style="text-align:right;padding:6px 8px;font-size:12px;font-weight:600;">$${f2(r.lineCost)}</td>
+              <td style="text-align:right;padding:6px 8px;font-size:12px;color:#16a34a;">$${f2(r.lineSell)}</td>
+            </tr>`;
+          });
+        });
+
+        // ── Totals strip ──
+        const totalsHtml = `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding:10px 12px;background:#293C46;border-radius:8px;color:#fff;">
+            <div style="flex:1;min-width:120px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7;margin-bottom:2px;">Total COST</div>
+              <div style="font-size:18px;font-weight:700;">$${f2(totalCost)}</div>
+            </div>
+            <div style="flex:1;min-width:120px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7;margin-bottom:2px;">Total SELL (at ${f0(markupPct)}% markup)</div>
+              <div style="font-size:18px;font-weight:700;color:#F15A29;">$${f2(totalSell)}</div>
+            </div>
+            <div style="flex:1;min-width:120px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7;margin-bottom:2px;">Margin</div>
+              <div style="font-size:18px;font-weight:700;color:${marginCol};">${marginPct.toFixed(1)}%</div>
+            </div>
+          </div>`;
+
+        // ── Markup control ──
+        const markupHtml = `
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:#f0f4f8;border-radius:8px;border:1px solid #d0d5dd;">
+            <div style="font-size:12px;font-weight:700;color:#293C46;flex-shrink:0;">Markup % (all components)</div>
+            <input type="number" id="cbMarkupInput" value="${markupPct}" min="0" max="999" step="1"
+              style="width:72px;font-size:15px;font-weight:700;padding:6px 8px;border:2px solid #4C6A7C;border-radius:6px;text-align:center;"
+              onchange="app._cbMarkup = parseFloat(this.value) || 0; app.renderCostBreakdown();">
+            <span style="font-size:12px;color:#4C6A7C;">%</span>
+            <button onclick="app._cbMarkup = parseFloat(document.getElementById('cbMarkupInput').value) || 0; app.renderCostBreakdown();"
+              style="background:#F15A29;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">
+              Apply All
+            </button>
+            <div style="font-size:11px;color:#4C6A7C;flex-shrink:0;">Sell = Cost × (1 + markup%). Does not change the per-metre sell price above.</div>
+          </div>`;
+
+        // ── Table header ──
+        const tableHtml = `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="border-bottom:2px solid #293C46;">
+                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:#4C6A70;font-weight:700;">Component</th>
+                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:#4C6A70;font-weight:700;">Unit Cost</th>
+                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:#4C6A70;font-weight:700;">Qty</th>
+                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:#4C6A70;font-weight:700;">Line Cost</th>
+                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:#16a34a;font-weight:700;">Line Sell</th>
+                </tr>
+              </thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>`;
+
+        el.innerHTML = `
+          <div style="padding:12px;">
+            <div style="font-size:11px;color:#4C6A7C;margin-bottom:10px;padding:6px 10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;">
+              Internal view only — shows live COST_PRICES the engine is using. Sell column is cost + markup (read-only reference; does not override per-metre sell price).
+            </div>
+            ${markupHtml}
+            ${tableHtml}
+            ${totalsHtml}
+          </div>`;
+
+        if (statusEl) statusEl.className = 'section-status partial';
       },
 
       // ── Render Checklist ──
@@ -5724,6 +5995,7 @@
         this.updateStats();
         this.renderQuoteAndOrders();
         this.renderQuote();
+        this.renderCostBreakdown();
         this.renderChecklist();
         this.updateSectionStatuses();
 
