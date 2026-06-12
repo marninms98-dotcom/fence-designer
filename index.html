@@ -1634,18 +1634,18 @@
     // ── Business rules: cost prices (internal) ──
     // Updated 2026-03-19 — aligned with actual R&R Fencing supplier pricing
     const COST_PRICES = {
-      panelKit1800_2400: 97,   // 1800H colorbond panel (2380mm wide) inc post — R&R $97
-      panelKit1800_2700: 109,  // 1800H colorbond panel inc 2700 post — R&R $109
+      panelKit1800_2400: 88,   // 1800H colorbond panel (2380mm wide) inc post — blessed 2026-06-12 $88
+      panelKit1800_2700: 113,  // 1800H colorbond panel inc 2700 post — blessed 2026-06-12 $113
       panelKit1800_3000: 124,  // 1800H colorbond panel (3150mm wide) inc post — R&R $124
       panelKit1500_2400: 85,   // 1500H panel inc post (estimated)
       panelKit1200_2400: 75,   // 1200H panel inc post (estimated)
-      panelKit2100_2700: 109,  // 2100H colorbond panel inc 2700 post — R&R $109
-      panelKit2100_3000: 130,  // 2100H colorbond panel inc 3000 post (estimated)
+      panelKit2100_2700: 99,   // 2100H colorbond panel inc 2700 post — blessed 2026-06-12 $99
+      panelKit2100_3000: 126.50, // 2100H colorbond panel inc 3000 post — blessed 2026-06-12 $126.50
       shsPost50_2400: 39.00,   // SHS 50x50x1.6mm L2400mm post (1800h standard) — R&R $39 (wave2-wiring 2026-06-12)
       shsPost50_2700: 44.50,   // SHS 50x50x1.6mm L2700mm post (2100h standard) — R&R $44.50 (wave2-wiring 2026-06-12)
       shsPost90_1800: 79.00,   // SHS 90x90x3.0mm L1800mm post (gate/corner) — R&R $79 (wave2-wiring 2026-06-12)
       plinthLong: 48.00,       // Plinth long W3150mm material cost — R&R $48 (wave2-wiring 2026-06-12)
-      plinth: 42,              // per plinth (150mm) — material cost, R&R $42
+      plinth: 41,              // per plinth (150mm) — material cost, blessed 2026-06-12 $41
       plinthInstall: 10,       // labour per plinth install
       patioTube: 45,           // 76x38 RHS 3000mm — cost $45, sell $75
       gateKitPedestrian: 320,  // pedestrian gate kit
@@ -1653,7 +1653,7 @@
       gatePost90x90: 85,       // 90x90mm SHS gate post
       gateLabourPedestrian: 250, // labour per ped gate install
       gateLabourDouble: 500,   // labour per double gate install
-      concrete: 9.50,          // per bag
+      concrete: 8.00,          // per bag — blessed 2026-06-12 $8
       tekScrewBox: 18,         // per box
       removeHardie: 12.50,     // per metre cost ($10-15 range, use midpoint)
       removeTimberLap: 20,     // per metre cost
@@ -1701,7 +1701,7 @@
       panelKit1200_2400: 'panel-kit-1200-2400',
       panelKit2100_2700: 'panel-kit-2100-2700',
       panelKit2100_3000: 'panel-kit-2100-3000',
-      plinth:            null, // EXCLUDED: seed plinth-cost=55 (bundled) vs live 42 (material only). Reconcile before table-driving.
+      plinth:            'plinth-cost', // reconciled 2026-06-12: blessed DB = $41 (material only); was null/excluded during reconcile hold
       shsPost50_2400:    'shs-post-50x50x1.6-l2400', // SHS 50x50x1.6 L2400mm supply (wave2-wiring 2026-06-12)
       shsPost50_2700:    'shs-post-50x50x1.6-l2700', // SHS 50x50x1.6 L2700mm supply (wave2-wiring 2026-06-12)
       shsPost90_1800:    'shs-post-90x90x3.0-l1800', // SHS 90x90x3.0 L1800mm gate/corner supply (wave2-wiring 2026-06-12)
@@ -13225,6 +13225,33 @@
       }
       var token = session.access_token;
       var supabaseUrl = cloud.supabaseUrl;
+
+      // Step 0: if job has an embedded base64 site plan, strip it from jobs.scope_json
+      // BEFORE freeze so scope_canonical_text does not contain the blob (~1-2.5 MB).
+      // The site plan is uploaded as a render_site_plan artifact after freeze and the
+      // storage_path reference replaces the base64 in app.job.sitePlanImage.
+      // FOLLOW-ON required: ops.html renderSitePlanPanel currently reads
+      // scope_json.job.sitePlanImage as a data URL. When it encounters a
+      // 'scope_artifact:render_site_plan:<path>' sentinel it must call the signed-URL
+      // endpoint to display the image. Until that reader update ships, the image falls
+      // back to the static satellite map URL (already handled at ops.html line ~11864).
+      var _spDataUrl = null;
+      var _spStripped = false;
+      if (app && app.job && typeof app.job.sitePlanImage === 'string'
+          && app.job.sitePlanImage.indexOf('data:image') === 0) {
+        _spDataUrl = app.job.sitePlanImage;
+        app.job.sitePlanImage = null; // strip blob so freeze reads lean scope_json
+        try {
+          await cloud.jobs.saveJob(jobId, { job: app.job });
+          _spStripped = true;
+        } catch(spSaveErr) {
+          // non-fatal: restore and proceed — freeze will include blob but won't break
+          app.job.sitePlanImage = _spDataUrl;
+          _spDataUrl = null;
+          console.warn('[ScopeFreeze] site-plan pre-strip save failed, proceeding with blob:', spSaveErr);
+        }
+      }
+
       // Step 1: freeze.
       var freezeRes;
       try {
@@ -13234,30 +13261,85 @@
           body: JSON.stringify({ job_id: jobId, tool_kind: 'fencing' }),
         });
       } catch(e) {
+        // restore site plan before propagating
+        if (_spStripped) { app.job.sitePlanImage = _spDataUrl; try { await cloud.jobs.saveJob(jobId, { job: app.job }); } catch(_) {} }
         return { ok: false, reason: 'freeze-network: ' + (e && e.message) };
       }
       if (!freezeRes.ok) {
         var errText = '';
         try { errText = await freezeRes.text(); } catch(_) {}
+        if (_spStripped) { app.job.sitePlanImage = _spDataUrl; try { await cloud.jobs.saveJob(jobId, { job: app.job }); } catch(_) {} }
         return { ok: false, reason: 'freeze-http-' + freezeRes.status + ': ' + errText };
       }
       var freezeData;
-      try { freezeData = await freezeRes.json(); } catch(_) { return { ok: false, reason: 'freeze-bad-json' }; }
+      try { freezeData = await freezeRes.json(); } catch(_) {
+        if (_spStripped) { app.job.sitePlanImage = _spDataUrl; try { await cloud.jobs.saveJob(jobId, { job: app.job }); } catch(_) {} }
+        return { ok: false, reason: 'freeze-bad-json' };
+      }
       var scopeRevisionId = freezeData && freezeData.scope_revision_id;
-      if (!scopeRevisionId) return { ok: false, reason: 'freeze-missing-id' };
+      if (!scopeRevisionId) {
+        if (_spStripped) { app.job.sitePlanImage = _spDataUrl; try { await cloud.jobs.saveJob(jobId, { job: app.job }); } catch(_) {} }
+        return { ok: false, reason: 'freeze-missing-id' };
+      }
+
+      // Step 1b: if we stripped the site plan, upload it as a render_site_plan artifact.
+      var sitePlanArtifact = null;
+      if (_spStripped && _spDataUrl) {
+        try {
+          var spParsed = _fenceParseDataUrl(_spDataUrl);
+          if (spParsed) {
+            var spBytes = _fenceBase64ToBytes(spParsed.base64);
+            var spSha = await _fenceSha256Hex(spBytes);
+            var spArtRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scope_revision_id: scopeRevisionId,
+                artifact_type: 'render_site_plan',
+                content_base64: spParsed.base64,
+                content_type: spParsed.contentType,
+                sha256: spSha,
+                label: 'fencing:site_plan',
+              }),
+            });
+            if (spArtRes.ok) {
+              var spArtData = await spArtRes.json();
+              // store storage_path sentinel so scope_json has a reference, not a blob.
+              // Format: 'scope_artifact:render_site_plan:<storage_path>'
+              // FOLLOW-ON: ops.html renderSitePlanPanel must detect this sentinel and
+              // call a signed-URL endpoint to display the image. Until then, ops will
+              // fall back to the static satellite map URL for frozen scopes where the
+              // site plan was captured and stripped.
+              var spRef = 'scope_artifact:render_site_plan:' + (spArtData.storage_path || '');
+              app.job.sitePlanImage = spRef;
+              sitePlanArtifact = { storage_path: spArtData.storage_path, sha256: spSha };
+              console.log('[ScopeFreeze] site plan artifact uploaded, ref stored in scope_json');
+            } else {
+              // upload failed — restore data URL so scoper can still see the plan
+              app.job.sitePlanImage = _spDataUrl;
+              console.warn('[ScopeFreeze] site plan artifact upload failed (' + spArtRes.status + ')');
+            }
+          }
+        } catch(spArtErr) {
+          app.job.sitePlanImage = _spDataUrl;
+          console.warn('[ScopeFreeze] site plan artifact upload threw:', spArtErr);
+        }
+        // Always re-save jobs.scope_json with either the sentinel or the restored data URL
+        try { await cloud.jobs.saveJob(jobId, { job: app.job }); } catch(_) {}
+      }
 
       // Step 2: capture per-run profile renders.
       var renders = [];
       try { renders = await _fenceCaptureProfileRenders(); }
       catch(e) {
-        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: 0, artifactsFailed: 0, artifactsSkipped: 0, reason: 'render-capture-failed' };
+        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: (sitePlanArtifact ? 1 : 0), artifactsFailed: 0, artifactsSkipped: 0, reason: 'render-capture-failed' };
       }
       if (!renders || renders.length === 0) {
-        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: 0, artifactsFailed: 0, artifactsSkipped: 0, reason: 'no-renders' };
+        return { ok: true, scopeRevisionId: scopeRevisionId, artifactsUploaded: (sitePlanArtifact ? 1 : 0), artifactsFailed: 0, artifactsSkipped: 0, reason: 'no-renders' };
       }
 
       // Step 3: upload each as render_profile, labelled with the run id.
-      var uploaded = 0, failed = 0, skipped = 0;
+      var uploaded = sitePlanArtifact ? 1 : 0, failed = 0, skipped = 0;
       for (var i = 0; i < renders.length; i++) {
         var r = renders[i];
         var parsed = _fenceParseDataUrl(r.dataUrl);
@@ -13298,6 +13380,7 @@
         artifactsFailed: failed,
         artifactsSkipped: skipped,
         renderCount: renders.length,
+        sitePlanArtifact: sitePlanArtifact,
       };
     }
 
