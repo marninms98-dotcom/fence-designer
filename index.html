@@ -12,6 +12,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     /* ── iPad-first base ── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -9964,6 +9965,640 @@
       // Flag to capture PDF blob instead of saving to disk (used by Send Quote)
       _capturePdfBlob: null,
 
+      // ============================================================
+      //  PREMIUM FENCING QUOTE TEMPLATE (locked 5-page design, HTML -> PDF)
+      //  Mirrors the proven patio quote (concept-B-FINAL). Same brand
+      //  system: Plus Jakarta Sans, palette, real logo, photo-hero +
+      //  navy shaded overlay, sharp 0px corners. Adapted to fencing:
+      //  multi-run design summary + client/neighbour cost-split.
+      //  MONEY-PATH: total/gst from _collectOutputData(); deposit +
+      //  schedule DERIVED from the real fencing deposit % (50, not 20).
+      // ============================================================
+      _swFenceQuoteCSS() {
+        if (this.__swFenceCSS) return this.__swFenceCSS;
+        // Verbatim from the locked patio design (concept-B-FINAL), scoped to .pgwrap.
+        this.__swFenceCSS = [
+'*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}',
+':root{--orange-900:#C4481F;--orange-700:#F15A29;--orange-500:#F4845F;--orange-300:#FADDD2;--orange-100:#FDF2EE;--blue-950:#1A272E;--blue-800:#293C46;--blue-600:#4C6A7C;--blue-400:#8FA4B2;--blue-200:#D4DEE4;--blue-100:#EDF1F4;--warm-300:#E8E4DF;--warm-200:#F0ECE8;--warm-100:#F8F6F3;--warm-50:#FCFBFA;--orange:var(--orange-700);--dark-blue:var(--blue-800);--mid-blue:var(--blue-600);--immersive:var(--blue-950);--ground:var(--warm-50);--body-text:#323232;}',
+'html{-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
+'body{font-family:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;background:#fff;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}',
+'.pgwrap{width:794px;}',
+'.page{width:794px;height:1123px;position:relative;overflow:hidden;background:var(--ground);display:flex;flex-direction:column;}',
+'.label{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange);}',
+'.accent-bar{width:44px;height:3px;background:var(--orange);}',
+'.topband{background:var(--blue-950);position:relative;overflow:hidden;padding:24px 52px 22px;display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;}',
+'.topband .logo svg{display:block;height:36px;width:auto;position:relative;z-index:2;}',
+'.topband .hmeta{text-align:right;font-size:11px;color:var(--blue-400);line-height:1.85;position:relative;z-index:2;}',
+'.topband .hmeta b{color:#fff;font-weight:700;}',
+'.topband .edgebar{position:absolute;left:0;bottom:0;height:4px;width:100%;background:var(--blue-800);z-index:2;}',
+'.topband .edgebar::before{content:"";position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);}',
+'#pg1 .coverhero{position:relative;overflow:hidden;height:830px;display:flex;flex-direction:column;color:#fff;}',
+'#pg1 .coverhero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:0;}',
+'#pg1 .coverhero .heroscrim{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(26,39,46,0.90) 0%,rgba(26,39,46,0.72) 24%,rgba(26,39,46,0.55) 48%,rgba(26,39,46,0.74) 80%,rgba(26,39,46,0.92) 100%);}',
+'#pg1 .coverhero .herohead{position:relative;z-index:3;display:flex;align-items:flex-start;justify-content:space-between;padding:34px 52px 0;}',
+'#pg1 .coverhero .herohead .logo svg{display:block;height:42px;width:auto;}',
+'#pg1 .coverhero .herohead .hmeta{text-align:right;font-size:11px;color:rgba(255,255,255,0.65);line-height:1.9;}',
+'#pg1 .coverhero .herohead .hmeta b{color:#fff;font-weight:700;}',
+'#pg1 .coverhero .herobody{position:relative;z-index:3;margin-top:auto;padding:0 52px 46px;display:flex;justify-content:space-between;align-items:flex-end;}',
+'#pg1 .coverhero .eyebrowrow{display:flex;align-items:center;gap:13px;margin-bottom:16px;}',
+'#pg1 .coverhero .maincover{font-weight:800;font-size:56px;line-height:0.92;letter-spacing:-2px;color:#fff;text-transform:uppercase;margin-top:14px;}',
+'#pg1 .coverhero .cover-tagline{font-size:13.5px;font-weight:500;color:rgba(255,255,255,0.82);line-height:1.5;margin-top:18px;max-width:400px;}',
+'#pg1 .coverhero .cover-tagline b{color:#fff;font-weight:700;}',
+'#pg1 .coverhero .quoteref{text-align:right;flex:0 0 auto;}',
+'#pg1 .coverhero .quoteref .qno{font-weight:800;font-size:30px;color:#fff;letter-spacing:-1px;line-height:1;}',
+'#pg1 .coverhero .quoteref .qsub{font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin-top:7px;font-weight:700;}',
+'#pg1 .coverhero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:3;}',
+'#pg1 .coverband{flex:1;display:grid;grid-template-columns:1.15fr 1fr;}',
+'#pg1 .coverband .clientblock{padding:30px 44px 30px 52px;display:flex;flex-direction:column;justify-content:center;}',
+'#pg1 .coverband .clientblock .cname{font-weight:800;font-size:24px;color:var(--dark-blue);letter-spacing:-0.4px;margin:12px 0 16px;}',
+'#pg1 .coverband .crow{display:flex;gap:12px;font-size:12.5px;color:var(--body-text);line-height:1.7;margin-bottom:5px;}',
+'#pg1 .coverband .crow b{color:var(--mid-blue);font-weight:700;min-width:48px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding-top:3px;}',
+'#pg1 .coverband .satellite{position:relative;overflow:hidden;border-left:1px solid var(--blue-200);background:var(--blue-100);}',
+'#pg1 .coverband .satellite img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}',
+'#pg1 .coverband .satellite .satlbl{position:absolute;left:0;bottom:0;z-index:2;background:var(--blue-950);color:#fff;font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:8px 14px;}',
+'#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:336px;overflow:hidden;background:var(--blue-950);}',
+'#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
+'#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
+'#pg2 .hero .herotag{position:absolute;left:0;top:0;z-index:3;background:var(--blue-950);color:#fff;display:flex;align-items:center;gap:11px;padding:11px 18px 11px 16px;}',
+'#pg2 .hero .herotag .num{font-weight:800;font-size:11px;letter-spacing:1px;color:var(--orange);}',
+'#pg2 .hero .herotag .txt{font-size:10px;font-weight:700;letter-spacing:2.6px;text-transform:uppercase;color:#fff;}',
+'#pg2 .hero .herocap{position:absolute;left:0;bottom:0;z-index:3;padding:0 0 22px 52px;max-width:430px;}',
+'#pg2 .hero .herocap .vname{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.72);margin-bottom:7px;}',
+'#pg2 .hero .herocap .vtitle{font-weight:800;font-size:23px;letter-spacing:-0.6px;line-height:1.05;color:#fff;}',
+'#pg2 .hero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:4;}',
+'#pg2 .aerialinset{position:absolute;right:36px;bottom:30px;z-index:5;width:188px;background:#fff;padding:6px;box-shadow:0 10px 34px rgba(26,39,46,0.45);}',
+'#pg2 .aerialinset .ainner{position:relative;overflow:hidden;}',
+'#pg2 .aerialinset img{display:block;width:100%;height:128px;object-fit:cover;}',
+'#pg2 .aerialinset .albl{position:absolute;left:0;top:0;background:var(--blue-950);color:#fff;font-size:8px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:5px 9px;}',
+'#pg2 .aerialinset .acap{font-size:8.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue);text-align:center;padding:7px 4px 3px;}',
+'#pg2 .body{flex:1;display:flex;flex-direction:column;padding:24px 52px 0;}',
+'#pg2 .intro{max-width:620px;margin-bottom:16px;}',
+'#pg2 .intro .lede{font-size:13px;line-height:1.6;color:var(--body-text);}',
+'#pg2 .intro .lede b{color:var(--dark-blue);font-weight:700;}',
+'#pg2 .shead{display:flex;align-items:baseline;gap:13px;margin-bottom:6px;}',
+'#pg2 .shead .snum{font-weight:800;font-size:13px;color:var(--mid-blue);letter-spacing:1px;}',
+'#pg2 .shead .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange);}',
+'#pg2 .shead-bar{width:44px;height:3px;background:var(--orange);margin:12px 0 0;}',
+'#pg2 .runwrap{margin-bottom:16px;}',
+'#pg2 .runlist{margin-top:14px;display:flex;flex-direction:column;gap:0;}',
+'#pg2 .runitem{display:flex;align-items:center;gap:16px;padding:9px 0;border-bottom:1px solid var(--blue-100);}',
+'#pg2 .runitem .rname{flex:0 0 150px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--dark-blue);}',
+'#pg2 .runitem .rspec{flex:1;font-size:12px;color:var(--mid-blue);font-weight:600;letter-spacing:-0.1px;}',
+'#pg2 .runitem .rlen{flex:0 0 auto;font-size:13px;font-weight:800;color:var(--dark-blue);letter-spacing:-0.3px;}',
+'#pg2 .specwrap{margin-bottom:16px;}',
+'#pg2 .speclist{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;column-gap:54px;row-gap:0;}',
+'#pg2 .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:18px;padding:7px 0;border-bottom:1px solid var(--blue-100);}',
+'#pg2 .specitem .sk{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue);}',
+'#pg2 .specitem .sv{text-align:right;font-size:12.5px;font-weight:700;color:var(--dark-blue);letter-spacing:-0.2px;line-height:1.35;}',
+'#pg2 .incwrap{margin-bottom:8px;}',
+'#pg2 .incgrid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;column-gap:54px;row-gap:0;}',
+'#pg2 .incitem{display:flex;align-items:baseline;gap:13px;padding:7px 0;}',
+'#pg2 .incitem .tick{flex:0 0 13px;width:13px;height:13px;position:relative;top:2px;}',
+'#pg2 .incitem .tick svg{display:block;width:13px;height:13px;}',
+'#pg2 .incitem .itxt{font-size:12.5px;line-height:1.4;color:var(--dark-blue);font-weight:600;letter-spacing:-0.1px;}',
+'#pg2 .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue);letter-spacing:0.8px;border-top:1px solid var(--blue-200);padding-top:13px;margin:auto 0 26px;}',
+'#pg2 .pagefoot .pf-name{font-weight:700;color:var(--dark-blue);letter-spacing:0.5px;}',
+'#pg3 .page{background:var(--blue-950);}',
+'#pg3 .bgimg{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;background-repeat:no-repeat;background-size:cover;background-position:74% 22%;background-color:var(--blue-950);}',
+'#pg3 .scrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.78) 0%,rgba(26,39,46,0.46) 14%,rgba(26,39,46,0.30) 32%,rgba(26,39,46,0.34) 50%,rgba(26,39,46,0.62) 66%,rgba(26,39,46,0.88) 82%,rgba(26,39,46,0.97) 100%);}',
+'#pg3 .scrim-foot{position:absolute;left:0;right:0;bottom:0;height:52%;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.00) 0%,rgba(26,39,46,0.55) 40%,rgba(26,39,46,0.92) 72%,rgba(26,39,46,0.99) 100%);}',
+'#pg3 .head{position:relative;z-index:3;display:flex;align-items:flex-start;justify-content:space-between;padding:34px 52px 0;}',
+'#pg3 .head .logo svg{display:block;height:42px;width:auto;}',
+'#pg3 .head .hmeta{text-align:right;font-size:11px;color:rgba(255,255,255,0.68);line-height:1.9;}',
+'#pg3 .head .hmeta b{color:#fff;font-weight:700;}',
+'#pg3 .eyebrowrow{position:relative;z-index:3;display:flex;align-items:center;gap:13px;padding:26px 52px 0;}',
+'#pg3 .eyebrowrow .num{font-weight:800;font-size:13px;color:#fff;letter-spacing:1px;}',
+'#pg3 .eyebrowrow .label{color:rgba(255,255,255,0.92);}',
+'#pg3 .lower{position:relative;z-index:3;margin-top:auto;padding:0 52px 46px;}',
+'#pg3 .invgrid{display:grid;grid-template-columns:1fr 0.92fr;gap:44px;align-items:end;}',
+'#pg3 .priceblock .ptitle{font-size:10.5px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange-500);margin-bottom:14px;}',
+'#pg3 .priceblock .invnum{font-weight:800;font-size:54px;line-height:0.92;letter-spacing:-2px;color:#fff;}',
+'#pg3 .priceblock .invnum .cur{font-size:32px;font-weight:700;vertical-align:7px;letter-spacing:-0.5px;color:rgba(255,255,255,0.9);margin-right:3px;}',
+'#pg3 .priceblock .gst{display:block;margin-top:13px;font-size:9.5px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--blue-400);}',
+'#pg3 .priceblock .invsub{font-size:12px;font-weight:500;color:rgba(255,255,255,0.8);line-height:1.55;max-width:340px;margin-top:16px;}',
+'#pg3 .priceblock .invsub b{color:#fff;font-weight:700;}',
+'#pg3 .sched{align-self:end;}',
+'#pg3 .sched .schhead{display:flex;align-items:center;gap:10px;margin-bottom:9px;padding-bottom:9px;border-bottom:1px solid rgba(255,255,255,0.16);}',
+'#pg3 .sched .schhead .accent-bar{width:22px;height:2px;}',
+'#pg3 .sched .schhead .sh{font-size:9.5px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:rgba(255,255,255,0.92);}',
+'#pg3 .sched .item{display:flex;align-items:baseline;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);}',
+'#pg3 .sched .item:last-of-type{border-bottom:none;}',
+'#pg3 .sched .pct{flex:0 0 40px;font-weight:800;font-size:16px;color:#fff;letter-spacing:-0.6px;}',
+'#pg3 .sched .mid{flex:1;}',
+'#pg3 .sched .stage{font-size:8.5px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--orange-500);display:block;}',
+'#pg3 .sched .desc{font-size:9px;color:rgba(255,255,255,0.58);line-height:1.35;margin-top:1px;display:block;}',
+'#pg3 .sched .amt{flex:0 0 auto;font-weight:700;font-size:13px;color:#fff;letter-spacing:-0.3px;}',
+'#pg3 .sched .schnote{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:9px;color:rgba(255,255,255,0.55);letter-spacing:0.3px;}',
+'#pg3 .sched .schnote .pi{flex:0 0 14px;width:14px;height:14px;border:1px solid rgba(255,255,255,0.38);color:rgba(255,255,255,0.65);display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:800;font-style:italic;}',
+'#pg3 .split{margin-top:22px;padding-top:18px;border-top:1px solid rgba(255,255,255,0.16);}',
+'#pg3 .split .splithead{display:flex;align-items:center;gap:10px;margin-bottom:13px;}',
+'#pg3 .split .splithead .accent-bar{width:22px;height:2px;}',
+'#pg3 .split .splithead .sh{font-size:9.5px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:rgba(255,255,255,0.92);}',
+'#pg3 .split .splitnote{font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:13px;line-height:1.5;max-width:560px;}',
+'#pg3 .split .splitgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}',
+'#pg3 .split .sharecard{background:rgba(26,39,46,0.45);border:1px solid rgba(255,255,255,0.14);border-left:3px solid var(--orange);padding:13px 16px;}',
+'#pg3 .split .sharecard.client{border-left-color:var(--orange);}',
+'#pg3 .split .sharecard.nb{border-left-color:var(--blue-400);}',
+'#pg3 .split .sharecard .who{font-size:8.5px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.62);margin-bottom:3px;}',
+'#pg3 .split .sharecard .whoname{font-size:13px;font-weight:800;color:#fff;letter-spacing:-0.2px;margin-bottom:9px;line-height:1.2;}',
+'#pg3 .split .sharecard .shareamt{font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;}',
+'#pg3 .split .sharecard .sharemeta{font-size:8.5px;color:rgba(255,255,255,0.55);margin-top:5px;letter-spacing:0.3px;line-height:1.4;}',
+'#pg3 .pagefoot{position:relative;z-index:3;display:flex;justify-content:space-between;align-items:center;padding:14px 52px 22px;font-size:8.5px;color:rgba(255,255,255,0.5);letter-spacing:0.8px;}',
+'#pg3 .pagefoot .pf-name{font-weight:700;color:rgba(255,255,255,0.82);letter-spacing:0.5px;}',
+'#pg3 .groundedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:5;}',
+'#pg3 .pageframe{position:absolute;inset:0;z-index:4;pointer-events:none;border:1px solid rgba(255,255,255,0.12);}',
+'#pg4 .pad{padding:30px 52px 30px;flex:1;display:flex;flex-direction:column;}',
+'#pg4 .secthead{display:flex;align-items:center;gap:13px;}',
+'#pg4 .secthead .num{font-weight:800;font-size:13px;color:var(--mid-blue);letter-spacing:1px;}',
+'#pg4 .accept-strip{background:var(--orange-100);border:1px solid var(--orange-300);border-left:3px solid var(--orange);padding:11px 16px;margin-bottom:18px;font-size:10.5px;color:var(--dark-blue);line-height:1.55;}',
+'#pg4 .accept-strip b{font-weight:700;}',
+'#pg4 .terms{display:grid;grid-template-columns:1fr 1fr;gap:0 34px;}',
+'#pg4 .termcol{display:flex;flex-direction:column;gap:15px;}',
+'#pg4 .termgrp h4{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);margin-bottom:7px;display:flex;align-items:center;gap:8px;}',
+'#pg4 .termgrp h4::before{content:"";width:14px;height:2px;background:var(--orange);flex:0 0 14px;}',
+'#pg4 .termgrp ul{list-style:none;}',
+'#pg4 .termgrp li{font-size:9px;color:var(--mid-blue);line-height:1.5;margin-bottom:5px;padding-left:11px;position:relative;}',
+'#pg4 .termgrp li::before{content:"";position:absolute;left:0;top:6px;width:3px;height:3px;background:var(--blue-400);}',
+'#pg4 .termgrp li b{color:var(--dark-blue);font-weight:700;}',
+'#pg4 .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue);letter-spacing:0.8px;border-top:1px solid var(--blue-200);padding-top:11px;margin-top:auto;}',
+'#pg4 .pagefoot .pf-name{font-weight:700;color:var(--dark-blue);letter-spacing:0.5px;}',
+'#pg5 .page{background:var(--blue-950);}',
+'#pg5 .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 42%;display:block;z-index:0;}',
+'#pg5 .scrim{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(26,39,46,0.30) 0%,rgba(26,39,46,0.12) 18%,rgba(26,39,46,0.04) 38%,rgba(26,39,46,0.04) 55%,rgba(26,39,46,0.20) 72%,rgba(26,39,46,0.55) 100%);}',
+'#pg5 .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:8;}',
+'#pg5 .shell{position:relative;z-index:5;flex:1;display:flex;flex-direction:column;}',
+'#pg5 .topband{position:relative;padding:30px 52px 34px;background:linear-gradient(180deg,rgba(26,39,46,0.92) 0%,rgba(26,39,46,0.72) 55%,rgba(26,39,46,0) 100%);display:block;}',
+'#pg5 .head{display:flex;align-items:flex-start;justify-content:space-between;}',
+'#pg5 .head .logo svg{display:block;height:38px;width:auto;}',
+'#pg5 .head .hmeta{text-align:right;font-size:11px;color:rgba(255,255,255,0.62);line-height:1.85;}',
+'#pg5 .head .hmeta b{color:#fff;font-weight:700;}',
+'#pg5 .eyebrow{display:flex;align-items:center;gap:13px;}',
+'#pg5 .trustmark{margin-top:24px;}',
+'#pg5 .tmrow{display:flex;align-items:center;gap:16px;}',
+'#pg5 .tmscore{font-weight:800;font-size:46px;line-height:0.82;letter-spacing:-2px;color:#fff;}',
+'#pg5 .stars{display:flex;gap:4px;margin-bottom:5px;}',
+'#pg5 .stars svg{width:16px;height:16px;display:block;}',
+'#pg5 .tmcount{font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.82);}',
+'#pg5 .tmcount .verif{color:var(--orange);}',
+'#pg5 .photogap{flex:1 1 auto;}',
+'#pg5 .cluster{position:relative;padding:34px 52px 38px;background:linear-gradient(180deg,rgba(26,39,46,0) 0%,rgba(26,39,46,0.62) 26%,rgba(26,39,46,0.90) 60%,rgba(26,39,46,0.97) 100%);}',
+'#pg5 .quoterow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}',
+'#pg5 .quotecard{border-left:3px solid var(--orange);padding:2px 0 2px 16px;}',
+'#pg5 .quotecard p{font-size:11.5px;color:rgba(255,255,255,0.92);line-height:1.5;font-style:italic;margin-bottom:7px;}',
+'#pg5 .quotecard .qattr{font-size:9px;font-weight:700;letter-spacing:0.9px;text-transform:uppercase;color:rgba(255,255,255,0.6);}',
+'#pg5 .gbtn{display:inline-flex;align-items:center;gap:9px;text-decoration:none;background:rgba(241,90,41,0.10);color:#fff;border:1px solid rgba(241,90,41,0.75);font-weight:700;font-size:11.5px;letter-spacing:0.4px;padding:11px 18px;}',
+'#pg5 .gbtn .gstar{width:14px;height:14px;flex:0 0 14px;display:block;}',
+'#pg5 .gbtn .gstar svg{width:14px;height:14px;display:block;}',
+'#pg5 .gbtn .gtxt b{font-weight:800;}',
+'#pg5 .gbtn .garr{font-size:13px;color:var(--orange);margin-left:1px;}',
+'#pg5 .crossline{font-size:11.5px;color:rgba(255,255,255,0.80);letter-spacing:0.2px;margin:20px 0 6px;font-weight:500;}',
+'#pg5 .crossline b{color:#fff;font-weight:700;}',
+'#pg5 .trustline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:16px;border-top:1px solid rgba(255,255,255,0.16);}',
+'#pg5 .trustline span.t{font-size:10.5px;font-weight:700;letter-spacing:0.4px;color:rgba(255,255,255,0.88);}',
+'#pg5 .trustsep{width:4px;height:4px;background:var(--orange);flex:0 0 4px;}',
+'#pg5 .cta{margin-top:18px;background:rgba(26,39,46,0.55);border:1px solid rgba(255,255,255,0.14);border-left:5px solid var(--orange);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:28px;}',
+'#pg5 .cta .ctah{font-weight:800;font-size:26px;color:#fff;text-transform:uppercase;letter-spacing:-1px;line-height:1.05;margin-bottom:8px;}',
+'#pg5 .cta .ctah span{color:var(--orange);}',
+'#pg5 .cta p{font-size:12px;color:rgba(255,255,255,0.78);line-height:1.55;max-width:340px;}',
+'#pg5 .cta .ctaaction{flex:0 0 auto;text-align:center;}',
+'#pg5 .cta .ctabtn{display:inline-block;background:var(--orange);color:#fff;font-weight:800;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;padding:16px 30px;white-space:nowrap;}',
+'#pg5 .cta .ctahint{display:block;margin-top:10px;font-size:10px;font-weight:600;letter-spacing:0.3px;color:rgba(255,255,255,0.62);}'
+        ].join('\n');
+        return this.__swFenceCSS;
+      },
+
+      // SecureWorks Group wordmark, white fill (verbatim from the locked patio design).
+      _swFenceLogoWhite() {
+        return '<svg viewBox="0 0 490 79.55" xmlns="http://www.w3.org/2000/svg"><defs><style>.swl1{fill:#fff;}.swl3{fill:rgba(255,255,255,0.6);}</style></defs><path class="swl1" d="M85.11,46.94c.24,1.73,.73,3.02,1.44,3.88,1.31,1.56,3.56,2.34,6.74,2.34,1.91,0,3.45-.21,4.64-.62,2.26-.79,3.38-2.25,3.38-4.39,0-1.25-.55-2.22-1.66-2.9-1.11-.67-2.86-1.26-5.26-1.77l-4.1-.9c-4.03-.89-6.8-1.86-8.3-2.9-2.55-1.75-3.83-4.48-3.83-8.19,0-3.39,1.25-6.21,3.74-8.45s6.16-3.36,11-3.36c4.04,0,7.48,1.06,10.33,3.17,2.85,2.11,4.35,5.18,4.48,9.21h-7.6c-.14-2.28-1.16-3.89-3.05-4.85-1.26-.63-2.83-.95-4.71-.95-2.09,0-3.76,.41-5,1.23-1.25,.82-1.87,1.97-1.87,3.44,0,1.35,.61,2.36,1.84,3.03,.79,.45,2.47,.97,5.03,1.57l6.64,1.57c2.91,.69,5.09,1.6,6.55,2.75,2.26,1.78,3.38,4.36,3.38,7.73s-1.34,6.33-4.01,8.62c-2.67,2.29-6.45,3.43-11.33,3.43s-8.9-1.13-11.76-3.38c-2.86-2.25-4.28-5.35-4.28-9.28h7.55Z"/><path class="swl1" d="M130.99,31.2c1.95,.87,3.57,2.26,4.84,4.14,1.15,1.66,1.89,3.59,2.23,5.79,.2,1.29,.28,3.14,.24,5.56h-20.39c.11,2.81,1.09,4.78,2.93,5.91,1.12,.7,2.46,1.05,4.04,1.05,1.67,0,3.02-.43,4.06-1.28,.57-.46,1.07-1.1,1.51-1.93h7.47c-.2,1.66-1.1,3.35-2.71,5.06-2.51,2.72-6.02,4.08-10.53,4.08-3.73,0-7.01-1.15-9.86-3.44-2.85-2.3-4.27-6.03-4.27-11.21,0-4.85,1.28-8.57,3.86-11.16,2.57-2.59,5.91-3.88,10.01-3.88,2.44,0,4.63,.44,6.58,1.31Zm-10.95,6.32c-1.03,1.07-1.68,2.51-1.95,4.33h12.61c-.13-1.94-.78-3.42-1.95-4.42s-2.61-1.51-4.34-1.51c-1.88,0-3.34,.53-4.37,1.6Z"/><path class="swl1" d="M157.58,40.68c-.14-1.04-.49-1.99-1.06-2.82-.82-1.13-2.1-1.7-3.84-1.7-2.47,0-4.16,1.22-5.07,3.67-.48,1.3-.72,3.02-.72,5.17s.24,3.7,.72,4.94c.87,2.33,2.52,3.49,4.94,3.49,1.72,0,2.94-.46,3.66-1.39,.72-.92,1.16-2.12,1.31-3.6h7.47c-.17,2.23-.98,4.33-2.42,6.32-2.3,3.2-5.7,4.8-10.21,4.8s-7.82-1.34-9.95-4.01c-2.12-2.67-3.19-6.13-3.19-10.39,0-4.8,1.17-8.54,3.52-11.21,2.35-2.67,5.59-4.01,9.72-4.01,3.51,0,6.39,.79,8.63,2.36,2.24,1.58,3.56,4.36,3.97,8.35h-7.5Z"/><path class="swl1" d="M176.23,30.63v16.87c0,1.59,.19,2.79,.56,3.6,.66,1.42,1.97,2.13,3.91,2.13,2.49,0,4.19-1.01,5.11-3.03,.48-1.1,.72-2.54,.72-4.34v-15.23h7.42v27.99h-7.11v-3.96c-.07,.09-.24,.34-.51,.77s-.6,.8-.97,1.13c-1.14,1.03-2.25,1.73-3.32,2.11-1.07,.38-2.32,.57-3.75,.57-4.13,0-6.92-1.49-8.35-4.47-.8-1.64-1.2-4.07-1.2-7.27V30.63h7.5Z"/><path class="swl1" d="M215.46,29.98c.09,0,.3,.02,.63,.04v7.5c-.46-.05-.87-.09-1.23-.1-.36-.02-.65-.03-.87-.03-2.95,0-4.92,.96-5.93,2.88-.57,1.08-.85,2.74-.85,4.98v13.38h-7.37V30.63h6.99v4.88c1.13-1.87,2.11-3.14,2.95-3.83,1.37-1.15,3.15-1.72,5.34-1.72,.14,0,.25,0,.35,.01Z"/><path class="swl1" d="M237.46,31.2c1.95,.87,3.57,2.26,4.84,4.14,1.15,1.66,1.89,3.59,2.23,5.79,.2,1.29,.28,3.14,.24,5.56h-20.39c.11,2.81,1.09,4.78,2.93,5.91,1.12,.7,2.46,1.05,4.04,1.05,1.67,0,3.02-.43,4.06-1.28,.57-.46,1.07-1.1,1.51-1.93h7.47c-.2,1.66-1.1,3.35-2.71,5.06-2.51,2.72-6.02,4.08-10.53,4.08-3.73,0-7.01-1.15-9.86-3.44-2.85-2.3-4.27-6.03-4.27-11.21,0-4.85,1.28-8.57,3.86-11.16,2.57-2.59,5.91-3.88,10.01-3.88,2.44,0,4.63,.44,6.58,1.31Zm-10.95,6.32c-1.03,1.07-1.68,2.51-1.95,4.33h12.61c-.13-1.94-.78-3.42-1.95-4.42s-2.61-1.51-4.34-1.51c-1.88,0-3.34,.53-4.37,1.6Z"/><path class="swl1" d="M257.19,20.77l.39,21.68-.21,6.04,2.36-5.91,8.91-21.8h8.35l-.13,21.68-.13,6.04,2.39-5.8,9.73-21.91h8.04l-18.7,37.86h-7.55l.13-22.14,.21-7.32-2.88,7.32-9.27,22.14h-7.34l-2.7-37.86h8.4Z"/><path class="swl1" d="M303.31,59.6c-4.81,0-8.09-1.46-9.82-4.38-1.74-2.92-2.17-6.43-1.3-10.54,.86-4.04,2.78-7.54,5.78-10.5,3-2.96,6.9-4.44,11.71-4.44s8.08,1.48,9.81,4.44c1.73,2.96,2.17,6.46,1.31,10.5-.87,4.11-2.8,7.62-5.79,10.54-2.99,2.92-6.89,4.38-11.7,4.38Zm9.81-14.92c.6-2.81,.48-4.97-.35-6.49-.83-1.52-2.32-2.27-4.46-2.27s-3.95,.76-5.42,2.27c-1.47,1.52-2.51,3.68-3.11,6.49-.6,2.81-.48,4.97,.35,6.5,.83,1.52,2.32,2.29,4.46,2.29s3.95-.76,5.42-2.29,2.51-3.69,3.11-6.5Z"/><path class="swl1" d="M344.17,30.02l-1.59,7.5c-.45-.05-.85-.09-1.21-.1-.36-.02-.65-.03-.87-.03-2.94,0-5.13,.96-6.55,2.88-.79,1.08-1.42,2.74-1.9,4.98l-2.83,13.38h-7.37l5.93-27.99h6.99l-1.03,4.88c1.52-1.87,2.77-3.14,3.75-3.83,1.63-1.15,3.54-1.72,5.73-1.72,.14,0,.25,0,.35,.01,.09,0,.3,.02,.6,.04Z"/><path class="swl1" d="M349.18,20.9h7.19l-4.34,20.39,11.35-10.53h9.07l-12.07,10.71,6.55,17.16h-8.83l-4.16-11.97-3.72,3.16-1.85,8.81h-7.19l8.01-37.73Z"/><path class="swl1" d="M376.91,49.69c-.12,1.3,.03,2.23,.44,2.77,.68,.98,2.25,1.46,4.7,1.46,1.44,0,2.63-.21,3.57-.64,.94-.43,1.51-1.07,1.7-1.93,.17-.82-.04-1.45-.64-1.87-.6-.43-2.99-1.16-7.17-2.21-3-.79-5.02-1.77-6.06-2.95-1.06-1.16-1.35-2.84-.87-5.03,.55-2.59,2.03-4.81,4.46-6.66,2.42-1.86,5.47-2.79,9.16-2.79s6.19,.7,8.09,2.09c1.9,1.4,2.65,3.81,2.26,7.23h-7.32c.09-.94-.02-1.69-.33-2.23-.6-.99-1.87-1.49-3.8-1.49-1.59,0-2.78,.25-3.56,.74-.78,.5-1.24,1.08-1.37,1.75-.19,.84,.04,1.45,.69,1.82,.63,.39,3.03,1.07,7.19,2.03,2.76,.69,4.72,1.72,5.88,3.11,1.15,1.4,1.5,3.16,1.05,5.26-.6,2.77-2.11,5.04-4.55,6.79-2.43,1.76-5.8,2.63-10.12,2.63s-7.45-.93-9.16-2.79c-1.7-1.86-2.26-4.22-1.66-7.1h7.42Z"/><text class="swl3" x="406" y="52" font-family="\'Plus Jakarta Sans\',\'Helvetica Neue\',Helvetica,Arial,sans-serif" font-size="21" font-weight="400" letter-spacing="0.5">Group</text><polygon class="swl1" points="53.4 30.35 53.4 22.29 31.41 8.51 8.87 22.26 8.87 34.53 45.59 42.34 45.59 52.83 38.55 52.83 31.39 45.47 24.15 52.83 16.68 52.83 16.68 39 8.87 37.4 8.87 60.64 27.43 60.64 31.36 56.65 35.25 60.64 53.4 60.64 53.4 36.01 16.68 28.21 16.68 26.65 31.35 17.69 45.59 26.61 45.59 31.95 53.4 33.41 53.4 30.35"/><rect fill="#f15a29" x="8.96" y="62.99" width="44.53" height="7.77"/></svg>';
+      },
+
+      // Hosted brand photos (brand-assets bucket, public). NOTE: these are the
+      // shared SecureWorks Group brand photos (the patio/team set). Marnin will
+      // supply FENCING-specific photos separately — swap the URLs below when ready
+      // (e.g. fence-hero.jpg / photo-fence-team.webp in the same bucket).
+      _swFencePhotos() {
+        var B = 'https://kevgrhcjxspbxgovpmfl.supabase.co/storage/v1/object/public/brand-assets/';
+        return {
+          cover: B + 'hero-photo.jpg',        // PLACEHOLDER — swap for fencing hero when supplied
+          price: B + 'photo-roof-team.webp',  // PLACEHOLDER — crew-on-site; swap for fencing crew when supplied
+          close: B + 'photo-roof-team.webp'   // PLACEHOLDER — swap for fencing crew when supplied
+        };
+      },
+
+      _swFenceContact() { return { abn: '64 689 223 416', web: 'secureworksgroup.app', phone: '0489 267 772' }; },
+
+      _swQEsc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      },
+
+      // Fetch any URL (https or data:) -> data: URL so html2canvas can rasterise it.
+      _swQFetchToDataURL(url) {
+        return new Promise(function(resolve) {
+          if (!url) { resolve(''); return; }
+          if (/^data:/.test(url)) { resolve(url); return; }
+          fetch(url, { mode: 'cors' })
+            .then(function(r) { if (!r.ok) throw new Error('http ' + r.status); return r.blob(); })
+            .then(function(b) {
+              var fr = new FileReader();
+              fr.onload = function() { resolve(fr.result); };
+              fr.onerror = function() { resolve(''); };
+              fr.readAsDataURL(b);
+            })
+            .catch(function(e) { console.warn('[FenceQuote] asset fetch failed:', url, e); resolve(''); });
+        });
+      },
+
+      _swQMoney(v) { return '$' + (Number(v) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); },
+      _swQLongDate(d) {
+        var M = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        return d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear();
+      },
+
+      // Gather every live value the premium fencing template needs. MONEY-PATH:
+      // subtotal/gst/grandTotal come straight from _collectOutputData(); deposit +
+      // schedule are DERIVED from the real fencing deposit % (q.depositPercent
+      // or 50), never hardcoded. Client/neighbour split read from d.neighbourCosts.
+      _gatherFenceQuoteData(d) {
+        var job = d.job || this.job;
+        var q = job.quote || {};
+        var totalIncGST = Number(d.grandTotal) || 0;
+        var gst = Number(d.gst) || 0;
+
+        // --- DEPOSIT (fencing default 50%; read q.depositPercent if set) ---
+        var depPercent = (q.depositPercent != null && !isNaN(parseFloat(q.depositPercent))) ? parseFloat(q.depositPercent) : 50;
+        var depTotal = Math.round(totalIncGST * (depPercent / 100) * 100) / 100;
+        // Balance on completion (single remaining stage for fencing — short jobs).
+        var balPercent = Math.round((100 - depPercent) * 10) / 10;
+        var balAmt = Math.round((totalIncGST - depTotal) * 100) / 100;
+
+        // --- SPECIFICATIONS ---
+        var runs = (d.runDetails || []);
+        var heights = [].concat.apply([], runs.map(function(r) {
+          return (r.panels && r.panels.length) ? r.panels.map(function(p) { return p.height; }) : [];
+        }));
+        if (!heights.length && job.runs && job.runs[0]) heights = [job.runs[0].sheetHeight];
+        var uniqHeights = [];
+        heights.forEach(function(h) { if (uniqHeights.indexOf(h) < 0) uniqHeights.push(h); });
+        var heightStr = uniqHeights.length ? uniqHeights.sort(function(a,b){return a-b;}).map(function(h){return h+'mm';}).join(' / ') : '—';
+
+        var profileLabel = (d.colour ? ('COLORBOND® ' + d.colour) : '') + (d.profile ? ((d.colour ? ' · ' : '') + d.profile + ' profile') : '');
+        if (!profileLabel) profileLabel = (d.profile || 'Colorbond fence');
+
+        var totalPosts = (d.allPosts != null) ? d.allPosts : (d.totalPosts || 0);
+
+        var specs = [];
+        specs.push(['Total Length', (Number(d.totalMetres) || 0).toFixed(1) + ' lineal metres']);
+        specs.push(['Height', heightStr]);
+        if (d.profile) specs.push(['Profile', d.profile]);
+        if (d.colour) specs.push(['Colour', 'COLORBOND® ' + d.colour]);
+        specs.push(['Panels', (d.totalPanels || 0) + ' panels']);
+        specs.push(['Posts', totalPosts + ' × SHS, set in concrete']);
+        if (d.totalPlinths > 0) specs.push(['Retaining Plinths', d.totalPlinths + ' × 150mm']);
+        if (d.gateDetails && d.gateDetails.length) {
+          specs.push(['Gates', d.gateDetails.map(function(g){ return (g.type ? (g.type.charAt(0).toUpperCase()+g.type.slice(1)) : 'Gate') + (g.width ? ' ' + g.width + 'mm' : ''); }).join(', ')]);
+        }
+        if (d.concreteBags > 0) specs.push(['Footings', d.concreteBags + ' bags concrete, 600mm embed']);
+
+        // --- RUN SUMMARY (multi-run, 1..N) ---
+        var runSummary = runs.map(function(r) {
+          var rh = (r.panels && r.panels.length) ? r.panels[0].height : (job.runs[0] ? job.runs[0].sheetHeight : '');
+          return {
+            name: (r.name || 'Run').toString(),
+            length: (Number(r.length) || 0).toFixed(1) + 'm',
+            spec: (rh ? rh + 'mm' : '') + (d.profile ? ' · ' + d.profile : '') + (r.plinths > 0 ? ' · ' + r.plinths + ' plinth' + (r.plinths > 1 ? 's' : '') : '')
+          };
+        });
+
+        // --- CLIENT / NEIGHBOUR COST-SPLIT ---
+        var split = this._gatherFenceCostSplit(d, totalIncGST);
+
+        // --- lede sentence (design tone) ---
+        var lede = 'A clean run of ' + (Number(d.totalMetres) || 0).toFixed(1) + ' lineal metres of '
+          + (profileLabel || 'Colorbond fencing') + ', at ' + heightStr + ' high'
+          + ', with all posts set in concrete. Built straight, built to last, and finished to suit your boundary and your home.';
+
+        // --- meta ---
+        var jobRef = job.ref || '—';
+        var qNum = window._currentQuoteNumber ? String(window._currentQuoteNumber) : (jobRef !== '—' ? jobRef : 'Quote');
+        var issued = job.date ? new Date(job.date) : new Date();
+        if (isNaN(issued.getTime())) issued = new Date();
+        var validUntil = new Date(issued.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        return {
+          qNum: qNum,
+          jobRef: jobRef,
+          clientName: job.client || [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || '—',
+          siteAddr: job.address || '—',
+          phone: job.phone || '—',
+          email: job.email || '—',
+          issuedStr: this._swQLongDate(issued),
+          validUntilStr: this._swQLongDate(validUntil),
+          specs: specs,
+          runSummary: runSummary,
+          lede: lede,
+          totalIncGST: totalIncGST,
+          gst: gst,
+          totalStr: this._swQMoney(totalIncGST),
+          gstStr: this._swQMoney(gst),
+          depPercent: depPercent,
+          balPercent: balPercent,
+          depTotal: depTotal,
+          depTotalStr: this._swQMoney(depTotal),
+          balAmtStr: this._swQMoney(balAmt),
+          schedule: [
+            { pct: depPercent, amt: depTotal, amtStr: this._swQMoney(depTotal), stage: 'Deposit', desc: 'To confirm your booking and secure materials.' },
+            { pct: balPercent, amt: balAmt, amtStr: this._swQMoney(balAmt), stage: 'Completion', desc: 'Balance due on completion of works.' }
+          ],
+          split: split,
+          salesperson: job.scoper || 'SecureWorks Team',
+          contact: this._swFenceContact()
+        };
+      },
+
+      // Resolve the client/neighbour cost-split into a clean shares array.
+      // Uses d.neighbourCosts (per-run proportional OR flat-percent fallback).
+      // Returns { shown:bool, shares:[{who,name,amtStr,metaStr,kind}], basis:str }.
+      _gatherFenceCostSplit(d, totalIncGST) {
+        var job = d.job || this.job;
+        var nbs = (job.neighbours || []).filter(function(n){ return n.firstName || n.lastName; });
+        var nc = d.neighbourCosts || {};
+        var keys = Object.keys(nc);
+        if (!keys.length || !nbs.length) {
+          return { shown: false, shares: [], basis: '' };
+        }
+        var basis = d.hasRunAssignments
+          ? 'Costs are allocated by the runs each party shares, with shared site costs split in proportion.'
+          : 'Costs are split by the agreed boundary share with each adjoining owner.';
+
+        var shares = [];
+        // Client first
+        var cc = nc['__client__'];
+        if (cc) {
+          shares.push({
+            who: 'Your Share',
+            name: d.job.client || [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || 'You',
+            amtStr: this._swQMoney(cc.totalIncGst),
+            metaStr: (cc.flatPercent != null ? cc.flatPercent + '% of total' : (cc.runNames && cc.runNames.length ? cc.runNames.join(', ') : 'Your portion')) + ' · incl GST',
+            kind: 'client'
+          });
+        }
+        nbs.forEach(function(n) {
+          var e = nc[n.id];
+          if (!e) return;
+          var nm = [n.firstName, n.lastName].filter(Boolean).join(' ') || 'Neighbour';
+          shares.push({
+            who: 'Neighbour Share',
+            name: nm,
+            amtStr: this._swQMoney(e.totalIncGst),
+            metaStr: (e.flatPercent != null ? e.flatPercent + '% of total' : (e.runNames && e.runNames.length ? e.runNames.join(', ') : 'Shared boundary')) + ' · incl GST',
+            kind: 'nb'
+          });
+        }, this);
+
+        return { shown: shares.length > 1, shares: shares, basis: basis };
+      },
+
+      // Build the locked 5-page template as an HTML string.
+      // imgs = { logo, heroCover, render, satellite, pricePhoto, closePhoto }
+      _buildFenceQuoteHTML(d, imgs) {
+        var self = this;
+        var STAR = '<svg viewBox="0 0 24 24" fill="#F15A29"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 7.1-1.01z"/></svg>';
+        var TICK = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 8.6L6.2 12.3L13.5 4" stroke="#F15A29" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        function E(s){ return self._swQEsc(s); }
+        function img(src, cls, alt) { return src ? '<img class="' + cls + '" src="' + src + '" alt="' + E(alt) + '">' : ''; }
+
+        var specRows = d.specs.map(function(s) {
+          return '<div class="specitem"><span class="sk">' + E(s[0]) + '</span><span class="sv">' + E(s[1]) + '</span></div>';
+        }).join('');
+
+        var runRows = d.runSummary.map(function(r) {
+          return '<div class="runitem"><span class="rname">' + E(r.name) + '</span><span class="rspec">' + E(r.spec) + '</span><span class="rlen">' + E(r.length) + '</span></div>';
+        }).join('');
+
+        var includeItems = [
+          'Professional installation by our licensed crew',
+          'All posts set in concrete footings',
+          'COLORBOND® steel, colour-matched throughout',
+          'Full site cleanup on completion',
+          '12-month workmanship warranty'
+        ].map(function(t) {
+          return '<div class="incitem"><span class="tick">' + TICK + '</span><span class="itxt">' + E(t) + '</span></div>';
+        }).join('');
+
+        var schedItems = d.schedule.map(function(s) {
+          return '<div class="item"><span class="pct">' + s.pct + '%</span><span class="mid">'
+            + '<span class="stage">' + E(s.stage) + '</span><span class="desc">' + E(s.desc) + '</span></span>'
+            + '<span class="amt">' + s.amtStr + '</span></div>';
+        }).join('');
+
+        // Cost-split block (fencing-specific). Only shown when there is a neighbour share.
+        var splitBlock = '';
+        if (d.split && d.split.shown) {
+          var shareCards = d.split.shares.map(function(s) {
+            return '<div class="sharecard ' + s.kind + '"><div class="who">' + E(s.who) + '</div>'
+              + '<div class="whoname">' + E(s.name) + '</div>'
+              + '<div class="shareamt">' + s.amtStr + '</div>'
+              + '<div class="sharemeta">' + E(s.metaStr) + '</div></div>';
+          }).join('');
+          splitBlock = '<div class="split"><div class="splithead"><span class="accent-bar"></span><span class="sh">Cost Split &middot; Shared Boundary</span></div>'
+            + '<div class="splitnote">' + E(d.split.basis) + ' The total above is the full project cost; the cards below show each party\'s share.</div>'
+            + '<div class="splitgrid">' + shareCards + '</div></div>';
+        }
+
+        var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
+        var pf = function(n) { return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + n + ' of 5</div></div>'; };
+        var stars5 = STAR + STAR + STAR + STAR + STAR;
+        var css = this._swFenceQuoteCSS();
+
+        // ----- PAGE 1 COVER -----
+        var p1 = '<div id="pg1" class="pgwrap"><section class="page"><div class="coverhero">'
+          + img(imgs.heroCover, 'heroimg', 'Fencing project') + '<div class="heroscrim"></div>'
+          + '<div class="herohead"><div class="logo">' + imgs.logo + '</div>'
+          + '<div class="hmeta"><div><b>ABN</b> ' + d.contact.abn + '</div><div><b>W</b> ' + d.contact.web + '</div><div><b>P</b> ' + d.contact.phone + '</div></div></div>'
+          + '<div class="herobody"><div><div class="eyebrowrow"><span class="accent-bar"></span><span class="label">Prepared For You</span></div>'
+          + '<h1 class="maincover">Your Custom<br>Fencing Quote</h1>'
+          + '<div class="cover-tagline">A clean, durable boundary that suits your home. Here is everything it takes to build it.</div></div>'
+          + '<div class="quoteref"><div class="qno">' + E(d.qNum) + '</div><div class="qsub">Job &nbsp;' + E(d.jobRef) + '</div></div></div>'
+          + '<div class="heroedge"></div></div>'
+          + '<div class="coverband"><div class="clientblock"><span class="label">Prepared For</span>'
+          + '<div class="cname">' + E(d.clientName) + '</div>'
+          + '<div class="crow"><b>Site</b><span>' + E(d.siteAddr) + '</span></div>'
+          + '<div class="crow"><b>Phone</b><span>' + E(d.phone) + '</span></div>'
+          + '<div class="crow"><b>Email</b><span>' + E(d.email) + '</span></div>'
+          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div>'
+          + '<div class="satellite">' + img(imgs.satellite, '', 'Satellite view of property') + '<div class="satlbl">Site Location &middot; Satellite</div></div></div>'
+          + '</section></div>';
+
+        // ----- PAGE 2 YOUR DESIGN -----
+        var p2 = '<div id="pg2" class="pgwrap"><section class="page">'
+          + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
+          + '<div class="hero">' + img(imgs.render, 'heroimg', 'Elevation of your proposed fence') + '<div class="heroscrim"></div>'
+          + '<div class="herotag"><span class="num">02</span><span class="txt">Your Design</span></div>'
+          + '<div class="herocap"><div class="vname">Fence Elevation</div><div class="vtitle">Your boundary, before we<br>set a single post.</div></div>'
+          + '<div class="heroedge"></div></div>'
+          + '<div class="body"><div class="intro"><p class="lede">' + E(d.lede) + '</p></div>'
+          + (runRows ? ('<div class="runwrap"><div class="shead"><span class="snum">A</span><span class="slabel">Fence Runs</span></div><div class="shead-bar"></div>'
+              + '<div class="runlist">' + runRows + '</div></div>') : '')
+          + '<div class="specwrap"><div class="shead"><span class="snum">' + (runRows ? 'B' : 'A') + '</span><span class="slabel">Specifications</span></div><div class="shead-bar"></div>'
+          + '<div class="speclist">' + specRows + '</div></div>'
+          + '<div class="incwrap"><div class="shead"><span class="snum">' + (runRows ? 'C' : 'B') + '</span><span class="slabel">What\'s Included</span></div><div class="shead-bar"></div>'
+          + '<div class="incgrid">' + includeItems + '</div></div>'
+          + pf(2) + '</div></section></div>';
+
+        // ----- PAGE 3 YOUR INVESTMENT -----
+        var p3 = '<div id="pg3" class="pgwrap"><section class="page">'
+          + (imgs.pricePhoto ? '<div class="bgimg" style="background-image:url(\'' + imgs.pricePhoto + '\');"></div>' : '<div class="bgimg"></div>')
+          + '<div class="scrim"></div><div class="scrim-foot"></div>'
+          + '<div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
+          + '<div class="eyebrowrow"><span class="num">03</span><span class="accent-bar"></span><span class="label">Your Investment</span></div>'
+          + '<div class="lower"><div class="invgrid"><div class="priceblock"><div class="ptitle">Total, fully supplied and installed</div>'
+          + '<div class="invnum"><span class="cur">$</span>' + E(d.totalStr.replace(/^\$/, '')) + '</div>'
+          + '<span class="gst">Includes GST (' + d.gstStr + ')</span>'
+          + '<div class="invsub">Everything above, <b>fully supplied and installed</b> by our own crew. No hidden extras.</div></div>'
+          + '<div class="sched"><div class="schhead"><span class="accent-bar"></span><span class="sh">Payment Schedule</span></div>'
+          + schedItems
+          + '<div class="schnote"><span class="pi">i</span><span>Payments via bank transfer, credit card, or BPAY.</span></div></div></div>'
+          + splitBlock
+          + '</div>'
+          + pf(3) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
+
+        // ----- PAGE 4 TERMS -----
+        var p4 = '<div id="pg4" class="pgwrap"><section class="page">'
+          + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
+          + '<div class="pad" style="gap:22px;"><div>'
+          + '<div class="secthead" style="margin-bottom:8px;"><span class="num">04</span><span class="label">Terms &amp; Conditions</span></div>'
+          + '<div class="accent-bar" style="margin-bottom:14px;"></div>'
+          + '<div class="accept-strip"><b>Acceptance.</b> By paying the deposit or providing written confirmation (email, text message, or signed copy), you accept this quote and agree to the Terms &amp; Conditions below. All works are carried out in accordance with the National Construction Code (NCC) and applicable Australian Standards.</div>'
+          + '<div class="terms"><div class="termcol">'
+          + '<div class="termgrp"><h4>Quotation</h4><ul>'
+          + '<li>This quote is valid for 30 days from the date of issue. Pricing is subject to change after this period due to material cost fluctuations.</li>'
+          + '<li>This quote is based on the scope of works described. Additional works, site conditions not visible at time of quoting, or client-requested changes are quoted separately as a variation.</li>'
+          + '<li>All prices include GST unless otherwise stated.</li></ul></div>'
+          + '<div class="termgrp"><h4>Payment</h4><ul>'
+          + '<li><b>' + d.depPercent + '% deposit</b> confirms your booking date, secures scheduling, and covers material supply.</li>'
+          + '<li><b>' + d.balPercent + '% balance</b> is due on satisfactory completion, after a final walkthrough with you.</li>'
+          + '<li>Where a shared boundary is split with an adjoining owner, each party is invoiced for their agreed share.</li>'
+          + '<li>Overdue accounts may incur interest and delay your project start date.</li></ul></div>'
+          + '<div class="termgrp"><h4>Scope of Works</h4><ul>'
+          + '<li>All fencing is COLORBOND® steel, installed to manufacturer specifications and relevant Australian Standards.</li>'
+          + '<li>All posts are set in concrete footings. Retaining plinths are installed where ground levels require.</li>'
+          + '<li>Removal and disposal of existing fencing is included only where listed in the scope above.</li>'
+          + '<li>Where existing structures are modified for the connection, we take all reasonable care. Pre-existing defects are not our responsibility.</li>'
+          + '<li>Clean-up and removal of construction waste is included as standard.</li></ul></div>'
+          + '</div><div class="termcol">'
+          + '<div class="termgrp"><h4>Boundary &amp; Neighbours</h4><ul>'
+          + '<li>For dividing fences, the client confirms the boundary line and any cost-sharing arrangement with the adjoining owner under the Dividing Fences Act (WA).</li>'
+          + '<li>Where a neighbour share is shown, SecureWorks Group can invoice each party separately on request.</li>'
+          + '<li>The client is responsible for confirming the correct boundary position prior to installation.</li></ul></div>'
+          + '<div class="termgrp"><h4>Construction &amp; Access</h4><ul>'
+          + '<li>The client ensures clear, safe access along the fence line for personnel, materials, and deliveries.</li>'
+          + '<li>The boundary must be clear of vegetation, structures, and obstructions prior to the job start, unless removal is included in the scope.</li>'
+          + '<li>Timelines are estimates and may be affected by weather, material availability, or unforeseen ground conditions.</li>'
+          + '<li>Standard construction hours are Monday to Friday, 7:00am to 3:30pm, per local council noise regulations.</li></ul></div>'
+          + '<div class="termgrp"><h4>Warranty &amp; General</h4><ul>'
+          + '<li>Workmanship is backed by our <b>12-month workmanship warranty</b>. COLORBOND® steel carries the BlueScope manufacturer warranty (up to 10 years) subject to their terms.</li>'
+          + '<li>SecureWorks Group Pty Ltd (ABN ' + d.contact.abn + ') is fully licensed and insured for fencing and outdoor construction in Western Australia.</li>'
+          + '<li>We hold public liability insurance and workers’ compensation for all personnel on site.</li>'
+          + '<li>Payment of the deposit or written confirmation constitutes acceptance of this quote and these Terms in full.</li></ul></div>'
+          + '</div></div></div>' + pf(4) + '</div></section></div>';
+
+        // ----- PAGE 5 CLOSE -----
+        var p5 = '<div id="pg5" class="pgwrap"><section class="page">'
+          + img(imgs.closePhoto, 'bg', 'The SecureWorks Group crew on site') + '<div class="scrim"></div><div class="heroedge"></div>'
+          + '<div class="shell"><div class="topband"><div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
+          + '<div class="trustmark"><div class="eyebrow" style="margin-bottom:16px;"><span class="accent-bar"></span><span class="label">Trusted Across Perth</span></div>'
+          + '<div class="tmrow"><div class="tmscore">4.9</div><div><div class="stars">' + stars5 + '</div>'
+          + '<div class="tmcount">112 Google Reviews &nbsp;&middot;&nbsp; <span class="verif">Verified</span></div></div></div></div></div>'
+          + '<div class="photogap"></div>'
+          + '<div class="cluster"><div class="quoterow">'
+          + '<div class="quotecard"><p>&ldquo;Outstanding from quote to completion. Straight, solid and finished beautifully. The crew were professional throughout.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
+          + '<div class="quotecard"><p>&ldquo;Great communication, fair price and quality workmanship. Highly recommend SecureWorks Group.&rdquo;</p><div class="qattr">- Verified Google review</div></div></div>'
+          + '<a class="gbtn" href="https://www.google.com/maps/search/?api=1&query=SecureWorks%20Group%20Wangara">'
+          + '<span class="gstar">' + STAR + '</span><span class="gtxt">Read our <b>112 Google reviews</b></span><span class="garr">&rarr;</span></a>'
+          + '<p class="crossline">We also build <b>patios, decking, sheds and outdoor living.</b> One team for the whole yard.</p>'
+          + '<div class="trustline"><span class="t">Licensed &amp; insured</span><span class="trustsep"></span><span class="t">COLORBOND® steel</span><span class="trustsep"></span><span class="t">12-month workmanship warranty</span></div>'
+          + '<div class="cta"><div><div class="ctah">Ready to make it <span>real?</span></div>'
+          + '<p>Approve your quote and pay the deposit to lock in your build date. From there, we handle everything.</p></div>'
+          + '<div class="ctaaction"><span class="ctabtn">Accept &amp; book your date</span>'
+          + '<span class="ctahint">Pay deposit, reply by email or SMS, or call ' + d.contact.phone + '</span></div></div>'
+          + '</div></div></section></div>';
+
+        return '<!DOCTYPE html><html lang="en-AU"><head><meta charset="UTF-8">'
+          + '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+          + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
+          + '<style>' + css + '</style></head><body>' + p1 + p2 + p3 + p4 + p5 + '</body></html>';
+      },
+
+      // Render the populated template -> jsPDF (5 full-page images at scale 2).
+      // profileImages = { runId: dataURL } captured by the caller; we use the
+      // first/widest run as the page-2 hero elevation.
+      async _renderFenceQuoteHTMLToPDF(doc, d, profileImages) {
+        var PAGE_W = 794, PAGE_H = 1123; // A4 @ 96dpi
+
+        // Pick the elevation render: prefer the longest run's profile image.
+        var renderHero = '';
+        try {
+          var runs = (this.job.runs || []).slice();
+          if (profileImages) {
+            runs.sort(function(a, b) { return (b.length || 0) - (a.length || 0); });
+            for (var i = 0; i < runs.length; i++) {
+              if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
+            }
+            if (!renderHero) {
+              var ks = Object.keys(profileImages);
+              if (ks.length) renderHero = profileImages[ks[0]];
+            }
+          }
+        } catch (e) { console.warn('[FenceQuote] render pick failed', e); }
+
+        var photos = this._swFencePhotos();
+        var assets = await Promise.all([
+          this._swQFetchToDataURL(photos.cover),
+          this._swQFetchToDataURL(photos.price),
+          this._swQFetchToDataURL(photos.close),
+          this._swQFetchToDataURL(this.job.sitePlanImage || '')
+        ]);
+        var imgs = {
+          logo: this._swFenceLogoWhite(),
+          heroCover: assets[0],
+          pricePhoto: assets[1],
+          closePhoto: assets[2],
+          satellite: assets[3],
+          render: renderHero || ''
+        };
+
+        var html = this._buildFenceQuoteHTML(d, imgs);
+
+        var iframe = document.createElement('iframe');
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PAGE_W + 'px;height:' + PAGE_H + 'px;border:0;visibility:hidden;';
+        document.body.appendChild(iframe);
+        try {
+          var idoc = iframe.contentDocument || iframe.contentWindow.document;
+          idoc.open(); idoc.write(html); idoc.close();
+          try { if (idoc.fonts && idoc.fonts.ready) await idoc.fonts.ready; } catch (e) {}
+          await new Promise(function(r) { setTimeout(r, 400); });
+
+          var pageEls = idoc.querySelectorAll('.pgwrap');
+          for (var i = 0; i < pageEls.length; i++) {
+            var el = pageEls[i].querySelector('.page') || pageEls[i];
+            var canvas = await html2canvas(el, {
+              scale: 2, useCORS: true, allowTaint: false, backgroundColor: '#FCFBFA',
+              width: PAGE_W, height: PAGE_H, windowWidth: PAGE_W, windowHeight: PAGE_H,
+              scrollX: 0, scrollY: 0, logging: false
+            });
+            var jpg = canvas.toDataURL('image/jpeg', 0.92);
+            if (i > 0) doc.addPage();
+            doc.addImage(jpg, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+          }
+        } finally {
+          document.body.removeChild(iframe);
+        }
+        return doc;
+      },
+
       async generateQuotePDF() {
         const missing = this._validateRequired();
         if (missing.length > 0) {
@@ -10024,368 +10659,28 @@
         }
 
         const d = this._collectOutputData();
-        const isGateOnly = d.scopeType === 'gate-only';
+        const date = d.job.date || new Date().toISOString().slice(0, 10);
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-        const pw = 210, ph = 297, mx = 20;
-        let y = 20;
-        const scopeDesc = this._buildQuoteScopeDesc(d);
-        const colourHex = this._getColourHex(d.colour);
 
-        // Header bar — dark blue with orange accent
-        doc.setFillColor(41, 60, 70);
-        doc.rect(0, 0, pw, 34, 'F');
-        doc.setFillColor(241, 90, 41);
-        doc.rect(0, 34, pw, 1.5, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text('SECUREWORKS GROUP PTY LTD', pw / 2, 14, { align: 'center' });
-        doc.setTextColor(200, 210, 216);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.text('ABN 64 689 223 416  |  fencing@secureworksgroup.app  |  +61 489 267 772', pw / 2, 21, { align: 'center' });
-        doc.setTextColor(241, 90, 41);
-        doc.setFontSize(13);
-        doc.setFont('helvetica', 'bold');
-        var quoteNumLabel = window._currentQuoteNumber ? 'CLIENT QUOTE  \u2014  ' + window._currentQuoteNumber : 'CLIENT QUOTE';
-        doc.text(quoteNumLabel, pw / 2, 30, { align: 'center' });
-        y = 43;
-
-        // Client details
-        doc.setTextColor(41, 60, 70);
-        doc.setFontSize(10);
-        const date = d.job.date || new Date().toISOString().slice(0, 10);
-        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
-        const info = [
-          ['Client', d.job.client || '\u2014'], ['Job Ref', d.job.ref || '\u2014'],
-          ['Address', d.job.address || '\u2014'], ['Date', date],
-          ['Phone', d.job.phone || '\u2014'], ['Valid Until', validUntil],
-          ['Email', d.job.email || '\u2014']
-        ];
-        info.forEach((row, i) => {
-          const col = i % 2;
-          const ry = y + Math.floor(i / 2) * 7;
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(76, 106, 124);
-          doc.text(row[0].toUpperCase(), mx + col * 85, ry);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          doc.setTextColor(41, 60, 70);
-          doc.text(String(row[1]), mx + col * 85 + 30, ry);
-        });
-        y += Math.ceil(info.length / 2) * 7 + 6;
-
-
-        // Site Plan
-        var _spImg = this.job.sitePlanImage || null;
-        if (!_spImg && this.job._latlng && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
-          // Fallback: use static satellite map if no annotated site plan
-          _spImg = 'https://maps.googleapis.com/maps/api/staticmap?center=' +
-            this.job._latlng.lat + ',' + this.job._latlng.lng +
-            '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
-        }
-        if (_spImg) {
-          try {
-            var spLabel = this.job.sitePlanImage ? 'SITE PLAN' : 'SITE LOCATION';
-            var spW = pw - mx * 2; // full content width
-
-            // Calculate aspect ratio from actual image dimensions
-            var spH = spW * 0.55; // default: slightly less than square
-            try {
-              var tmpImg = new Image();
-              tmpImg.src = _spImg;
-              if (tmpImg.naturalWidth > 0 && tmpImg.naturalHeight > 0) {
-                var ratio = tmpImg.naturalHeight / tmpImg.naturalWidth;
-                spH = spW * Math.min(ratio, 0.75); // cap at 3:4 to not exceed page
-              }
-            } catch(dimErr) { /* use default ratio */ }
-
-            // Ensure it fits on the page
-            var maxH = ph - y - 50;
-            if (spH > maxH) spH = maxH;
-            if (y + spH + 12 > ph - 40) { doc.addPage(); y = 20; }
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(11);
-            doc.setTextColor(41, 60, 70);
-            doc.text(spLabel, mx, y);
-            doc.setFillColor(241, 90, 41);
-            doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-            y += 4;
-
-            // Use PNG format if it's a data URL PNG (preserves fence line overlays)
-            var imgFormat = _spImg.indexOf('data:image/png') === 0 ? 'PNG' : 'JPEG';
-            doc.addImage(_spImg, imgFormat, mx, y, spW, spH);
-            y += spH + 6;
-          } catch(e) {
-            console.warn('[QuotePDF] Site plan image failed:', e.message);
-          }
-        }
-
-        // ═══ PAGE 2: Detail — Profiles + Scope (skipped in gate-only mode) ═══
-        if (!isGateOnly) {
-          doc.addPage(); y = 20;
-
-          // Fence profile views — one per run
-          var runKeys = Object.keys(profileImages);
-          if (runKeys.length > 0) {
-            this.job.runs.forEach(function(run) {
-              if (!profileImages[run.id]) return;
-              var runLabel = (run.name || 'Run').toUpperCase() + ' (' + (run.length || 0).toFixed(1) + 'm)';
-
-              // Page break check — profile needs ~70mm
-              if (y + 72 > ph - 30) { doc.addPage(); y = 20; }
-
-              // Section header with orange accent
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(10);
-              doc.setTextColor(41, 60, 70);
-              doc.text('FENCE PROFILE \u2014 ' + runLabel, mx, y);
-              doc.setFillColor(241, 90, 41);
-              doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-              y += 5;
-
-              // Profile image with light background
-              var profW = pw - mx * 2;
-              var profH = profW * (400 / 1200); // match capture aspect ratio
-              doc.setFillColor(240, 244, 248);
-              doc.rect(mx, y - 1, profW, profH + 2, 'F');
-              doc.setDrawColor(212, 222, 228);
-              doc.rect(mx, y - 1, profW, profH + 2, 'S');
-              try {
-                doc.addImage(profileImages[run.id], 'PNG', mx + 1, y, profW - 2, profH);
-              } catch(e) { console.warn('[QuotePDF] Profile image embed failed:', e); }
-              y += profH + 8;
-            });
-          }
-
-          // Material selection — colour swatch + profile name
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(41, 60, 70);
-          doc.text('MATERIAL SELECTION', mx, y);
-          doc.setFillColor(241, 90, 41);
-          doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-          y += 7;
-          // Colour swatch
-          const hex = colourHex.replace('#', '');
-          const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
-          doc.setFillColor(cr, cg, cb);
-          doc.rect(mx, y - 3, 10, 10, 'F');
-          doc.setDrawColor(200, 200, 200);
-          doc.rect(mx, y - 3, 10, 10, 'S');
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          doc.setTextColor(41, 60, 70);
-          doc.text(`COLORBOND ${d.colour}`, mx + 14, y + 1);
-          doc.text(`Profile: ${d.profile}`, mx + 14, y + 6);
-          y += 14;
-        }
-
-        // Scope of works
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('SCOPE OF WORKS', mx, y);
-        doc.setFillColor(241, 90, 41);
-        doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        const scopeLines = doc.splitTextToSize(scopeDesc, pw - mx * 2);
-        doc.text(scopeLines, mx, y);
-        y += scopeLines.length * 4 + 2;
-        if (d.job.quote && d.job.quote.customDescription) {
-          const customDescLines = doc.splitTextToSize(d.job.quote.customDescription, pw - mx * 2);
-          doc.text(customDescLines, mx, y);
-          y += customDescLines.length * 4 + 4;
-        }
-        y += 4;
-
-        // Pricing continues on same page as profile/material/scope
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(41, 60, 70);
-        doc.text('PRICING', mx, y);
-        doc.setFillColor(241, 90, 41);
-        doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-        y += 6;
-        // Table header row — dark blue
-        doc.setFillColor(41, 60, 70);
-        doc.rect(mx, y - 4, pw - mx * 2, 7, 'F');
-        doc.setFontSize(8);
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'bold');
-        doc.text('DESCRIPTION', mx + 3, y);
-        doc.text('AMOUNT', pw - mx - 3, y, { align: 'right' });
-        y += 6;
-
-        // Itemised category rows \u2014 one line per non-zero category (mirrors _generateQuoteHTML)
-        const pdfFencingLabel = isGateOnly ? '' : 'COLORBOND Fencing';
-        const pdfFencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}` : '';
-        const pdfGatesDetail = (d.gateLineItems || []).map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc).join(' | ');
-        const pdfCategoryRows = [
-          { label: pdfFencingLabel,     detail: pdfFencingDetail, amount: d.fencingTotal },
-          { label: 'Retaining',         detail: d.totalPlinths > 0 ? `${d.totalPlinths} plinth${d.totalPlinths > 1 ? 's' : ''}` : '', amount: d.plinthsTotal },
-          { label: 'Patio Tubes',       detail: d.totalPatioTubes > 0 ? `${d.totalPatioTubes} tube${d.totalPatioTubes > 1 ? 's' : ''}` : '', amount: d.patioTotal },
-          { label: 'Gates',             detail: pdfGatesDetail, amount: d.gatesTotal },
-          { label: 'Old Fence Removal', detail: '', amount: d.removalTotal },
-          { label: 'Ground Finish',     detail: d.groundFinishDesc || '', amount: d.groundFinishTotal },
-          { label: 'Add-ons',           detail: (d.addonItems || []).map(a => a.desc).join(' | '), amount: d.addonsTotal },
-          { label: 'Access Surcharge',  detail: '', amount: d.accessSurcharge },
-          { label: 'Urgency Surcharge', detail: '', amount: d.urgencySurcharge },
-          { label: 'Delivery',          detail: '', amount: d.deliveryFee },
-        ].filter(r => r.amount > 0 && r.label);
-
-        pdfCategoryRows.forEach(r => {
-          if (y > ph - 40) { doc.addPage(); y = 20; }
-          doc.setTextColor(41, 60, 70);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
-          doc.text(r.label, mx + 2, y);
-          doc.text('$' + this._fmt(r.amount), pw - mx - 2, y, { align: 'right' });
-          y += 4;
-          if (r.detail) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(8);
-            doc.setTextColor(76, 106, 124);
-            const detailLines = doc.splitTextToSize(r.detail, pw - mx * 2 - 4);
-            doc.text(detailLines, mx + 2, y);
-            y += detailLines.length * 3.5 + 2;
-          } else {
-            y += 1;
-          }
-        });
-        doc.setDrawColor(229, 231, 235);
-        doc.line(mx, y, pw - mx, y);
-        y += 4;
-
-        // Custom / Additional items
-        if (d.customItems.length > 0) {
-          doc.setFillColor(245, 245, 245);
-          doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(76, 106, 124);
-          doc.text('ADDITIONAL ITEMS', mx + 2, y);
-          y += 6;
-          d.customItems.forEach(c => {
-            if (y > ph - 40) { doc.addPage(); y = 20; }
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(9);
-            doc.setTextColor(41, 60, 70);
-            const cDesc = c.desc + (c.qty > 1 || c.unit ? ' (' + c.qty + ' ' + c.unit + ')' : '');
-            doc.text(cDesc, mx + 2, y);
-            doc.text('$' + this._fmt(c.total), pw - mx - 2, y, { align: 'right' });
-            y += 5;
-          });
-          doc.setDrawColor(229, 231, 235);
-          doc.line(mx, y - 1, pw - mx, y - 1);
-          y += 3;
-        }
-
-        // Totals — right-aligned card
-        y += 2;
-        var totX = pw / 2 + 10;
-        var totW = pw - mx - totX;
-        doc.setDrawColor(41, 60, 70);
-        doc.setLineWidth(0.3);
-        doc.line(totX, y - 3, pw - mx, y - 3);
-        doc.setTextColor(76, 106, 124);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text('Subtotal (excl. GST)', totX + 2, y);
-        doc.text('$' + this._fmt(d.subtotal), pw - mx - 2, y, { align: 'right' });
-        y += 5;
-        doc.text('GST (10%)', totX + 2, y);
-        doc.text('$' + this._fmt(d.gst), pw - mx - 2, y, { align: 'right' });
-        y += 3;
-        doc.setLineWidth(0.5);
-        doc.setDrawColor(41, 60, 70);
-        doc.line(totX, y, pw - mx, y);
-        y += 5;
-        // Total — orange, prominent
-        doc.setFillColor(41, 60, 70);
-        doc.rect(totX, y - 4.5, totW, 10, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(12);
-        doc.setTextColor(241, 90, 41);
-        doc.text('TOTAL (incl. GST)', totX + 4, y + 1);
-        doc.setTextColor(255, 255, 255);
-        doc.text('$' + this._fmt(d.grandTotal), pw - mx - 4, y + 1, { align: 'right' });
-        y += 12;
-
-        // Deposit — highlighted card
-        const deposit = d.grandTotal * 0.5;
-        doc.setFillColor(255, 245, 238);
-        doc.rect(mx, y - 2, pw - mx * 2, 10, 'F');
-        doc.setDrawColor(241, 90, 41);
-        doc.setLineWidth(0.8);
-        doc.line(mx, y - 2, mx, y + 8);
-        doc.setTextColor(41, 60, 70);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Deposit Required (50%)', mx + 4, y + 3);
-        doc.setTextColor(241, 90, 41);
-        doc.text('$' + this._fmt(deposit), pw - mx - 4, y + 3, { align: 'right' });
-        doc.setLineWidth(0.2);
-        y += 14;
-
-        // Payment terms
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('PAYMENT TERMS', mx, y);
-        doc.setFillColor(241, 90, 41);
-        doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text('50% deposit required to confirm booking. Balance due on completion.', mx, y);
-        y += 10;
-
-        // ═══ LAST PAGE: T&C ═══
-        doc.addPage(); y = 20;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('TERMS & CONDITIONS', mx, y);
-        doc.setFillColor(241, 90, 41);
-        doc.rect(mx, y + 1.5, 30, 0.8, 'F');
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 100, 100);
-        DISCLAIMERS.forEach((disc, i) => {
-          if (y > ph - 15) { doc.addPage(); y = 20; }
-          const lines = doc.splitTextToSize(`${i + 1}. ${disc}`, pw - mx * 2);
-          doc.text(lines, mx, y);
-          y += lines.length * 3.2 + 2;
-        });
-
-        // Warranty
-        y += 4;
-        doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.text('WARRANTY', mx, y);
-        y += 4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 100, 100);
-        doc.text('BlueScope 10-year warranty on COLORBOND steel. SecureWorks WA 12-month workmanship warranty.', mx, y);
-
-        // Footer — orange top border + branded text on all pages
-        var totalPages = doc.internal.getNumberOfPages();
-        for (var pg = 1; pg <= totalPages; pg++) {
-          doc.setPage(pg);
-          doc.setFillColor(241, 90, 41);
-          doc.rect(0, ph - 12, pw, 0.8, 'F');
-          doc.setFontSize(7);
-          doc.setTextColor(76, 106, 124);
-          doc.text('SecureWorks Group Pty Ltd | ABN 64 689 223 416 | fencing@secureworksgroup.app | +61 489 267 772', pw / 2, ph - 5, { align: 'center' });
-          doc.setTextColor(180, 180, 180);
-          doc.text('Page ' + pg + ' of ' + totalPages, pw - mx, ph - 5, { align: 'right' });
-        }
+        // ===== PREMIUM 5-PAGE FENCING QUOTE (locked design, HTML -> PDF) =====
+        // Replaces the legacy hand-drawn jsPDF layout. Pricing/specs/cost-split
+        // are gathered from _collectOutputData(); deposit + schedule derived from
+        // the real fencing deposit % (50, not hardcoded inline). Rendered as the
+        // locked 5-page template and rasterised page-by-page into this jsPDF doc.
+        const _qData = this._gatherFenceQuoteData(d);
+        // MONEY-PATH parity log: displayed values vs computed (verifiable).
+        try {
+          var _splitSum = (_qData.split && _qData.split.shown)
+            ? _qData.split.shares.reduce(function(a, s){ return a + (parseFloat(String(s.amtStr).replace(/[^0-9.]/g, '')) || 0); }, 0) : null;
+          console.log('[FenceQuote parity] total=' + _qData.totalStr + ' (grandTotal=' + d.grandTotal + ')'
+            + ' | gst=' + _qData.gstStr + ' (gst=' + d.gst + ')'
+            + ' | deposit ' + _qData.depPercent + '% = ' + _qData.depTotalStr
+            + ' | schedule=' + _qData.schedule.map(function(s){ return s.pct + '%/' + s.amtStr; }).join(', ')
+            + ' | schedSum=' + this._swQMoney(_qData.schedule.reduce(function(a, s){ return a + s.amt; }, 0))
+            + (_splitSum != null ? (' | splitSum=' + this._swQMoney(_splitSum) + ' (should == total)') : ' | split=none'));
+        } catch (e) {}
+        await this._renderFenceQuoteHTMLToPDF(doc, _qData, profileImages);
 
         // Save or capture for Send Quote
         const clientName = (d.job.client || 'Client').replace(/[^a-zA-Z0-9]/g, '_');
