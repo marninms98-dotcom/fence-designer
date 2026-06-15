@@ -10218,54 +10218,108 @@
       // Build the scope-of-works grouped stages for the "How We Build It" page.
       // Derives entirely from the d object (output of _collectOutputData()) — NO pricing.
       // Returns [{stage:str, items:[str]}]. Stages follow the BUILD-PLAN.md F2 groups.
+      // W3 deepened 2026-06-15: builder-grade itemised lines, conditional per data.
       _buildFenceScopeOfWorks(d) {
         var job = d.job || this.job;
         var rem = job.removal || {};
+        var js = d.js || {};
         var groups = [];
 
         // --- 1. Site Preparation & Removal ---
         var siteItems = [];
-        if (rem.removalRequired === true && rem.existingFenceType) {
-          var typeLabel = rem.existingFenceType.charAt(0).toUpperCase() + rem.existingFenceType.slice(1);
-          var remLen = rem.existingFenceLength ? (Number(rem.existingFenceLength) || 0).toFixed(1) + 'm' : '';
-          siteItems.push('Remove and dispose of existing ' + typeLabel + ' fence' + (remLen ? ', approx ' + remLen : ''));
+        if (rem.removalRequired === true) {
+          // Per-type removal lines (d.removalItems already aggregates removalExtras)
+          var remItems = d.removalItems || [];
+          remItems.forEach(function(ri) {
+            var desc = ri.desc || '';
+            var qty = ri.qty || 0;
+            var unit = ri.unit || '';
+            // Strip pricing language from desc if any; build clean scope line
+            var line = '';
+            if (desc.toLowerCase().indexOf('asbestos') >= 0) {
+              line = 'Remove and dispose of existing asbestos fence panels off-site, by licenced asbestos removalist'
+                + (qty > 0 && unit === 'm' ? ' (approx ' + qty + 'm)' : qty > 0 ? ' (' + qty + ' sheets)' : '');
+            } else if (desc.toLowerCase().indexOf('hardie') >= 0) {
+              line = 'Remove and dispose of existing Hardie (fibre cement) fence off-site'
+                + (qty > 0 ? ', approx ' + qty + 'm' : '');
+            } else if (desc.toLowerCase().indexOf('timber') >= 0 || desc.toLowerCase().indexOf('lap') >= 0) {
+              line = 'Remove and dispose of existing timber/lapped fence off-site'
+                + (qty > 0 ? ', approx ' + qty + 'm' : '');
+            } else if (desc.toLowerCase().indexOf('colorbond') >= 0 || desc.toLowerCase().indexOf('colourbond') >= 0) {
+              line = 'Remove and dispose of existing COLORBOND fence off-site'
+                + (qty > 0 ? ', approx ' + qty + 'm' : '');
+            } else if (desc.toLowerCase().indexOf('vegetation') >= 0 || desc.toLowerCase().indexOf('veg') >= 0 || desc.toLowerCase().indexOf('site clear') >= 0) {
+              // Handled below via js.vegClear
+              line = '';
+            } else {
+              line = 'Remove and dispose of existing fence off-site'
+                + (qty > 0 && unit ? ', approx ' + qty + unit : '');
+            }
+            if (line) siteItems.push(line);
+          });
+          // Vegetation clearing (priced separately; scope line only when selected)
+          if (js.vegClear) {
+            siteItems.push('Clear and remove vegetation and overgrowth along the fence line prior to installation; disposal off-site');
+          }
         }
-        if (rem.removalRequired === true && rem.vegetation) {
-          siteItems.push('Clear vegetation along the fence line prior to installation');
+        // Access note (conditional — only if difficult/moderate access, not standard)
+        if (js.access && js.access !== 'easy') {
+          var accessLabel = js.access === 'difficult' ? 'difficult' : 'restricted';
+          siteItems.push('Site access is ' + accessLabel + '; allow for additional handling, equipment positioning and manual carry-in of materials');
         }
-        siteItems.push('Mark out boundary and confirm alignment with client prior to install');
+        siteItems.push('Mark out and confirm boundary alignment with the client prior to excavation');
         groups.push({ stage: 'Site Preparation & Removal', items: siteItems });
 
         // --- 2. Footings & Posts ---
         var footItems = [];
         var allPosts = (d.allPosts != null) ? d.allPosts : (d.totalPosts || 0);
         var bags = d.concreteBags || 0;
+        // Build post specification detail from postGroups if available
+        var postGroups = d.postGroups || {};
+        var postGroupKeys = Object.keys(postGroups);
+        var postSpecParts = [];
+        postGroupKeys.forEach(function(k) {
+          var g = postGroups[k];
+          if (g && g.postH) postSpecParts.push(g.postH + 'mm');
+        });
+        var uniquePostHeights = [];
+        postSpecParts.forEach(function(h) { if (uniquePostHeights.indexOf(h) < 0) uniquePostHeights.push(h); });
+        var postSpecStr = uniquePostHeights.length
+          ? ' SHS steel posts (' + uniquePostHeights.sort().join('/') + ' height)'
+          : ' SHS steel posts';
         footItems.push(
-          'Dig and set ' + allPosts + ' x SHS steel posts in concrete'
-          + (bags > 0 ? ' (' + bags + ' x 20kg bags, 600mm embed)' : ', 600mm embed')
+          'Machine-dig and set ' + allPosts + ' x' + postSpecStr + ' in concrete'
+          + (bags > 0 ? ' (' + bags + ' x 20kg premix bags, minimum 600mm embed)' : ', minimum 600mm embed')
+          + ', plumbed and aligned to boundary'
         );
+        // Gate posts (additional to fence posts, heavier spec)
         if (d.gateDetails && d.gateDetails.length) {
-          var gp = d.gatePosts || (d.gateDetails.length * 2);
-          var gTypeList = d.gateDetails.map(function(g) {
-            return (g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'gate');
-          }).join(', ');
-          footItems.push('Install gate posts x ' + gp + ' to ' + gTypeList + ' openings');
+          var gp = d.gatePosts || 0;
+          d.gateDetails.forEach(function(g) {
+            var typeStr = g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'gate';
+            var wStr = g.width ? ' (' + g.width + 'mm opening)' : '';
+            var postSpec = (g.type === 'double' || g.type === 'sliding') ? '90x90 SHS gate posts' : '65x65 SHS gate posts';
+            footItems.push('Set ' + (g.posts || 2) + ' x ' + postSpec + ' in concrete for ' + typeStr + ' gate' + wStr);
+          });
         }
         groups.push({ stage: 'Footings & Posts', items: footItems });
 
         // --- 3. Panels & Structure ---
         var panelItems = [];
         var runs = d.runDetails || [];
+        // Per-run layout line
         if (runs.length) {
           var runList = runs.map(function(r) {
-            return (r.name || 'Run') + ' ' + (Number(r.length) || 0).toFixed(1) + 'm';
-          }).join(' / ');
-          panelItems.push('Set out ' + runs.length + ' run' + (runs.length > 1 ? 's' : '') + ': ' + runList);
+            var rLen = (Number(r.length) || 0).toFixed(1) + 'm';
+            var rPanels = r.panelCount ? ' (' + r.panelCount + ' panel' + (r.panelCount !== 1 ? 's' : '') + ')' : '';
+            return (r.name || 'Run') + ': ' + rLen + rPanels;
+          }).join('; ');
+          panelItems.push('Set out ' + runs.length + ' fence run' + (runs.length > 1 ? 's' : '') + ' to boundary: ' + runList);
         }
         var profileLabel = (d.colour ? 'COLORBOND® ' + d.colour : '') + (d.profile ? ((d.colour ? ', ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = 'COLORBOND® steel';
         var panelCount = d.totalPanels || 0;
-        // Build height string from run panel data
+        // Unique panel heights across all runs
         var heights = [];
         runs.forEach(function(r) {
           if (r.panels && r.panels.length) {
@@ -10275,32 +10329,69 @@
         var heightLabel = heights.length ? heights.sort(function(a,b){return a-b;}).map(function(h){return h+'mm';}).join(' / ') : '';
         panelItems.push(
           'Supply and install ' + panelCount + ' panel' + (panelCount !== 1 ? 's' : '') + ' of ' + profileLabel
-          + (heightLabel ? ' at ' + heightLabel : '')
+          + (heightLabel ? ', ' + heightLabel + ' face height' : '')
         );
-        panelItems.push('Install top and bottom rails to each panel');
+        panelItems.push('Fit top and bottom horizontal rails and fix COLORBOND® sheets with stainless Tek screws at standard centres');
+        // Retaining plinths (conditional — only when ground slope requires)
         if (d.totalPlinths > 0) {
-          panelItems.push('Install ' + d.totalPlinths + ' x 150mm retaining plinths where ground level requires');
+          var plinthRuns = runs.filter(function(r) { return r.plinths > 0; });
+          var plinthDetail = plinthRuns.length > 1
+            ? plinthRuns.map(function(r) { return r.name + ': ' + r.plinths + ' plinth' + (r.plinths !== 1 ? 's' : ''); }).join(', ')
+            : '';
+          panelItems.push(
+            'Install ' + d.totalPlinths + ' x 150mm COLORBOND® retaining plinths to step the fence down the ground slope'
+            + (plinthDetail ? ' (' + plinthDetail + ')' : '')
+          );
         }
-        panelItems.push('Install continuous capping along the top of the fence line');
+        // Patio tube bracing (conditional — only when retaining 450mm+ triggers bracing requirement)
+        if (d.totalPatioTubes > 0) {
+          var patioRuns = runs.filter(function(r) { return r.patioTubes > 0; });
+          var patioDetail = patioRuns.length > 1
+            ? patioRuns.map(function(r) { return r.name + ': ' + r.patioTubes + ' tube' + (r.patioTubes !== 1 ? 's' : ''); }).join(', ')
+            : '';
+          panelItems.push(
+            'Install ' + d.totalPatioTubes + ' x 76x38 RHS lateral bracing tube' + (d.totalPatioTubes !== 1 ? 's' : '')
+            + ' to panels with 450mm or more of retaining, for structural stability'
+            + (patioDetail ? ' (' + patioDetail + ')' : '')
+          );
+        }
+        panelItems.push('Install COLORBOND® capping continuously along the full fence line');
         groups.push({ stage: 'Panels & Structure', items: panelItems });
 
         // --- 4. Gates (conditional) ---
         if (d.gateDetails && d.gateDetails.length) {
-          var gateItems = d.gateDetails.map(function(g) {
-            var typeStr = g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'Gate';
-            var widthStr = g.width ? ' ' + g.width + 'mm' : '';
-            return 'Supply and install ' + typeStr + ' gate' + widthStr + ' with all hardware, hinges and latch';
+          var gateItems = [];
+          d.gateDetails.forEach(function(g) {
+            var widthStr = g.width ? ' ' + g.width + 'mm clear opening' : '';
+            if (g.type === 'pedestrian') {
+              gateItems.push('Supply and install pedestrian swing gate' + widthStr + ' — COLORBOND® infill, heavy-duty weld-mesh hinges, adjustable latch, and hinge bolts');
+            } else if (g.type === 'double') {
+              gateItems.push('Supply and install double swing gate set' + widthStr + ' — COLORBOND® infill, heavy-duty hinges, drop bolt, and bow latch; dropbolt pinned to ground');
+            } else if (g.type === 'sliding') {
+              gateItems.push('Supply and install sliding gate' + widthStr + ' — COLORBOND® infill, galvanised track and roller set, end stop and latch');
+            } else {
+              var typeStr = g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'Gate';
+              gateItems.push('Supply and install ' + typeStr + ' gate' + widthStr + ' with all hardware, hinges and latch');
+            }
           });
           groups.push({ stage: 'Gates', items: gateItems });
         }
 
         // --- 5. Finishing & Handover ---
         var finishItems = [];
-        if (d.groundFinishDesc && d.groundFinishDesc !== 'None') {
-          finishItems.push(d.groundFinishDesc + ' along the fence line');
+        // Ground finish reinstatement (conditional — only when selected)
+        if (d.groundFinishDesc && d.groundFinishDesc !== 'None' && d.js && d.js.groundFinish && d.js.groundFinish !== 'none') {
+          var gfKey = d.js.groundFinish;
+          var gfDesc = gfKey === 'mulch' ? 'Apply garden mulch along both sides of the fence line, covering disturbed ground from post excavation'
+            : gfKey === 'stones' ? 'Lay decorative stones along both sides of the fence line, covering disturbed ground from post excavation'
+            : gfKey === 'turf' ? 'Reinstate turf along the fence line over disturbed ground from post excavation'
+            : (d.groundFinishDesc + ' along the fence line');
+          finishItems.push(gfDesc);
         }
-        finishItems.push('Full site clean - remove all offcuts, excess concrete and debris');
-        finishItems.push('Final inspection and handover with client walkthrough');
+        finishItems.push('Remove all spoil from post excavation, excess concrete, off-cuts and packaging from site');
+        finishItems.push('Full site clean-up — leave site in same or better condition than found');
+        finishItems.push('Final inspection of all panels, posts, rails and gates for alignment, fixings and finish');
+        finishItems.push('Client walkthrough and handover; confirm operation of all gates and latches');
         groups.push({ stage: 'Finishing & Handover', items: finishItems });
 
         return groups;
