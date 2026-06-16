@@ -7283,13 +7283,13 @@
         const geo = new THREE.PlaneGeometry(widthM, heightM, segs, 1);
         const pos = geo.attributes.position;
         if (profile === 'Harmony' || profile === 'Corodek') {
-          const waveH = 0.008;
+          const waveH = 0.014;
           const freq = profile === 'Harmony' ? 14 : 10;
           for (let i = 0; i < pos.count; i++) {
             pos.setZ(i, Math.sin(pos.getX(i) * freq * Math.PI) * waveH);
           }
         } else {
-          const ribH = 0.012, ribW = 0.04;
+          const ribH = 0.020, ribW = 0.04;
           for (let i = 0; i < pos.count; i++) {
             const phase = ((pos.getX(i) / ribW) % 1 + 1) % 1;
             let z = 0;
@@ -7382,32 +7382,33 @@
         const c = document.createElement('canvas');
         c.width = 512; c.height = 512;
         const ctx = c.getContext('2d');
-        const base = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#C4C0B6';
-        ctx.fillStyle = base;
+        // Neutral finish map: material.color supplies the real Colorbond colour.
+        // Keeping the texture near-white avoids double-tinting dark colours in Three.js.
+        ctx.fillStyle = '#F7F5EF';
         ctx.fillRect(0, 0, c.width, c.height);
 
-        // Subtle vertical rib highlights/dips so high-res quote renders read as
+        // Visible vertical rib highlights/dips so high-res quote renders read as
         // powder-coated sheet metal rather than flat painted planes. Geometry still
         // carries the real corrugation; this is only the finish/lighting detail.
         const ribPitch = profile === 'Harmony' ? 34 : (profile === 'Corodek' ? 42 : 28);
         for (let x = 0; x < c.width; x += ribPitch) {
           const g = ctx.createLinearGradient(x, 0, x + ribPitch, 0);
-          g.addColorStop(0.00, 'rgba(255,255,255,0.10)');
-          g.addColorStop(0.18, 'rgba(255,255,255,0.04)');
-          g.addColorStop(0.48, 'rgba(0,0,0,0.08)');
-          g.addColorStop(0.70, 'rgba(255,255,255,0.05)');
-          g.addColorStop(1.00, 'rgba(0,0,0,0.06)');
+          g.addColorStop(0.00, 'rgba(255,255,255,0.22)');
+          g.addColorStop(0.18, 'rgba(255,255,255,0.10)');
+          g.addColorStop(0.46, 'rgba(0,0,0,0.16)');
+          g.addColorStop(0.68, 'rgba(255,255,255,0.14)');
+          g.addColorStop(1.00, 'rgba(0,0,0,0.12)');
           ctx.fillStyle = g;
           ctx.fillRect(x, 0, ribPitch, c.height);
         }
         for (let i = 0; i < 1400; i++) {
-          const a = 0.018 + Math.random() * 0.035;
+          const a = 0.012 + Math.random() * 0.026;
           ctx.fillStyle = Math.random() > 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
           ctx.fillRect(Math.random() * c.width, Math.random() * c.height, 1, 1);
         }
         const tex = new THREE.CanvasTexture(c);
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(3, 1);
+        tex.repeat.set(4, 1);
         return tex;
       },
 
@@ -7487,11 +7488,13 @@
 
         // Materials — PBR Colorbond with subtle powder-coated rib finish
         const finishTex = this._createColorbondFinishTexture(colourHex, job.profile || 'Trimclad');
-        const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol, map: finishTex, metalness: 0.22, roughness: 0.46, side: THREE.DoubleSide });
-        const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.82), metalness: 0.28, roughness: 0.38 });
-        const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.88), metalness: 0.30, roughness: 0.34 });
-        const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.78), map: finishTex, metalness: 0.18, roughness: 0.52 });
-        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.96), metalness: 0.34, roughness: 0.28 });
+        const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.14), map: finishTex, metalness: 0.26, roughness: 0.42, side: THREE.DoubleSide });
+        const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.96), metalness: 0.32, roughness: 0.34 });
+        const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.02), metalness: 0.34, roughness: 0.30 });
+        const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.98), map: finishTex, metalness: 0.22, roughness: 0.48 });
+        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.16), metalness: 0.38, roughness: 0.26 });
+        const ribHiMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().lerp(new THREE.Color(0xffffff), 0.24), metalness: 0.30, roughness: 0.38 });
+        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.72), metalness: 0.24, roughness: 0.48 });
         const earthMat = new THREE.MeshStandardMaterial({ color: 0xC4A882, roughness: 0.85, metalness: 0.0 });
         const galvMat = new THREE.MeshStandardMaterial({ color: 0xB0B0B0, metalness: 0.5, roughness: 0.45 });
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
@@ -7504,6 +7507,23 @@
         const plinthH = 0.15;
         const embedDepth = 0.6;
         const profile = job.profile || 'Trimclad';
+
+        const addSheetRibHighlights = (group, centreX, centreY, widthM, heightM, zFront) => {
+          const pitch = profile === 'Harmony' ? 0.135 : (profile === 'Corodek' ? 0.18 : 0.152);
+          const start = centreX - widthM / 2 + pitch * 0.45;
+          const end = centreX + widthM / 2 - pitch * 0.25;
+          for (let x = start, idx = 0; x < end; x += pitch, idx++) {
+            const hi = new THREE.Mesh(new THREE.BoxGeometry(0.010, heightM * 0.96, 0.006), ribHiMat);
+            hi.position.set(x, centreY, zFront + 0.017);
+            hi.castShadow = false; hi.receiveShadow = false;
+            group.add(hi);
+
+            const lo = new THREE.Mesh(new THREE.BoxGeometry(0.006, heightM * 0.96, 0.004), ribLoMat);
+            lo.position.set(Math.min(x + pitch * 0.30, end), centreY, zFront + 0.015);
+            lo.castShadow = false; lo.receiveShadow = false;
+            group.add(lo);
+          }
+        };
 
         // Compute slope data
         this.calcSlopeForRun(run);
@@ -7633,6 +7653,7 @@
             sheet.castShadow = true; sheet.receiveShadow = true;
             sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
             f.fenceGrp.add(sheet);
+            addSheetRibHighlights(f.fenceGrp, panelX, stackY + sheetH/2, thisPanelW, sheetH, 0);
             stackY += sheetH;
 
             // Cap rail
@@ -7678,6 +7699,7 @@
                 lMesh.castShadow = true;
                 lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${job.colour} ${profile}` };
                 f.fenceGrp.add(lMesh);
+                addSheetRibHighlights(f.fenceGrp, lMesh.position.x, lMesh.position.y, lW, gateH, 0);
               }
               // Hinge cylinders
               for (let hi = 0; hi < 2; hi++) {
@@ -7694,6 +7716,7 @@
               gP.castShadow = true;
               gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${job.colour} ${profile}` };
               f.fenceGrp.add(gP);
+              addSheetRibHighlights(f.fenceGrp, gP.position.x, gP.position.y, gateW - 0.03, gateH, 0);
               // Hinges
               for (let hi = 0; hi < 2; hi++) {
                 const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.06, 6), galvMat);
@@ -9520,6 +9543,7 @@
         const origUserMoved = this._fence3DUserMoved;
         const renders = {};
         let studioGround = null;
+        let studioAmb = null, studioKey = null, studioFill = null;
 
         try {
           if (preferredRunId) this.currentRunId = preferredRunId;
@@ -9533,18 +9557,19 @@
           box.getSize(size);
           if (!isFinite(size.length()) || size.length() === 0) return {};
 
-          const sphere = box.getBoundingSphere(new THREE.Sphere());
-          const radius = Math.max(sphere.radius, 1.5);
           const CAPTURE_W = 1920, CAPTURE_H = 1080;
-          const FRAME_FOV = 38;
-          const FRAME_MARGIN = 1.62;
-          const D = (radius / Math.sin((FRAME_FOV / 2) * Math.PI / 180)) * FRAME_MARGIN;
+          const aspect = CAPTURE_W / CAPTURE_H;
+          const FRAME_FOV = 34;
+          const vFov = FRAME_FOV * Math.PI / 180;
+          const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
           const target = centre.clone();
-          target.y += Math.min(0.35, size.y * 0.08);
+          target.y += Math.min(0.22, size.y * 0.05);
 
           f.renderer.setPixelRatio(1);
           f.renderer.setSize(CAPTURE_W, CAPTURE_H, false);
-          f.camera.aspect = CAPTURE_W / CAPTURE_H;
+          f.renderer.shadowMap.enabled = true;
+          f.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          f.camera.aspect = aspect;
           f.camera.fov = FRAME_FOV;
           f.camera.updateProjectionMatrix();
           f.activeCamera = f.camera;
@@ -9555,31 +9580,81 @@
           if (f.envGrp) f.envGrp.visible = false;
 
           studioGround = new THREE.Mesh(
-            new THREE.PlaneGeometry(Math.max(size.x + 5, 12), 8),
-            new THREE.MeshStandardMaterial({ color: 0xE8E4DE, roughness: 0.9, metalness: 0.0 })
+            new THREE.PlaneGeometry(Math.max(size.x + 3.0, 10), Math.max(size.z + 4.0, 5.5)),
+            new THREE.MeshStandardMaterial({ color: 0xEEECE6, roughness: 0.86, metalness: 0.0 })
           );
           studioGround.rotation.x = -Math.PI / 2;
-          studioGround.position.set(centre.x, -0.012, 0.15);
+          studioGround.position.set(centre.x, -0.018, centre.z + 0.12);
           studioGround.receiveShadow = true;
           f.scene.add(studioGround);
 
-          function capture(name, dir) {
-            const n = dir.clone().normalize();
-            f.camera.position.set(target.x + n.x * D, target.y + n.y * D, target.z + n.z * D);
-            f.controls.target.copy(target);
-            f.controls.update();
-            f.renderer.render(f.scene, f.camera);
-            renders[name] = f.renderer.domElement.toDataURL('image/jpeg', 0.92);
+          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xD9D2C4, 0.95);
+          studioKey = new THREE.DirectionalLight(0xFFF7EA, 1.35);
+          studioKey.position.set(centre.x - 3.5, 7.5, centre.z + 5.5);
+          studioKey.castShadow = true;
+          studioKey.shadow.mapSize.width = 2048;
+          studioKey.shadow.mapSize.height = 2048;
+          studioKey.shadow.camera.left = -12; studioKey.shadow.camera.right = 12;
+          studioKey.shadow.camera.top = 8; studioKey.shadow.camera.bottom = -8;
+          studioKey.shadow.bias = -0.0003;
+          studioFill = new THREE.DirectionalLight(0xFFFFFF, 0.55);
+          studioFill.position.set(centre.x + 5, 3, centre.z - 4);
+          f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill);
+
+          const corners = [];
+          for (let ix = 0; ix <= 1; ix++) for (let iy = 0; iy <= 1; iy++) for (let iz = 0; iz <= 1; iz++) {
+            corners.push(new THREE.Vector3(
+              ix ? box.max.x : box.min.x,
+              iy ? box.max.y : box.min.y,
+              iz ? box.max.z : box.min.z
+            ));
           }
 
-          capture('hero', new THREE.Vector3(0.72, 0.34, 0.78));
-          capture('front', new THREE.Vector3(0, 0.10, 1));
-          capture('side', new THREE.Vector3(1, 0.10, 0.08));
-          capture('top', new THREE.Vector3(0.03, 1, 0.03));
+          function fitDistanceForDirection(dir, fill, minDistance) {
+            const forward = dir.clone().normalize().multiplyScalar(-1);
+            const worldUp = Math.abs(forward.dot(new THREE.Vector3(0, 1, 0))) > 0.92 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+            const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            corners.forEach(function(corner) {
+              const v = corner.clone().sub(target);
+              const px = v.dot(right);
+              const py = v.dot(up);
+              minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+              minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+            });
+            const projW = Math.max(0.25, maxX - minX);
+            const projH = Math.max(0.25, maxY - minY);
+            const dW = projW / (2 * Math.tan(hFov / 2) * fill);
+            const dH = projH / (2 * Math.tan(vFov / 2) * fill);
+            return Math.max(dW, dH, minDistance || 1.2);
+          }
+
+          function capture(name, dir, fill, yLift, minDistance) {
+            const n = dir.clone().normalize();
+            const look = target.clone();
+            look.y += yLift || 0;
+            const D = fitDistanceForDirection(n, fill || 0.78, minDistance || 1.2);
+            f.camera.position.set(look.x + n.x * D, look.y + n.y * D, look.z + n.z * D);
+            f.controls.target.copy(look);
+            f.controls.update();
+            f.renderer.render(f.scene, f.camera);
+            renders[name] = f.renderer.domElement.toDataURL('image/jpeg', 0.93);
+          }
+
+          // All views are fitted independently so the fence occupies the quote frame,
+          // while the hero stays low/close enough to show receding panel depth.
+          capture('hero', new THREE.Vector3(0.70, 0.18, 0.52), 0.80, -0.05, 1.4);
+          capture('front', new THREE.Vector3(0.02, 0.07, 1), 0.84, -0.04, 1.2);
+          capture('side', new THREE.Vector3(0.92, 0.12, 0.28), 0.76, -0.05, 1.0);
+          capture('top', new THREE.Vector3(0.16, 0.90, 0.24), 0.82, 0.00, 1.4);
 
         } catch(e) {
           console.warn('[FenceQuote] 3D capture failed:', e);
         } finally {
+          if (studioAmb) f.scene.remove(studioAmb);
+          if (studioKey) f.scene.remove(studioKey);
+          if (studioFill) f.scene.remove(studioFill);
           if (studioGround) {
             f.scene.remove(studioGround);
             studioGround.geometry.dispose();
