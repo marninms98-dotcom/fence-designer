@@ -10760,10 +10760,6 @@
           + '<div class="body"><div class="intro"><p class="lede">' + E(d.lede) + '</p></div>'
           + (runRows ? ('<div class="runwrap"><div class="shead"><span class="snum">A</span><span class="slabel">Fence Runs</span></div><div class="shead-bar"></div>'
               + '<div class="runlist">' + runRows + '</div></div>') : '')
-          + '<div class="specwrap"><div class="shead"><span class="snum">' + (runRows ? 'B' : 'A') + '</span><span class="slabel">Specifications</span></div><div class="shead-bar"></div>'
-          + '<div class="speclist">' + specRows + '</div></div>'
-          + '<div class="incwrap"><div class="shead"><span class="snum">' + (runRows ? 'C' : 'B') + '</span><span class="slabel">What\'s Included</span></div><div class="shead-bar"></div>'
-          + '<div class="incgrid">' + includeItems + '</div></div>'
           + pf(2) + '</div></section></div>';
 
         // ----- PAGE 4 YOUR INVESTMENT -----
@@ -10866,7 +10862,14 @@
           + '#pgScope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '#pgScope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
           + '#pgScope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 12px;}'
+          + '#pgScope .sec-a{margin-bottom:22px;}'
+          + '#pgScope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:40px;row-gap:0;}'
+          + '#pgScope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .specitem .sk{flex:0 0 auto;font-size:8.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
+          + '#pgScope .specitem .sv{text-align:right;font-size:11.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.3;}'
           + '#pgScope .sec-b{margin-bottom:12px;flex:1;}'
+          + '#pgScope .scope-lead{font-size:11.5px;line-height:1.55;color:var(--body-text,#3a4e58);margin-bottom:10px;max-width:100%;}'
+          + '#pgScope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
           + '#pgScope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;}'
           + '#pgScope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '#pgScope .sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
@@ -10919,8 +10922,11 @@
           + '<div class="scopebody">'
           + '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It</span></div>'
           + '<div class="scope-accent-bar"></div>'
+          + '<div class="sec-a"><div class="sec-head"><span class="sh-letter">A</span><span class="sh-label">Specifications</span></div>'
+          + '<div class="speclist">' + specRows + '</div></div>'
           + '<div class="sec-b">'
           + '<div class="sec-head"><span class="sh-letter">B</span><span class="sh-label">Scope of Works</span></div>'
+          + '<p class="scope-lead">' + E(d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage — every task listed, nothing hidden.') + '</p>'
           + scopeGroupsHTML
           + '</div>'
           + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>'
