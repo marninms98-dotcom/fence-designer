@@ -7378,6 +7378,39 @@
         return tex;
       },
 
+      _createColorbondFinishTexture(hex, profile) {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 512;
+        const ctx = c.getContext('2d');
+        const base = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#C4C0B6';
+        ctx.fillStyle = base;
+        ctx.fillRect(0, 0, c.width, c.height);
+
+        // Subtle vertical rib highlights/dips so high-res quote renders read as
+        // powder-coated sheet metal rather than flat painted planes. Geometry still
+        // carries the real corrugation; this is only the finish/lighting detail.
+        const ribPitch = profile === 'Harmony' ? 34 : (profile === 'Corodek' ? 42 : 28);
+        for (let x = 0; x < c.width; x += ribPitch) {
+          const g = ctx.createLinearGradient(x, 0, x + ribPitch, 0);
+          g.addColorStop(0.00, 'rgba(255,255,255,0.10)');
+          g.addColorStop(0.18, 'rgba(255,255,255,0.04)');
+          g.addColorStop(0.48, 'rgba(0,0,0,0.08)');
+          g.addColorStop(0.70, 'rgba(255,255,255,0.05)');
+          g.addColorStop(1.00, 'rgba(0,0,0,0.06)');
+          ctx.fillStyle = g;
+          ctx.fillRect(x, 0, ribPitch, c.height);
+        }
+        for (let i = 0; i < 1400; i++) {
+          const a = 0.018 + Math.random() * 0.035;
+          ctx.fillStyle = Math.random() > 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
+          ctx.fillRect(Math.random() * c.width, Math.random() * c.height, 1, 1);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(3, 1);
+        return tex;
+      },
+
       // ── Create property label for 3D scene (flat on ground) ──
       _create3DPropertyLabel(name, address, bgCol, accentCol) {
         const c = document.createElement('canvas');
@@ -7452,12 +7485,13 @@
         const colourHex = colourEntry ? colourEntry.hex : '#C4C0B6';
         const fenceCol = new THREE.Color(colourHex).convertSRGBToLinear();
 
-        // Materials — PBR Colorbond
-        const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol, metalness: 0.1, roughness: 0.4, side: THREE.DoubleSide });
-        const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.85), metalness: 0.1, roughness: 0.45 });
-        const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.9), metalness: 0.1, roughness: 0.35 });
-        const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.8), metalness: 0.05, roughness: 0.5 });
-        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.95), metalness: 0.15, roughness: 0.3 });
+        // Materials — PBR Colorbond with subtle powder-coated rib finish
+        const finishTex = this._createColorbondFinishTexture(colourHex, job.profile || 'Trimclad');
+        const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol, map: finishTex, metalness: 0.22, roughness: 0.46, side: THREE.DoubleSide });
+        const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.82), metalness: 0.28, roughness: 0.38 });
+        const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.88), metalness: 0.30, roughness: 0.34 });
+        const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.78), map: finishTex, metalness: 0.18, roughness: 0.52 });
+        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.96), metalness: 0.34, roughness: 0.28 });
         const earthMat = new THREE.MeshStandardMaterial({ color: 0xC4A882, roughness: 0.85, metalness: 0.0 });
         const galvMat = new THREE.MeshStandardMaterial({ color: 0xB0B0B0, metalness: 0.5, roughness: 0.45 });
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
@@ -7570,8 +7604,7 @@
             // Plinths (single block, same depth as fence sheet)
             if (totalPl > 0) {
               const plGeo = new THREE.BoxGeometry(thisPanelW, retH, 0.015);
-              const pl = new THREE.Mesh(plGeo, plinthMat.clone());
-              pl.material.color = fenceCol.clone().multiplyScalar(0.75);
+              const pl = new THREE.Mesh(plGeo, plinthMat);
               pl.position.set(panelX, panelGnd + retH/2, 0);
               pl.castShadow = true; pl.receiveShadow = true;
               pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${job.colour}` };
@@ -9440,6 +9473,146 @@
         } catch(e) { return null; }
       },
 
+      // Patio-quality quote capture: rebuild the requested run in the real 3D
+      // renderer, temporarily switch to a high-res studio setup, then restore the
+      // operator viewport exactly as it was. This keeps quote/PDF renders tied to
+      // the model instead of falling back to the flat profile elevation.
+      _captureFenceQuoteRenders(preferredRunId) {
+        const container = document.getElementById('fence3DViewport');
+        const canvas = document.getElementById('fence3DCanvas');
+        if (!container || !canvas || !window.THREE) return {};
+
+        const savedRunId = this.currentRunId;
+        const savedView = this.currentView;
+        const savedDisplay = container.style.display;
+        const savedWidth = container.style.width;
+        const savedHeight = container.style.height;
+        const savedOpacity = container.style.opacity;
+        const savedPosition = container.style.position;
+        const savedZ = container.style.zIndex;
+
+        // Keep a hidden but measurable viewport available for first-time renderer init.
+        if (!this._fence3DReady) {
+          container.style.display = 'block';
+          container.style.width = '1200px';
+          container.style.height = '675px';
+          container.style.opacity = '0';
+          container.style.position = 'fixed';
+          container.style.zIndex = '-1';
+          this.initFence3D();
+        }
+
+        const f = this._f3d;
+        if (!f || !f.renderer || !f.scene || !f.camera || !f.controls) return {};
+
+        const origPos = f.camera.position.clone();
+        const origTarget = f.controls.target.clone();
+        const origFov = f.camera.fov;
+        const origAspect = f.camera.aspect;
+        const origActive = f.activeCamera;
+        const origPixelRatio = f.renderer.getPixelRatio();
+        const origW = f.renderer.domElement.clientWidth || f.renderer.domElement.width || 1200;
+        const origH = f.renderer.domElement.clientHeight || f.renderer.domElement.height || 675;
+        const origBackground = f.scene.background;
+        const origFog = f.scene.fog;
+        const origDimVisible = f.dimGrp ? f.dimGrp.visible : false;
+        const origEnvVisible = f.envGrp ? f.envGrp.visible : false;
+        const origUserMoved = this._fence3DUserMoved;
+        const renders = {};
+        let studioGround = null;
+
+        try {
+          if (preferredRunId) this.currentRunId = preferredRunId;
+          this._fence3DUserMoved = false;
+          this.buildFence3D();
+
+          const box = new THREE.Box3().setFromObject(f.fenceGrp);
+          const centre = new THREE.Vector3();
+          const size = new THREE.Vector3();
+          box.getCenter(centre);
+          box.getSize(size);
+          if (!isFinite(size.length()) || size.length() === 0) return {};
+
+          const sphere = box.getBoundingSphere(new THREE.Sphere());
+          const radius = Math.max(sphere.radius, 1.5);
+          const CAPTURE_W = 1920, CAPTURE_H = 1080;
+          const FRAME_FOV = 38;
+          const FRAME_MARGIN = 1.62;
+          const D = (radius / Math.sin((FRAME_FOV / 2) * Math.PI / 180)) * FRAME_MARGIN;
+          const target = centre.clone();
+          target.y += Math.min(0.35, size.y * 0.08);
+
+          f.renderer.setPixelRatio(1);
+          f.renderer.setSize(CAPTURE_W, CAPTURE_H, false);
+          f.camera.aspect = CAPTURE_W / CAPTURE_H;
+          f.camera.fov = FRAME_FOV;
+          f.camera.updateProjectionMatrix();
+          f.activeCamera = f.camera;
+          f.controls.object = f.camera;
+          f.scene.background = new THREE.Color(0xFFFFFF);
+          f.scene.fog = null;
+          if (f.dimGrp) f.dimGrp.visible = false;
+          if (f.envGrp) f.envGrp.visible = false;
+
+          studioGround = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(size.x + 5, 12), 8),
+            new THREE.MeshStandardMaterial({ color: 0xE8E4DE, roughness: 0.9, metalness: 0.0 })
+          );
+          studioGround.rotation.x = -Math.PI / 2;
+          studioGround.position.set(centre.x, -0.012, 0.15);
+          studioGround.receiveShadow = true;
+          f.scene.add(studioGround);
+
+          function capture(name, dir) {
+            const n = dir.clone().normalize();
+            f.camera.position.set(target.x + n.x * D, target.y + n.y * D, target.z + n.z * D);
+            f.controls.target.copy(target);
+            f.controls.update();
+            f.renderer.render(f.scene, f.camera);
+            renders[name] = f.renderer.domElement.toDataURL('image/jpeg', 0.92);
+          }
+
+          capture('hero', new THREE.Vector3(0.72, 0.34, 0.78));
+          capture('front', new THREE.Vector3(0, 0.10, 1));
+          capture('side', new THREE.Vector3(1, 0.10, 0.08));
+          capture('top', new THREE.Vector3(0.03, 1, 0.03));
+
+        } catch(e) {
+          console.warn('[FenceQuote] 3D capture failed:', e);
+        } finally {
+          if (studioGround) {
+            f.scene.remove(studioGround);
+            studioGround.geometry.dispose();
+            studioGround.material.dispose();
+          }
+          if (f.dimGrp) f.dimGrp.visible = origDimVisible;
+          if (f.envGrp) f.envGrp.visible = origEnvVisible;
+          f.scene.background = origBackground;
+          f.scene.fog = origFog;
+          f.renderer.setPixelRatio(origPixelRatio);
+          f.renderer.setSize(origW, origH, false);
+          f.camera.aspect = origAspect;
+          f.camera.fov = origFov;
+          f.camera.updateProjectionMatrix();
+          f.camera.position.copy(origPos);
+          f.controls.target.copy(origTarget);
+          f.activeCamera = origActive || f.camera;
+          f.controls.object = f.activeCamera;
+          f.controls.update();
+          this.currentRunId = savedRunId;
+          this.currentView = savedView;
+          this._fence3DUserMoved = origUserMoved;
+          container.style.display = savedDisplay;
+          container.style.width = savedWidth;
+          container.style.height = savedHeight;
+          container.style.opacity = savedOpacity;
+          container.style.position = savedPosition;
+          container.style.zIndex = savedZ;
+          try { this.buildFence3D(); } catch(_) {}
+        }
+        return renders;
+      },
+
       // Build a professional single-line scope description for client quote
       _buildQuoteScopeDesc(d) {
         const parts = [];
@@ -10785,12 +10958,17 @@
       async _renderFenceQuoteHTMLToPDF(doc, d, profileImages) {
         var PAGE_W = 794, PAGE_H = 1123; // A4 @ 96dpi
 
-        // Pick the elevation render: prefer the longest run's profile image.
+        // Pick the render: prefer a high-res 3D model capture for the longest run,
+        // falling back to the legacy profile elevation if WebGL capture is unavailable.
         var renderHero = '';
+        var preferredRunId = null;
         try {
           var runs = (this.job.runs || []).slice();
-          if (profileImages) {
-            runs.sort(function(a, b) { return (b.length || 0) - (a.length || 0); });
+          runs.sort(function(a, b) { return (b.length || 0) - (a.length || 0); });
+          if (runs.length) preferredRunId = runs[0].id;
+          var qRenders = (typeof this._captureFenceQuoteRenders === 'function') ? this._captureFenceQuoteRenders(preferredRunId) : {};
+          renderHero = (qRenders && qRenders.hero) || '';
+          if (!renderHero && profileImages) {
             for (var i = 0; i < runs.length; i++) {
               if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
             }
