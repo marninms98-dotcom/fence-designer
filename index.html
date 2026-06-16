@@ -10613,7 +10613,11 @@
           split: split,
           salesperson: job.scoper || 'SecureWorks Team',
           contact: this._swFenceContact(),
-          scopeGroups: this._buildFenceScopeOfWorks(d)
+          scopeGroups: this._buildFenceScopeOfWorks(d),
+          sitePhotos: (function() {
+            var photos = (job.checklist && job.checklist.photos) || [];
+            return photos.filter(function(p) { return p.dataUrl && p.dataUrl.indexOf('data:image') === 0; }).slice(0, 6);
+          })()
         };
       },
 
@@ -10890,6 +10894,50 @@
           + '#pgScope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
           + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:8px 0 22px;}';
 
+        // ----- SITE PHOTO CSS -----
+        var sitePhotoCSS = '#pgSite .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
+          + '#pgSite .topband{display:flex;align-items:center;justify-content:space-between;padding:22px 52px 16px;border-bottom:2px solid var(--blue-100,#EDF1F4);flex:0 0 auto;}'
+          + '#pgSite .topband .logo svg{display:block;height:34px;width:auto;}'
+          + '#pgSite .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
+          + '#pgSite .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '#pgSite .sitebody{flex:1;display:flex;flex-direction:column;padding:18px 52px 0;}'
+          + '#pgSite .site-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '#pgSite .site-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgSite .site-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgSite .site-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 14px;}'
+          + '#pgSite .site-sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;}'
+          + '#pgSite .site-sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgSite .site-sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgSite .site-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1;}'
+          + '#pgSite .site-cell{display:flex;flex-direction:column;gap:4px;}'
+          + '#pgSite .site-cell img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:1px solid var(--blue-100,#EDF1F4);display:block;}'
+          + '#pgSite .site-cell .site-cap{font-size:9px;color:var(--mid-blue,#4C6A7C);font-weight:500;}'
+          + '#pgSite .site-note{margin-top:14px;font-size:9.5px;color:var(--mid-blue,#4C6A7C);font-style:italic;}'
+          + '#pgSite .pagefoot-site{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:auto 0 22px;}';
+
+        // ----- PAGE SITE: YOUR SITE PHOTOS -----
+        var pSite = '';
+        if (d.sitePhotos && d.sitePhotos.length > 0) {
+          var siteCells = d.sitePhotos.map(function(p) {
+            var capText = (p.label && p.label !== 'image.jpg' && p.label !== 'image.heic') ? p.label : '';
+            return '<div class="site-cell"><img src="' + p.dataUrl + '" alt="' + E(capText || 'Site photo') + '">'
+              + (capText ? '<span class="site-cap">' + E(capText) + '</span>' : '')
+              + '</div>';
+          }).join('');
+          pSite = '<div id="pgSite" class="pgwrap"><section class="page">'
+            + '<style>' + sitePhotoCSS + '</style>'
+            + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
+            + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
+            + '<div class="sitebody">'
+            + '<div class="site-eyebrow"><span class="num">03</span><span class="slabel">Your Site</span></div>'
+            + '<div class="site-accent-bar"></div>'
+            + '<div class="site-sec-head"><span class="sh-letter">A</span><span class="sh-label">Site Photos</span></div>'
+            + '<div class="site-grid">' + siteCells + '</div>'
+            + '<p class="site-note">Photos captured at time of scoping by our team.</p>'
+            + '<div class="pagefoot-site"><div>SecureWorks Group &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div></div>'
+            + '</div></section></div>';
+        }
+
         // Build numbered scope groups HTML (full-width single column)
         var scopeGroupsHTML = '';
         if (d.scopeGroups && d.scopeGroups.length > 0) {
@@ -10973,7 +11021,7 @@
           + '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
           + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
           + '<style>' + css + '</style></head><body class="' + (forPDF ? 'pdf' : 'web') + '">'
-          + p1 + webCtaBar + p2 + p3 + p4 + p5 + p6
+          + p1 + webCtaBar + p2 + pSite + p3 + p4 + p5 + p6
           + stickyBar
           + webScript
           + '</body></html>';
