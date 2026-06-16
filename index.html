@@ -10112,6 +10112,14 @@
 '#pg5 .secthead .num{font-weight:800;font-size:13px;color:var(--mid-blue);letter-spacing:1px;}',
 '#pg5 .accept-strip{background:var(--orange-100);border:1px solid var(--orange-300);border-left:3px solid var(--orange);padding:11px 16px;margin-bottom:18px;font-size:10.5px;color:var(--dark-blue);line-height:1.55;}',
 '#pg5 .accept-strip b{font-weight:700;}',
+/* Professional acceptance panel (ported from locked patio #pg4 .accept-panel). */
+'#pg5 .accept-panel{background:#fff;border:1px solid var(--blue-200,#d9e2e8);border-top:3px solid var(--orange);padding:17px 22px 19px;margin-bottom:18px;}',
+'#pg5 .accept-panel .ap-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:9px;}',
+'#pg5 .accept-panel .ap-title{font-weight:800;font-size:13.5px;letter-spacing:0.2px;color:var(--dark-blue);text-transform:uppercase;}',
+'#pg5 .accept-panel .ap-ref{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mid-blue);white-space:nowrap;}',
+'#pg5 .accept-panel .ap-copy{font-size:10.5px;color:var(--dark-blue);line-height:1.6;margin-bottom:14px;}',
+'#pg5 .accept-panel .ap-btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;border:none;font-family:inherit;font-weight:800;font-size:11.5px;letter-spacing:0.8px;text-transform:uppercase;padding:13px 26px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 4px 14px rgba(241,90,41,0.25);}',
+'#pg5 .accept-panel .ap-btn::after{content:"→";font-size:13px;line-height:1;}',
 '#pg5 .terms{display:grid;grid-template-columns:1fr 1fr;gap:0 34px;}',
 '#pg5 .termcol{display:flex;flex-direction:column;gap:15px;}',
 '#pg5 .termgrp h4{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);margin-bottom:7px;display:flex;align-items:center;gap:8px;}',
@@ -10140,17 +10148,27 @@
 '#pg6 .stars svg{width:16px;height:16px;display:block;}',
 '#pg6 .tmcount{font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.82);}',
 '#pg6 .tmcount .verif{color:var(--orange);}',
+/* Premium Google review card (ported from locked patio #pg5 .gcard). Quiet rating row at top. */
+'#pg6 .proof{margin-top:22px;}',
+'#pg6 .gcard{display:inline-flex;align-items:stretch;text-decoration:none;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.16);overflow:hidden;}',
+'#pg6 .gcard .gcard-g{display:flex;align-items:center;padding:0 15px;background:rgba(255,255,255,0.05);border-right:1px solid rgba(255,255,255,0.12);}',
+'#pg6 .gcard .gcard-g svg{display:block;width:22px;height:22px;}',
+'#pg6 .gcard .gcard-mid{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:10px 20px;}',
+'#pg6 .gcard .gcard-line1{display:flex;align-items:center;gap:9px;}',
+'#pg6 .gcard .gcard-score{font-weight:800;font-size:19px;color:#fff;line-height:1;letter-spacing:-0.5px;}',
+'#pg6 .gcard .gcard-stars{display:inline-flex;gap:2px;}',
+'#pg6 .gcard .gcard-stars svg{width:14px;height:14px;display:block;}',
+'#pg6 .gcard .gcard-line2{font-size:10.5px;font-weight:600;color:rgba(255,255,255,0.64);letter-spacing:0.2px;}',
+'#pg6 .gcard .gcard-verif{color:var(--orange);font-weight:800;font-size:9px;letter-spacing:0.8px;text-transform:uppercase;margin-left:7px;}',
+'#pg6 .gcard .gcard-cta{display:flex;align-items:center;gap:7px;padding:0 20px;background:var(--orange);color:#fff;font-weight:800;font-size:11px;letter-spacing:0.8px;text-transform:uppercase;white-space:nowrap;}',
+'#pg6 .gcard .gcard-cta .gcard-arr{font-size:13px;display:inline-block;transition:transform .2s ease;}',
 '#pg6 .photogap{flex:1 1 auto;}',
-'#pg6 .testi-cluster{position:absolute;top:28px;right:52px;width:260px;display:flex;flex-direction:column;gap:10px;z-index:6;}',
-'#pg6 .testi-cluster .quotecard{border-left:3px solid var(--orange);padding:6px 0 6px 12px;background:rgba(26,39,46,0.55);}',
-'#pg6 .testi-cluster .quotecard p{font-size:10px;color:rgba(255,255,255,0.90);line-height:1.45;font-style:italic;margin-bottom:5px;}',
-'#pg6 .testi-cluster .quotecard .qattr{font-size:8px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:rgba(255,255,255,0.55);}',
+/* Testimonials moved into the cluster beside the ask (proof next to the CTA). */
+'#pg6 .cluster .testirow{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:20px;}',
+'#pg6 .cluster .testirow .quotecard{border-left:3px solid var(--orange);padding:3px 0 3px 14px;}',
+'#pg6 .cluster .testirow .quotecard p{font-size:12px;color:rgba(255,255,255,0.92);line-height:1.5;font-style:italic;margin-bottom:6px;}',
+'#pg6 .cluster .testirow .quotecard .qattr{font-size:8.5px;font-weight:700;letter-spacing:0.9px;text-transform:uppercase;color:rgba(255,255,255,0.6);}',
 '#pg6 .cluster{position:relative;padding:34px 52px 38px;background:linear-gradient(180deg,rgba(26,39,46,0) 0%,rgba(26,39,46,0.62) 26%,rgba(26,39,46,0.90) 60%,rgba(26,39,46,0.97) 100%);}',
-'#pg6 .gbtn{display:inline-flex;align-items:center;gap:9px;text-decoration:none;background:rgba(241,90,41,0.10);color:#fff;border:1px solid rgba(241,90,41,0.75);font-weight:700;font-size:11.5px;letter-spacing:0.4px;padding:11px 18px;}',
-'#pg6 .gbtn .gstar{width:14px;height:14px;flex:0 0 14px;display:block;}',
-'#pg6 .gbtn .gstar svg{width:14px;height:14px;display:block;}',
-'#pg6 .gbtn .gtxt b{font-weight:800;}',
-'#pg6 .gbtn .garr{font-size:13px;color:var(--orange);margin-left:1px;}',
 '#pg6 .crossline{font-size:11.5px;color:rgba(255,255,255,0.80);letter-spacing:0.2px;margin:20px 0 6px;font-weight:500;}',
 '#pg6 .crossline b{color:#fff;font-weight:700;}',
 '#pg6 .trustline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:16px;border-top:1px solid rgba(255,255,255,0.16);}',
@@ -10161,7 +10179,8 @@
 '#pg6 .cta .ctah span{color:var(--orange);}',
 '#pg6 .cta p{font-size:12px;color:rgba(255,255,255,0.78);line-height:1.55;max-width:340px;}',
 '#pg6 .cta .ctaaction{flex:0 0 auto;text-align:center;}',
-'#pg6 .cta .ctabtn{display:inline-block;background:var(--orange);color:#fff;font-weight:800;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;padding:16px 30px;white-space:nowrap;}',
+'#pg6 .cta .ctabtn{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;font-weight:800;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;padding:16px 30px;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 6px 18px rgba(241,90,41,0.32);}',
+'#pg6 .cta .ctabtn::after{content:"→";font-size:15px;line-height:1;}',
 '#pg6 .cta .ctahint{display:block;margin-top:10px;font-size:10px;font-weight:600;letter-spacing:0.3px;color:rgba(255,255,255,0.62);}',
 
 /* ─── WEB-MODE (body.web) OVERRIDES ───────────────────────────────────────
@@ -10174,12 +10193,17 @@
 'body.web .pgwrap{opacity:1;transform:none;}',
 'body.web .pgwrap.revealed{opacity:1;transform:none;}',
 
-/* 1.2 Hover polish for web */
+/* 1.2 Hover polish for web (mirrors locked patio gcard + sticky-btn hover) */
 '@media (hover:hover) and (pointer:fine){'
-+ 'body.web .ctabtn{transition:transform .2s ease,box-shadow .2s ease;display:inline-block;}'
++ 'body.web .ctabtn{transition:transform .2s ease,box-shadow .2s ease;display:inline-flex;}'
 + 'body.web .ctabtn:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.22);}'
-+ 'body.web .gbtn{transition:transform .2s ease,box-shadow .2s ease;display:inline-flex;}'
-+ 'body.web .gbtn:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.18);}'
++ 'body.web .ap-btn{transition:transform .2s ease,box-shadow .2s ease;}'
++ 'body.web .ap-btn:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(241,90,41,0.4);}'
++ 'body.web .gcard{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;}'
++ 'body.web .gcard:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,0.38);border-color:rgba(241,90,41,0.55);}'
++ 'body.web .gcard:hover .gcard-arr{transform:translateX(3px);}'
++ 'body.web .sw-fence-sticky-btn{transition:transform .15s ease,box-shadow .2s ease;}'
++ 'body.web .sw-fence-sticky-btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(241,90,41,0.5);}'
 + '}',
 
 /* 1.3 Premium document-on-navy viewer (web mode). Keep the proven PDF page
@@ -10214,6 +10238,18 @@
 'body.web .sw-fence-web-cta .wcta-btn-primary{display:inline-block;background:var(--orange,#F15A29);color:#fff;font-weight:800;font-size:14px;letter-spacing:0.8px;text-transform:uppercase;padding:13px 28px;cursor:pointer;border:none;font-family:inherit;white-space:nowrap;}',
 'body.web .sw-fence-web-cta .wcta-btn-secondary{display:inline-block;background:transparent;color:rgba(255,255,255,0.82);font-weight:700;font-size:13px;letter-spacing:0.3px;padding:12px 20px;cursor:pointer;border:1px solid rgba(255,255,255,0.30);font-family:inherit;white-space:nowrap;text-decoration:none;}',
 
+/* 1.8b Persistent accept CTA — bottom-center glass pill on desktop, full-width
+   bar on mobile, shown on ALL web widths, fades out on the close page via the
+   body.sw-at-close class. (ported from locked patio .sw-sticky-accept). */
+'body.pdf .sw-fence-sticky{display:none!important;}',
+'.sw-fence-sticky{display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;pointer-events:none;padding:0 0 20px;transition:opacity .35s ease,transform .35s ease;}',
+'body.web .sw-fence-sticky{display:block;}',
+'body.web.sw-at-close .sw-fence-sticky{opacity:0;transform:translateY(24px);pointer-events:none;}',
+'.sw-fence-sticky-inner{pointer-events:auto;margin:0 auto;width:max-content;max-width:calc(100% - 40px);display:flex;align-items:center;gap:18px;background:rgba(22,36,43,0.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.16);border-left:4px solid var(--orange,#F15A29);padding:11px 12px 11px 22px;box-shadow:0 14px 44px rgba(0,0,0,0.5);}',
+'.sw-fence-sticky-msg{font-size:13px;font-weight:700;color:#fff;letter-spacing:0.2px;white-space:nowrap;}',
+'.sw-fence-sticky-btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;border:none;font-family:inherit;font-size:12.5px;font-weight:800;letter-spacing:1px;padding:13px 24px;cursor:pointer;text-transform:uppercase;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 4px 14px rgba(241,90,41,0.3);}',
+'.sw-fence-sticky-btn::after{content:"→";font-size:14px;line-height:1;}',
+
 /* 1.9 Mobile responsive (web only) */
 '@media (max-width:820px){'
 + 'body.web .pgwrap{width:100%;max-width:100%;}'
@@ -10230,6 +10266,11 @@
 + 'body.web #pg4 .lower{padding:0 20px 30px;}'
 + 'body.web #pg4 .invgrid{grid-template-columns:1fr;gap:24px;}'
 + 'body.web #pg6 .cta{flex-direction:column;gap:14px;}'
++ 'body.web #pg6 .cluster .testirow{grid-template-columns:1fr;gap:12px;}'
++ 'body.web .sw-fence-sticky{padding:0;}'
++ 'body.web .sw-fence-sticky-inner{width:auto;max-width:none;margin:0;gap:0;background:rgba(22,36,43,0.97);backdrop-filter:none;-webkit-backdrop-filter:none;border:none;border-top:3px solid var(--orange,#F15A29);box-shadow:0 -6px 24px rgba(0,0,0,0.4);padding:12px 16px 16px;}'
++ 'body.web .sw-fence-sticky-msg{display:none;}'
++ 'body.web .sw-fence-sticky-btn{width:100%;justify-content:center;font-size:15px;padding:14px 24px;}'
 + 'body.web .hmeta{display:none;}'
 + '}',
 
@@ -10240,7 +10281,7 @@
 + 'body.web{background:#fff!important;padding:0!important;}'
 + 'body.web .pgwrap{margin:0!important;box-shadow:none!important;break-after:page;page-break-after:always;}'
 + 'body.web .pgwrap:last-child{break-after:auto;page-break-after:auto;}'
-+ 'body.web .sw-fence-web-cta{display:none!important;}'
++ 'body.web .sw-fence-web-cta,body.web .sw-fence-sticky{display:none!important;}'
 + '}'
 
         ].join('\n');
@@ -10675,6 +10716,10 @@
         var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
         var pf = function(n) { return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + n + ' of 6</div></div>'; };
         var stars5 = STAR + STAR + STAR + STAR + STAR;
+        // Google-gold stars + Google "G" mark for the premium review card (ported from locked patio).
+        var STARG = '<svg viewBox="0 0 24 24" fill="#FBBC04"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 7.1-1.01z"/></svg>';
+        var starsG = STARG + STARG + STARG + STARG + STARG;
+        var GOOGLE_G = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M23.06 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h6.2a5.3 5.3 0 0 1-2.3 3.48v2.89h3.72c2.18-2 3.44-4.96 3.44-8.38z"/><path fill="#34A853" d="M12 24c3.1 0 5.7-1.03 7.6-2.79l-3.72-2.89c-1.03.69-2.35 1.1-3.88 1.1-2.98 0-5.5-2.01-6.4-4.72H1.76v2.98A11.99 11.99 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.6 14.7a7.2 7.2 0 0 1 0-4.6V7.12H1.76a12 12 0 0 0 0 10.56l3.84-2.98z"/><path fill="#EA4335" d="M12 4.77c1.68 0 3.2.58 4.39 1.72l3.29-3.29C17.7 1.2 15.1 0 12 0 7.31 0 3.26 2.69 1.76 6.62l3.84 2.98C6.5 6.78 9.02 4.77 12 4.77z"/></svg>';
         var css = this._swFenceQuoteCSS();
 
         // ----- PAGE 1 COVER -----
@@ -10750,7 +10795,9 @@
           + '<div class="pad" style="gap:22px;"><div>'
           + '<div class="secthead" style="margin-bottom:8px;"><span class="num">05</span><span class="label">Terms &amp; Conditions</span></div>'
           + '<div class="accent-bar" style="margin-bottom:14px;"></div>'
-          + '<div class="accept-strip"><b>Acceptance.</b> By paying the deposit or providing written confirmation (email, text message, or signed copy), you accept this quote and agree to the Terms &amp; Conditions below. All works are carried out in accordance with the National Construction Code (NCC) and applicable Australian Standards.</div>'
+          + '<div class="accept-panel"><div class="ap-head"><span class="ap-title">Accepting this quote</span><span class="ap-ref">Ref ' + E(d.qNum) + ' &middot; valid until ' + E(d.validUntilStr) + '</span></div>'
+          + '<p class="ap-copy">To accept, pay the ' + d.depPercent + '% deposit or confirm in writing by email or SMS. On acceptance you agree to the Terms &amp; Conditions set out below. All works are carried out under the National Construction Code (NCC) and the applicable Australian Standards.</p>'
+          + '<button class="ap-btn" data-accept>Accept &amp; pay deposit</button></div>'
           + '<div class="terms"><div class="termcol">'
           + '<div class="termgrp"><h4>Quotation</h4><ul>'
           + '<li>This quote is valid for 30 days from the date of issue. Pricing is subject to change after this period due to material cost fluctuations.</li>'
@@ -10785,26 +10832,29 @@
           + '</div></div></div>' + pf(5) + '</div></section></div>';
 
         // ----- PAGE 6 CLOSE -----
+        // Locked patio close-page treatment: topband = logo/meta + quiet rating
+        // (premium Google review card); testimonials moved into the cluster beside
+        // the ask (proof next to the CTA); CTA button = orange gradient + arrow.
         var p6 = '<div id="pg6" class="pgwrap"><section class="page">'
           + img(imgs.closePhoto, 'bg', 'The SecureWorks Group crew on site') + '<div class="scrim"></div><div class="heroedge"></div>'
           + '<div class="shell"><div class="topband"><div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
-          + '<div class="trustmark"><div class="eyebrow" style="margin-bottom:16px;"><span class="accent-bar"></span><span class="label">Trusted Across Perth</span></div>'
-          + '<div class="tmrow"><div class="tmscore">4.9</div><div><div class="stars">' + stars5 + '</div>'
-          + '<div class="tmcount">112 Google Reviews &nbsp;&middot;&nbsp; <span class="verif">Verified</span></div></div></div></div>'
-          + '<div class="testi-cluster">'
-          + '<div class="quotecard"><p>&ldquo;Outstanding from quote to completion. Straight, solid and finished beautifully. The crew were professional throughout.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
-          + '<div class="quotecard"><p>&ldquo;Great communication, fair price and quality workmanship. Highly recommend SecureWorks Group.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
-          + '</div>'
+          + '<div class="proof"><a class="gcard" href="https://www.google.com/maps/search/?api=1&query=SecureWorks+Group" target="_blank" rel="noopener noreferrer">'
+          + '<span class="gcard-g">' + GOOGLE_G + '</span>'
+          + '<span class="gcard-mid"><span class="gcard-line1"><span class="gcard-score">4.9</span><span class="gcard-stars">' + starsG + '</span></span>'
+          + '<span class="gcard-line2">112 Google reviews<span class="gcard-verif">Verified</span></span></span>'
+          + '<span class="gcard-cta">Read reviews <span class="gcard-arr">&rarr;</span></span></a></div>'
           + '</div>'
           + '<div class="photogap"></div>'
           + '<div class="cluster">'
-          + '<a class="gbtn" href="https://www.google.com/maps/search/?api=1&query=SecureWorks%20Group%20Wangara">'
-          + '<span class="gstar">' + STAR + '</span><span class="gtxt">Read our <b>112 Google reviews</b></span><span class="garr">&rarr;</span></a>'
+          + '<div class="testirow">'
+          + '<div class="quotecard"><p>&ldquo;Outstanding from quote to completion. Straight, solid and finished beautifully. The crew were professional throughout.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
+          + '<div class="quotecard"><p>&ldquo;Great communication, fair price and quality workmanship. Highly recommend SecureWorks Group.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
+          + '</div>'
           + '<p class="crossline">We also build <b>patios, decking, sheds and outdoor living.</b> One team for the whole yard.</p>'
           + '<div class="trustline"><span class="t">Licensed &amp; insured</span><span class="trustsep"></span><span class="t">COLORBOND® steel</span><span class="trustsep"></span><span class="t">12-month workmanship warranty</span></div>'
           + '<div class="cta"><div><div class="ctah">Ready to make it <span>real?</span></div>'
-          + '<p>Approve your quote and pay the deposit to lock in your build date. From there, we handle everything.</p></div>'
-          + '<div class="ctaaction"><span class="ctabtn">Accept &amp; book your date</span>'
+          + '<p>Approve your quote and pay the deposit to get your project underway. From there, we handle everything.</p></div>'
+          + '<div class="ctaaction"><span class="ctabtn" data-accept>Accept &amp; pay deposit</span>'
           + '<span class="ctahint">Pay deposit, reply by email or SMS, or call ' + d.contact.phone + '</span></div></div>'
           + '</div></div></section></div>';
 
@@ -10884,21 +10934,37 @@
           + pf(3)
           + '</div></section></div>';
 
-        // Web-mode only: CTA bar between cover and design page
+        // Web-mode only: CTA bar between cover and design page.
+        // Hidden in web mode via CSS (loud inter-page band removed per Marnin);
+        // markup retained to mirror patio. Honest label: "Accept & pay deposit".
         var webCtaBar = forPDF ? '' :
           '<div class="sw-fence-web-cta" role="region" aria-label="Quote actions">'
-          + '<div class="wcta-msg">Ready to lock in your fence? <b>Accept this quote</b> to secure your start date.</div>'
+          + '<div class="wcta-msg">Ready to get started? <b>Accept your quote</b> and we handle everything from here.</div>'
           + '<div class="wcta-actions">'
-          + '<a class="wcta-btn-primary" href="mailto:' + E(d.contact.web && 'sales@secureworksgroup.app') + '?subject=' + encodeURIComponent('Accepting fence quote ' + d.qNum) + '">Accept &amp; book date</a>'
+          + '<button class="wcta-btn-primary" data-accept>Accept &amp; pay deposit</button>'
           + '<a class="wcta-btn-secondary" href="tel:' + E(d.contact.phone.replace(/\s/g, '')) + '">Call ' + E(d.contact.phone) + '</a>'
           + '</div></div>';
 
-        // Web-mode only: scroll-reveal + print button
+        // Web-mode only: persistent accept CTA (bottom-center glass pill desktop,
+        // full-width bar mobile). Hidden under body.pdf via CSS. (mirrors patio)
+        var stickyBar = forPDF ? '' :
+          '<div class="sw-fence-sticky" aria-hidden="false">'
+          + '<div class="sw-fence-sticky-inner"><span class="sw-fence-sticky-msg">Ready to get started?</span>'
+          + '<button class="sw-fence-sticky-btn" data-accept>Accept &amp; pay deposit</button></div>'
+          + '</div>';
+
+        // Web-mode only: scroll-reveal + data-accept wiring + close-page observer
+        // (toggles body.sw-at-close so the sticky CTA fades out on the close page).
         var webScript = forPDF ? '' : '<script>(function(){'
           + 'var io=new IntersectionObserver(function(entries){'
           + 'entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("revealed");io.unobserve(e.target);}});'
           + '},{threshold:0.08});'
           + 'document.querySelectorAll(".pgwrap").forEach(function(el){io.observe(el);});'
+          + 'document.querySelectorAll("[data-accept]").forEach(function(el){'
+          + 'el.addEventListener("click",function(){'
+          + 'if(typeof window.swAcceptQuote==="function"){window.swAcceptQuote();}});});'
+          + 'var _cta=document.querySelector("#pg6 .cta");'
+          + 'if(_cta){var io2=new IntersectionObserver(function(es){es.forEach(function(e){document.body.classList.toggle("sw-at-close",e.isIntersecting);});},{threshold:0.25});io2.observe(_cta);}'
           + '})();<\/script>';
 
         return '<!DOCTYPE html><html lang="en-AU"><head><meta charset="UTF-8">'
@@ -10908,6 +10974,7 @@
           + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
           + '<style>' + css + '</style></head><body class="' + (forPDF ? 'pdf' : 'web') + '">'
           + p1 + webCtaBar + p2 + p3 + p4 + p5 + p6
+          + stickyBar
           + webScript
           + '</body></html>';
       },
