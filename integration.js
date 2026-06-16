@@ -1254,26 +1254,28 @@
               }
 
               // Sales Commission PO
-              // Patio: 10% of gross profit (revenue ex GST - material cost - labour cost)
-              // Fencing: 5.25% of total inc GST
-              var totalIncGST = pricing.totalIncGST || 0;
+              // Fencing true-profit contract: commission = 15% of positive GP
+              // where GP = revenue ex GST - internal material/removal cost - internal labour.
+              // Patio/decking keeps its existing 10% of GP rule.
               var totalExGST = pricing.totalExGST || pricing.subtotal || 0;
               var matCostEst = pricing.materialCostEstimate || 0;
               var labCostEst = pricing.labourCostEstimate || 0;
+              var grossProfit = pricing.internal && pricing.internal.gross_profit != null
+                ? pricing.internal.gross_profit
+                : (totalExGST - matCostEst - labCostEst);
               var commissionAmount = 0;
               if (_toolType === 'fencing') {
-                commissionAmount = totalIncGST * 0.0525;
+                commissionAmount = grossProfit > 0 ? grossProfit * 0.15 : 0;
               } else {
                 // Patio/decking: 10% of gross profit
-                var grossProfit = totalExGST - matCostEst - labCostEst;
                 commissionAmount = grossProfit > 0 ? grossProfit * 0.10 : 0;
               }
               if (commissionAmount > 0) {
                 var commNote = _toolType === 'fencing'
-                  ? 'SALES COMMISSION — 35% × 15% = 5.25% of total inc GST ($' + totalIncGST.toFixed(2) + ').'
-                  : 'SALES COMMISSION — 10% of gross profit ($' + (totalExGST - matCostEst - labCostEst).toFixed(2) + ' GP).';
+                  ? 'SALES COMMISSION — 15% of positive GP ($' + grossProfit.toFixed(2) + ' GP ex GST).'
+                  : 'SALES COMMISSION — 10% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
                 var commDesc = _toolType === 'fencing'
-                  ? 'Sales commission (5.25%)'
+                  ? 'Sales commission (15% of GP)'
                   : 'Sales commission (10% of GP)';
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
