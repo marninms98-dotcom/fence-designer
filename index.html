@@ -10211,13 +10211,10 @@
    render exactly as in the PDF; present the pages centred on a navy background
    so the HTML view resembles the PDF document. (mirrors patio 9b7d54d/00657cd) */
 'body.web{background:#16242B;padding:36px 0;}',
-'body.web .pgwrap{width:100%;max-width:100%;}',
 'body.web .pgwrap{margin:0 auto 30px;max-width:100%;box-shadow:0 18px 55px rgba(0,0,0,0.50);}',
 
-/* 1.4 Cover hero: scale with viewport */
-'body.web #pg1 .coverhero{height:clamp(420px,55vw,700px);}',
-/* coverband can stack on web */
-'body.web #pg1 .coverband{max-height:none;}',
+/* 1.4 Cover keeps the patio geometry on web: full 900px hero (photo large,
+   title sits low via margin-top:auto) + base coverband. Centred, not resized. */
 
 /* 1.5 Design page (pg2): render fills width */
 'body.web #pg2 .hero{height:clamp(320px,40vw,560px);}',
@@ -10252,10 +10249,10 @@
 
 /* 1.9 Mobile responsive (web only) */
 '@media (max-width:820px){'
-+ 'body.web .pgwrap{width:100%;max-width:100%;}'
-+ 'body.web .page{width:100%;height:auto;}'
++ 'body.web .pgwrap{width:100%;max-width:794px;}'
++ 'body.web .page{width:100%;height:auto;min-height:0;overflow:visible;}'
 + 'body.web #pg1 .coverhero{height:clamp(320px,65vw,520px);}'
-+ 'body.web #pg1 .coverband{grid-template-columns:1fr;}'
++ 'body.web #pg1 .coverband{grid-template-columns:1fr;max-height:none;}'
 + 'body.web #pg1 .coverhero .herohead{padding:20px 20px 0;}'
 + 'body.web #pg1 .coverhero .herobody{padding:0 20px 28px;}'
 + 'body.web #pg1 .coverhero .maincover{font-size:clamp(28px,8vw,56px);}'
@@ -10299,8 +10296,8 @@
       _swFencePhotos() {
         var B = 'https://kevgrhcjxspbxgovpmfl.supabase.co/storage/v1/object/public/brand-assets/';
         return {
-          cover: B + 'fence-cover.jpg',       // Fencing crew on site (portrait, centre-cropped by object-fit:cover)
-          price: B + 'fence-price.jpg',       // Fencing crew/install shot (portrait, centre-cropped)
+          cover: B + 'fence-price.jpg',       // The finished fence (Marnin 2026-06-16: cover = the fence)
+          price: B + 'fence-cover.jpg',       // Installer on site (Marnin 2026-06-16: pricing page = the guy)
           close: B + 'photo-roof-team.webp'   // Marnin on the roof — keep as-is
         };
       },
@@ -10727,12 +10724,10 @@
         // Crew/site photo is a fallback when no render is available (e.g. no runs drawn).
         // If render available: show the elevation render as the hero image, with a navy
         // scrim so white canvas background is hidden.  Crew photo stays on pg4/close.
-        var coverHeroSrc = imgs.render || imgs.heroCover;
-        // When showing the elevation render (white bg canvas), use a lighter scrim to avoid
-        // washing it out. When showing a photo, use the full dark photo scrim.
-        var coverScrimStyle = imgs.render
-          ? 'background:linear-gradient(180deg,rgba(26,39,46,0.88) 0%,rgba(26,39,46,0.40) 22%,rgba(26,39,46,0.22) 48%,rgba(26,39,46,0.55) 78%,rgba(26,39,46,0.92) 100%);'
-          : '';
+        // Cover always = the fence photo (Marnin 2026-06-16: cover = the fence).
+        // The 3D render lives on the design page (pg2), not the cover.
+        var coverHeroSrc = imgs.heroCover;
+        var coverScrimStyle = '';
         var p1 = '<div id="pg1" class="pgwrap"><section class="page"><div class="coverhero">'
           + img(coverHeroSrc, 'heroimg', 'Your fence design') + '<div class="heroscrim"' + (coverScrimStyle ? ' style="' + coverScrimStyle + '"' : '') + '></div>'
           + '<div class="herohead"><div class="logo">' + imgs.logo + '</div>'
@@ -10752,11 +10747,10 @@
           + '</section></div>';
 
         // ----- PAGE 2 YOUR DESIGN -----
-        // If the render was placed on the cover, pg2 uses the crew site photo as its hero
-        // (to avoid showing the same render twice back-to-back). If no render exists
-        // (cover already used crew photo), pg2 hero is empty — the scrim provides the
-        // navy wash so the dark topband flows naturally.
-        var pg2HeroSrc = imgs.render ? imgs.heroCover : '';
+        // The 3D render appears HERE on the design page (Marnin 2026-06-16). The pg2 hero
+        // slot is styled for a render (object-fit:contain on a white bg, 560px). Empty
+        // until a render is generated, with the navy scrim providing the wash.
+        var pg2HeroSrc = imgs.render || '';
         var p2 = '<div id="pg2" class="pgwrap"><section class="page">'
           + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
           + '<div class="hero">' + img(pg2HeroSrc, 'heroimg', 'Fencing crew on site') + '<div class="heroscrim"></div>'
