@@ -10715,7 +10715,18 @@
         }
 
         var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
-        var pf = function(n) { return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + n + ' of 6</div></div>'; };
+        // Dynamic page numbering: base quote is 6 pages (cover, design, scope, investment,
+        // terms, close). When the "Your Site" photo page renders it sits at position 3,
+        // pushing every page after it down by one, for a 7-page total. pf(n) takes the
+        // 6-page baseline number and shifts it past pgSite automatically.
+        var hasSitePage = !!(d.sitePhotos && d.sitePhotos.length > 0);
+        var totalPages = hasSitePage ? 7 : 6;
+        // Baseline (6-page) footer slots: design=2, scope=3, investment=4, terms=5.
+        // With pgSite present, scope/investment/terms each shift +1 (it inserts after design).
+        var pf = function(n) {
+          var shown = (hasSitePage && n >= 3) ? (n + 1) : n;
+          return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + shown + ' of ' + totalPages + '</div></div>';
+        };
         var stars5 = STAR + STAR + STAR + STAR + STAR;
         // Google-gold stars + Google "G" mark for the premium review card (ported from locked patio).
         var STARG = '<svg viewBox="0 0 24 24" fill="#FBBC04"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 7.1-1.01z"/></svg>';
@@ -10934,7 +10945,7 @@
             + '<div class="site-sec-head"><span class="sh-letter">A</span><span class="sh-label">Site Photos</span></div>'
             + '<div class="site-grid">' + siteCells + '</div>'
             + '<p class="site-note">Photos captured at time of scoping by our team.</p>'
-            + '<div class="pagefoot-site"><div>SecureWorks Group &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div></div>'
+            + '<div class="pagefoot-site"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page 3 of ' + totalPages + '</div></div>'
             + '</div></section></div>';
         }
 
