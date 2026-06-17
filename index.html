@@ -11513,15 +11513,15 @@
           + '</body></html>';
       },
 
-      // Render the populated template -> jsPDF (6 full-page images at scale 2).
-      // profileImages = { runId: dataURL } captured by the caller; we use the
-      // first/widest run as the page-2 hero elevation.
-      async _renderFenceQuoteHTMLToPDF(doc, d, profileImages) {
-        var PAGE_W = 794, PAGE_H = 1123; // A4 @ 96dpi
-
-        // Pick the render: prefer a high-res 3D model capture for the longest run,
-        // falling back to the legacy profile elevation if WebGL capture is unavailable.
-        var renderHero = '';
+      // ── WAVE1: Shared render + asset assembly ────────────────────────────────
+      // Called by both _renderFenceQuoteHTMLToPDF (PDF/send path) and
+      // generateFenceWebPreview (preview path) so both paths produce identical
+      // images. profileImages = { runId: dataURL } 2D elevation fallback.
+      // Returns { logo, heroCover, pricePhoto, closePhoto, satellite,
+      //           render, renderFront, renderSide, renderTop }.
+      async _collectFenceQuoteImgs(profileImages) {
+        // Pick the render: prefer high-res 3D capture, fall back to 2D elevation.
+        var renderHero = '', renderFront = '', renderSide = '', renderTop = '';
         var preferredRunId = null;
         try {
           var runs = (this.job.runs || []).slice();
@@ -11529,20 +11529,31 @@
           if (runs.length) preferredRunId = runs[0].id;
           var qRenders = (typeof this._captureFenceQuoteRenders === 'function') ? this._captureFenceQuoteRenders(preferredRunId) : {};
           renderHero = (qRenders && qRenders.hero) || '';
-          if (!renderHero && profileImages) {
-            for (var i = 0; i < runs.length; i++) {
-              if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
+          renderFront = (qRenders && qRenders.front) || '';
+          renderSide = (qRenders && qRenders.side) || '';
+          renderTop = (qRenders && qRenders.top) || '';
+          // WAVE1: loud warning when 3D capture returns empty (not silent fallback)
+          if (!renderHero) {
+            var warn3d = '[FenceQuote] 3D render capture returned empty — falling back to 2D elevation. Check that fence3DViewport / THREE.js is available and the run has geometry.';
+            console.warn(warn3d);
+            if (typeof this.showToast === 'function') {
+              this.showToast('3D render unavailable — using elevation view instead', 'warning');
             }
-            if (!renderHero) {
-              var ks = Object.keys(profileImages);
-              if (ks.length) renderHero = profileImages[ks[0]];
+            // True last-resort: 2D profile elevation
+            if (profileImages) {
+              for (var i = 0; i < runs.length; i++) {
+                if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
+              }
+              if (!renderHero) {
+                var ks = Object.keys(profileImages);
+                if (ks.length) renderHero = profileImages[ks[0]];
+              }
             }
           }
         } catch (e) { console.warn('[FenceQuote] render pick failed', e); }
 
         var photos = this._swFencePhotos();
-        // F3: Satellite fallback — if no captured site plan, build a Google Static Maps URL
-        // from the job lat/lng (same API key as the legacy HTML quote path).
+        // F3: Satellite fallback from job lat/lng
         var satSrc = this.job.sitePlanImage || '';
         if (!satSrc && this.job._latlng && GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
           satSrc = 'https://maps.googleapis.com/maps/api/staticmap?center='
@@ -11555,14 +11566,28 @@
           this._swQFetchToDataURL(photos.close),
           this._swQFetchToDataURL(satSrc)
         ]);
-        var imgs = {
+        return {
           logo: this._swFenceLogoWhite(),
           heroCover: assets[0],
           pricePhoto: assets[1],
           closePhoto: assets[2],
           satellite: assets[3],
-          render: renderHero || ''
+          render: renderHero || '',
+          // Carry all 4 angles — inert until _buildFenceQuoteHTML uses them (later wave)
+          renderFront: renderFront,
+          renderSide: renderSide,
+          renderTop: renderTop
         };
+      },
+
+      // Render the populated template -> jsPDF (6 full-page images at scale 2).
+      // profileImages = { runId: dataURL } captured by the caller; we use the
+      // first/widest run as the page-2 hero elevation.
+      async _renderFenceQuoteHTMLToPDF(doc, d, profileImages) {
+        var PAGE_W = 794, PAGE_H = 1123; // A4 @ 96dpi
+
+        // WAVE1: Use shared helper so PDF + preview produce identical images.
+        var imgs = await this._collectFenceQuoteImgs(profileImages);
 
         // Stash imgs so executeSendQuote can reuse them for the web HTML upload
         // without re-fetching all remote assets a second time.
@@ -11656,46 +11681,10 @@
           try { this.renderProfileView(); } catch(e) {}
         }
 
-        // Pick elevation render (longest run, same logic as PDF)
-        var renderHero = '';
-        try {
-          var runs = (this.job.runs || []).slice();
-          if (Object.keys(profileImages).length) {
-            runs.sort(function(a, b) { return (b.length || 0) - (a.length || 0); });
-            for (var i = 0; i < runs.length; i++) {
-              if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
-            }
-            if (!renderHero) {
-              var ks = Object.keys(profileImages);
-              if (ks.length) renderHero = profileImages[ks[0]];
-            }
-          }
-        } catch(e) {}
-
-        var photos = this._swFencePhotos();
-        var satSrc = this.job.sitePlanImage || '';
-        if (!satSrc && this.job._latlng && GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
-          satSrc = 'https://maps.googleapis.com/maps/api/staticmap?center='
-            + this.job._latlng.lat + ',' + this.job._latlng.lng
-            + '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
-        }
-
+        // WAVE1: Use shared helper so preview == send (3D preferred, 2D last-resort).
         this.showToast('Building preview...', 'info');
         try {
-          var assets = await Promise.all([
-            this._swQFetchToDataURL(photos.cover),
-            this._swQFetchToDataURL(photos.price),
-            this._swQFetchToDataURL(photos.close),
-            this._swQFetchToDataURL(satSrc)
-          ]);
-          var imgs = {
-            logo: this._swFenceLogoWhite(),
-            heroCover: assets[0],
-            pricePhoto: assets[1],
-            closePhoto: assets[2],
-            satellite: assets[3],
-            render: renderHero || ''
-          };
+          var imgs = await this._collectFenceQuoteImgs(profileImages);
           var html = this._buildFenceQuoteHTML(d, imgs, false); // forPDF=false → body.web
           this._openOutputTab('Fence Quote Preview', html);
         } catch(e) {
@@ -14086,7 +14075,7 @@
         updateStep('Generating PDF...', '');
         window._currentQuoteNumber = quoteNumber;
         app._capturePdfBlob = undefined; // Signal capture mode (prevents auto-download)
-        app.generateQuotePDF();
+        await app.generateQuotePDF(); // WAVE1: must await — blob + _lastFenceQuoteImgs set async
         var capturedPdfBlob = app._capturePdfBlob;
         app._capturePdfBlob = null; // Reset capture mode
         window._currentQuoteNumber = null;
