@@ -1203,6 +1203,40 @@
       padding: 4px 6px; font-size: 11px; color: #4C6A70;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    /* Upload status badge on photo thumbnails */
+    .photo-thumb-upload-badge {
+      position: absolute; bottom: 22px; left: 4px;
+      width: 16px; height: 16px; border-radius: 50%;
+      font-size: 10px; font-weight: 700; line-height: 16px;
+      text-align: center; pointer-events: none;
+    }
+    .photo-thumb-upload-badge.done { background: #22C55E; color: #fff; }
+    .photo-thumb-upload-badge.uploading { background: #3B82F6; color: #fff; animation: sw-pulse 1.2s ease-in-out infinite; }
+    .photo-thumb-upload-badge.error { background: #EF4444; color: #fff; }
+    @keyframes sw-pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+    /* Media gate overlay */
+    .sw-media-gate-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 9000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sw-media-gate-box {
+      background: #fff; border-radius: 14px; padding: 28px 24px; max-width: 340px; width: 90%;
+      text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    }
+    .sw-media-gate-box h3 { margin: 0 0 10px; font-size: 17px; color: #293C46; }
+    .sw-media-gate-box p { margin: 0 0 18px; font-size: 13px; color: #4b5563; line-height: 1.5; }
+    .sw-media-gate-box .sw-gate-spinner {
+      width: 36px; height: 36px; border: 3px solid #3B82F6; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+    }
+    .sw-media-gate-box .btn-retry {
+      display: block; width: 100%; padding: 12px; background: #F15A29; color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 10px;
+    }
+    .sw-media-gate-box .btn-skip {
+      display: block; width: 100%; padding: 10px; background: none; color: #6b7280;
+      border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; cursor: pointer;
+    }
 
     /* ── Responsive: portrait / narrow ── */
     @media (max-width: 768px) {
@@ -4413,14 +4447,28 @@
 
         let thumbsHtml = '';
         if (photos.length > 0) {
-          thumbsHtml = '<div class="photo-thumbnails">' + photos.map(p => `
+          thumbsHtml = '<div class="photo-thumbnails">' + photos.map(p => {
+            // Determine upload status badge from sitePhotos (where background upload state lives)
+            const bgPhoto = (window.sitePhotos || []).find(sp => sp._checklistId === p.id);
+            let badge = '';
+            if (p.cloudUrl || (bgPhoto && bgPhoto.cloudUrl)) {
+              badge = '<span class="photo-thumb-upload-badge done" title="Uploaded">&#10003;</span>';
+            } else if (bgPhoto && bgPhoto._uploading) {
+              badge = '<span class="photo-thumb-upload-badge uploading" title="Uploading...">&#8593;</span>';
+            } else if (bgPhoto && bgPhoto._uploadError) {
+              badge = '<span class="photo-thumb-upload-badge error" title="Upload failed — will retry on save">!</span>';
+            } else {
+              badge = '<span class="photo-thumb-upload-badge" style="background:#d97706;color:#fff;" title="Pending upload">&#8943;</span>';
+            }
+            return `
             <div class="photo-thumb">
               <img src="${p.dataUrl}" alt="${this._esc(p.name)}" data-photo-id="${p.id}" onclick="app.previewPhoto(this.src, this.alt)" style="cursor:zoom-in;">
               <button class="photo-thumb-delete" onclick="app.deletePhoto('${p.id}')" title="Delete">&times;</button>
+              ${badge}
               <div class="photo-thumb-name">${this._esc(p.name)}</div>
-              ${p.cloudUrl ? '<div style="position:absolute;top:2px;left:2px;background:#16a34a;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">&#9989;</div>' : '<div style="position:absolute;top:2px;left:2px;background:#d97706;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px;">pending</div>'}
             </div>
-          `).join('') + '</div>';
+          `;
+          }).join('') + '</div>';
         }
 
         document.getElementById('bodyChecklist').innerHTML = `
@@ -5715,12 +5763,32 @@
             const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
             // Keep upload-quality image in memory (not localStorage)
             window._photoFiles[id] = uploadUrl;
-            this.job.checklist.photos.push({
+            const checklistPhoto = {
               id: id,
               name: file.name,
               dataUrl: thumbUrl,
               timestamp: Date.now()
-            });
+            };
+            this.job.checklist.photos.push(checklistPhoto);
+            // Kick off background upload immediately — upload runs while scoper fills the form.
+            // sitePhotos is the upload queue; bridge this photo in so background upload can start.
+            if (window._swIntegration && window._swIntegration.hasJobId()) {
+              if (!window.sitePhotos) window.sitePhotos = [];
+              const alreadyBridged = window.sitePhotos.some(sp => sp._checklistId === id);
+              if (!alreadyBridged) {
+                const bgPhoto = {
+                  id: id + '_bg',
+                  _checklistId: id,
+                  dataUrl: uploadUrl,
+                  label: file.name,
+                  caption: '',
+                  originalSize: 0,
+                  compressedSize: 0
+                };
+                window.sitePhotos.push(bgPhoto);
+                window._swIntegration.startBackgroundPhotoUpload(bgPhoto);
+              }
+            }
             added++;
           } catch (e) {
             console.warn('Failed to process photo:', file.name, e);
@@ -5730,7 +5798,7 @@
         this.save();
         this.renderChecklist();
         this.updateSectionStatuses();
-        if (added > 0) this.showToast(added + ' photo' + (added > 1 ? 's' : '') + ' added — will upload on Cloud Save', 'success');
+        if (added > 0) this.showToast(added + ' photo' + (added > 1 ? 's' : '') + ' added — uploading in background', 'success');
       },
 
       _processOnePhoto(file, thumbDim, thumbQ, uploadDim, uploadQ) {
@@ -5780,10 +5848,15 @@
           label: file.name || 'Site Walkthrough'
         };
 
+        // Kick off background video upload immediately
+        if (window._swIntegration && window._swIntegration.hasJobId()) {
+          window._swIntegration.startBackgroundVideoUpload(window.siteVideo);
+        }
+
         this.save();
         this.renderChecklist();
         this.updateSectionStatuses();
-        this.showToast('Video attached: ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + 'MB) — will upload on Cloud Save', 'success');
+        this.showToast('Video attached: ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + 'MB) — uploading in background', 'success');
       },
 
       previewPhoto(url, name) {
@@ -15205,6 +15278,59 @@
             app.renderProfileView();
         }
     });
+
+    // ── Background upload status callbacks (called by integration.js) ──
+
+    // Called when a photo's upload state changes — re-render the checklist to update badges.
+    window._swUploadStatusChanged = function(photoId, status) {
+        if (typeof app !== 'undefined' && app && typeof app.renderChecklist === 'function') {
+            app.renderChecklist();
+        }
+    };
+
+    // Media gate UI — called by integration.js _mediaUploadGate().
+    // state: 'waiting' | 'failed' | 'done'
+    window._swShowMediaGate = function(state, failedPhotos, failedVideo, onRetry, onSkip) {
+        var existing = document.getElementById('swMediaGateOverlay');
+        if (state === 'done') {
+            if (existing) existing.remove();
+            return;
+        }
+        if (!existing) {
+            existing = document.createElement('div');
+            existing.id = 'swMediaGateOverlay';
+            existing.className = 'sw-media-gate-overlay';
+            document.body.appendChild(existing);
+        }
+        if (state === 'waiting') {
+            existing.innerHTML = '<div class="sw-media-gate-box">' +
+                '<div class="sw-gate-spinner"></div>' +
+                '<h3>Finishing uploads...</h3>' +
+                '<p>Photos and video are uploading in the background. Waiting for them to complete before sign-off.</p>' +
+                '</div>';
+        } else if (state === 'failed') {
+            var items = [];
+            if (failedPhotos) items.push(failedPhotos + ' photo' + (failedPhotos > 1 ? 's' : ''));
+            if (failedVideo) items.push('site video');
+            existing.innerHTML = '<div class="sw-media-gate-box">' +
+                '<h3>Upload incomplete</h3>' +
+                '<p><strong>' + items.join(' and ') + '</strong> could not be uploaded. Check your signal and retry, or skip to sign off now (uploads will finish when signal returns).</p>' +
+                '<button class="btn-retry" id="swGateRetryBtn">Retry upload</button>' +
+                '<button class="btn-skip" id="swGateSkipBtn">Skip — sign off anyway</button>' +
+                '</div>';
+            var retryBtn = document.getElementById('swGateRetryBtn');
+            var skipBtn = document.getElementById('swGateSkipBtn');
+            if (retryBtn && onRetry) retryBtn.onclick = function() {
+                existing.innerHTML = '<div class="sw-media-gate-box"><div class="sw-gate-spinner"></div><h3>Retrying uploads...</h3><p>Please keep signal active.</p></div>';
+                onRetry();
+            };
+            if (skipBtn && onSkip) skipBtn.onclick = function() {
+                existing.remove();
+                onSkip();
+            };
+        }
+    };
+
 })();
 </script>
 
