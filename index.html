@@ -9847,7 +9847,7 @@
         </style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
+            <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
             <div class="details">ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772</div>
             <h1>CLIENT QUOTE</h1>
           </div>
@@ -10305,7 +10305,7 @@
 '.topband .hmeta b{color:#fff;font-weight:700;}',
 '.topband .edgebar{position:absolute;left:0;bottom:0;height:4px;width:100%;background:var(--blue-800);z-index:2;}',
 '.topband .edgebar::before{content:"";position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);}',
-'#pg1 .coverhero{position:relative;overflow:hidden;height:830px;display:flex;flex-direction:column;color:#fff;}',
+'#pg1 .coverhero{position:relative;overflow:hidden;height:900px;display:flex;flex-direction:column;color:#fff;}',
 '#pg1 .coverhero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:0;}',
 '#pg1 .coverhero .heroscrim{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(26,39,46,0.90) 0%,rgba(26,39,46,0.72) 24%,rgba(26,39,46,0.55) 48%,rgba(26,39,46,0.74) 80%,rgba(26,39,46,0.92) 100%);}',
 '#pg1 .coverhero .herohead{position:relative;z-index:3;display:flex;align-items:flex-start;justify-content:space-between;padding:34px 52px 0;}',
@@ -10321,15 +10321,15 @@
 '#pg1 .coverhero .quoteref .qno{font-weight:800;font-size:30px;color:#fff;letter-spacing:-1px;line-height:1;}',
 '#pg1 .coverhero .quoteref .qsub{font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin-top:7px;font-weight:700;}',
 '#pg1 .coverhero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:3;}',
-'#pg1 .coverband{flex:1;display:grid;grid-template-columns:1.15fr 1fr;}',
-'#pg1 .coverband .clientblock{padding:30px 44px 30px 52px;display:flex;flex-direction:column;justify-content:center;}',
-'#pg1 .coverband .clientblock .cname{font-weight:800;font-size:24px;color:var(--dark-blue);letter-spacing:-0.4px;margin:12px 0 16px;}',
+'#pg1 .coverband{flex:1;display:grid;grid-template-columns:1.15fr 1fr;max-height:200px;}',
+'#pg1 .coverband .clientblock{padding:20px 36px 20px 52px;display:flex;flex-direction:column;justify-content:center;}',
+'#pg1 .coverband .clientblock .cname{font-weight:800;font-size:21px;color:var(--dark-blue);letter-spacing:-0.4px;margin:8px 0 12px;}',
 '#pg1 .coverband .crow{display:flex;gap:12px;font-size:12.5px;color:var(--body-text);line-height:1.7;margin-bottom:5px;}',
 '#pg1 .coverband .crow b{color:var(--mid-blue);font-weight:700;min-width:48px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding-top:3px;}',
 '#pg1 .coverband .satellite{position:relative;overflow:hidden;border-left:1px solid var(--blue-200);background:var(--blue-100);}',
 '#pg1 .coverband .satellite img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}',
 '#pg1 .coverband .satellite .satlbl{position:absolute;left:0;bottom:0;z-index:2;background:var(--blue-950);color:#fff;font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:8px 14px;}',
-'#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:336px;overflow:hidden;background:var(--blue-950);}',
+'#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:560px;overflow:hidden;background:var(--blue-950);}',
 '#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
 '#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
 '#pg2 .hero .herotag{position:absolute;left:0;top:0;z-index:3;background:var(--blue-950);color:#fff;display:flex;align-items:center;gap:11px;padding:11px 18px 11px 16px;}',
@@ -10425,6 +10425,14 @@
 '#pg5 .secthead .num{font-weight:800;font-size:13px;color:var(--mid-blue);letter-spacing:1px;}',
 '#pg5 .accept-strip{background:var(--orange-100);border:1px solid var(--orange-300);border-left:3px solid var(--orange);padding:11px 16px;margin-bottom:18px;font-size:10.5px;color:var(--dark-blue);line-height:1.55;}',
 '#pg5 .accept-strip b{font-weight:700;}',
+/* Professional acceptance panel (ported from locked patio #pg4 .accept-panel). */
+'#pg5 .accept-panel{background:#fff;border:1px solid var(--blue-200,#d9e2e8);border-top:3px solid var(--orange);padding:17px 22px 19px;margin-bottom:18px;}',
+'#pg5 .accept-panel .ap-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:9px;}',
+'#pg5 .accept-panel .ap-title{font-weight:800;font-size:13.5px;letter-spacing:0.2px;color:var(--dark-blue);text-transform:uppercase;}',
+'#pg5 .accept-panel .ap-ref{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mid-blue);white-space:nowrap;}',
+'#pg5 .accept-panel .ap-copy{font-size:10.5px;color:var(--dark-blue);line-height:1.6;margin-bottom:14px;}',
+'#pg5 .accept-panel .ap-btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;border:none;font-family:inherit;font-weight:800;font-size:11.5px;letter-spacing:0.8px;text-transform:uppercase;padding:13px 26px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 4px 14px rgba(241,90,41,0.25);}',
+'#pg5 .accept-panel .ap-btn::after{content:"→";font-size:13px;line-height:1;}',
 '#pg5 .terms{display:grid;grid-template-columns:1fr 1fr;gap:0 34px;}',
 '#pg5 .termcol{display:flex;flex-direction:column;gap:15px;}',
 '#pg5 .termgrp h4{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);margin-bottom:7px;display:flex;align-items:center;gap:8px;}',
@@ -10453,17 +10461,27 @@
 '#pg6 .stars svg{width:16px;height:16px;display:block;}',
 '#pg6 .tmcount{font-size:10px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,0.82);}',
 '#pg6 .tmcount .verif{color:var(--orange);}',
+/* Premium Google review card (ported from locked patio #pg5 .gcard). Quiet rating row at top. */
+'#pg6 .proof{margin-top:22px;}',
+'#pg6 .gcard{display:inline-flex;align-items:stretch;text-decoration:none;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.16);overflow:hidden;}',
+'#pg6 .gcard .gcard-g{display:flex;align-items:center;padding:0 15px;background:rgba(255,255,255,0.05);border-right:1px solid rgba(255,255,255,0.12);}',
+'#pg6 .gcard .gcard-g svg{display:block;width:22px;height:22px;}',
+'#pg6 .gcard .gcard-mid{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:10px 20px;}',
+'#pg6 .gcard .gcard-line1{display:flex;align-items:center;gap:9px;}',
+'#pg6 .gcard .gcard-score{font-weight:800;font-size:19px;color:#fff;line-height:1;letter-spacing:-0.5px;}',
+'#pg6 .gcard .gcard-stars{display:inline-flex;gap:2px;}',
+'#pg6 .gcard .gcard-stars svg{width:14px;height:14px;display:block;}',
+'#pg6 .gcard .gcard-line2{font-size:10.5px;font-weight:600;color:rgba(255,255,255,0.64);letter-spacing:0.2px;}',
+'#pg6 .gcard .gcard-verif{color:var(--orange);font-weight:800;font-size:9px;letter-spacing:0.8px;text-transform:uppercase;margin-left:7px;}',
+'#pg6 .gcard .gcard-cta{display:flex;align-items:center;gap:7px;padding:0 20px;background:var(--orange);color:#fff;font-weight:800;font-size:11px;letter-spacing:0.8px;text-transform:uppercase;white-space:nowrap;}',
+'#pg6 .gcard .gcard-cta .gcard-arr{font-size:13px;display:inline-block;transition:transform .2s ease;}',
 '#pg6 .photogap{flex:1 1 auto;}',
+/* Testimonials moved into the cluster beside the ask (proof next to the CTA). */
+'#pg6 .cluster .testirow{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:20px;}',
+'#pg6 .cluster .testirow .quotecard{border-left:3px solid var(--orange);padding:3px 0 3px 14px;}',
+'#pg6 .cluster .testirow .quotecard p{font-size:12px;color:rgba(255,255,255,0.92);line-height:1.5;font-style:italic;margin-bottom:6px;}',
+'#pg6 .cluster .testirow .quotecard .qattr{font-size:8.5px;font-weight:700;letter-spacing:0.9px;text-transform:uppercase;color:rgba(255,255,255,0.6);}',
 '#pg6 .cluster{position:relative;padding:34px 52px 38px;background:linear-gradient(180deg,rgba(26,39,46,0) 0%,rgba(26,39,46,0.62) 26%,rgba(26,39,46,0.90) 60%,rgba(26,39,46,0.97) 100%);}',
-'#pg6 .quoterow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}',
-'#pg6 .quotecard{border-left:3px solid var(--orange);padding:2px 0 2px 16px;}',
-'#pg6 .quotecard p{font-size:11.5px;color:rgba(255,255,255,0.92);line-height:1.5;font-style:italic;margin-bottom:7px;}',
-'#pg6 .quotecard .qattr{font-size:9px;font-weight:700;letter-spacing:0.9px;text-transform:uppercase;color:rgba(255,255,255,0.6);}',
-'#pg6 .gbtn{display:inline-flex;align-items:center;gap:9px;text-decoration:none;background:rgba(241,90,41,0.10);color:#fff;border:1px solid rgba(241,90,41,0.75);font-weight:700;font-size:11.5px;letter-spacing:0.4px;padding:11px 18px;}',
-'#pg6 .gbtn .gstar{width:14px;height:14px;flex:0 0 14px;display:block;}',
-'#pg6 .gbtn .gstar svg{width:14px;height:14px;display:block;}',
-'#pg6 .gbtn .gtxt b{font-weight:800;}',
-'#pg6 .gbtn .garr{font-size:13px;color:var(--orange);margin-left:1px;}',
 '#pg6 .crossline{font-size:11.5px;color:rgba(255,255,255,0.80);letter-spacing:0.2px;margin:20px 0 6px;font-weight:500;}',
 '#pg6 .crossline b{color:#fff;font-weight:700;}',
 '#pg6 .trustline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:16px;border-top:1px solid rgba(255,255,255,0.16);}',
@@ -10474,8 +10492,100 @@
 '#pg6 .cta .ctah span{color:var(--orange);}',
 '#pg6 .cta p{font-size:12px;color:rgba(255,255,255,0.78);line-height:1.55;max-width:340px;}',
 '#pg6 .cta .ctaaction{flex:0 0 auto;text-align:center;}',
-'#pg6 .cta .ctabtn{display:inline-block;background:var(--orange);color:#fff;font-weight:800;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;padding:16px 30px;white-space:nowrap;}',
-'#pg6 .cta .ctahint{display:block;margin-top:10px;font-size:10px;font-weight:600;letter-spacing:0.3px;color:rgba(255,255,255,0.62);}'
+'#pg6 .cta .ctabtn{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;font-weight:800;font-size:13px;letter-spacing:1.2px;text-transform:uppercase;padding:16px 30px;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 6px 18px rgba(241,90,41,0.32);}',
+'#pg6 .cta .ctabtn::after{content:"→";font-size:15px;line-height:1;}',
+'#pg6 .cta .ctahint{display:block;margin-top:10px;font-size:10px;font-weight:600;letter-spacing:0.3px;color:rgba(255,255,255,0.62);}',
+
+/* ─── WEB-MODE (body.web) OVERRIDES ───────────────────────────────────────
+   body.pdf = hidden iframe for html2canvas → jsPDF (fixed 794px A4 geometry).
+   body.web = opened in browser tab → full-width, auto-height, readable on screen.
+   None of these rules fire when body.pdf is present. */
+
+/* 1.1 Scroll-reveal disabled — pages render at full opacity so they never blank
+   if the IntersectionObserver misfires (mirrors patio fix 9b7d54d). */
+'body.web .pgwrap{opacity:1;transform:none;}',
+'body.web .pgwrap.revealed{opacity:1;transform:none;}',
+
+/* 1.2 Hover polish for web (mirrors locked patio gcard + sticky-btn hover) */
+'@media (hover:hover) and (pointer:fine){'
++ 'body.web .ctabtn{transition:transform .2s ease,box-shadow .2s ease;display:inline-flex;}'
++ 'body.web .ctabtn:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.22);}'
++ 'body.web .ap-btn{transition:transform .2s ease,box-shadow .2s ease;}'
++ 'body.web .ap-btn:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(241,90,41,0.4);}'
++ 'body.web .gcard{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;}'
++ 'body.web .gcard:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,0.38);border-color:rgba(241,90,41,0.55);}'
++ 'body.web .gcard:hover .gcard-arr{transform:translateX(3px);}'
++ 'body.web .sw-fence-sticky-btn{transition:transform .15s ease,box-shadow .2s ease;}'
++ 'body.web .sw-fence-sticky-btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(241,90,41,0.5);}'
++ '}',
+
+/* 1.3 Premium document-on-navy viewer (web mode). Keep the proven PDF page
+   geometry (794x1123) so fixed-position page layouts (cover, investment, close)
+   render exactly as in the PDF; present the pages centred on a navy background
+   so the HTML view resembles the PDF document. (mirrors patio 9b7d54d/00657cd) */
+'body.web{background:#16242B;padding:36px 0;}',
+'body.web .pgwrap{margin:0 auto 30px;max-width:100%;box-shadow:0 18px 55px rgba(0,0,0,0.50);}',
+
+/* 1.4 Cover keeps the patio geometry on web: full 900px hero (photo large,
+   title sits low via margin-top:auto) + base coverband. Centred, not resized. */
+
+/* 1.5 Design page (pg2): render fills width */
+'body.web #pg2 .hero{height:clamp(320px,40vw,560px);}',
+
+/* 1.6 Investment page (pg4): keep position context for absolute children */
+'body.web #pg4 .page{position:relative;}',
+
+/* 1.7 Close page (pg6): allow testimonial cluster to sit naturally */
+'body.web #pg6 .page{overflow:visible;}',
+'body.web #pg6 .shell{position:relative;}',
+
+/* 1.8 Web CTA bar — loud inter-page band removed (Marnin hated it on patio). */
+'.sw-fence-web-cta{display:none;}',
+'body.web .sw-fence-web-cta{display:none!important;align-items:center;justify-content:space-between;gap:20px;background:var(--blue-950,#1A272E);padding:20px 5%;border-top:4px solid var(--orange,#F15A29);}',
+'body.web .sw-fence-web-cta .wcta-msg{font-size:15px;font-weight:600;color:rgba(255,255,255,0.88);line-height:1.4;}',
+'body.web .sw-fence-web-cta .wcta-msg b{color:#fff;font-weight:800;}',
+'body.web .sw-fence-web-cta .wcta-actions{display:flex;gap:12px;flex-shrink:0;align-items:center;}',
+'body.web .sw-fence-web-cta .wcta-btn-primary{display:inline-block;background:var(--orange,#F15A29);color:#fff;font-weight:800;font-size:14px;letter-spacing:0.8px;text-transform:uppercase;padding:13px 28px;cursor:pointer;border:none;font-family:inherit;white-space:nowrap;}',
+'body.web .sw-fence-web-cta .wcta-btn-secondary{display:inline-block;background:transparent;color:rgba(255,255,255,0.82);font-weight:700;font-size:13px;letter-spacing:0.3px;padding:12px 20px;cursor:pointer;border:1px solid rgba(255,255,255,0.30);font-family:inherit;white-space:nowrap;text-decoration:none;}',
+
+/* 1.8b Persistent accept CTA — bottom-center glass pill on desktop, full-width
+   bar on mobile, shown on ALL web widths, fades out on the close page via the
+   body.sw-at-close class. (ported from locked patio .sw-sticky-accept). */
+'body.pdf .sw-fence-sticky{display:none!important;}',
+'.sw-fence-sticky{display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;pointer-events:none;padding:0 0 20px;transition:opacity .35s ease,transform .35s ease;}',
+'body.web .sw-fence-sticky{display:block;}',
+'body.web.sw-at-close .sw-fence-sticky{opacity:0;transform:translateY(24px);pointer-events:none;}',
+'.sw-fence-sticky-inner{pointer-events:auto;margin:0 auto;width:max-content;max-width:calc(100% - 40px);display:flex;align-items:center;gap:18px;background:rgba(22,36,43,0.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.16);border-left:4px solid var(--orange,#F15A29);padding:11px 12px 11px 22px;box-shadow:0 14px 44px rgba(0,0,0,0.5);}',
+'.sw-fence-sticky-msg{font-size:13px;font-weight:700;color:#fff;letter-spacing:0.2px;white-space:nowrap;}',
+'.sw-fence-sticky-btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;border:none;font-family:inherit;font-size:12.5px;font-weight:800;letter-spacing:1px;padding:13px 24px;cursor:pointer;text-transform:uppercase;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 4px 14px rgba(241,90,41,0.3);}',
+'.sw-fence-sticky-btn::after{content:"→";font-size:14px;line-height:1;}',
+
+/* 1.9 Mobile controls (web only). Do not resize .page/.pgwrap here:
+   the quote template depends on fixed 794x1123 A4 geometry. Earlier mobile
+   overrides changed .page to width:100%/height:auto, which collapsed fixed
+   page layouts and made the 2D render less prominent. Keep the document stable
+   on navy and only adapt the sticky CTA chrome. */
+'@media (max-width:820px){'
++ 'body.web{overflow-x:auto;padding-left:16px;padding-right:16px;}'
++ 'body.web .pgwrap{width:794px;max-width:none;}'
++ 'body.web .page{width:794px;height:1123px;min-height:1123px;overflow:hidden;}'
++ 'body.web #pg6 .page{overflow:hidden;}'
++ 'body.web .sw-fence-sticky{padding:0;}'
++ 'body.web .sw-fence-sticky-inner{width:auto;max-width:none;margin:0;gap:0;background:rgba(22,36,43,0.97);backdrop-filter:none;-webkit-backdrop-filter:none;border:none;border-top:3px solid var(--orange,#F15A29);box-shadow:0 -6px 24px rgba(0,0,0,0.4);padding:12px 16px 16px;}'
++ 'body.web .sw-fence-sticky-msg{display:none;}'
++ 'body.web .sw-fence-sticky-btn{width:100%;justify-content:center;font-size:15px;padding:14px 24px;}'
++ '}',
+
+/* 1.10 Print: saving the web view as a PDF makes clean A4 pages, one per sheet
+   (mirrors patio commit 00657cd). */
+'@page{size:A4;margin:0;}',
+'@media print{'
++ 'body.web{background:#fff!important;padding:0!important;}'
++ 'body.web .pgwrap{margin:0!important;box-shadow:none!important;break-after:page;page-break-after:always;}'
++ 'body.web .pgwrap:last-child{break-after:auto;page-break-after:auto;}'
++ 'body.web .sw-fence-web-cta,body.web .sw-fence-sticky{display:none!important;}'
++ '}'
+
         ].join('\n');
         return this.__swFenceCSS;
       },
@@ -10491,13 +10601,13 @@
       _swFencePhotos() {
         var B = 'https://kevgrhcjxspbxgovpmfl.supabase.co/storage/v1/object/public/brand-assets/';
         return {
-          cover: B + 'fence-cover.jpg',       // Fencing crew on site (portrait, centre-cropped by object-fit:cover)
-          price: B + 'fence-price.jpg',       // Fencing crew/install shot (portrait, centre-cropped)
+          cover: B + 'fence-price.jpg',       // The finished fence (Marnin 2026-06-16: cover = the fence)
+          price: B + 'fence-cover.jpg',       // Installer on site (Marnin 2026-06-16: pricing page = the guy)
           close: B + 'photo-roof-team.webp'   // Marnin on the roof — keep as-is
         };
       },
 
-      _swFenceContact() { return { abn: '64 689 223 416', web: 'secureworksgroup.app', phone: '0489 267 772' }; },
+      _swFenceContact() { return { abn: '64 689 223 416', web: 'secureworksgroup.com.au', phone: '0489 267 772', email: 'fencing@secureworkswa.com.au' }; },
 
       _swQEsc(s) {
         return String(s == null ? '' : s)
@@ -10808,7 +10918,11 @@
           split: split,
           salesperson: job.scoper || 'SecureWorks Team',
           contact: this._swFenceContact(),
-          scopeGroups: this._buildFenceScopeOfWorks(d)
+          scopeGroups: this._buildFenceScopeOfWorks(d),
+          sitePhotos: (function() {
+            var photos = (job.checklist && job.checklist.photos) || [];
+            return photos.filter(function(p) { return p.dataUrl && p.dataUrl.indexOf('data:image') === 0; }).slice(0, 4);
+          })()
         };
       },
 
@@ -10857,7 +10971,10 @@
 
       // Build the locked 5-page template as an HTML string.
       // imgs = { logo, heroCover, render, satellite, pricePhoto, closePhoto }
-      _buildFenceQuoteHTML(d, imgs) {
+      _buildFenceQuoteHTML(d, imgs, forPDF) {
+        // forPDF=true  → body.pdf class, fixed 794px A4 geometry for html2canvas → jsPDF
+        // forPDF=false → body.web class, full-width responsive HTML view for browser tab
+        if (forPDF === undefined) forPDF = true;
         var self = this;
         var STAR = '<svg viewBox="0 0 24 24" fill="#F15A29"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 7.1-1.01z"/></svg>';
         var TICK = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 8.6L6.2 12.3L13.5 4" stroke="#F15A29" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -10903,15 +11020,38 @@
         }
 
         var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
-        var pf = function(n) { return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + n + ' of 6</div></div>'; };
+        // Dynamic page numbering: base quote is 6 pages (cover, design, scope, investment,
+        // terms, close). When the "Your Site" photo page renders it sits at position 3,
+        // pushing every page after it down by one, for a 7-page total. pf(n) takes the
+        // 6-page baseline number and shifts it past pgSite automatically.
+        var hasSitePage = !!(d.sitePhotos && d.sitePhotos.length > 0);
+        var totalPages = hasSitePage ? 7 : 6;
+        // Baseline (6-page) footer slots: design=2, scope=3, investment=4, terms=5.
+        // With pgSite present, scope/investment/terms each shift +1 (it inserts after design).
+        var pf = function(n) {
+          var shown = (hasSitePage && n >= 3) ? (n + 1) : n;
+          return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + shown + ' of ' + totalPages + '</div></div>';
+        };
         var stars5 = STAR + STAR + STAR + STAR + STAR;
+        // Google-gold stars + Google "G" mark for the premium review card (ported from locked patio).
+        var STARG = '<svg viewBox="0 0 24 24" fill="#FBBC04"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77 5.82 21l1.18-6.88-5-4.87 7.1-1.01z"/></svg>';
+        var starsG = STARG + STARG + STARG + STARG + STARG;
+        var GOOGLE_G = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M23.06 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h6.2a5.3 5.3 0 0 1-2.3 3.48v2.89h3.72c2.18-2 3.44-4.96 3.44-8.38z"/><path fill="#34A853" d="M12 24c3.1 0 5.7-1.03 7.6-2.79l-3.72-2.89c-1.03.69-2.35 1.1-3.88 1.1-2.98 0-5.5-2.01-6.4-4.72H1.76v2.98A11.99 11.99 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.6 14.7a7.2 7.2 0 0 1 0-4.6V7.12H1.76a12 12 0 0 0 0 10.56l3.84-2.98z"/><path fill="#EA4335" d="M12 4.77c1.68 0 3.2.58 4.39 1.72l3.29-3.29C17.7 1.2 15.1 0 12 0 7.31 0 3.26 2.69 1.76 6.62l3.84 2.98C6.5 6.78 9.02 4.77 12 4.77z"/></svg>';
         var css = this._swFenceQuoteCSS();
 
         // ----- PAGE 1 COVER -----
+        // HTML-first direction: cover hero = THE FENCE (the 2D elevation render).
+        // Crew/site photo is a fallback when no render is available (e.g. no runs drawn).
+        // If render available: show the elevation render as the hero image, with a navy
+        // scrim so white canvas background is hidden.  Crew photo stays on pg4/close.
+        // Cover always = the fence photo (Marnin 2026-06-16: cover = the fence).
+        // The 3D render lives on the design page (pg2), not the cover.
+        var coverHeroSrc = imgs.heroCover;
+        var coverScrimStyle = '';
         var p1 = '<div id="pg1" class="pgwrap"><section class="page"><div class="coverhero">'
-          + img(imgs.heroCover, 'heroimg', 'Fencing project') + '<div class="heroscrim"></div>'
+          + img(coverHeroSrc, 'heroimg', 'Your fence design') + '<div class="heroscrim"' + (coverScrimStyle ? ' style="' + coverScrimStyle + '"' : '') + '></div>'
           + '<div class="herohead"><div class="logo">' + imgs.logo + '</div>'
-          + '<div class="hmeta"><div><b>ABN</b> ' + d.contact.abn + '</div><div><b>W</b> ' + d.contact.web + '</div><div><b>P</b> ' + d.contact.phone + '</div></div></div>'
+          + '<div class="hmeta"><div><b>ABN</b> ' + d.contact.abn + '</div><div><b>W</b> ' + d.contact.web + '</div><div><b>P</b> ' + d.contact.phone + '</div><div><b>E</b> ' + d.contact.email + '</div></div></div>'
           + '<div class="herobody"><div><div class="eyebrowrow"><span class="accent-bar"></span><span class="label">Prepared For You</span></div>'
           + '<h1 class="maincover">Your Custom<br>Fencing Quote</h1>'
           + '<div class="cover-tagline">A clean, durable boundary that suits your home. Here is everything it takes to build it.</div></div>'
@@ -10927,19 +11067,19 @@
           + '</section></div>';
 
         // ----- PAGE 2 YOUR DESIGN -----
+        // The 3D render appears HERE on the design page (Marnin 2026-06-16). The pg2 hero
+        // slot is styled for a render (object-fit:contain on a white bg, 560px). Empty
+        // until a render is generated, with the navy scrim providing the wash.
+        var pg2HeroSrc = imgs.render || '';
         var p2 = '<div id="pg2" class="pgwrap"><section class="page">'
           + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
-          + '<div class="hero">' + img(imgs.render, 'heroimg', 'Elevation of your proposed fence') + '<div class="heroscrim"></div>'
+          + '<div class="hero">' + img(pg2HeroSrc, 'heroimg', 'Fencing crew on site') + '<div class="heroscrim"></div>'
           + '<div class="herotag"><span class="num">02</span><span class="txt">Your Design</span></div>'
           + '<div class="herocap"><div class="vname">Fence Elevation</div><div class="vtitle">Your boundary, before we<br>set a single post.</div></div>'
           + '<div class="heroedge"></div></div>'
           + '<div class="body"><div class="intro"><p class="lede">' + E(d.lede) + '</p></div>'
           + (runRows ? ('<div class="runwrap"><div class="shead"><span class="snum">A</span><span class="slabel">Fence Runs</span></div><div class="shead-bar"></div>'
               + '<div class="runlist">' + runRows + '</div></div>') : '')
-          + '<div class="specwrap"><div class="shead"><span class="snum">' + (runRows ? 'B' : 'A') + '</span><span class="slabel">Specifications</span></div><div class="shead-bar"></div>'
-          + '<div class="speclist">' + specRows + '</div></div>'
-          + '<div class="incwrap"><div class="shead"><span class="snum">' + (runRows ? 'C' : 'B') + '</span><span class="slabel">What\'s Included</span></div><div class="shead-bar"></div>'
-          + '<div class="incgrid">' + includeItems + '</div></div>'
           + pf(2) + '</div></section></div>';
 
         // ----- PAGE 4 YOUR INVESTMENT -----
@@ -10965,7 +11105,9 @@
           + '<div class="pad" style="gap:22px;"><div>'
           + '<div class="secthead" style="margin-bottom:8px;"><span class="num">05</span><span class="label">Terms &amp; Conditions</span></div>'
           + '<div class="accent-bar" style="margin-bottom:14px;"></div>'
-          + '<div class="accept-strip"><b>Acceptance.</b> By paying the deposit or providing written confirmation (email, text message, or signed copy), you accept this quote and agree to the Terms &amp; Conditions below. All works are carried out in accordance with the National Construction Code (NCC) and applicable Australian Standards.</div>'
+          + '<div class="accept-panel"><div class="ap-head"><span class="ap-title">Accepting this quote</span><span class="ap-ref">Ref ' + E(d.qNum) + ' &middot; valid until ' + E(d.validUntilStr) + '</span></div>'
+          + '<p class="ap-copy">To accept, pay the ' + d.depPercent + '% deposit or confirm in writing by email or SMS. On acceptance you agree to the Terms &amp; Conditions set out below. All works are carried out under the National Construction Code (NCC) and the applicable Australian Standards.</p>'
+          + '<button class="ap-btn" data-accept>Accept &amp; pay deposit</button></div>'
           + '<div class="terms"><div class="termcol">'
           + '<div class="termgrp"><h4>Quotation</h4><ul>'
           + '<li>This quote is valid for 30 days from the date of issue. Pricing is subject to change after this period due to material cost fluctuations.</li>'
@@ -11000,89 +11142,202 @@
           + '</div></div></div>' + pf(5) + '</div></section></div>';
 
         // ----- PAGE 6 CLOSE -----
+        // Locked patio close-page treatment: topband = logo/meta + quiet rating
+        // (premium Google review card); testimonials moved into the cluster beside
+        // the ask (proof next to the CTA); CTA button = orange gradient + arrow.
         var p6 = '<div id="pg6" class="pgwrap"><section class="page">'
           + img(imgs.closePhoto, 'bg', 'The SecureWorks Group crew on site') + '<div class="scrim"></div><div class="heroedge"></div>'
           + '<div class="shell"><div class="topband"><div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
-          + '<div class="trustmark"><div class="eyebrow" style="margin-bottom:16px;"><span class="accent-bar"></span><span class="label">Trusted Across Perth</span></div>'
-          + '<div class="tmrow"><div class="tmscore">4.9</div><div><div class="stars">' + stars5 + '</div>'
-          + '<div class="tmcount">112 Google Reviews &nbsp;&middot;&nbsp; <span class="verif">Verified</span></div></div></div></div></div>'
+          + '<div class="proof"><a class="gcard" href="https://www.google.com/maps/search/?api=1&query=SecureWorks+Group" target="_blank" rel="noopener noreferrer">'
+          + '<span class="gcard-g">' + GOOGLE_G + '</span>'
+          + '<span class="gcard-mid"><span class="gcard-line1"><span class="gcard-score">4.9</span><span class="gcard-stars">' + starsG + '</span></span>'
+          + '<span class="gcard-line2">112 Google reviews<span class="gcard-verif">Verified</span></span></span>'
+          + '<span class="gcard-cta">Read reviews <span class="gcard-arr">&rarr;</span></span></a></div>'
+          + '</div>'
           + '<div class="photogap"></div>'
-          + '<div class="cluster"><div class="quoterow">'
+          + '<div class="cluster">'
+          + '<div class="testirow">'
           + '<div class="quotecard"><p>&ldquo;Outstanding from quote to completion. Straight, solid and finished beautifully. The crew were professional throughout.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
-          + '<div class="quotecard"><p>&ldquo;Great communication, fair price and quality workmanship. Highly recommend SecureWorks Group.&rdquo;</p><div class="qattr">- Verified Google review</div></div></div>'
-          + '<a class="gbtn" href="https://www.google.com/maps/search/?api=1&query=SecureWorks%20Group%20Wangara">'
-          + '<span class="gstar">' + STAR + '</span><span class="gtxt">Read our <b>112 Google reviews</b></span><span class="garr">&rarr;</span></a>'
+          + '<div class="quotecard"><p>&ldquo;Great communication, fair price and quality workmanship. Highly recommend SecureWorks Group.&rdquo;</p><div class="qattr">- Verified Google review</div></div>'
+          + '</div>'
           + '<p class="crossline">We also build <b>patios, decking, sheds and outdoor living.</b> One team for the whole yard.</p>'
           + '<div class="trustline"><span class="t">Licensed &amp; insured</span><span class="trustsep"></span><span class="t">COLORBOND® steel</span><span class="trustsep"></span><span class="t">12-month workmanship warranty</span></div>'
           + '<div class="cta"><div><div class="ctah">Ready to make it <span>real?</span></div>'
-          + '<p>Approve your quote and pay the deposit to lock in your build date. From there, we handle everything.</p></div>'
-          + '<div class="ctaaction"><span class="ctabtn">Accept &amp; book your date</span>'
+          + '<p>Approve your quote and pay the deposit to get your project underway. From there, we handle everything.</p></div>'
+          + '<div class="ctaaction"><span class="ctabtn" data-accept>Accept &amp; pay deposit</span>'
           + '<span class="ctahint">Pay deposit, reply by email or SMS, or call ' + d.contact.phone + '</span></div></div>'
           + '</div></div></section></div>';
 
         // ----- PAGE 3 HOW WE BUILD IT (SCOPE OF WORKS) -----
-        var scopeStages = (d.scopeGroups || []).map(function(grp) {
-          var itemsHtml = grp.items.map(function(item) {
-            return '<div class="scopeitem"><span class="scope-dot"></span><span class="scope-txt">' + E(item) + '</span></div>';
-          }).join('');
-          return '<div class="scope-stage">'
-            + '<div class="scope-stageheader"><span class="accent-bar"></span><span class="scope-stagelabel">' + E(grp.stage) + '</span></div>'
-            + '<div class="scope-items">' + itemsHtml + '</div>'
-            + '</div>';
-        }).join('');
+        // Scope page: full-width numbered stages (patio pattern).
+        // Stage index 01/02... item index 1.1/1.2...
+        // Reads as an itemised quote section, not a brochure.
+        var scopeCSS = '#pgScope .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
+          + '#pgScope .topband{display:flex;align-items:center;justify-content:space-between;padding:22px 52px 16px;border-bottom:2px solid var(--blue-100,#EDF1F4);flex:0 0 auto;}'
+          + '#pgScope .topband .logo svg{display:block;height:34px;width:auto;}'
+          + '#pgScope .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
+          + '#pgScope .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '#pgScope .scopebody{flex:1;display:flex;flex-direction:column;padding:18px 52px 0;}'
+          + '#pgScope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '#pgScope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgScope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgScope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 12px;}'
+          + '#pgScope .sec-a{margin-bottom:22px;}'
+          + '#pgScope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:40px;row-gap:0;}'
+          + '#pgScope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .specitem .sk{flex:0 0 auto;font-size:8.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
+          + '#pgScope .specitem .sv{text-align:right;font-size:11.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.3;}'
+          + '#pgScope .sec-b{margin-bottom:12px;flex:1;}'
+          + '#pgScope .scope-lead{font-size:11.5px;line-height:1.55;color:var(--body-text,#3a4e58);margin-bottom:10px;max-width:100%;}'
+          + '#pgScope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '#pgScope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;}'
+          + '#pgScope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgScope .sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgScope .scope-grid{display:block;}'
+          + '#pgScope .stage-block{margin-bottom:0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .stage-block:last-child{border-bottom:none;}'
+          + '#pgScope .stage-head{display:flex;align-items:center;gap:12px;padding:7px 0 5px;border-bottom:none;}'
+          + '#pgScope .stage-head .stage-num{font-weight:800;font-size:10px;color:var(--orange,#F15A29);letter-spacing:0.5px;min-width:22px;}'
+          + '#pgScope .stage-head .stage-label{font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--dark-blue,#293C46);}'
+          + '#pgScope .stage-items{list-style:none;margin:0;padding:0 0 6px 34px;}'
+          + '#pgScope .stage-items li{display:flex;align-items:baseline;gap:8px;font-size:10.5px;color:var(--dark-blue,#293C46);line-height:1.5;padding:2px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .stage-items li:last-child{border-bottom:none;}'
+          + '#pgScope .stage-items li .li-num{flex:0 0 30px;font-size:9.5px;font-weight:700;color:var(--mid-blue,#4C6A7C);letter-spacing:0.2px;}'
+          + '#pgScope .stage-items li .li-text{flex:1;}'
+          + '#pgScope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:9px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:auto;}'
+          + '#pgScope .sec-c-head{grid-column:1/-1;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:3px;}'
+          + '#pgScope .sfi{display:flex;align-items:baseline;gap:6px;font-size:9px;color:var(--mid-blue,#4C6A7C);font-weight:600;}'
+          + '#pgScope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
+          + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:8px 0 22px;}';
 
-        var scopeCSS = '#pgScope .page{font-family:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;background:#fff;width:794px;min-height:1123px;box-sizing:border-box;display:flex;flex-direction:column;}'
-          + '#pgScope .topband{display:flex;align-items:center;justify-content:space-between;padding:20px 36px 0;background:#293C46;}'
-          + '#pgScope .topband .logo svg{height:28px;width:auto;}'
-          + '#pgScope .topband .edgebar{width:4px;height:32px;background:#F15A29;border-radius:2px;}'
-          + '#pgScope .scope-hero{background:#293C46;padding:18px 36px 20px;}'
-          + '#pgScope .scope-eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:8px;}'
-          + '#pgScope .scope-eyebrow .num{font-weight:800;font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:1px;}'
-          + '#pgScope .scope-eyebrow .accent-bar{width:32px;height:3px;background:#F15A29;border-radius:2px;display:inline-block;}'
-          + '#pgScope .scope-eyebrow .label{font-weight:700;font-size:13px;color:#F15A29;letter-spacing:1px;text-transform:uppercase;}'
-          + '#pgScope .scope-headline{font-size:22px;font-weight:800;color:#fff;margin:0 0 4px;line-height:1.2;}'
-          + '#pgScope .scope-subline{font-size:13px;color:rgba(255,255,255,0.65);margin:0;}'
-          + '#pgScope .scope-body{padding:18px 36px 0;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;}'
-          + '#pgScope .scope-stage{background:#F9F8F7;border-radius:6px;padding:14px 16px;}'
-          + '#pgScope .scope-stageheader{display:flex;align-items:center;gap:8px;margin-bottom:10px;}'
-          + '#pgScope .scope-stageheader .accent-bar{width:3px;height:16px;background:#F15A29;border-radius:2px;flex-shrink:0;display:inline-block;}'
-          + '#pgScope .scope-stagelabel{font-weight:700;font-size:12px;color:#293C46;text-transform:uppercase;letter-spacing:0.6px;}'
-          + '#pgScope .scope-items{display:flex;flex-direction:column;gap:5px;}'
-          + '#pgScope .scopeitem{display:flex;align-items:flex-start;gap:7px;}'
-          + '#pgScope .scope-dot{width:6px;height:6px;border-radius:50%;background:#F15A29;flex-shrink:0;margin-top:4px;}'
-          + '#pgScope .scope-txt{font-size:11.5px;color:#374151;line-height:1.45;}'
-          + '#pgScope .scope-footer-strip{padding:12px 36px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;}'
-          + '#pgScope .scope-trust-item{font-size:10.5px;color:#4C6A7C;font-weight:600;}'
-          + '#pgScope .scope-trust-sep{width:3px;height:3px;border-radius:50%;background:#D4DEE4;flex-shrink:0;}'
-          + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;padding:10px 36px;font-size:10px;color:#9CA3AF;border-top:1px solid #E5E7EB;margin-top:auto;}'
-          + '#pgScope .pagefoot .pf-name{font-weight:700;color:#293C46;}'
-          + '#pgScope .hmeta{display:flex;gap:16px;font-size:11px;color:rgba(255,255,255,0.7);}'
-          + '#pgScope .hmeta b{color:rgba(255,255,255,0.5);font-weight:600;}';
+        // ----- SITE PHOTO CSS -----
+        var sitePhotoCSS = '#pgSite .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
+          + '#pgSite .topband{display:flex;align-items:center;justify-content:space-between;padding:22px 52px 16px;border-bottom:2px solid var(--blue-100,#EDF1F4);flex:0 0 auto;}'
+          + '#pgSite .topband .logo svg{display:block;height:34px;width:auto;}'
+          + '#pgSite .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
+          + '#pgSite .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '#pgSite .sitebody{flex:1;display:flex;flex-direction:column;padding:18px 52px 0;}'
+          + '#pgSite .site-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '#pgSite .site-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgSite .site-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgSite .site-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 14px;}'
+          + '#pgSite .site-sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;}'
+          + '#pgSite .site-sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '#pgSite .site-sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '#pgSite .site-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-content:start;flex:0 0 auto;}'
+          + '#pgSite .site-cell{display:block;}'
+          + '#pgSite .site-cell img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:1px solid var(--blue-100,#EDF1F4);display:block;}'
+          + '#pgSite .site-cell .site-cap{font-size:9px;color:var(--mid-blue,#4C6A7C);font-weight:500;}'
+          + '#pgSite .site-note{margin-top:14px;font-size:9.5px;color:var(--mid-blue,#4C6A7C);font-style:italic;}'
+          + '#pgSite .pagefoot-site{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:auto 0 22px;}';
+
+        // ----- PAGE SITE: YOUR SITE PHOTOS -----
+        var pSite = '';
+        if (d.sitePhotos && d.sitePhotos.length > 0) {
+          var siteCells = d.sitePhotos.map(function(p) {
+            return '<div class="site-cell"><img src="' + p.dataUrl + '" alt="Site photo"></div>';
+          }).join('');
+          pSite = '<div id="pgSite" class="pgwrap"><section class="page">'
+            + '<style>' + sitePhotoCSS + '</style>'
+            + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
+            + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
+            + '<div class="sitebody">'
+            + '<div class="site-eyebrow"><span class="num">03</span><span class="slabel">Your Site</span></div>'
+            + '<div class="site-accent-bar"></div>'
+            + '<div class="site-sec-head"><span class="sh-letter">A</span><span class="sh-label">Site Photos</span></div>'
+            + '<div class="site-grid">' + siteCells + '</div>'
+            + '<p class="site-note">Photos captured at time of scoping by our team.</p>'
+            + '<div class="pagefoot-site"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page 3 of ' + totalPages + '</div></div>'
+            + '</div></section></div>';
+        }
+
+        // Build numbered scope groups HTML (full-width single column)
+        var scopeGroupsHTML = '';
+        if (d.scopeGroups && d.scopeGroups.length > 0) {
+          scopeGroupsHTML = '<div class="scope-grid">'
+            + d.scopeGroups.map(function(grp, si) {
+              var stageNum = String(si + 1).padStart(2, '0');
+              var itemsHtml = grp.items.map(function(item, ii) {
+                var itemNum = (si + 1) + '.' + (ii + 1);
+                return '<li><span class="li-num">' + itemNum + '</span><span class="li-text">' + E(item) + '</span></li>';
+              }).join('');
+              return '<div class="stage-block">'
+                + '<div class="stage-head"><span class="stage-num">' + stageNum + '</span><span class="stage-label">' + E(grp.stage) + '</span></div>'
+                + '<ul class="stage-items">' + itemsHtml + '</ul></div>';
+            }).join('')
+            + '</div>';
+        }
+
+        var includedItemsHTML = [
+          'Licensed &amp; insured crew',
+          'COLORBOND® steel throughout',
+          'All posts set in concrete footings',
+          'Full site cleanup included',
+          '12-month workmanship warranty'
+        ].map(function(t) { return '<div class="sfi">' + t + '</div>'; }).join('');
 
         var p3 = '<div id="pgScope" class="pgwrap"><section class="page">'
           + '<style>' + scopeCSS + '</style>'
           + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
-          + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>'
-          + '<div class="edgebar"></div></div>'
-          + '<div class="scope-hero">'
-          + '<div class="scope-eyebrow"><span class="num">03</span><span class="accent-bar"></span><span class="label">How We Build It</span></div>'
-          + '<h2 class="scope-headline">Scope of Works</h2>'
-          + '<p class="scope-subline">A detailed breakdown of every stage of your fencing installation. No guesswork, just the work.</p>'
+          + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
+          + '<div class="scopebody">'
+          + '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It</span></div>'
+          + '<div class="scope-accent-bar"></div>'
+          + '<div class="sec-a"><div class="sec-head"><span class="sh-letter">A</span><span class="sh-label">Specifications</span></div>'
+          + '<div class="speclist">' + specRows + '</div></div>'
+          + '<div class="sec-b">'
+          + '<div class="sec-head"><span class="sh-letter">B</span><span class="sh-label">Scope of Works</span></div>'
+          + '<p class="scope-lead">' + E(d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage — every task listed, nothing hidden.') + '</p>'
+          + scopeGroupsHTML
           + '</div>'
-          + '<div class="scope-body">' + scopeStages + '</div>'
-          + '<div class="scope-footer-strip">'
-          + '<span class="scope-trust-item">Licensed &amp; insured crew</span><span class="scope-trust-sep"></span>'
-          + '<span class="scope-trust-item">COLORBOND® steel throughout</span><span class="scope-trust-sep"></span>'
-          + '<span class="scope-trust-item">All posts set in concrete footings</span><span class="scope-trust-sep"></span>'
-          + '<span class="scope-trust-item">Full site cleanup included</span><span class="scope-trust-sep"></span>'
-          + '<span class="scope-trust-item">12-month workmanship warranty</span>'
-          + '</div>'
-          + pf(3) + '</section></div>';
+          + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>'
+          + includedItemsHTML + '</div>'
+          + pf(3)
+          + '</div></section></div>';
+
+        // Web-mode only: CTA bar between cover and design page.
+        // Hidden in web mode via CSS (loud inter-page band removed per Marnin);
+        // markup retained to mirror patio. Honest label: "Accept & pay deposit".
+        var webCtaBar = forPDF ? '' :
+          '<div class="sw-fence-web-cta" role="region" aria-label="Quote actions">'
+          + '<div class="wcta-msg">Ready to get started? <b>Accept your quote</b> and we handle everything from here.</div>'
+          + '<div class="wcta-actions">'
+          + '<button class="wcta-btn-primary" data-accept>Accept &amp; pay deposit</button>'
+          + '<a class="wcta-btn-secondary" href="tel:' + E(d.contact.phone.replace(/\s/g, '')) + '">Call ' + E(d.contact.phone) + '</a>'
+          + '</div></div>';
+
+        // Web-mode only: persistent accept CTA (bottom-center glass pill desktop,
+        // full-width bar mobile). Hidden under body.pdf via CSS. (mirrors patio)
+        var stickyBar = forPDF ? '' :
+          '<div class="sw-fence-sticky" aria-hidden="false">'
+          + '<div class="sw-fence-sticky-inner"><span class="sw-fence-sticky-msg">Ready to get started?</span>'
+          + '<button class="sw-fence-sticky-btn" data-accept>Accept &amp; pay deposit</button></div>'
+          + '</div>';
+
+        // Web-mode only: scroll-reveal + data-accept wiring + close-page observer
+        // (toggles body.sw-at-close so the sticky CTA fades out on the close page).
+        var webScript = forPDF ? '' : '<script>(function(){'
+          + 'var io=new IntersectionObserver(function(entries){'
+          + 'entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("revealed");io.unobserve(e.target);}});'
+          + '},{threshold:0.08});'
+          + 'document.querySelectorAll(".pgwrap").forEach(function(el){io.observe(el);});'
+          + 'document.querySelectorAll("[data-accept]").forEach(function(el){'
+          + 'el.addEventListener("click",function(){'
+          + 'if(typeof window.swAcceptQuote==="function"){window.swAcceptQuote();}});});'
+          + 'var _cta=document.querySelector("#pg6 .cta");'
+          + 'if(_cta){var io2=new IntersectionObserver(function(es){es.forEach(function(e){document.body.classList.toggle("sw-at-close",e.isIntersecting);});},{threshold:0.25});io2.observe(_cta);}'
+          + '})();<\/script>';
 
         return '<!DOCTYPE html><html lang="en-AU"><head><meta charset="UTF-8">'
+          + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+          + '<meta name="referrer" content="no-referrer">'
           + '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
           + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
-          + '<style>' + css + '</style></head><body>' + p1 + p2 + p3 + p4 + p5 + p6 + '</body></html>';
+          + '<style>' + css + '</style></head><body class="' + (forPDF ? 'pdf' : 'web') + '">'
+          + p1 + webCtaBar + p2 + pSite + p3 + p4 + p5 + p6
+          + stickyBar
+          + webScript
+          + '</body></html>';
       },
 
       // Render the populated template -> jsPDF (6 full-page images at scale 2).
@@ -11136,7 +11391,7 @@
           render: renderHero || ''
         };
 
-        var html = this._buildFenceQuoteHTML(d, imgs);
+        var html = this._buildFenceQuoteHTML(d, imgs, true); // forPDF=true
 
         var iframe = document.createElement('iframe');
         iframe.setAttribute('aria-hidden', 'true');
@@ -11164,6 +11419,97 @@
           document.body.removeChild(iframe);
         }
         return doc;
+      },
+
+      // ── HTML-FIRST WEB PREVIEW ───────────────────────────────────────────
+      // Opens the premium 6-page fence quote as a full-width browser tab
+      // (body.web mode). Does NOT require jsPDF or html2canvas.
+      // Same photo/render fetch path as _renderFenceQuoteHTMLToPDF so images
+      // are inline data-URIs (CORS-safe, works offline after first load).
+      async generateFenceWebPreview() {
+        var d;
+        try {
+          d = this._gatherFenceQuoteData(this._collectOutputData());
+        } catch(e) {
+          this.showToast('Could not build quote data: ' + e.message, 'error');
+          return;
+        }
+
+        // Capture profile views (same as PDF path)
+        var profileImages = {};
+        var savedRunId = this.currentRunId;
+        var profileContainer = document.getElementById('profileViewContainer');
+        var profileCanvas = document.getElementById('profileCanvas');
+        if (profileCanvas && profileContainer && this.job.runs && this.job.runs.length > 0) {
+          var origStyles = { display: profileContainer.style.display, width: profileContainer.style.width, height: profileContainer.style.height, opacity: profileContainer.style.opacity, zIndex: profileContainer.style.zIndex, position: profileContainer.style.position };
+          profileContainer.style.display = 'block';
+          profileContainer.style.width = '1200px';
+          profileContainer.style.height = '400px';
+          profileContainer.style.opacity = '0';
+          profileContainer.style.zIndex = '-1';
+          profileContainer.style.position = 'fixed';
+          profileContainer.offsetHeight;
+          this.job.runs.forEach(function(run) {
+            if (run.panels && run.panels.length > 0) {
+              this.currentRunId = run.id;
+              this._openSections = this._openSections || {};
+              this._openSections.visualizer = true;
+              try {
+                this.renderProfileView();
+                profileImages[run.id] = profileCanvas.toDataURL('image/png');
+              } catch(e) { console.warn('[FenceWebPreview] Profile capture failed for run', run.name, e); }
+            }
+          }.bind(this));
+          this.currentRunId = savedRunId;
+          Object.keys(origStyles).forEach(function(k) { profileContainer.style[k] = origStyles[k] || ''; });
+          try { this.renderProfileView(); } catch(e) {}
+        }
+
+        // Pick elevation render (longest run, same logic as PDF)
+        var renderHero = '';
+        try {
+          var runs = (this.job.runs || []).slice();
+          if (Object.keys(profileImages).length) {
+            runs.sort(function(a, b) { return (b.length || 0) - (a.length || 0); });
+            for (var i = 0; i < runs.length; i++) {
+              if (profileImages[runs[i].id]) { renderHero = profileImages[runs[i].id]; break; }
+            }
+            if (!renderHero) {
+              var ks = Object.keys(profileImages);
+              if (ks.length) renderHero = profileImages[ks[0]];
+            }
+          }
+        } catch(e) {}
+
+        var photos = this._swFencePhotos();
+        var satSrc = this.job.sitePlanImage || '';
+        if (!satSrc && this.job._latlng && GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_API_KEY_HERE') {
+          satSrc = 'https://maps.googleapis.com/maps/api/staticmap?center='
+            + this.job._latlng.lat + ',' + this.job._latlng.lng
+            + '&zoom=19&size=600x300&maptype=satellite&scale=2&key=' + GOOGLE_MAPS_API_KEY;
+        }
+
+        this.showToast('Building preview...', 'info');
+        try {
+          var assets = await Promise.all([
+            this._swQFetchToDataURL(photos.cover),
+            this._swQFetchToDataURL(photos.price),
+            this._swQFetchToDataURL(photos.close),
+            this._swQFetchToDataURL(satSrc)
+          ]);
+          var imgs = {
+            logo: this._swFenceLogoWhite(),
+            heroCover: assets[0],
+            pricePhoto: assets[1],
+            closePhoto: assets[2],
+            satellite: assets[3],
+            render: renderHero || ''
+          };
+          var html = this._buildFenceQuoteHTML(d, imgs, false); // forPDF=false → body.web
+          this._openOutputTab('Fence Quote Preview', html);
+        } catch(e) {
+          this.showToast('Preview failed: ' + e.message, 'error');
+        }
       },
 
       async generateQuotePDF() {
@@ -14625,14 +14971,16 @@
       var mode = getFenceWorkflowMode();
 
       if (mode === 'draft') {
-        // ── DRAFT: Save Local + Save Draft + Create/Update Job ──
+        // ── DRAFT: Save Local + Preview + Save Draft + Create/Update Job ──
         html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">Save Local</button>';
+        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveDraft()">Save Draft ☁</button>';
         var hasCloudJob = window._swIntegration && window._swIntegration.getJobId && window._swIntegration.getJobId();
         html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Update Job ▶' : 'Create Job ▶') + '</button>';
       } else {
-        // ── JOB: Save Local + PDFs + Send Quote + Save ──
+        // ── JOB: Save Local + Preview + PDFs + Send Quote + Save ──
         html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">💾 Local</button>';
+        html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateQuotePDF()">📄 Quote PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateMaterialOrder()">📄 Material PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateWorkOrder()">📄 Work Order PDF</button>';
