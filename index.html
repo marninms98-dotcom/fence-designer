@@ -908,9 +908,10 @@
       max-height: 600px;
       position: relative;
       overflow: hidden;
-      background: #1a2a32;
-      border: 1px solid #4C6A70;
-      border-radius: 6px;
+      background: linear-gradient(180deg, #d8e8f2 0%, #eef3ea 58%, #9db978 100%);
+      border: 1px solid rgba(76,106,112,0.55);
+      border-radius: 8px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
     }
     .fence-3d-viewport canvas { display: block; width: 100%; height: 100%; cursor: grab; }
     .fence-3d-viewport:active canvas { cursor: grabbing; }
@@ -7006,7 +7007,7 @@
         f.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         f.renderer.outputEncoding = THREE.sRGBEncoding;
         f.renderer.toneMapping = THREE.ReinhardToneMapping;
-        f.renderer.toneMappingExposure = 1.2;
+        f.renderer.toneMappingExposure = 1.22;
 
         // Environment map for PBR reflections
         (function() {
@@ -7022,9 +7023,9 @@
         })();
 
         // Lighting — warm Perth afternoon
-        f.scene.add(new THREE.HemisphereLight(0xE8D8C0, 0x7B9450, 0.55));
+        f.scene.add(new THREE.HemisphereLight(0xF4E6D0, 0x6F8E58, 0.62));
 
-        const sun = new THREE.DirectionalLight(0xFFF0D0, 1.0);
+        const sun = new THREE.DirectionalLight(0xFFF3D8, 1.10);
         sun.position.set(6, 8, 5);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 2048;
@@ -7039,12 +7040,12 @@
         sun.shadow.normalBias = 0.02;
         f.scene.add(sun);
 
-        const fill = new THREE.DirectionalLight(0xFFF0E0, 0.25);
+        const fill = new THREE.DirectionalLight(0xF8FBFF, 0.34);
         fill.position.set(-3, 2, -3);
         f.scene.add(fill);
 
         // Shadow-receiving ground
-        const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.15 }));
+        const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.20 }));
         shadowPlane.rotation.x = -Math.PI / 2;
         shadowPlane.receiveShadow = true;
         f.scene.add(shadowPlane);
@@ -7384,7 +7385,7 @@
         const ctx = c.getContext('2d');
         // Neutral finish map: material.color supplies the real Colorbond colour.
         // Keeping the texture near-white avoids double-tinting dark colours in Three.js.
-        ctx.fillStyle = '#F7F5EF';
+        ctx.fillStyle = '#FCFBF6';
         ctx.fillRect(0, 0, c.width, c.height);
 
         // Visible vertical rib highlights/dips so high-res quote renders read as
@@ -7393,11 +7394,11 @@
         const ribPitch = profile === 'Harmony' ? 34 : (profile === 'Corodek' ? 42 : 28);
         for (let x = 0; x < c.width; x += ribPitch) {
           const g = ctx.createLinearGradient(x, 0, x + ribPitch, 0);
-          g.addColorStop(0.00, 'rgba(255,255,255,0.22)');
-          g.addColorStop(0.18, 'rgba(255,255,255,0.10)');
-          g.addColorStop(0.46, 'rgba(0,0,0,0.16)');
-          g.addColorStop(0.68, 'rgba(255,255,255,0.14)');
-          g.addColorStop(1.00, 'rgba(0,0,0,0.12)');
+          g.addColorStop(0.00, 'rgba(255,255,255,0.30)');
+          g.addColorStop(0.18, 'rgba(255,255,255,0.14)');
+          g.addColorStop(0.46, 'rgba(0,0,0,0.10)');
+          g.addColorStop(0.68, 'rgba(255,255,255,0.18)');
+          g.addColorStop(1.00, 'rgba(0,0,0,0.08)');
           ctx.fillStyle = g;
           ctx.fillRect(x, 0, ribPitch, c.height);
         }
@@ -7490,16 +7491,16 @@
         const finishTex = this._createColorbondFinishTexture(colourHex, job.profile || 'Trimclad');
         const whiteTint = new THREE.Color(0xffffff);
         const liftFenceColour = (colour, lift) => colour.clone().lerp(whiteTint, lift);
-        const panelMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.07), map: finishTex, metalness: 0.20, roughness: 0.34, side: THREE.DoubleSide });
-        const postMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.04), metalness: 0.28, roughness: 0.32 });
-        const railMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.06), metalness: 0.30, roughness: 0.28 });
-        const plinthMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.05), map: finishTex, metalness: 0.18, roughness: 0.42 });
-        const capMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.10), metalness: 0.34, roughness: 0.24 });
-        const ribHiMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.26), metalness: 0.24, roughness: 0.32 });
-        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.62), metalness: 0.20, roughness: 0.46 });
-        const earthMat = new THREE.MeshStandardMaterial({ color: 0xC4A882, roughness: 0.85, metalness: 0.0 });
-        const galvMat = new THREE.MeshStandardMaterial({ color: 0xB0B0B0, metalness: 0.5, roughness: 0.45 });
-        const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
+        const panelMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.06), map: finishTex, metalness: 0.34, roughness: 0.29, side: THREE.DoubleSide });
+        const postMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.04), metalness: 0.40, roughness: 0.27 });
+        const railMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.07), metalness: 0.42, roughness: 0.25 });
+        const plinthMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.05), map: finishTex, metalness: 0.28, roughness: 0.38 });
+        const capMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.12), metalness: 0.44, roughness: 0.23 });
+        const ribHiMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.26), metalness: 0.34, roughness: 0.25 });
+        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.56), metalness: 0.26, roughness: 0.40 });
+        const earthMat = new THREE.MeshStandardMaterial({ color: 0xB08A5C, roughness: 0.82, metalness: 0.0 });
+        const galvMat = new THREE.MeshStandardMaterial({ color: 0xC5C9C6, metalness: 0.62, roughness: 0.30 });
+        const concreteMat = new THREE.MeshStandardMaterial({ color: 0xC7C4B8, roughness: 0.78, metalness: 0.0 });
 
         // Dimensions
         const defaultPanelWidthMm = this.getPanelWidthMm();
@@ -7807,8 +7808,8 @@
         f.envGrp.add(nbLawn);
 
         // Raised ground on neighbour side where retaining is present
-        const nbEarthMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.9, metalness: 0.0 });
-        const nbGrassMat = new THREE.MeshStandardMaterial({ map: nbGrassTex.clone(), roughness: 0.92, metalness: 0.0, color: 0xC8D8B8 });
+        const nbEarthMat = new THREE.MeshStandardMaterial({ color: 0x9A744C, roughness: 0.86, metalness: 0.0 });
+        const nbGrassMat = new THREE.MeshStandardMaterial({ map: nbGrassTex.clone(), roughness: 0.88, metalness: 0.0, color: 0xBFD6A8 });
         panelPositions.forEach((pp, pi) => {
           const panel = run.panels[pi];
           if (!panel) return;
@@ -7844,7 +7845,7 @@
         });
 
         // Mulch strip along fence base (client side)
-        const mulchMat = new THREE.MeshStandardMaterial({ map: mulchTex, roughness: 0.9, metalness: 0.0 });
+        const mulchMat = new THREE.MeshStandardMaterial({ map: mulchTex, roughness: 0.86, metalness: 0.0, color: 0xB77A42 });
         const mulchStrip = new THREE.Mesh(new THREE.PlaneGeometry(cursorX + 0.6, 0.5), mulchMat);
         mulchStrip.rotation.x = -Math.PI/2;
         mulchStrip.position.set(cx, -0.003, 0.35);
@@ -9578,8 +9579,8 @@
           f.camera.updateProjectionMatrix();
           f.activeCamera = f.camera;
           f.controls.object = f.camera;
-          f.renderer.toneMappingExposure = 1.24;
-          f.scene.background = new THREE.Color(0xF8FAF4);
+          f.renderer.toneMappingExposure = 1.16;
+          f.scene.background = new THREE.Color(0xFBFCF7);
           f.scene.fog = null;
           if (f.dimGrp) f.dimGrp.visible = false;
           if (f.envGrp) f.envGrp.visible = false;
@@ -9588,7 +9589,7 @@
           const studioDepth = Math.max(size.z + 5.5, 7.0);
           studioGround = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, studioDepth),
-            new THREE.MeshStandardMaterial({ color: 0xEEECE6, roughness: 0.86, metalness: 0.0 })
+            new THREE.MeshStandardMaterial({ color: 0xF1EDE2, roughness: 0.80, metalness: 0.0 })
           );
           studioGround.rotation.x = -Math.PI / 2;
           studioGround.position.set(centre.x, -0.022, centre.z + 0.10);
@@ -9597,7 +9598,7 @@
 
           const quoteGrassFront = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(2.3, studioDepth * 0.45)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.92, metalness: 0.0, color: 0xDCE9C7 })
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.88, metalness: 0.0, color: 0xD5E8BC })
           );
           quoteGrassFront.rotation.x = -Math.PI / 2;
           quoteGrassFront.position.set(centre.x, -0.016, centre.z + Math.max(1.25, studioDepth * 0.22));
@@ -9607,7 +9608,7 @@
 
           const quoteGrassBack = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(1.8, studioDepth * 0.35)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.92, metalness: 0.0, color: 0xC8D8B8 })
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.88, metalness: 0.0, color: 0xBDD2A8 })
           );
           quoteGrassBack.rotation.x = -Math.PI / 2;
           quoteGrassBack.position.set(centre.x, -0.017, centre.z - Math.max(1.25, studioDepth * 0.20));
@@ -9617,7 +9618,7 @@
 
           const quoteMulch = new THREE.Mesh(
             new THREE.PlaneGeometry(Math.max(size.x + 0.8, 4), 0.42),
-            new THREE.MeshStandardMaterial({ map: this._createMulchTexture(), roughness: 0.9, metalness: 0.0, color: 0xC39A68 })
+            new THREE.MeshStandardMaterial({ map: this._createMulchTexture(), roughness: 0.84, metalness: 0.0, color: 0xC58246 })
           );
           quoteMulch.rotation.x = -Math.PI / 2;
           quoteMulch.position.set(centre.x, -0.012, centre.z + 0.34);
@@ -9625,7 +9626,7 @@
           f.scene.add(quoteMulch);
           studioContext.push(quoteMulch);
 
-          const edgeMat = new THREE.MeshStandardMaterial({ color: 0xD5C6A5, roughness: 0.78, metalness: 0.0 });
+          const edgeMat = new THREE.MeshStandardMaterial({ color: 0xDCC89E, roughness: 0.72, metalness: 0.0 });
           const quoteKerb = new THREE.Mesh(new THREE.BoxGeometry(Math.max(size.x + 0.8, 4), 0.045, 0.055), edgeMat);
           quoteKerb.position.set(centre.x, 0.005, centre.z + 0.10);
           quoteKerb.castShadow = true;
@@ -9633,8 +9634,8 @@
           f.scene.add(quoteKerb);
           studioContext.push(quoteKerb);
 
-          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xD9D2C4, 0.82);
-          studioKey = new THREE.DirectionalLight(0xFFF7EA, 1.35);
+          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xDCD2BE, 0.76);
+          studioKey = new THREE.DirectionalLight(0xFFF4E2, 1.16);
           studioKey.position.set(centre.x - 4.5, 8.5, centre.z + 5.5);
           studioKey.castShadow = true;
           studioKey.shadow.mapSize.width = 2048;
@@ -9642,9 +9643,9 @@
           studioKey.shadow.camera.left = -12; studioKey.shadow.camera.right = 12;
           studioKey.shadow.camera.top = 8; studioKey.shadow.camera.bottom = -8;
           studioKey.shadow.bias = -0.0003;
-          studioFill = new THREE.DirectionalLight(0xFFFFFF, 0.52);
+          studioFill = new THREE.DirectionalLight(0xF8FBFF, 0.46);
           studioFill.position.set(centre.x + 5, 3.5, centre.z - 4);
-          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.36);
+          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.34);
           studioRim.position.set(centre.x + 2.5, 4.2, centre.z - 5.2);
           f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill); f.scene.add(studioRim);
 
