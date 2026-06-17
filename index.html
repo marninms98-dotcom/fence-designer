@@ -10402,14 +10402,11 @@
 '#pg1 .coverhero .quoteref .qno{font-weight:800;font-size:30px;color:#fff;letter-spacing:-1px;line-height:1;}',
 '#pg1 .coverhero .quoteref .qsub{font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin-top:7px;font-weight:700;}',
 '#pg1 .coverhero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:3;}',
-'#pg1 .coverband{flex:1;display:grid;grid-template-columns:1.15fr 1fr;max-height:200px;}',
-'#pg1 .coverband .clientblock{padding:20px 36px 20px 52px;display:flex;flex-direction:column;justify-content:center;}',
+'#pg1 .coverband{flex:1;display:flex;align-items:center;max-height:200px;}',
+'#pg1 .coverband .clientblock{padding:20px 52px;display:flex;flex-direction:column;justify-content:center;}',
 '#pg1 .coverband .clientblock .cname{font-weight:800;font-size:21px;color:var(--dark-blue);letter-spacing:-0.4px;margin:8px 0 12px;}',
 '#pg1 .coverband .crow{display:flex;gap:12px;font-size:12.5px;color:var(--body-text);line-height:1.7;margin-bottom:5px;}',
 '#pg1 .coverband .crow b{color:var(--mid-blue);font-weight:700;min-width:48px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding-top:3px;}',
-'#pg1 .coverband .satellite{position:relative;overflow:hidden;border-left:1px solid var(--blue-200);background:var(--blue-100);}',
-'#pg1 .coverband .satellite img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}',
-'#pg1 .coverband .satellite .satlbl{position:absolute;left:0;bottom:0;z-index:2;background:var(--blue-950);color:#fff;font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:8px 14px;}',
 '#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:560px;overflow:hidden;background:var(--blue-950);}',
 '#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
 '#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
@@ -11155,8 +11152,7 @@
           + '<div class="crow"><b>Site</b><span>' + E(d.siteAddr) + '</span></div>'
           + '<div class="crow"><b>Phone</b><span>' + E(d.phone) + '</span></div>'
           + '<div class="crow"><b>Email</b><span>' + E(d.email) + '</span></div>'
-          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div>'
-          + '<div class="satellite">' + img(imgs.satellite, '', 'Satellite view of property') + '<div class="satlbl">Site Location &middot; Satellite</div></div></div>'
+          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div></div>'
           + '</section></div>';
 
         // ----- PAGE 2 YOUR DESIGN -----
