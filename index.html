@@ -9236,6 +9236,52 @@
           });
         });
 
+        // ── Fallback: if aggregates are 0 but run data exists, re-derive.
+        // Covers preview states where run.length is 0 on the reactive model but
+        // panels are already populated (same condition the elevation handles with
+        // its own fallback: run.length || panelCount * panelWidthM).
+        if (!isGateOnly && totalMetres === 0 && job.runs.length > 0) {
+          let _fbMetres = 0, _fbPanels = 0, _fbPosts = 0;
+          job.runs.forEach(function(r) {
+            const _panW = (r.panels && r.panels.length) ? r.panels.length : 0;
+            // Mirror elevation fallback: use run.length, else derive from panel count
+            const _rLen = (typeof r.length === 'number' && r.length > 0)
+              ? r.length
+              : (_panW > 0 ? _panW * defaultPanelWidthM : 0);
+            _fbMetres += _rLen;
+            _fbPanels += _panW;
+            _fbPosts  += _panW + 1;
+          });
+          if (_fbMetres > 0 || _fbPanels > 0) {
+            if (totalMetres === 0) totalMetres = _fbMetres;
+            if (totalPanels === 0) totalPanels = _fbPanels;
+            if (totalPosts  === 0) totalPosts  = _fbPosts;
+            // Patch runDetails so Scope-of-Works per-run sentences are correct too
+            runDetails.forEach(function(rd, i) {
+              const _srcRun = job.runs[i];
+              if (rd.length === 0 && _srcRun) {
+                rd.length = (typeof _srcRun.length === 'number' && _srcRun.length > 0)
+                  ? _srcRun.length
+                  : (rd.panelCount > 0 ? rd.panelCount * defaultPanelWidthM : 0);
+              }
+              if (rd.panelCount === 0 && _srcRun && _srcRun.panels) {
+                rd.panelCount = _srcRun.panels.length;
+              }
+            });
+          }
+          // Final fallback: saved pricing_json fencing line item (authoritative qty)
+          if (totalMetres === 0) {
+            const _pj = job._pricing_json || {};
+            const _pItems = _pj.line_items || [];
+            for (let _pi = 0; _pi < _pItems.length; _pi++) {
+              if (_pItems[_pi].category === 'fencing' && _pItems[_pi].quantity > 0) {
+                totalMetres = _pItems[_pi].quantity;
+                break;
+              }
+            }
+          }
+        }
+
         // Corner post sharing: subtract (runs - 1) for connected runs
         if (!isGateOnly && job.runs.length > 1) totalPosts -= (job.runs.length - 1);
 
