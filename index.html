@@ -7481,13 +7481,15 @@
 
         // Materials — PBR Colorbond with subtle powder-coated rib finish
         const finishTex = this._createColorbondFinishTexture(colourHex, job.profile || 'Trimclad');
-        const panelMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.14), map: finishTex, metalness: 0.26, roughness: 0.42, side: THREE.DoubleSide });
-        const postMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.96), metalness: 0.32, roughness: 0.34 });
-        const railMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.02), metalness: 0.34, roughness: 0.30 });
-        const plinthMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.98), map: finishTex, metalness: 0.22, roughness: 0.48 });
-        const capMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(1.16), metalness: 0.38, roughness: 0.26 });
-        const ribHiMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().lerp(new THREE.Color(0xffffff), 0.24), metalness: 0.30, roughness: 0.38 });
-        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.72), metalness: 0.24, roughness: 0.48 });
+        const whiteTint = new THREE.Color(0xffffff);
+        const liftFenceColour = (colour, lift) => colour.clone().lerp(whiteTint, lift);
+        const panelMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.07), map: finishTex, metalness: 0.20, roughness: 0.34, side: THREE.DoubleSide });
+        const postMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.04), metalness: 0.28, roughness: 0.32 });
+        const railMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.06), metalness: 0.30, roughness: 0.28 });
+        const plinthMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.05), map: finishTex, metalness: 0.18, roughness: 0.42 });
+        const capMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.10), metalness: 0.34, roughness: 0.24 });
+        const ribHiMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.26), metalness: 0.24, roughness: 0.32 });
+        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.62), metalness: 0.20, roughness: 0.46 });
         const earthMat = new THREE.MeshStandardMaterial({ color: 0xC4A882, roughness: 0.85, metalness: 0.0 });
         const galvMat = new THREE.MeshStandardMaterial({ color: 0xB0B0B0, metalness: 0.5, roughness: 0.45 });
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xB8B8B0, roughness: 0.85, metalness: 0.0 });
@@ -9527,6 +9529,7 @@
         const origAspect = f.camera.aspect;
         const origActive = f.activeCamera;
         const origPixelRatio = f.renderer.getPixelRatio();
+        const origExposure = f.renderer.toneMappingExposure;
         const origW = f.renderer.domElement.clientWidth || f.renderer.domElement.width || 1200;
         const origH = f.renderer.domElement.clientHeight || f.renderer.domElement.height || 675;
         const origBackground = f.scene.background;
@@ -9536,7 +9539,8 @@
         const origUserMoved = this._fence3DUserMoved;
         const renders = {};
         let studioGround = null;
-        let studioAmb = null, studioKey = null, studioFill = null;
+        const studioContext = [];
+        let studioAmb = null, studioKey = null, studioFill = null, studioRim = null;
 
         try {
           if (preferredRunId) this.currentRunId = preferredRunId;
@@ -9567,32 +9571,75 @@
           f.camera.updateProjectionMatrix();
           f.activeCamera = f.camera;
           f.controls.object = f.camera;
-          f.scene.background = new THREE.Color(0xFFFFFF);
+          f.renderer.toneMappingExposure = 1.24;
+          f.scene.background = new THREE.Color(0xF8FAF4);
           f.scene.fog = null;
           if (f.dimGrp) f.dimGrp.visible = false;
           if (f.envGrp) f.envGrp.visible = false;
 
+          const studioWidth = Math.max(size.x + 3.0, 10);
+          const studioDepth = Math.max(size.z + 5.5, 7.0);
           studioGround = new THREE.Mesh(
-            new THREE.PlaneGeometry(Math.max(size.x + 3.0, 10), Math.max(size.z + 4.0, 5.5)),
+            new THREE.PlaneGeometry(studioWidth, studioDepth),
             new THREE.MeshStandardMaterial({ color: 0xEEECE6, roughness: 0.86, metalness: 0.0 })
           );
           studioGround.rotation.x = -Math.PI / 2;
-          studioGround.position.set(centre.x, -0.018, centre.z + 0.12);
+          studioGround.position.set(centre.x, -0.022, centre.z + 0.10);
           studioGround.receiveShadow = true;
           f.scene.add(studioGround);
 
-          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xD9D2C4, 0.95);
+          const quoteGrassFront = new THREE.Mesh(
+            new THREE.PlaneGeometry(studioWidth, Math.max(2.3, studioDepth * 0.45)),
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.92, metalness: 0.0, color: 0xDCE9C7 })
+          );
+          quoteGrassFront.rotation.x = -Math.PI / 2;
+          quoteGrassFront.position.set(centre.x, -0.016, centre.z + Math.max(1.25, studioDepth * 0.22));
+          quoteGrassFront.receiveShadow = true;
+          f.scene.add(quoteGrassFront);
+          studioContext.push(quoteGrassFront);
+
+          const quoteGrassBack = new THREE.Mesh(
+            new THREE.PlaneGeometry(studioWidth, Math.max(1.8, studioDepth * 0.35)),
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.92, metalness: 0.0, color: 0xC8D8B8 })
+          );
+          quoteGrassBack.rotation.x = -Math.PI / 2;
+          quoteGrassBack.position.set(centre.x, -0.017, centre.z - Math.max(1.25, studioDepth * 0.20));
+          quoteGrassBack.receiveShadow = true;
+          f.scene.add(quoteGrassBack);
+          studioContext.push(quoteGrassBack);
+
+          const quoteMulch = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(size.x + 0.8, 4), 0.42),
+            new THREE.MeshStandardMaterial({ map: this._createMulchTexture(), roughness: 0.9, metalness: 0.0, color: 0xC39A68 })
+          );
+          quoteMulch.rotation.x = -Math.PI / 2;
+          quoteMulch.position.set(centre.x, -0.012, centre.z + 0.34);
+          quoteMulch.receiveShadow = true;
+          f.scene.add(quoteMulch);
+          studioContext.push(quoteMulch);
+
+          const edgeMat = new THREE.MeshStandardMaterial({ color: 0xD5C6A5, roughness: 0.78, metalness: 0.0 });
+          const quoteKerb = new THREE.Mesh(new THREE.BoxGeometry(Math.max(size.x + 0.8, 4), 0.045, 0.055), edgeMat);
+          quoteKerb.position.set(centre.x, 0.005, centre.z + 0.10);
+          quoteKerb.castShadow = true;
+          quoteKerb.receiveShadow = true;
+          f.scene.add(quoteKerb);
+          studioContext.push(quoteKerb);
+
+          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xD9D2C4, 0.82);
           studioKey = new THREE.DirectionalLight(0xFFF7EA, 1.35);
-          studioKey.position.set(centre.x - 3.5, 7.5, centre.z + 5.5);
+          studioKey.position.set(centre.x - 4.5, 8.5, centre.z + 5.5);
           studioKey.castShadow = true;
           studioKey.shadow.mapSize.width = 2048;
           studioKey.shadow.mapSize.height = 2048;
           studioKey.shadow.camera.left = -12; studioKey.shadow.camera.right = 12;
           studioKey.shadow.camera.top = 8; studioKey.shadow.camera.bottom = -8;
           studioKey.shadow.bias = -0.0003;
-          studioFill = new THREE.DirectionalLight(0xFFFFFF, 0.55);
-          studioFill.position.set(centre.x + 5, 3, centre.z - 4);
-          f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill);
+          studioFill = new THREE.DirectionalLight(0xFFFFFF, 0.52);
+          studioFill.position.set(centre.x + 5, 3.5, centre.z - 4);
+          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.36);
+          studioRim.position.set(centre.x + 2.5, 4.2, centre.z - 5.2);
+          f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill); f.scene.add(studioRim);
 
           const corners = [];
           for (let ix = 0; ix <= 1; ix++) for (let iy = 0; iy <= 1; iy++) for (let iz = 0; iz <= 1; iz++) {
@@ -9635,12 +9682,13 @@
             renders[name] = f.renderer.domElement.toDataURL('image/jpeg', 0.93);
           }
 
-          // All views are fitted independently so the fence occupies the quote frame,
-          // while the hero stays low/close enough to show receding panel depth.
-          capture('hero', new THREE.Vector3(0.70, 0.18, 0.52), 0.80, -0.05, 1.4);
-          capture('front', new THREE.Vector3(0.02, 0.07, 1), 0.84, -0.04, 1.2);
-          capture('side', new THREE.Vector3(0.92, 0.12, 0.28), 0.76, -0.05, 1.0);
-          capture('top', new THREE.Vector3(0.16, 0.90, 0.24), 0.82, 0.00, 1.4);
+          // All views are fitted independently so the fence occupies the quote frame.
+          // The hero/side angles are intentionally closer and lower so panels, posts,
+          // ribs and shadows read like a product render rather than a thin site-plan line.
+          capture('hero', new THREE.Vector3(0.56, 0.13, 0.62), 0.96, -0.08, 0.9);
+          capture('front', new THREE.Vector3(0.03, 0.05, 1), 0.97, -0.05, 0.8);
+          capture('side', new THREE.Vector3(0.62, 0.15, 0.55), 0.94, -0.08, 0.8);
+          capture('top', new THREE.Vector3(0.10, 0.93, 0.22), 0.96, 0.00, 1.0);
 
         } catch(e) {
           console.warn('[FenceQuote] 3D capture failed:', e);
@@ -9648,6 +9696,15 @@
           if (studioAmb) f.scene.remove(studioAmb);
           if (studioKey) f.scene.remove(studioKey);
           if (studioFill) f.scene.remove(studioFill);
+          if (studioRim) f.scene.remove(studioRim);
+          studioContext.forEach(function(obj) {
+            f.scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+              if (obj.material.map) obj.material.map.dispose();
+              obj.material.dispose();
+            }
+          });
           if (studioGround) {
             f.scene.remove(studioGround);
             studioGround.geometry.dispose();
@@ -9657,6 +9714,7 @@
           if (f.envGrp) f.envGrp.visible = origEnvVisible;
           f.scene.background = origBackground;
           f.scene.fog = origFog;
+          if (typeof origExposure === 'number') f.renderer.toneMappingExposure = origExposure;
           f.renderer.setPixelRatio(origPixelRatio);
           f.renderer.setSize(origW, origH, false);
           f.camera.aspect = origAspect;
