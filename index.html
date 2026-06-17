@@ -9542,7 +9542,7 @@
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
             <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
-            <div class="details">ABN 64 689 223 416 | fencing@secureworksgroup.app | +61 489 267 772</div>
+            <div class="details">ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772</div>
             <h1>CLIENT QUOTE</h1>
           </div>
           <div class="section">
@@ -10301,7 +10301,7 @@
         };
       },
 
-      _swFenceContact() { return { abn: '64 689 223 416', web: 'secureworksgroup.app', phone: '0489 267 772', email: 'fencing@secureworkswa.com.au' }; },
+      _swFenceContact() { return { abn: '64 689 223 416', web: 'secureworksgroup.com.au', phone: '0489 267 772', email: 'fencing@secureworkswa.com.au' }; },
 
       _swQEsc(s) {
         return String(s == null ? '' : s)
@@ -10615,7 +10615,7 @@
           scopeGroups: this._buildFenceScopeOfWorks(d),
           sitePhotos: (function() {
             var photos = (job.checklist && job.checklist.photos) || [];
-            return photos.filter(function(p) { return p.dataUrl && p.dataUrl.indexOf('data:image') === 0; }).slice(0, 6);
+            return photos.filter(function(p) { return p.dataUrl && p.dataUrl.indexOf('data:image') === 0; }).slice(0, 4);
           })()
         };
       },
@@ -10929,10 +10929,7 @@
         var pSite = '';
         if (d.sitePhotos && d.sitePhotos.length > 0) {
           var siteCells = d.sitePhotos.map(function(p) {
-            var capText = (p.label && p.label !== 'image.jpg' && p.label !== 'image.heic') ? p.label : '';
-            return '<div class="site-cell"><img src="' + p.dataUrl + '" alt="' + E(capText || 'Site photo') + '">'
-              + (capText ? '<span class="site-cap">' + E(capText) + '</span>' : '')
-              + '</div>';
+            return '<div class="site-cell"><img src="' + p.dataUrl + '" alt="Site photo"></div>';
           }).join('');
           pSite = '<div id="pgSite" class="pgwrap"><section class="page">'
             + '<style>' + sitePhotoCSS + '</style>'
