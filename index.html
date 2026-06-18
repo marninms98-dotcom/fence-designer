@@ -9690,6 +9690,10 @@
           if (!isFinite(size.length()) || size.length() === 0) return {};
 
           const CAPTURE_W = 1920, CAPTURE_H = 1080;
+          // QUOTE_SS: supersampling multiplier — render at SS× then downscale to
+          // CAPTURE_W × CAPTURE_H. 2 = 4× more pixels → crisp edges, no softness.
+          // Tune here: try 2 (fast) or 3 (slower, marginal gain).
+          const QUOTE_SS = 2;
           const aspect = CAPTURE_W / CAPTURE_H;
           const FRAME_FOV = 34;
           const vFov = FRAME_FOV * Math.PI / 180;
@@ -9698,7 +9702,7 @@
           target.y += Math.min(0.22, size.y * 0.05);
 
           f.renderer.setPixelRatio(1);
-          f.renderer.setSize(CAPTURE_W, CAPTURE_H, false);
+          f.renderer.setSize(CAPTURE_W * QUOTE_SS, CAPTURE_H * QUOTE_SS, false);
           f.renderer.shadowMap.enabled = true;
           f.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
           f.camera.aspect = aspect;
@@ -9814,7 +9818,17 @@
             f.controls.target.copy(look);
             f.controls.update();
             f.renderer.render(f.scene, f.camera);
-            renders[name] = f.renderer.domElement.toDataURL('image/jpeg', 0.93);
+            // Downscale the supersampled frame to the final output dimensions via
+            // a 2D canvas with high-quality bilinear filtering. This gives crisp,
+            // anti-aliased edges at the same final size the quote payload expects.
+            var ssCanvas = document.createElement('canvas');
+            ssCanvas.width = CAPTURE_W;
+            ssCanvas.height = CAPTURE_H;
+            var ssCtx = ssCanvas.getContext('2d');
+            ssCtx.imageSmoothingEnabled = true;
+            ssCtx.imageSmoothingQuality = 'high';
+            ssCtx.drawImage(f.renderer.domElement, 0, 0, CAPTURE_W, CAPTURE_H);
+            renders[name] = ssCanvas.toDataURL('image/jpeg', 0.93);
           }
 
           // All views are fitted independently so the fence occupies the quote frame.
