@@ -7571,13 +7571,14 @@
         const finishTex = this._createColorbondFinishTexture(colourHex, job.profile || 'Trimclad');
         const whiteTint = new THREE.Color(0xffffff);
         const liftFenceColour = (colour, lift) => colour.clone().lerp(whiteTint, lift);
-        const panelMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.06), map: finishTex, metalness: 0.34, roughness: 0.29, side: THREE.DoubleSide });
-        const postMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.04), metalness: 0.40, roughness: 0.27 });
-        const railMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.07), metalness: 0.42, roughness: 0.25 });
-        const plinthMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.05), map: finishTex, metalness: 0.28, roughness: 0.38 });
-        const capMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.12), metalness: 0.44, roughness: 0.23 });
-        const ribHiMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.26), metalness: 0.34, roughness: 0.25 });
-        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.56), metalness: 0.26, roughness: 0.40 });
+        // Matte powder-coat values — tunable; low metalness keeps dark Colorbond true to colour
+        const panelMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.00), map: finishTex, metalness: 0.10, roughness: 0.52, side: THREE.DoubleSide });
+        const postMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.00), metalness: 0.12, roughness: 0.50 });
+        const railMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.02), metalness: 0.12, roughness: 0.48 });
+        const plinthMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.00), map: finishTex, metalness: 0.10, roughness: 0.55 });
+        const capMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.04), metalness: 0.14, roughness: 0.46 });
+        const ribHiMat = new THREE.MeshStandardMaterial({ color: liftFenceColour(fenceCol, 0.10), metalness: 0.12, roughness: 0.45 });
+        const ribLoMat = new THREE.MeshStandardMaterial({ color: fenceCol.clone().multiplyScalar(0.72), metalness: 0.10, roughness: 0.50 });
         const earthMat = new THREE.MeshStandardMaterial({ color: 0xB08A5C, roughness: 0.82, metalness: 0.0 });
         const galvMat = new THREE.MeshStandardMaterial({ color: 0xC5C9C6, metalness: 0.62, roughness: 0.30 });
         const concreteMat = new THREE.MeshStandardMaterial({ color: 0xC7C4B8, roughness: 0.78, metalness: 0.0 });
