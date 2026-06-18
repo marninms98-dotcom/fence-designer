@@ -7385,26 +7385,158 @@
       },
 
       // ── Procedural textures ──
+      // Wave4: photoreal procedural lawn. Multi-octave colour base + tens of thousands
+      // of tapered, curved, clustered blades + low-contrast mow stripes, on a 2048px
+      // tile (~1m of real lawn). No external image assets. The same canvas is reused
+      // as a bumpMap by the caller so the key light catches the blades for real depth.
       _createGrassTexture(darken) {
+        const S = 2048;                 // high-res tile to hold up at 2x supersampling
         const c = document.createElement('canvas');
-        c.width = 256; c.height = 256;
+        c.width = S; c.height = S;
         const ctx = c.getContext('2d');
-        ctx.fillStyle = darken ? '#4E7A32' : '#5C8A3C';
-        ctx.fillRect(0, 0, 256, 256);
-        for (let i = 0; i < 2000; i++) {
-          const bx = Math.random() * 256, by = Math.random() * 256;
-          const v = Math.floor(Math.random() * 30) - 15;
-          ctx.strokeStyle = `rgba(${92+v},${138+v},${60+v},0.6)`;
-          ctx.lineWidth = 0.5 + Math.random();
-          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + (Math.random()-0.5)*3, by - 2 - Math.random()*4); ctx.stroke();
+
+        // Seeded RNG so each draw is deterministic-ish but varied (mulberry32).
+        let seed = (darken ? 0x9E3779B1 : 0x85EBCA77) >>> 0;
+        const rnd = () => {
+          seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+          let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const rr = (a, b) => a + (b - a) * rnd();
+
+        // ── 1. Multi-octave colour base ──────────────────────────────────────
+        // Manicured lawn greens: a cool healthy mid-green, a warmer lit green,
+        // a deep shadow green, plus dry/olive patches. darken => deeper + cooler
+        // back lawn so it recedes.
+        const d = darken ? 1 : 0;
+        // Wave4 envpolish: healthier, more saturated natural mid-green base (was
+        // [70,108,54]/[58,92,46] which read pale once tiled). Front = lush mid-green,
+        // back = slightly deeper + cooler so it recedes.
+        const base = darken ? [52, 86, 42] : [66, 104, 48];
+        ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
+        ctx.fillRect(0, 0, S, S);
+
+        // Large-scale unevenness: soft radial blobs of varied greens (cool, warm,
+        // dry/olive). Drawn big and translucent so they read as natural patches,
+        // not stripes. globalCompositeOperation kept default (source-over).
+        const blobCols = [
+          [88, 128, 62],   // bright warm fresh growth
+          [54, 86, 44],    // cool shadowed dip
+          [104, 120, 66],  // dry olive patch
+          [76, 116, 58],   // healthy mid
+          [120, 132, 78],  // sun-bleached straw-green
+        ];
+        for (let i = 0; i < 90; i++) {
+          const bx = rr(0, S), by = rr(0, S);
+          const radius = rr(S * 0.06, S * 0.30);
+          const col = blobCols[(rnd() * blobCols.length) | 0];
+          const cv = (rr(-12, 12)) | 0;
+          const g = ctx.createRadialGradient(bx, by, 0, bx, by, radius);
+          const a = rr(0.06, 0.20);
+          g.addColorStop(0, `rgba(${col[0]+cv},${col[1]+cv},${col[2]+(cv>>1)},${a})`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, S, S);
         }
-        for (let p = 0; p < 40; p++) {
-          ctx.fillStyle = 'rgba(140,130,80,0.15)';
-          ctx.fillRect(Math.random()*256, Math.random()*256, 3+Math.random()*8, 2+Math.random()*5);
+
+        // Fine high-frequency mottle so the base never reads as flat fill even
+        // before blades. Tiny soft dots across the whole tile.
+        for (let i = 0; i < 6000; i++) {
+          const v = (rr(-22, 22)) | 0;
+          ctx.fillStyle = `rgba(${base[0]+v},${base[1]+v+6},${base[2]+(v>>1)},0.05)`;
+          ctx.fillRect(rr(0, S), rr(0, S), rr(2, 7), rr(2, 7));
         }
+
+        // ── 2. (removed) Mow stripes ─────────────────────────────────────────
+        // Wave4 envpolish: the diagonal mow stripes were a structured element that,
+        // tiled, repeated into a visible quilt/grid. Removed entirely — natural lawn
+        // variation now comes only from the multi-octave colour base + blades.
+
+        // ── 3. Blade detail ──────────────────────────────────────────────────
+        // Tens of thousands of curved, tapered blades grouped into tufts. Each
+        // blade is a filled quadratic sliver (root wide+dark, tip narrow+light)
+        // for a real tonal range incl. base occlusion + tip highlights. A few
+        // dry/yellow blades break up the green.
+        const drawBlade = (x, y, len, lean, width, hue) => {
+          // hue: 0..1 picks a tone along the palette. Build root and tip colours.
+          const tipBoost = 1; // brighter at tip
+          let r, g, b, rootR, rootG, rootB;
+          if (hue > 0.93) {
+            // dry / straw blade
+            r = 188; g = 170; b = 96;
+            rootR = 110; rootG = 96; rootB = 54;
+          } else {
+            const lift = rr(-18, 26);
+            r = (darken ? 70 : 86) + lift;
+            g = (darken ? 118 : 138) + lift + 8 * tipBoost;
+            b = (darken ? 52 : 60) + (lift * 0.5);
+            rootR = r - 46; rootG = g - 52; rootB = b - 30;
+          }
+          const tipx = x + lean;
+          const tipy = y - len;
+          const ctrlx = x + lean * 0.45 + rr(-1.5, 1.5);
+          const ctrly = y - len * 0.55;
+          // dark side (root occlusion) gradient along the blade
+          const grad = ctx.createLinearGradient(x, y, tipx, tipy);
+          grad.addColorStop(0, `rgb(${rootR|0},${rootG|0},${rootB|0})`);
+          grad.addColorStop(0.5, `rgb(${(r*0.92)|0},${(g*0.92)|0},${(b*0.92)|0})`);
+          grad.addColorStop(1, `rgb(${Math.min(255,r+24)|0},${Math.min(255,g+30)|0},${Math.min(255,b+16)|0})`);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(x - width, y);
+          ctx.quadraticCurveTo(ctrlx - width * 0.4, ctrly, tipx, tipy);
+          ctx.quadraticCurveTo(ctrlx + width * 0.4, ctrly, x + width, y);
+          ctx.closePath();
+          ctx.fill();
+        };
+
+        // Cluster blades into tufts: pick tuft centres, then scatter many blades
+        // around each with shared lean direction (looks like real grass habit).
+        const TUFTS = 2600;
+        for (let t = 0; t < TUFTS; t++) {
+          const cx = rr(0, S), cy = rr(0, S);
+          const tuftLean = rr(-3.5, 3.5);          // shared lean per tuft
+          const tuftLen = rr(0.85, 1.25);          // length multiplier per tuft
+          const dryTuft = rnd() < 0.04;            // occasional dry patch
+          const n = (rr(6, 16)) | 0;
+          for (let k = 0; k < n; k++) {
+            const ox = cx + rr(-9, 9);
+            const oy = cy + rr(-9, 9);
+            const len = rr(8, 17) * tuftLen;
+            const lean = tuftLean + rr(-1.6, 1.6);
+            const width = rr(0.7, 1.5);
+            const hue = dryTuft ? rr(0.94, 1) : rnd();
+            drawBlade(ox, oy, len, lean, width, hue);
+          }
+        }
+
+        // Extra fine scatter of single short blades to fill gaps between tufts
+        // (prevents bald base showing through; pushes density to ~40k strokes).
+        for (let i = 0; i < 14000; i++) {
+          drawBlade(rr(0, S), rr(0, S), rr(5, 11), rr(-2.5, 2.5), rr(0.6, 1.1), rnd());
+        }
+
+        // A sparse top layer of bright highlight blades catching the key light.
+        for (let i = 0; i < 2600; i++) {
+          const x = rr(0, S), y = rr(0, S), len = rr(7, 14), lean = rr(-2.5, 2.5);
+          ctx.strokeStyle = `rgba(${190+((rr(-20,30))|0)},${224+((rr(-20,20))|0)},${150+((rr(-20,30))|0)},${rr(0.18,0.5)})`;
+          ctx.lineWidth = rr(0.4, 0.9);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.quadraticCurveTo(x + lean * 0.5, y - len * 0.55, x + lean, y - len);
+          ctx.stroke();
+        }
+
         const tex = new THREE.CanvasTexture(c);
-        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(20, 20);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = 16;            // critical: sharp detail at the grazing ground angle
+        // Wave4 envpolish: dropped 13->5.5. A bigger world tile means the (now
+        // stripe-free) texture repeats far less often across the lawn, so no visible
+        // quilt; the 2048px tile carries enough blade detail to hold up.
+        tex.repeat.set(5.5, 5.5);
+        tex.needsUpdate = true;
         return tex;
       },
 
@@ -9710,26 +9842,49 @@
           f.camera.updateProjectionMatrix();
           f.activeCamera = f.camera;
           f.controls.object = f.camera;
-          f.renderer.toneMappingExposure = 1.16;
-          f.scene.background = new THREE.Color(0xFBFCF7);
+          f.renderer.toneMappingExposure = 1.16; // Wave4: tunable
+          // Wave4 envpolish: subtle vertical sky gradient (deeper blue up top, lighter
+          // near the horizon) instead of the flat 0xDCE7EE. Kept soft + light so it
+          // adds depth without overpowering the fence on the dark quote backdrop.
+          (function() {
+            var sc = document.createElement('canvas');
+            sc.width = 4; sc.height = 256;
+            var sctx = sc.getContext('2d');
+            var sg = sctx.createLinearGradient(0, 0, 0, 256);
+            sg.addColorStop(0.00, '#B9CEDF'); // top: slightly deeper sky blue
+            sg.addColorStop(0.55, '#D2E0EA');
+            sg.addColorStop(1.00, '#E7EEF1'); // horizon: lighter, near the old tone
+            sctx.fillStyle = sg;
+            sctx.fillRect(0, 0, 4, 256);
+            var skyTex = new THREE.CanvasTexture(sc);
+            skyTex.encoding = THREE.sRGBEncoding; // r128: match renderer.outputEncoding so the gradient isn't double-gamma'd
+            skyTex.needsUpdate = true;
+            f.scene.background = skyTex;
+          })();
           f.scene.fog = null;
           if (f.dimGrp) f.dimGrp.visible = false;
           if (f.envGrp) f.envGrp.visible = false;
 
           const studioWidth = Math.max(size.x + 3.0, 10);
           const studioDepth = Math.max(size.z + 5.5, 7.0);
+          // Wave4: muted green-grey ground so any ground beyond the lawn blends (was cream 0xF1EDE2)
           studioGround = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, studioDepth),
-            new THREE.MeshStandardMaterial({ color: 0xF1EDE2, roughness: 0.80, metalness: 0.0 })
+            new THREE.MeshStandardMaterial({ color: 0x6A7E50, roughness: 0.80, metalness: 0.0 }) // Wave4: tunable
           );
           studioGround.rotation.x = -Math.PI / 2;
           studioGround.position.set(centre.x, -0.022, centre.z + 0.10);
           studioGround.receiveShadow = true;
           f.scene.add(studioGround);
 
+          // Wave4: photoreal procedural lawn. Build each texture once, reuse for map + bumpMap
+          // so the directional key light catches the blades for real depth. Near-neutral tint
+          // lets the texture's own multi-octave greens drive the look (a flat green colour
+          // multiply was a key reason the old lawn read flat).
+          const grassTexFront = this._createGrassTexture();
           const quoteGrassFront = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(2.3, studioDepth * 0.45)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.88, metalness: 0.0, color: 0xD5E8BC })
+            new THREE.MeshStandardMaterial({ map: grassTexFront, bumpMap: grassTexFront, bumpScale: 0.10, roughness: 0.95, metalness: 0.0, color: 0x83A35C }) // Wave4 envpolish: bumpScale 0.45->0.10 (subtle relief, no grid); natural green tint (was pale 0xE8EAE2)
           );
           quoteGrassFront.rotation.x = -Math.PI / 2;
           quoteGrassFront.position.set(centre.x, -0.016, centre.z + Math.max(1.25, studioDepth * 0.22));
@@ -9737,9 +9892,10 @@
           f.scene.add(quoteGrassFront);
           studioContext.push(quoteGrassFront);
 
+          const grassTexBack = this._createGrassTexture(0.9);
           const quoteGrassBack = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(1.8, studioDepth * 0.35)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.88, metalness: 0.0, color: 0xBDD2A8 })
+            new THREE.MeshStandardMaterial({ map: grassTexBack, bumpMap: grassTexBack, bumpScale: 0.10, roughness: 0.95, metalness: 0.0, color: 0x6E8C4C }) // Wave4 envpolish: bumpScale 0.45->0.10; deeper/cooler natural green so back lawn recedes (was pale 0xDCE0D6)
           );
           quoteGrassBack.rotation.x = -Math.PI / 2;
           quoteGrassBack.position.set(centre.x, -0.017, centre.z - Math.max(1.25, studioDepth * 0.20));
@@ -9747,26 +9903,23 @@
           f.scene.add(quoteGrassBack);
           studioContext.push(quoteGrassBack);
 
-          const quoteMulch = new THREE.Mesh(
-            new THREE.PlaneGeometry(Math.max(size.x + 0.8, 4), 0.42),
-            new THREE.MeshStandardMaterial({ map: this._createMulchTexture(), roughness: 0.84, metalness: 0.0, color: 0xC58246 })
+          // Wave4: REMOVED quoteMulch (bright orange 0xC58246 toy band) — replaced with soil shadow strip below
+          // Wave4: REMOVED quoteKerb (tan 0xDCC89E band)
+
+          // Wave4: thin dark soil/shadow strip at fence base for grounding (subtle, NOT a bright band)
+          const quoteSoilStrip = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(size.x + 1.2, 5), 0.18), // Wave4: tunable depth ~0.18m
+            new THREE.MeshStandardMaterial({ color: 0x3F352A, roughness: 0.95, metalness: 0.0 }) // Wave4: tunable
           );
-          quoteMulch.rotation.x = -Math.PI / 2;
-          quoteMulch.position.set(centre.x, -0.012, centre.z + 0.34);
-          quoteMulch.receiveShadow = true;
-          f.scene.add(quoteMulch);
-          studioContext.push(quoteMulch);
+          quoteSoilStrip.rotation.x = -Math.PI / 2;
+          quoteSoilStrip.position.set(centre.x, -0.010, centre.z + 0.09); // just in front of fence base, y above lawn
+          quoteSoilStrip.receiveShadow = true;
+          f.scene.add(quoteSoilStrip);
+          studioContext.push(quoteSoilStrip);
 
-          const edgeMat = new THREE.MeshStandardMaterial({ color: 0xDCC89E, roughness: 0.72, metalness: 0.0 });
-          const quoteKerb = new THREE.Mesh(new THREE.BoxGeometry(Math.max(size.x + 0.8, 4), 0.045, 0.055), edgeMat);
-          quoteKerb.position.set(centre.x, 0.005, centre.z + 0.10);
-          quoteKerb.castShadow = true;
-          quoteKerb.receiveShadow = true;
-          f.scene.add(quoteKerb);
-          studioContext.push(quoteKerb);
-
-          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xDCD2BE, 0.76);
-          studioKey = new THREE.DirectionalLight(0xFFF4E2, 1.16);
+          // Wave4: punchier warm lighting — more depth/contrast (was amb 0.76, key 1.16, fill 0.46, rim 0.34)
+          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xDCD2BE, 0.55); // Wave4: tunable (was 0.76)
+          studioKey = new THREE.DirectionalLight(0xFFF4E2, 1.38); // Wave4: tunable (was 1.16)
           studioKey.position.set(centre.x - 4.5, 8.5, centre.z + 5.5);
           studioKey.castShadow = true;
           studioKey.shadow.mapSize.width = 2048;
@@ -9774,9 +9927,9 @@
           studioKey.shadow.camera.left = -12; studioKey.shadow.camera.right = 12;
           studioKey.shadow.camera.top = 8; studioKey.shadow.camera.bottom = -8;
           studioKey.shadow.bias = -0.0003;
-          studioFill = new THREE.DirectionalLight(0xF8FBFF, 0.46);
+          studioFill = new THREE.DirectionalLight(0xF8FBFF, 0.30); // Wave4: tunable (was 0.46)
           studioFill.position.set(centre.x + 5, 3.5, centre.z - 4);
-          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.34);
+          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.40); // Wave4: tunable (was 0.34)
           studioRim.position.set(centre.x + 2.5, 4.2, centre.z - 5.2);
           f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill); f.scene.add(studioRim);
 
