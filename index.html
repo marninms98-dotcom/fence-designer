@@ -10621,7 +10621,7 @@
 '#pg1 .coverband .clientblock .cname{font-weight:800;font-size:21px;color:var(--dark-blue);letter-spacing:-0.4px;margin:8px 0 12px;}',
 '#pg1 .coverband .crow{display:flex;gap:12px;font-size:12.5px;color:var(--body-text);line-height:1.7;margin-bottom:5px;}',
 '#pg1 .coverband .crow b{color:var(--mid-blue);font-weight:700;min-width:48px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding-top:3px;}',
-'#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:560px;overflow:hidden;background:var(--blue-950);}',
+'#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:430px;overflow:hidden;background:var(--blue-950);}',
 '#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
 '#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
 '#pg2 .hero .herotag{position:absolute;left:0;top:0;z-index:3;background:var(--blue-950);color:#fff;display:flex;align-items:center;gap:11px;padding:11px 18px 11px 16px;}',
@@ -10631,6 +10631,19 @@
 '#pg2 .hero .herocap .vname{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:rgba(255,255,255,0.72);margin-bottom:7px;}',
 '#pg2 .hero .herocap .vtitle{font-weight:800;font-size:23px;letter-spacing:-0.6px;line-height:1.05;color:#fff;}',
 '#pg2 .hero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:4;}',
+/* Wave 5: elevation thumbnail row under the hero (front / side / aerial).
+   Renders are 16:9 (1920x1080); the cell is wider than 16:9 in the 2-col
+   case, so the image FILLS a fixed ~16:9 box (object-fit:cover) with no
+   white side-bars. Fixed height (not aspect-ratio) so html2canvas rasterises
+   the PDF path identically to the live web page.
+   Grid auto-sizes to however many angles are present (1-3) so a missing
+   angle just leaves the row tighter rather than showing an empty cell. */
+'#pg2 .thumb-row{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:14px 52px 0;}',
+'#pg2 .thumb-row[data-count="1"]{grid-template-columns:1fr;}',
+'#pg2 .thumb-row[data-count="2"]{grid-template-columns:1fr 1fr;}',
+'#pg2 .thumb{position:relative;overflow:hidden;background:#fff;border:1px solid var(--blue-100);}',
+'#pg2 .thumb img{display:block;width:100%;height:190px;object-fit:cover;object-position:center;background:#fff;}',
+'#pg2 .thumb .tcap{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--mid-blue);text-align:center;padding:6px 4px 5px;background:var(--warm-50);border-top:1px solid var(--blue-100);}',
 '#pg2 .aerialinset{position:absolute;right:36px;bottom:30px;z-index:5;width:188px;background:#fff;padding:6px;box-shadow:0 10px 34px rgba(26,39,46,0.45);}',
 '#pg2 .aerialinset .ainner{position:relative;overflow:hidden;}',
 '#pg2 .aerialinset img{display:block;width:100%;height:128px;object-fit:cover;}',
@@ -10828,8 +10841,14 @@
 /* 1.4 Cover keeps the patio geometry on web: full 900px hero (photo large,
    title sits low via margin-top:auto) + base coverband. Centred, not resized. */
 
-/* 1.5 Design page (pg2): render fills width */
-'body.web #pg2 .hero{height:clamp(320px,40vw,560px);}',
+/* 1.5 Design page (pg2): render fills width. Hero capped to match the new
+   PDF geometry (Wave 5 dropped it to 430px to make room for the thumbnail row). */
+'body.web #pg2 .hero{height:clamp(300px,34vw,430px);}',
+/* Wave 5: subtle zoom on thumbnail hover (mirrors locked patio .thumb hover). */
+'@media (hover:hover) and (pointer:fine){'
++ 'body.web #pg2 .thumb img{transition:transform .45s ease;}'
++ 'body.web #pg2 .thumb:hover img{transform:scale(1.05);}'
++ '}',
 
 /* 1.6 Investment page (pg4): keep position context for absolute children */
 'body.web #pg4 .page{position:relative;}',
@@ -11373,13 +11392,35 @@
         // The 3D render appears HERE on the design page (Marnin 2026-06-16). The pg2 hero
         // slot is styled for a render (object-fit:contain on a white bg, 560px). Empty
         // until a render is generated, with the navy scrim providing the wash.
-        var pg2HeroSrc = imgs.render || '';
+        // Wave 5: big hero (the FRONT elevation, imgs.renderFront) + a row of two small
+        // supporting elevation thumbnails (side / aerial) below it. For a fence the front
+        // view reads best as the main image. The four angles all arrive on imgs
+        // (render/renderFront/renderSide/renderTop, populated Wave 1 for both PDF and web
+        // paths). Thumbnails reuse the data-URIs already in the payload — no hero
+        // duplication, no extra capture.
+        var pg2HeroSrc = imgs.renderFront || imgs.render || '';
+        // Build only the thumbnail cells that actually have a data-URI so an empty
+        // angle never shows a broken/blank box. If none are present, the whole row
+        // is omitted and the page falls back to the hero-only layout.
+        var pg2Thumbs = [
+          { src: imgs.renderSide,  cap: 'Side',  alt: 'Side elevation' },
+          { src: imgs.renderTop,   cap: 'Aerial', alt: 'Aerial view' }
+        ].filter(function(t) { return !!t.src; });
+        var pg2ThumbRow = '';
+        if (pg2Thumbs.length) {
+          var pg2ThumbCells = pg2Thumbs.map(function(t) {
+            return '<div class="thumb">' + img(t.src, '', t.alt)
+              + '<div class="tcap">' + E(t.cap) + '</div></div>';
+          }).join('');
+          pg2ThumbRow = '<div class="thumb-row" data-count="' + pg2Thumbs.length + '">' + pg2ThumbCells + '</div>';
+        }
         var p2 = '<div id="pg2" class="pgwrap"><section class="page">'
           + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
           + '<div class="hero">' + img(pg2HeroSrc, 'heroimg', 'Fencing crew on site') + '<div class="heroscrim"></div>'
           + '<div class="herotag"><span class="num">02</span><span class="txt">Your Design</span></div>'
           + '<div class="herocap"><div class="vname">Fence Elevation</div><div class="vtitle">Your boundary, before we<br>set a single post.</div></div>'
           + '<div class="heroedge"></div></div>'
+          + pg2ThumbRow
           + '<div class="body"><div class="intro"><p class="lede">' + E(d.lede) + '</p></div>'
           + (runRows ? ('<div class="runwrap"><div class="shead"><span class="snum">A</span><span class="slabel">Fence Runs</span></div><div class="shead-bar"></div>'
               + '<div class="runlist">' + runRows + '</div></div>') : '')
