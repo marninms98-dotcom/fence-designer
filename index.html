@@ -11389,17 +11389,17 @@
         // The 3D render appears HERE on the design page (Marnin 2026-06-16). The pg2 hero
         // slot is styled for a render (object-fit:contain on a white bg, 560px). Empty
         // until a render is generated, with the navy scrim providing the wash.
-        // Wave 5: big hero (imgs.render, the 3/4 perspective) + a row of three small
-        // elevation thumbnails (front / side / aerial) below it, mirroring the PATIO
-        // design page. The four angles all arrive on imgs (render/renderFront/renderSide/
-        // renderTop, populated Wave 1 for both PDF and web paths). Thumbnails reuse the
-        // same data-URIs already in the payload — no hero duplication, no extra capture.
-        var pg2HeroSrc = imgs.render || '';
+        // Wave 5: big hero (the FRONT elevation, imgs.renderFront) + a row of two small
+        // supporting elevation thumbnails (side / aerial) below it. For a fence the front
+        // view reads best as the main image. The four angles all arrive on imgs
+        // (render/renderFront/renderSide/renderTop, populated Wave 1 for both PDF and web
+        // paths). Thumbnails reuse the data-URIs already in the payload — no hero
+        // duplication, no extra capture.
+        var pg2HeroSrc = imgs.renderFront || imgs.render || '';
         // Build only the thumbnail cells that actually have a data-URI so an empty
         // angle never shows a broken/blank box. If none are present, the whole row
         // is omitted and the page falls back to the hero-only layout.
         var pg2Thumbs = [
-          { src: imgs.renderFront, cap: 'Front', alt: 'Front elevation' },
           { src: imgs.renderSide,  cap: 'Side',  alt: 'Side elevation' },
           { src: imgs.renderTop,   cap: 'Aerial', alt: 'Aerial view' }
         ].filter(function(t) { return !!t.src; });
