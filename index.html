@@ -10632,14 +10632,17 @@
 '#pg2 .hero .herocap .vtitle{font-weight:800;font-size:23px;letter-spacing:-0.6px;line-height:1.05;color:#fff;}',
 '#pg2 .hero .heroedge{position:absolute;left:0;bottom:0;height:4px;width:120px;background:var(--orange);z-index:4;}',
 /* Wave 5: elevation thumbnail row under the hero (front / side / aerial).
-   Renders sit on white (object-fit:contain) to match the hero render style.
+   Renders are 16:9 (1920x1080); the cell is wider than 16:9 in the 2-col
+   case, so the image FILLS a fixed ~16:9 box (object-fit:cover) with no
+   white side-bars. Fixed height (not aspect-ratio) so html2canvas rasterises
+   the PDF path identically to the live web page.
    Grid auto-sizes to however many angles are present (1-3) so a missing
    angle just leaves the row tighter rather than showing an empty cell. */
 '#pg2 .thumb-row{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:14px 52px 0;}',
 '#pg2 .thumb-row[data-count="1"]{grid-template-columns:1fr;}',
 '#pg2 .thumb-row[data-count="2"]{grid-template-columns:1fr 1fr;}',
 '#pg2 .thumb{position:relative;overflow:hidden;background:#fff;border:1px solid var(--blue-100);}',
-'#pg2 .thumb img{display:block;width:100%;height:124px;object-fit:contain;object-position:center;background:#fff;}',
+'#pg2 .thumb img{display:block;width:100%;height:190px;object-fit:cover;object-position:center;background:#fff;}',
 '#pg2 .thumb .tcap{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--mid-blue);text-align:center;padding:6px 4px 5px;background:var(--warm-50);border-top:1px solid var(--blue-100);}',
 '#pg2 .aerialinset{position:absolute;right:36px;bottom:30px;z-index:5;width:188px;background:#fff;padding:6px;box-shadow:0 10px 34px rgba(26,39,46,0.45);}',
 '#pg2 .aerialinset .ainner{position:relative;overflow:hidden;}',
