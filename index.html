@@ -7387,12 +7387,12 @@
       // ── Procedural textures ──
       _createGrassTexture(darken) {
         const c = document.createElement('canvas');
-        c.width = 256; c.height = 256;
+        c.width = 512; c.height = 512; // Wave4: 256->512 to reduce tiling artefacts
         const ctx = c.getContext('2d');
         ctx.fillStyle = darken ? '#4E7A32' : '#5C8A3C';
-        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillRect(0, 0, 512, 512);
         for (let i = 0; i < 2000; i++) {
-          const bx = Math.random() * 256, by = Math.random() * 256;
+          const bx = Math.random() * 512, by = Math.random() * 512;
           const v = Math.floor(Math.random() * 30) - 15;
           ctx.strokeStyle = `rgba(${92+v},${138+v},${60+v},0.6)`;
           ctx.lineWidth = 0.5 + Math.random();
@@ -7400,7 +7400,7 @@
         }
         for (let p = 0; p < 40; p++) {
           ctx.fillStyle = 'rgba(140,130,80,0.15)';
-          ctx.fillRect(Math.random()*256, Math.random()*256, 3+Math.random()*8, 2+Math.random()*5);
+          ctx.fillRect(Math.random()*512, Math.random()*512, 3+Math.random()*8, 2+Math.random()*5);
         }
         const tex = new THREE.CanvasTexture(c);
         tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
@@ -9710,26 +9710,28 @@
           f.camera.updateProjectionMatrix();
           f.activeCamera = f.camera;
           f.controls.object = f.camera;
-          f.renderer.toneMappingExposure = 1.16;
-          f.scene.background = new THREE.Color(0xFBFCF7);
+          f.renderer.toneMappingExposure = 1.16; // Wave4: tunable
+          f.scene.background = new THREE.Color(0xDCE7EE); // Wave4: soft natural sky (was 0xFBFCF7)
           f.scene.fog = null;
           if (f.dimGrp) f.dimGrp.visible = false;
           if (f.envGrp) f.envGrp.visible = false;
 
           const studioWidth = Math.max(size.x + 3.0, 10);
           const studioDepth = Math.max(size.z + 5.5, 7.0);
+          // Wave4: muted green-grey ground so any ground beyond the lawn blends (was cream 0xF1EDE2)
           studioGround = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, studioDepth),
-            new THREE.MeshStandardMaterial({ color: 0xF1EDE2, roughness: 0.80, metalness: 0.0 })
+            new THREE.MeshStandardMaterial({ color: 0x6A7E50, roughness: 0.80, metalness: 0.0 }) // Wave4: tunable
           );
           studioGround.rotation.x = -Math.PI / 2;
           studioGround.position.set(centre.x, -0.022, centre.z + 0.10);
           studioGround.receiveShadow = true;
           f.scene.add(studioGround);
 
+          // Wave4: natural lawn greens — richer, subtle front/back difference (was pastel 0xD5E8BC / 0xBDD2A8)
           const quoteGrassFront = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(2.3, studioDepth * 0.45)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.88, metalness: 0.0, color: 0xD5E8BC })
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(), roughness: 0.90, metalness: 0.0, color: 0x6F8F4A }) // Wave4: tunable
           );
           quoteGrassFront.rotation.x = -Math.PI / 2;
           quoteGrassFront.position.set(centre.x, -0.016, centre.z + Math.max(1.25, studioDepth * 0.22));
@@ -9739,7 +9741,7 @@
 
           const quoteGrassBack = new THREE.Mesh(
             new THREE.PlaneGeometry(studioWidth, Math.max(1.8, studioDepth * 0.35)),
-            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.88, metalness: 0.0, color: 0xBDD2A8 })
+            new THREE.MeshStandardMaterial({ map: this._createGrassTexture(0.9), roughness: 0.90, metalness: 0.0, color: 0x5E7E3F }) // Wave4: tunable
           );
           quoteGrassBack.rotation.x = -Math.PI / 2;
           quoteGrassBack.position.set(centre.x, -0.017, centre.z - Math.max(1.25, studioDepth * 0.20));
@@ -9747,26 +9749,23 @@
           f.scene.add(quoteGrassBack);
           studioContext.push(quoteGrassBack);
 
-          const quoteMulch = new THREE.Mesh(
-            new THREE.PlaneGeometry(Math.max(size.x + 0.8, 4), 0.42),
-            new THREE.MeshStandardMaterial({ map: this._createMulchTexture(), roughness: 0.84, metalness: 0.0, color: 0xC58246 })
+          // Wave4: REMOVED quoteMulch (bright orange 0xC58246 toy band) — replaced with soil shadow strip below
+          // Wave4: REMOVED quoteKerb (tan 0xDCC89E band)
+
+          // Wave4: thin dark soil/shadow strip at fence base for grounding (subtle, NOT a bright band)
+          const quoteSoilStrip = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(size.x + 1.2, 5), 0.18), // Wave4: tunable depth ~0.18m
+            new THREE.MeshStandardMaterial({ color: 0x3F352A, roughness: 0.95, metalness: 0.0 }) // Wave4: tunable
           );
-          quoteMulch.rotation.x = -Math.PI / 2;
-          quoteMulch.position.set(centre.x, -0.012, centre.z + 0.34);
-          quoteMulch.receiveShadow = true;
-          f.scene.add(quoteMulch);
-          studioContext.push(quoteMulch);
+          quoteSoilStrip.rotation.x = -Math.PI / 2;
+          quoteSoilStrip.position.set(centre.x, -0.010, centre.z + 0.09); // just in front of fence base, y above lawn
+          quoteSoilStrip.receiveShadow = true;
+          f.scene.add(quoteSoilStrip);
+          studioContext.push(quoteSoilStrip);
 
-          const edgeMat = new THREE.MeshStandardMaterial({ color: 0xDCC89E, roughness: 0.72, metalness: 0.0 });
-          const quoteKerb = new THREE.Mesh(new THREE.BoxGeometry(Math.max(size.x + 0.8, 4), 0.045, 0.055), edgeMat);
-          quoteKerb.position.set(centre.x, 0.005, centre.z + 0.10);
-          quoteKerb.castShadow = true;
-          quoteKerb.receiveShadow = true;
-          f.scene.add(quoteKerb);
-          studioContext.push(quoteKerb);
-
-          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xDCD2BE, 0.76);
-          studioKey = new THREE.DirectionalLight(0xFFF4E2, 1.16);
+          // Wave4: punchier warm lighting — more depth/contrast (was amb 0.76, key 1.16, fill 0.46, rim 0.34)
+          studioAmb = new THREE.HemisphereLight(0xFFFFFF, 0xDCD2BE, 0.55); // Wave4: tunable (was 0.76)
+          studioKey = new THREE.DirectionalLight(0xFFF4E2, 1.38); // Wave4: tunable (was 1.16)
           studioKey.position.set(centre.x - 4.5, 8.5, centre.z + 5.5);
           studioKey.castShadow = true;
           studioKey.shadow.mapSize.width = 2048;
@@ -9774,9 +9773,9 @@
           studioKey.shadow.camera.left = -12; studioKey.shadow.camera.right = 12;
           studioKey.shadow.camera.top = 8; studioKey.shadow.camera.bottom = -8;
           studioKey.shadow.bias = -0.0003;
-          studioFill = new THREE.DirectionalLight(0xF8FBFF, 0.46);
+          studioFill = new THREE.DirectionalLight(0xF8FBFF, 0.30); // Wave4: tunable (was 0.46)
           studioFill.position.set(centre.x + 5, 3.5, centre.z - 4);
-          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.34);
+          studioRim = new THREE.DirectionalLight(0xDDEEFF, 0.40); // Wave4: tunable (was 0.34)
           studioRim.position.set(centre.x + 2.5, 4.2, centre.z - 5.2);
           f.scene.add(studioAmb); f.scene.add(studioKey); f.scene.add(studioFill); f.scene.add(studioRim);
 
