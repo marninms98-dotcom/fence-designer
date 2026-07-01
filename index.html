@@ -13782,6 +13782,15 @@
           app._updateHeaderStatus();
           if (typeof updateButtonStages === 'function') updateButtonStages();
         }
+        // (M4 G-F4) Freeze scope before presenting the send modal so the send path
+        // always produces a frozen record. Backend dedup (G-B4) prevents spam
+        // revisions when scope is unchanged — no guard needed here beyond try/catch.
+        try {
+          var __fjid = sync.getJobId ? sync.getJobId() : null;
+          if (__fjid && typeof _fenceFreezeScopeAndUploadRenders === 'function') {
+            await _fenceFreezeScopeAndUploadRenders(__fjid);
+          }
+        } catch(e) { console.warn('[SendQuote] pre-send freeze failed (non-blocking):', e && e.message); }
       }
 
       // Step 3: Collect output data
@@ -14468,6 +14477,7 @@
                   subject: customSubject || undefined,
                   attachment_paths: libraryPaths.length > 0 ? libraryPaths : undefined,
                   scoper_name: scoperName !== 'The SecureWorks Team' ? scoperName : undefined,
+                  supersede_prior: (new URLSearchParams(window.location.search).get('edit') === '1'),
                 })
               });
               if (sendRes.ok) {
@@ -14535,6 +14545,7 @@
                     subject: customSubject || undefined,
                     attachment_paths: libraryPaths.length > 0 ? libraryPaths : undefined,
                     scoper_name: scoperName !== 'The SecureWorks Team' ? scoperName : undefined,
+                    supersede_prior: (new URLSearchParams(window.location.search).get('edit') === '1'),
                   })
                 });
                 var sendData = {};

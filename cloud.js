@@ -496,7 +496,12 @@
       }
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load job');
-      return data.job;
+      var job = data.job;
+      if (job) {
+        job.latest_frozen_scope_revision_id = data.latest_frozen_scope_revision_id || null;
+        job.frozen_revision_count = data.frozen_revision_count || 0;
+      }
+      return job;
     },
 
     // List photos/videos for a job (via edge function)
