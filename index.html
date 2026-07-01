@@ -10956,6 +10956,27 @@
         });
       },
 
+      // (M1b) PUT a blob to a Supabase signed upload URL, reliably.
+      // Sends x-upsert:true (required once prepare_quote reuses an existing draft's
+      // path — harmless on a fresh path). Retries once on a non-ok/thrown result.
+      // Returns true only if a PUT returned ok. Never throws.
+      async _swVerifiedPut(url, blob, contentType) {
+        for (var attempt = 0; attempt < 2; attempt++) {
+          try {
+            var res = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': contentType, 'x-upsert': 'true' },
+              body: blob
+            });
+            if (res.ok) return true;
+            console.warn('[SendQuote] PUT not ok (attempt ' + (attempt + 1) + '):', res.status);
+          } catch (e) {
+            console.warn('[SendQuote] PUT threw (attempt ' + (attempt + 1) + '):', e.message);
+          }
+        }
+        return false;
+      },
+
       // Convert any site photo whose dataUrl is a remote http(s) URL (full-res cloud
       // image after a job reload) into an inline base64 data-URL. html2canvas taints
       // the canvas on a cross-origin http image, so the PDF path MUST run this before
@@ -14364,6 +14385,7 @@
             var clientKey = ncKeys.indexOf('__client__') >= 0 ? '__client__' : ncKeys[0];
             var nbOnlyKeys = ncKeys.filter(function(k) { return k !== '__client__'; });
 
+            window._nbUploadFailed = {};
             for (var pi = 0; pi < neighbourQuoteData.contacts.length; pi++) {
               var pContact = neighbourQuoteData.contacts[pi];
               if (!pContact.upload_url) continue;
@@ -14392,15 +14414,13 @@
               }
               var blob = app.generateNeighbourPDF(pContact, d, nbKey);
               if (!blob) continue;
-              try {
-                var upRes = await fetch(pContact.upload_url, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/pdf' },
-                  body: blob
-                });
-                if (upRes.ok) console.log('[SendQuote] Uploaded PDF for', pContact.client_name);
-              } catch(ue) {
-                console.warn('[SendQuote] PDF upload error for', pContact.client_name, ue.message);
+              var _nbOk = await app._swVerifiedPut(pContact.upload_url, blob, 'application/pdf');
+              if (_nbOk) {
+                console.log('[SendQuote] Uploaded PDF for', pContact.client_name);
+              } else {
+                console.warn('[SendQuote] PDF upload failed for', pContact.client_name, '— will not send this neighbour a broken link.');
+                window._nbUploadFailed = window._nbUploadFailed || {};
+                if (pContact.document_id) window._nbUploadFailed[pContact.document_id] = true;
               }
             }
             } // end else (neighbourCosts exists)
@@ -14428,6 +14448,10 @@
             }
             if (!contact.document_id) {
               sendResults.push({ name: sendInfo.name || contact.client_name, email: contactEmail, status: 'failed' });
+              continue;
+            }
+            if (window._nbUploadFailed && window._nbUploadFailed[contact.document_id]) {
+              sendResults.push({ name: sendInfo.name || contact.client_name, email: contactEmail, status: 'failed', errorReason: 'quote file upload failed' });
               continue;
             }
             try {
@@ -14466,18 +14490,15 @@
             updateStep('Sending email...', 'to ' + toEmail);
             if (prepData && prepData.documentId) {
               // Upload captured PDF blob to storage if we have one + an upload URL
+              // (M1b) PDF is the client-facing artifact the /view route falls back to,
+              // so it MUST upload successfully or we do NOT send a link to a missing file.
               if (capturedPdfBlob && prepData.uploadUrl) {
-                try {
-                  updateStep('Uploading PDF...', '');
-                  await fetch(prepData.uploadUrl, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/pdf' },
-                    body: capturedPdfBlob
-                  });
-                  console.log('[SendQuote] PDF uploaded for single recipient');
-                } catch (upErr) {
-                  console.warn('[SendQuote] PDF upload failed (non-blocking):', upErr.message);
+                updateStep('Uploading PDF...', '');
+                var _pdfOk = await app._swVerifiedPut(prepData.uploadUrl, capturedPdfBlob, 'application/pdf');
+                if (!_pdfOk) {
+                  throw new Error('Could not upload the quote PDF after a retry. Not sending — the client would get a broken link. Check your connection and try again.');
                 }
+                console.log('[SendQuote] PDF uploaded for single recipient');
               }
               // Upload interactive web HTML (mirrors patio Slice 2).
               // Only fires when the backend returns htmlUploadUrl in prepData
@@ -14492,14 +14513,10 @@
                     { forPDF: false, shareToken: prepData.shareToken, acceptUrl: cloud.supabaseUrl, pdfUrl: prepData.publicUrl }
                   );
                   var _htmlBlob = new Blob([_webHtml], { type: 'text/html' });
-                  var _htmlRes = await fetch(prepData.htmlUploadUrl, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'text/html' },
-                    body: _htmlBlob
-                  });
-                  if (!_htmlRes.ok) {
-                    // Non-fatal: log and continue — PDF path still works
-                    console.warn('[SendQuote] HTML upload failed:', _htmlRes.status);
+                  var _htmlOk = await app._swVerifiedPut(prepData.htmlUploadUrl, _htmlBlob, 'text/html');
+                  if (!_htmlOk) {
+                    console.warn('[SendQuote] HTML upload failed after retry — client link will fall back to the PDF view.');
+                    app.showToast('Interactive quote upload failed — client link will show the PDF instead.', 'info');
                   }
                 } catch (htmlErr) {
                   console.warn('[SendQuote] HTML upload error (non-blocking):', htmlErr.message);
@@ -14827,18 +14844,11 @@
         app.showToast('Saving changes...', 'info');
         app.job._pricing_json = app.buildPricingJson();
         await window._swIntegration.save();
-        // Regenerate + upload quote PDF
         var jobId = window._swIntegration.getJobId();
         var _cloud = window.SECUREWORKS_CLOUD;
         if (jobId && _cloud) {
-          try {
-            app._capturePdfBlob = undefined;
-            await app.generateQuotePDF();
-            if (app._capturePdfBlob) {
-              await _cloud.docs.uploadPDF(jobId, app._capturePdfBlob, 'quote', app.job);
-            }
-            app._capturePdfBlob = null;
-          } catch(pe) { console.warn('[saveJobEdit] Quote PDF regen failed:', pe); }
+          // (M1b) Save persists scope only — it no longer mints a quote document version.
+          // Publishing a quote happens exclusively via Send Quote (prepare_quote), which is idempotent.
           // Increment scope version
           try {
             var _sess = (_cloud.auth && typeof _cloud.auth.session === 'function') ? await _cloud.auth.session() : null;
