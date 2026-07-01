@@ -10956,6 +10956,20 @@
         });
       },
 
+      // Convert any site photo whose dataUrl is a remote http(s) URL (full-res cloud
+      // image after a job reload) into an inline base64 data-URL. html2canvas taints
+      // the canvas on a cross-origin http image, so the PDF path MUST run this before
+      // rasterising. data: URLs pass through untouched. Mutates and returns d.
+      async _swFenceSitePhotosToDataURL(d) {
+        if (!d || !d.sitePhotos || !d.sitePhotos.length) return d;
+        d.sitePhotos = await Promise.all(d.sitePhotos.map(async function(p) {
+          if (!p || !p.dataUrl || /^data:/.test(p.dataUrl)) return p;
+          var converted = await this._swQFetchToDataURL(p.dataUrl);
+          return { dataUrl: converted || p.dataUrl, label: p.label || '', caption: p.caption || '' };
+        }.bind(this)));
+        return d;
+      },
+
       _swQMoney(v) { return '$' + (Number(v) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); },
       _swQLongDate(d) {
         var M = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -11244,8 +11258,28 @@
           contact: this._swFenceContact(),
           scopeGroups: this._buildFenceScopeOfWorks(d),
           sitePhotos: (function() {
+            // Prefer window.sitePhotos: it carries the full-res copy in both states.
+            // same capture session it is the 1200px/0.8 base64 upload image, and after
+            // a job reload the shared integration repopulates it with full-res cloud
+            // URLs (storage_url). The checklist photos array only holds the 200px/0.5
+            // thumbnail, which renders pixelated on the quote. Cloud http URLs are
+            // converted to base64 later (PDF path) via _swFenceSitePhotosToDataURL.
+            var sp = (window.sitePhotos || []).filter(function(p) {
+              return p && p.dataUrl;
+            });
+            if (sp.length > 0) {
+              return sp.slice(0, 4).map(function(p) {
+                return { dataUrl: p.cloudUrl || p.dataUrl, label: p.label || '', caption: p.caption || '' };
+              });
+            }
+            // Fallback: no bridged/cloud photos available, use checklist thumbnails
+            // so there is no regression on an unsynced device.
             var photos = (job.checklist && job.checklist.photos) || [];
-            return photos.filter(function(p) { return p.dataUrl && p.dataUrl.indexOf('data:image') === 0; }).slice(0, 4);
+            return photos.filter(function(p) {
+              return p.dataUrl && (p.dataUrl.indexOf('data:image') === 0 || /^https?:/.test(p.dataUrl));
+            }).slice(0, 4).map(function(p) {
+              return { dataUrl: p.cloudUrl || p.dataUrl, label: p.label || p.name || '', caption: p.caption || '' };
+            });
           })()
         };
       },
@@ -11818,6 +11852,10 @@
         // without re-fetching all remote assets a second time.
         window._lastFenceQuoteImgs = imgs;
 
+        // PDF path: site photos may be full-res cloud http URLs (after a job reload).
+        // Convert them to inline base64 first so html2canvas does not taint the canvas.
+        await this._swFenceSitePhotosToDataURL(d);
+
         var html = this._buildFenceQuoteHTML(d, imgs, true); // forPDF=true
 
         var iframe = document.createElement('iframe');
@@ -11910,6 +11948,9 @@
         this.showToast('Building preview...', 'info');
         try {
           var imgs = await this._collectFenceQuoteImgs(profileImages);
+          // Match the PDF path: inline full-res site photos as base64 (harmless for the
+          // browser tab, keeps preview == send for the one code path).
+          await this._swFenceSitePhotosToDataURL(d);
           var html = this._buildFenceQuoteHTML(d, imgs, false); // forPDF=false → body.web
           this._openOutputTab('Fence Quote Preview', html);
         } catch(e) {
