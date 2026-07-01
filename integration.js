@@ -687,6 +687,7 @@
           }),
           video: window.scopeMedia.video || null
         } : null,
+        verification: (window.fenceQA && window.fenceQA._verificationState) || null,
         savedAt: new Date().toISOString()
       };
     }
@@ -697,6 +698,7 @@
     if (!scopeJson || !scopeJson.job || !window.app) return false;
     try {
       window.app.job = scopeJson.job;
+      if (scopeJson.verification && window.fenceQA) { try { window.fenceQA._verificationState = scopeJson.verification; if (typeof window.fenceQA._saveState === 'function') window.fenceQA._saveState(); } catch(e) {} }
       if (window.app.currentRunId && window.app.job.runs.length > 0) {
         window.app.currentRunId = window.app.job.runs[0].id;
       }
@@ -2047,6 +2049,19 @@
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
       _jobStatus = job.status || 'draft';
+      // (M4 G-F1) Reopening a quoted job defaults to the READ-ONLY frozen view so
+      // nobody accidentally re-publishes an old scope. Redirect to the frozen-viewer
+      // URL, which sets readonly-mode on reload and reuses the existing frozen
+      // machinery. "Make a revision" navigates back with ?edit=1 to bypass this and
+      // load the editable clone.
+      var wantsEdit = urlParams.get('edit') === '1';
+      if (!wantsEdit && job.latest_frozen_scope_revision_id) {
+        var _fu = new URL(window.location.href);
+        _fu.searchParams.set('jobId', urlJobId);
+        _fu.searchParams.set('scope_revision_id', job.latest_frozen_scope_revision_id);
+        window.location.replace(_fu.toString());
+        return;
+      }
       if (job.scope_json && Object.keys(job.scope_json).length > 0) {
         _loadStateFn(job.scope_json);
       }
@@ -2110,7 +2125,7 @@
       if (data.scope_json && Object.keys(data.scope_json).length > 0 && _loadStateFn) {
         _loadStateFn(data.scope_json);
       }
-      _renderFrozenBanner(data);
+      _renderFrozenBanner(data, scopeRevId);
       // Skip cloud media + auto-save deliberately: frozen mode is read-only.
       updateUI();
     } catch (e) {
@@ -2119,7 +2134,7 @@
     }
   }
 
-  function _renderFrozenBanner(data) {
+  function _renderFrozenBanner(data, scopeRevId) {
     if (document.getElementById('sw-frozen-revision-banner')) return;
     var pricing = data.pricing_json_public || {};
     var sealedTotal = pricing.totalIncGST != null
@@ -2128,23 +2143,58 @@
     var sealedAt = data.frozen_at
       ? new Date(data.frozen_at).toLocaleString('en-AU')
       : '—';
+    var jobId = data.job_id || null;
     var banner = document.createElement('div');
     banner.id = 'sw-frozen-revision-banner';
     banner.style.cssText = [
       'position:fixed','top:0','left:0','right:0','z-index:99999',
       'background:#F15A29','color:#fff','padding:6px 14px',
       'font-family:Helvetica,Arial,sans-serif','font-size:11px','font-weight:600',
-      'letter-spacing:0.3px','text-align:center',
-      'box-shadow:0 2px 6px rgba(0,0,0,0.2)'
+      'letter-spacing:0.3px','box-shadow:0 2px 6px rgba(0,0,0,0.2)',
+      'display:flex','align-items:center','justify-content:center',
+      'flex-wrap:wrap','gap:8px'
     ].join(';');
-    banner.innerHTML =
+
+    // Sealed-info text span
+    var infoSpan = document.createElement('span');
+    infoSpan.textContent =
       '🔒 FROZEN REVISION r' + (data.revision_number || '?') +
       ' · ' + (data.status || '').toUpperCase() +
       ' · sealed ' + sealedAt +
       ' · sealed total ' + sealedTotal +
-      ' · read-only — live pricing computed below may differ from sealed values';
+      ' · read-only';
+    banner.appendChild(infoSpan);
+
+    // Controls area
+    var controls = document.createElement('span');
+    controls.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-shrink:0;';
+
+    // "Make a revision" button (G-F2)
+    var revBtn = document.createElement('button');
+    revBtn.textContent = 'Make a revision';
+    revBtn.style.cssText = [
+      'background:#fff','color:#c04a1a','border:none','border-radius:4px',
+      'padding:2px 10px','font-size:11px','font-weight:700','cursor:pointer',
+      'white-space:nowrap'
+    ].join(';');
+    revBtn.onclick = function() { _makeRevision(scopeRevId, jobId); };
+    controls.appendChild(revBtn);
+
+    // Version switcher select (G-F3) — hidden until _loadRevisionSwitcher shows it
+    var switcher = document.createElement('select');
+    switcher.id = 'sw-frozen-rev-switcher';
+    switcher.style.cssText = [
+      'display:none','font-size:11px','border-radius:4px','padding:1px 4px',
+      'border:none','background:#fff2ec','color:#7a2e00','cursor:pointer'
+    ].join(';');
+    controls.appendChild(switcher);
+
+    banner.appendChild(controls);
     document.body.appendChild(banner);
-    document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 28) + 'px';
+    document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 36) + 'px';
+
+    // Populate switcher asynchronously (stays hidden if only one revision)
+    _loadRevisionSwitcher(jobId, scopeRevId, switcher);
   }
 
   function _renderFrozenError(status, msg) {
@@ -2161,6 +2211,97 @@
     banner.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 32) + 'px';
+  }
+
+  // (M4 G-F2/G-F5) Clone the current frozen revision into an editable draft and
+  // reopen the tool in edit mode. Warns first if the client already accepted.
+  async function _makeRevision(scopeRevId, jobId) {
+    var accepted = false;
+    try { accepted = await _quoteAccepted(jobId); } catch (_e) {}
+    var msg = accepted
+      ? 'This quote was ACCEPTED by the client (a deposit invoice may exist).\n\nMaking a revision creates a new version. It will NOT change or void the existing deposit invoice.\n\nContinue?'
+      : 'Make a revision?\n\nThis creates an editable copy of the sealed scope. On sign-off it becomes a new version that supersedes this one.';
+    if (!window.confirm(msg)) return;
+    try {
+      var session = await cloud.auth.session();
+      var token = session && session.access_token;
+      var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
+      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=clone_scope_for_edit', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope_revision_id: scopeRevId })
+      });
+      var data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        var code = data && data.error && data.error.code;
+        // draft_already_exists → a revision draft is already open; just enter edit mode.
+        if (code !== 'draft_already_exists') {
+          window.alert('Could not start a revision: ' + (code || ('HTTP ' + resp.status)));
+          return;
+        }
+      }
+      var u = new URL(window.location.href);
+      u.searchParams.set('jobId', jobId);
+      u.searchParams.delete('scope_revision_id');
+      u.searchParams.set('edit', '1');
+      window.location.replace(u.toString());
+    } catch (e) {
+      window.alert('Could not start a revision: ' + (e && e.message || e));
+    }
+  }
+
+  // (M4 G-F3) Populate the read-only version switcher. Stays hidden unless the job
+  // has more than one frozen/superseded revision.
+  async function _loadRevisionSwitcher(jobId, currentRevId, selectEl) {
+    if (!selectEl || !jobId) return;
+    try {
+      var session = await cloud.auth.session();
+      var token = session && session.access_token;
+      var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
+      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=list_scope_revisions_for_job', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId })
+      });
+      var data = await resp.json();
+      if (!data || !data.ok || !data.revisions) return;
+      var revs = data.revisions.filter(function(r) { return r.status === 'frozen' || r.status === 'superseded'; });
+      if (revs.length <= 1) return;
+      selectEl.innerHTML = '';
+      revs.forEach(function(r) {
+        var opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = 'Revision ' + r.revision_number + (r.status === 'superseded' ? ' (superseded)' : '');
+        if (r.id === currentRevId) opt.selected = true;
+        selectEl.appendChild(opt);
+      });
+      selectEl.style.display = '';
+      selectEl.onchange = function() {
+        var u = new URL(window.location.href);
+        u.searchParams.set('jobId', jobId);
+        u.searchParams.set('scope_revision_id', selectEl.value);
+        window.location.replace(u.toString());
+      };
+    } catch (e) { console.warn('[Integration] revision switcher load failed:', e); }
+  }
+
+  // (M4 G-F5 helper) Best-effort check whether this job's quote was accepted.
+  // Reuses window._quoteStatusCache (populated by the quote-status badge in
+  // index.html). Falls back to a direct GET on /functions/v1/send-quote/status.
+  async function _quoteAccepted(jobId) {
+    if (window._quoteStatusCache && window._quoteStatusCache.job_id === jobId) {
+      return window._quoteStatusCache.status === 'accepted';
+    }
+    try {
+      var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
+      var anonKey = window.SUPABASE_ANON_KEY || '';
+      var resp = await fetch(supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId), {
+        headers: { 'Authorization': 'Bearer ' + anonKey }
+      });
+      if (!resp.ok) return false;
+      var d = await resp.json();
+      return !!(d && d.status === 'accepted');
+    } catch (_e) { return false; }
   }
 
   if (document.readyState === 'loading') {
