@@ -2066,6 +2066,7 @@
         _loadStateFn(job.scope_json);
       }
       _ghlOpportunityId = job.ghl_opportunity_id || null;
+      _ghlContactId = job.ghl_contact_id || null;
       _lastJobNumber = job.job_number || null;
       // Apply job number AFTER loadStateFn has finished setting the local ref
       _applyJobNumber(_lastJobNumber);
