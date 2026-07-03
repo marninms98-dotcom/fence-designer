@@ -4144,11 +4144,20 @@
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Quote Description</div>
-          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Optional — appears on the quote below the auto-generated scope description</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Optional. Appears on the quote as an "About your project" intro above the scope of works.</div>
           <div class="form-group" style="margin-bottom:12px;">
             <textarea rows="3" placeholder="e.g. Fence to follow existing retaining wall on southern boundary. Client to relocate garden beds before work begins..."
               style="width:100%;min-height:80px;font-size:15px;padding:12px;border:1px solid #4C6A70;border-radius:6px;resize:vertical;"
               onchange="app.updateQuote('customDescription', this.value)">${this._esc(q.customDescription || '')}</textarea>
+          </div>
+
+          <div class="section-label" style="margin-top:16px;">Price Display on Quote</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Controls how pricing appears on the client quote. One total is the default; itemized shows a line-item table on the investment page.</div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <select onchange="app.updateQuote('priceDisplay', this.value)">
+              <option value="total" ${(q.priceDisplay || 'total') === 'total' ? 'selected' : ''}>One total (deposit noted)</option>
+              <option value="itemized" ${q.priceDisplay === 'itemized' ? 'selected' : ''}>Itemized line items</option>
+            </select>
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
@@ -10621,6 +10630,19 @@
 '#pg1 .coverband .clientblock .cname{font-weight:800;font-size:21px;color:var(--dark-blue);letter-spacing:-0.4px;margin:8px 0 12px;}',
 '#pg1 .coverband .crow{display:flex;gap:12px;font-size:12.5px;color:var(--body-text);line-height:1.7;margin-bottom:5px;}',
 '#pg1 .coverband .crow b{color:var(--mid-blue);font-weight:700;min-width:48px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding-top:3px;}',
+/* D5: shared-boundary parties (names only) as a second column on the cover band.
+   These rules follow the .coverband/.clientblock rules above so they win on cascade;
+   with no neighbours the boundary block is not rendered and the client block fills the row. */
+'#pg1 .coverband{justify-content:space-between;gap:20px;}',
+'#pg1 .coverband .clientblock{flex:1 1 auto;min-width:0;}',
+'#pg1 .boundaryblock{flex:0 0 auto;max-width:300px;padding:16px 52px 16px 0;display:flex;flex-direction:column;justify-content:center;}',
+'#pg1 .boundaryblock .bb-label{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange);}',
+'#pg1 .boundaryblock .bb-note{font-size:9px;color:var(--mid-blue);margin:5px 0 10px;letter-spacing:0.3px;}',
+'#pg1 .boundaryblock .bb-party{padding:5px 0;border-top:1px solid var(--blue-100);}',
+'#pg1 .boundaryblock .bb-party:first-of-type{border-top:none;}',
+'#pg1 .boundaryblock .bb-name{font-size:12px;font-weight:800;color:var(--dark-blue);letter-spacing:-0.2px;line-height:1.25;}',
+'#pg1 .boundaryblock .bb-you{font-size:8.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--orange);margin-left:6px;}',
+'#pg1 .boundaryblock .bb-addr{font-size:9.5px;color:var(--mid-blue);line-height:1.35;margin-top:1px;}',
 '#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:430px;overflow:hidden;background:var(--blue-950);}',
 '#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
 '#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
@@ -11249,6 +11271,54 @@
         if (isNaN(issued.getTime())) issued = new Date();
         var validUntil = new Date(issued.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+        // --- ITEMIZED SELL-PRICE LINE ITEMS (D3) ---
+        // Mirrors the client-facing rows from renderQuoteAndOrders (sell prices only,
+        // no internal cost / commission / deposit rows). Built from the raw engine
+        // output (the `d` passed in), NOT recomputed — no new pricing logic. These
+        // rows sum to d.subtotal (ex GST); GST + total are added at render time.
+        var money = this._swQMoney.bind(this);
+        var priceLineItems = [];
+        var isGateOnly = (d.scopeType === 'gate-only');
+        if (!isGateOnly && (Number(d.fencingTotal) || 0) > 0) {
+          priceLineItems.push({
+            label: ('COLORBOND® ' + (d.colour || '') + (d.profile ? ' ' + d.profile : '')).replace(/\s+/g, ' ').trim() + ' fencing',
+            detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm · ' + (d.totalPanels || 0) + ' panels',
+            amtStr: money(d.fencingTotal)
+          });
+        }
+        if ((Number(d.plinthsTotal) || 0) > 0) priceLineItems.push({ label: 'Retaining plinths (150mm COLORBOND®)', detail: (d.totalPlinths || 0) + ' × plinth', amtStr: money(d.plinthsTotal) });
+        if ((Number(d.patioTotal) || 0) > 0) priceLineItems.push({ label: 'Patio tube bracing', detail: (d.totalPatioTubes || 0) + ' × tube', amtStr: money(d.patioTotal) });
+        (d.gateLineItems || []).forEach(function(g) { priceLineItems.push({ label: g.desc, detail: (g.qty > 1 ? g.qty + ' ×' : ''), amtStr: money(g.total) }); });
+        (d.removalItems || []).forEach(function(r) { priceLineItems.push({ label: r.desc, detail: (r.qty ? r.qty + ' ' + (r.unit || '') : '').trim(), amtStr: money(r.total) }); });
+        if ((Number(d.groundFinishTotal) || 0) > 0) priceLineItems.push({ label: d.groundFinishDesc || 'Ground finish', detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm', amtStr: money(d.groundFinishTotal) });
+        (d.addonItems || []).forEach(function(a) { priceLineItems.push({ label: a.desc, detail: '', amtStr: money(a.total) }); });
+        (d.customItems || []).forEach(function(c) { priceLineItems.push({ label: c.desc, detail: (c.qty ? c.qty + ' ' + (c.unit || '') : '').trim(), amtStr: money(c.total) }); });
+        if ((Number(d.accessSurcharge) || 0) > 0) priceLineItems.push({ label: 'Access difficulty', detail: Math.round((d.accessRate || 0) * 100) + '%', amtStr: money(d.accessSurcharge) });
+        if ((Number(d.urgencySurcharge) || 0) > 0) priceLineItems.push({ label: 'Urgency', detail: Math.round((d.urgencyRate || 0) * 100) + '%', amtStr: money(d.urgencySurcharge) });
+        if ((Number(d.deliveryFee) || 0) > 0) priceLineItems.push({ label: 'Delivery', detail: '', amtStr: money(d.deliveryFee) });
+
+        // --- SHARED-BOUNDARY PARTIES, NAMES ONLY (D5) ---
+        // Only when the job is a shared-boundary job with at least one named neighbour.
+        // No dollar figures — names + addresses only (multi-neighbour pricing deferred).
+        var boundaryParties = [];
+        if (job.neighboursRequired === true) {
+          var namedNbs = (job.neighbours || []).filter(function(n) { return n && (n.firstName || n.lastName); });
+          if (namedNbs.length) {
+            boundaryParties.push({
+              name: job.client || [job.clientFirstName, job.clientLastName].filter(Boolean).join(' ') || 'You',
+              address: job.address || '',
+              you: true
+            });
+            namedNbs.forEach(function(n) {
+              boundaryParties.push({
+                name: [n.firstName, n.lastName].filter(Boolean).join(' ') || 'Neighbour',
+                address: n.address || '',
+                you: false
+              });
+            });
+          }
+        }
+
         return {
           qNum: qNum,
           jobRef: jobRef,
@@ -11265,6 +11335,11 @@
           gst: gst,
           totalStr: this._swQMoney(totalIncGST),
           gstStr: this._swQMoney(gst),
+          subtotalStr: this._swQMoney(Number(d.subtotal) || 0),
+          customDescription: (q.customDescription || '').trim(),
+          priceDisplay: (q.priceDisplay === 'itemized') ? 'itemized' : 'total',
+          priceLineItems: priceLineItems,
+          boundaryParties: boundaryParties,
           depPercent: depPercent,
           balPercent: balPercent,
           depTotal: depTotal,
@@ -11432,6 +11507,21 @@
         // The 3D render lives on the design page (pg2), not the cover.
         var coverHeroSrc = imgs.heroCover;
         var coverScrimStyle = '';
+        // D5: shared-boundary parties (names + address only, no dollars). Only when the
+        // job is a shared-boundary job with named neighbours (d.boundaryParties built in
+        // _gatherFenceQuoteData). The current recipient is flagged "(you)".
+        var boundaryBlock = '';
+        if (d.boundaryParties && d.boundaryParties.length) {
+          var bbRows = d.boundaryParties.map(function(p) {
+            var youTag = p.you ? '<span class="bb-you">(you)</span>' : '';
+            var addr = p.address ? '<div class="bb-addr">' + E(p.address) + '</div>' : '';
+            return '<div class="bb-party"><div class="bb-name">' + E(p.name) + youTag + '</div>' + addr + '</div>';
+          }).join('');
+          boundaryBlock = '<div class="boundaryblock"><span class="bb-label">Shared Boundary</span>'
+            + '<div class="bb-note">Everyone on this fence line</div>'
+            + bbRows + '</div>';
+        }
+
         var p1 = '<div id="pg1" class="pgwrap"><section class="page"><div class="coverhero">'
           + img(coverHeroSrc, 'heroimg', 'Your fence design') + '<div class="heroscrim"' + (coverScrimStyle ? ' style="' + coverScrimStyle + '"' : '') + '></div>'
           + '<div class="herohead"><div class="logo">' + imgs.logo + '</div>'
@@ -11446,7 +11536,9 @@
           + '<div class="crow"><b>Site</b><span>' + E(d.siteAddr) + '</span></div>'
           + '<div class="crow"><b>Phone</b><span>' + E(d.phone) + '</span></div>'
           + '<div class="crow"><b>Email</b><span>' + E(d.email) + '</span></div>'
-          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div></div>'
+          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div>'
+          + boundaryBlock
+          + '</div>'
           + '</section></div>';
 
         // ----- PAGE 2 YOUR DESIGN -----
@@ -11488,19 +11580,62 @@
           + pf(2) + '</div></section></div>';
 
         // ----- PAGE 4 YOUR INVESTMENT -----
+        // D1: dedicated investment page — the reputational price page (headline = TOTAL).
+        // D3: when d.priceDisplay==='itemized', this page shows a line-item table with a
+        // bold total row instead of the single big number. The page-3 under-scope block
+        // stays the TOTAL headline in both modes.
+        var schedHTML = '<div class="sched"><div class="schhead"><span class="accent-bar"></span><span class="sh">Payment Schedule</span></div>'
+          + schedItems
+          + '<div class="schnote"><span class="pi">i</span><span>Payments via bank transfer, credit card, or BPAY.</span></div></div>';
+
+        var invBody;
+        if (d.priceDisplay === 'itemized' && d.priceLineItems && d.priceLineItems.length) {
+          var invCSS = '#pg4 .inv-itemized{margin-bottom:18px;}'
+            + '#pg4 .inv-itemized .ptitle{font-size:10.5px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange-500);margin-bottom:11px;}'
+            + '#pg4 .inv-lines{width:100%;border-collapse:collapse;}'
+            + '#pg4 .inv-lines td{padding:5.5px 0;border-bottom:1px solid rgba(255,255,255,0.12);vertical-align:top;}'
+            + '#pg4 .inv-lines .il-label{font-size:11px;color:#fff;font-weight:600;line-height:1.35;padding-right:16px;}'
+            + '#pg4 .inv-lines .il-detail{display:block;font-size:8.5px;color:rgba(255,255,255,0.5);letter-spacing:0.3px;margin-top:1px;font-weight:500;}'
+            + '#pg4 .inv-lines .il-amt{text-align:right;font-size:11.5px;color:#fff;font-weight:700;white-space:nowrap;letter-spacing:-0.2px;}'
+            + '#pg4 .inv-lines .il-sub .il-label,#pg4 .inv-lines .il-gst .il-label{font-size:9.5px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:rgba(255,255,255,0.72);}'
+            + '#pg4 .inv-lines .il-sub .il-amt,#pg4 .inv-lines .il-gst .il-amt{color:rgba(255,255,255,0.82);font-size:11px;}'
+            + '#pg4 .inv-lines .il-total td{border-bottom:none;border-top:2px solid var(--orange);padding-top:9px;}'
+            + '#pg4 .inv-lines .il-total .il-label{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:#fff;}'
+            + '#pg4 .inv-lines .il-total .il-amt{font-size:22px;font-weight:800;letter-spacing:-0.6px;color:#fff;}'
+            + '#pg4 .inv-itemized .invsub{font-size:11px;font-weight:500;color:rgba(255,255,255,0.78);line-height:1.5;max-width:520px;margin-top:12px;}'
+            + '#pg4 .inv-itemized .invsub b{color:#fff;font-weight:700;}';
+          var invRows = d.priceLineItems.map(function(li) {
+            var detail = li.detail ? '<span class="il-detail">' + E(li.detail) + '</span>' : '';
+            return '<tr><td class="il-label">' + E(li.label) + detail + '</td><td class="il-amt">' + E(li.amtStr) + '</td></tr>';
+          }).join('');
+          invBody = '<style>' + invCSS + '</style>'
+            + '<div class="inv-itemized"><div class="ptitle">Your investment, itemised</div>'
+            + '<table class="inv-lines"><tbody>' + invRows
+            + '<tr class="il-sub"><td class="il-label">Subtotal (ex GST)</td><td class="il-amt">' + E(d.subtotalStr) + '</td></tr>'
+            + '<tr class="il-gst"><td class="il-label">GST</td><td class="il-amt">' + E(d.gstStr) + '</td></tr>'
+            + '<tr class="il-total"><td class="il-label">Total, inc GST</td><td class="il-amt">' + E(d.totalStr) + '</td></tr>'
+            + '</tbody></table>'
+            + '<div class="invsub">Everything above, <b>fully supplied and installed</b> by our own crew. No hidden extras.</div></div>'
+            + schedHTML;
+        } else {
+          invBody = '<div class="invgrid"><div class="priceblock"><div class="ptitle">Total, fully supplied and installed</div>'
+            + '<div class="invnum"><span class="cur">$</span>' + E(d.totalStr.replace(/^\$/, '')) + '</div>'
+            + '<span class="gst">Includes GST (' + d.gstStr + ')</span>'
+            + '<div class="invsub">Everything above, <b>fully supplied and installed</b> by our own crew. No hidden extras.</div></div>'
+            + schedHTML + '</div>';
+        }
+
         var p4 = '<div id="pg4" class="pgwrap"><section class="page">'
           + (imgs.pricePhoto ? '<div class="bgimg" style="background-image:url(\'' + imgs.pricePhoto + '\');"></div>' : '<div class="bgimg"></div>')
           + '<div class="scrim"></div><div class="scrim-foot"></div>'
           + '<div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
           + '<div class="eyebrowrow"><span class="num">04</span><span class="accent-bar"></span><span class="label">Your Investment</span></div>'
-          + '<div class="lower"><div class="invgrid"><div class="priceblock"><div class="ptitle">Total, fully supplied and installed</div>'
-          + '<div class="invnum"><span class="cur">$</span>' + E(d.totalStr.replace(/^\$/, '')) + '</div>'
-          + '<span class="gst">Includes GST (' + d.gstStr + ')</span>'
-          + '<div class="invsub">Everything above, <b>fully supplied and installed</b> by our own crew. No hidden extras.</div></div>'
-          + '<div class="sched"><div class="schhead"><span class="accent-bar"></span><span class="sh">Payment Schedule</span></div>'
-          + schedItems
-          + '<div class="schnote"><span class="pi">i</span><span>Payments via bank transfer, credit card, or BPAY.</span></div></div></div>'
-          + splitBlock
+          // The dollar cost-split cards are suppressed in itemized mode: the itemized
+          // table already fills the fixed-height page, and stacking the split cards
+          // under it overflows/clips the PDF. Names of every party still appear on the
+          // cover (D5); the per-party dollar split is a deferred slice per Marnin.
+          + '<div class="lower">' + invBody
+          + (d.priceDisplay === 'itemized' ? '' : splitBlock)
           + '</div>'
           + pf(4) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
 
@@ -11582,38 +11717,54 @@
           + '#pgScope .topband .logo svg{display:block;height:34px;width:auto;}'
           + '#pgScope .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
           + '#pgScope .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '#pgScope .scopebody{flex:1;display:flex;flex-direction:column;padding:18px 52px 0;}'
-          + '#pgScope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '#pgScope .scopebody{flex:1;display:flex;flex-direction:column;padding:12px 52px 0;}'
+          + '#pgScope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:4px;}'
           + '#pgScope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '#pgScope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
-          + '#pgScope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 12px;}'
-          + '#pgScope .sec-a{margin-bottom:22px;}'
+          + '#pgScope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:4px 0 8px;}'
+          + '#pgScope .sec-a{margin-bottom:12px;}'
           + '#pgScope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:40px;row-gap:0;}'
-          + '#pgScope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:3px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
           + '#pgScope .specitem .sk{flex:0 0 auto;font-size:8.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
           + '#pgScope .specitem .sv{text-align:right;font-size:11.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.3;}'
-          + '#pgScope .sec-b{margin-bottom:12px;flex:1;}'
-          + '#pgScope .scope-lead{font-size:11.5px;line-height:1.55;color:var(--body-text,#3a4e58);margin-bottom:10px;max-width:100%;}'
+          + '#pgScope .sec-b{margin-bottom:6px;flex:1;}'
+          + '#pgScope .scope-lead{font-size:11px;line-height:1.4;color:var(--body-text,#3a4e58);margin-bottom:6px;max-width:100%;}'
           + '#pgScope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '#pgScope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;}'
+          + '#pgScope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;}'
           + '#pgScope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '#pgScope .sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
-          + '#pgScope .scope-grid{display:block;}'
-          + '#pgScope .stage-block{margin-bottom:0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
-          + '#pgScope .stage-block:last-child{border-bottom:none;}'
-          + '#pgScope .stage-head{display:flex;align-items:center;gap:12px;padding:7px 0 5px;border-bottom:none;}'
-          + '#pgScope .stage-head .stage-num{font-weight:800;font-size:10px;color:var(--orange,#F15A29);letter-spacing:0.5px;min-width:22px;}'
-          + '#pgScope .stage-head .stage-label{font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--dark-blue,#293C46);}'
-          + '#pgScope .stage-items{list-style:none;margin:0;padding:0 0 6px 34px;}'
-          + '#pgScope .stage-items li{display:flex;align-items:baseline;gap:8px;font-size:10.5px;color:var(--dark-blue,#293C46);line-height:1.5;padding:2px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
-          + '#pgScope .stage-items li:last-child{border-bottom:none;}'
-          + '#pgScope .stage-items li .li-num{flex:0 0 30px;font-size:9.5px;font-weight:700;color:var(--mid-blue,#4C6A7C);letter-spacing:0.2px;}'
-          + '#pgScope .stage-items li .li-text{flex:1;}'
-          + '#pgScope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:9px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:auto;}'
+          // D4: "About your project" intro block (customer description), above the scope table.
+          + '#pgScope .about-block{background:var(--warm-100,#F8F6F3);border:1px solid var(--blue-100,#EDF1F4);border-left:3px solid var(--orange,#F15A29);padding:6px 13px;margin-bottom:8px;}'
+          + '#pgScope .about-block .ab-label{font-size:8.5px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:3px;}'
+          + '#pgScope .about-block .ab-text{font-size:10px;line-height:1.4;color:var(--dark-blue,#293C46);white-space:pre-line;}'
+          // D2: two-column scope-of-works table (Stage | What we do). Dark header, ruled rows.
+          + '#pgScope .scope-table{width:100%;border-collapse:collapse;table-layout:fixed;}'
+          + '#pgScope .scope-table th{background:var(--dark-blue,#293C46);color:#fff;text-align:left;font-size:8.5px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:5px 12px;}'
+          + '#pgScope .scope-table th.sc-stage{width:33%;border-right:1px solid rgba(255,255,255,0.16);}'
+          + '#pgScope .scope-table td{vertical-align:top;padding:5px 12px;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .scope-table tbody tr:last-child td{border-bottom:none;}'
+          + '#pgScope .scope-table tbody tr:nth-child(even) td{background:rgba(41,60,70,0.03);}'
+          + '#pgScope .scope-table td.sc-stage{border-right:1px solid var(--blue-100,#EDF1F4);}'
+          + '#pgScope .scope-table .sc-num{color:var(--orange,#F15A29);font-weight:800;font-size:9px;margin-right:6px;}'
+          + '#pgScope .scope-table .sc-stage-label{font-size:10px;font-weight:700;letter-spacing:0.4px;color:var(--dark-blue,#293C46);text-transform:uppercase;line-height:1.3;}'
+          + '#pgScope .scope-table td.sc-what{font-size:10px;color:var(--dark-blue,#293C46);line-height:1.42;}'
+          + '#pgScope .scope-table td.sc-what ul{list-style:none;margin:0;padding:0;}'
+          + '#pgScope .scope-table td.sc-what li{position:relative;padding-left:12px;margin-bottom:2px;}'
+          + '#pgScope .scope-table td.sc-what li:last-child{margin-bottom:0;}'
+          + '#pgScope .scope-table td.sc-what li::before{content:"";position:absolute;left:0;top:5px;width:4px;height:4px;background:var(--orange,#F15A29);}'
+          // D1: total band directly under the scope table (headline = the total).
+          + '#pgScope .scope-total{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--dark-blue,#293C46);color:#fff;padding:8px 15px;margin-top:9px;border-left:3px solid var(--orange,#F15A29);}'
+          + '#pgScope .scope-total .st-left{display:flex;flex-direction:column;gap:2px;}'
+          + '#pgScope .scope-total .st-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange-500,#F4845F);}'
+          + '#pgScope .scope-total .st-sub{font-size:9.5px;color:rgba(255,255,255,0.72);letter-spacing:0.3px;}'
+          + '#pgScope .scope-total .st-right{text-align:right;display:flex;flex-direction:column;gap:2px;}'
+          + '#pgScope .scope-total .st-amt{font-size:22px;font-weight:800;letter-spacing:-0.6px;color:#fff;line-height:1;}'
+          + '#pgScope .scope-total .st-dep{font-size:9px;color:rgba(255,255,255,0.7);letter-spacing:0.2px;}'
+          + '#pgScope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:6px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:auto;}'
           + '#pgScope .sec-c-head{grid-column:1/-1;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:3px;}'
           + '#pgScope .sfi{display:flex;align-items:baseline;gap:6px;font-size:9px;color:var(--mid-blue,#4C6A7C);font-weight:600;}'
           + '#pgScope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
-          + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:8px 0 22px;}';
+          + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:8px;margin:5px 0 14px;}';
 
         // ----- SITE PHOTO CSS -----
         var sitePhotoCSS = '#pgSite .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
@@ -11656,22 +11807,42 @@
             + '</div></section></div>';
         }
 
-        // Build numbered scope groups HTML (full-width single column)
+        // D2: Scope of works as a two-column table (Stage | What we do). One row per
+        // stage; the stage's items are joined into a bulleted list in the "What we do"
+        // cell. Renders identically for PDF (forPDF) and interactive HTML (same fn).
         var scopeGroupsHTML = '';
         if (d.scopeGroups && d.scopeGroups.length > 0) {
-          scopeGroupsHTML = '<div class="scope-grid">'
-            + d.scopeGroups.map(function(grp, si) {
-              var stageNum = String(si + 1).padStart(2, '0');
-              var itemsHtml = grp.items.map(function(item, ii) {
-                var itemNum = (si + 1) + '.' + (ii + 1);
-                return '<li><span class="li-num">' + itemNum + '</span><span class="li-text">' + E(item) + '</span></li>';
-              }).join('');
-              return '<div class="stage-block">'
-                + '<div class="stage-head"><span class="stage-num">' + stageNum + '</span><span class="stage-label">' + E(grp.stage) + '</span></div>'
-                + '<ul class="stage-items">' + itemsHtml + '</ul></div>';
-            }).join('')
-            + '</div>';
+          var scopeRows = d.scopeGroups.map(function(grp, si) {
+            var stageNum = String(si + 1).padStart(2, '0');
+            var items = grp.items || [];
+            var itemsCell = items.length
+              ? '<ul>' + items.map(function(item) { return '<li>' + E(item) + '</li>'; }).join('') + '</ul>'
+              : '';
+            return '<tr>'
+              + '<td class="sc-stage"><span class="sc-num">' + stageNum + '</span><span class="sc-stage-label">' + E(grp.stage) + '</span></td>'
+              + '<td class="sc-what">' + itemsCell + '</td>'
+              + '</tr>';
+          }).join('');
+          scopeGroupsHTML = '<table class="scope-table"><thead><tr>'
+            + '<th class="sc-stage">Stage</th><th class="sc-what">What we do</th>'
+            + '</tr></thead><tbody>' + scopeRows + '</tbody></table>';
         }
+
+        // D4: "About your project" intro block (scoper's custom description), rendered
+        // above the scope table when non-empty. Mirrors the local preview intent.
+        var aboutBlock = d.customDescription
+          ? '<div class="about-block"><div class="ab-label">About your project</div>'
+            + '<div class="ab-text">' + E(d.customDescription) + '</div></div>'
+          : '';
+
+        // D1: total band shown directly under the scope table. Headline = the TOTAL,
+        // fully supplied and installed inc GST, with the deposit noted underneath.
+        var underScopeTotal = '<div class="scope-total">'
+          + '<div class="st-left"><span class="st-label">Your investment</span>'
+          + '<span class="st-sub">Fully supplied and installed, inc GST</span></div>'
+          + '<div class="st-right"><span class="st-amt">' + E(d.totalStr) + '</span>'
+          + '<span class="st-dep">' + d.depPercent + '% deposit (' + E(d.depTotalStr) + ') to get started, balance on completion</span></div>'
+          + '</div>';
 
         var includedItemsHTML = [
           'Licensed &amp; insured crew',
@@ -11690,10 +11861,12 @@
           + '<div class="scope-accent-bar"></div>'
           + '<div class="sec-a"><div class="sec-head"><span class="sh-letter">A</span><span class="sh-label">Specifications</span></div>'
           + '<div class="speclist">' + specRows + '</div></div>'
+          + aboutBlock
           + '<div class="sec-b">'
           + '<div class="sec-head"><span class="sh-letter">B</span><span class="sh-label">Scope of Works</span></div>'
           + '<p class="scope-lead">' + E(d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage — every task listed, nothing hidden.') + '</p>'
           + scopeGroupsHTML
+          + underScopeTotal
           + '</div>'
           + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>'
           + includedItemsHTML + '</div>'
