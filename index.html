@@ -13414,6 +13414,16 @@
       }
     };
 
+    // Expose fenceQA on window so integration.js can round-trip the QA sign-off
+    // through scope_json.verification: getFencingState() reads
+    // window.fenceQA._verificationState when saving, and loadFencingState()
+    // restores it on reopen (see integration.js ~690/~701). Declared as a
+    // script-local `const`, fenceQA never became a window property, so that
+    // round-trip silently no-oped — a reopened/sent job lost its QA sign-off and
+    // re-demanded verification (M4 QA-persist fix). QA now persists through the
+    // freeze and is restored on reopen (including the frozen read-only viewer).
+    window.fenceQA = fenceQA;
+
     // ════════════════════════════════════════════════════════
     // MATERIAL VERIFICATION GATE
     // ════════════════════════════════════════════════════════
