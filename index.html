@@ -11297,6 +11297,19 @@
         if ((Number(d.urgencySurcharge) || 0) > 0) priceLineItems.push({ label: 'Urgency', detail: Math.round((d.urgencyRate || 0) * 100) + '%', amtStr: money(d.urgencySurcharge) });
         if ((Number(d.deliveryFee) || 0) > 0) priceLineItems.push({ label: 'Delivery', detail: '', amtStr: money(d.deliveryFee) });
 
+        // --- ITEMIZED MONEY-COLUMN RECONCILIATION (D3) ---
+        // The itemized table (page 4) lists each line's rounded-to-cents amount. To
+        // avoid a "the numbers don't add up" cent drift, the displayed Subtotal is the
+        // EXACT sum of those displayed line amounts, and the displayed GST is the
+        // displayed Total minus that Subtotal, so Subtotal + GST always equals Total in
+        // the table. The Total itself is the canonical grand total, UNCHANGED (it must
+        // keep matching the page-3 headline and the deposit schedule). Only consumed in
+        // itemized mode; the 'total' mode's subtotalStr/gstStr are left untouched.
+        var _lineCents = function(s) { return Math.round((parseFloat(String(s).replace(/[^0-9.\-]/g, '')) || 0) * 100); };
+        var itemizedSubtotalCents = priceLineItems.reduce(function(sum, li) { return sum + _lineCents(li.amtStr); }, 0);
+        var displayedTotalCents = Math.round(parseFloat((totalIncGST).toFixed(2)) * 100);
+        var itemizedGstCents = displayedTotalCents - itemizedSubtotalCents;
+
         // --- SHARED-BOUNDARY PARTIES, NAMES ONLY (D5) ---
         // Only when the job is a shared-boundary job with at least one named neighbour.
         // No dollar figures — names + addresses only (multi-neighbour pricing deferred).
@@ -11336,6 +11349,8 @@
           totalStr: this._swQMoney(totalIncGST),
           gstStr: this._swQMoney(gst),
           subtotalStr: this._swQMoney(Number(d.subtotal) || 0),
+          itemizedSubtotalStr: this._swQMoney(itemizedSubtotalCents / 100),
+          itemizedGstStr: this._swQMoney(itemizedGstCents / 100),
           customDescription: (q.customDescription || '').trim(),
           priceDisplay: (q.priceDisplay === 'itemized') ? 'itemized' : 'total',
           priceLineItems: priceLineItems,
@@ -11611,8 +11626,8 @@
           invBody = '<style>' + invCSS + '</style>'
             + '<div class="inv-itemized"><div class="ptitle">Your investment, itemised</div>'
             + '<table class="inv-lines"><tbody>' + invRows
-            + '<tr class="il-sub"><td class="il-label">Subtotal (ex GST)</td><td class="il-amt">' + E(d.subtotalStr) + '</td></tr>'
-            + '<tr class="il-gst"><td class="il-label">GST</td><td class="il-amt">' + E(d.gstStr) + '</td></tr>'
+            + '<tr class="il-sub"><td class="il-label">Subtotal (ex GST)</td><td class="il-amt">' + E(d.itemizedSubtotalStr) + '</td></tr>'
+            + '<tr class="il-gst"><td class="il-label">GST</td><td class="il-amt">' + E(d.itemizedGstStr) + '</td></tr>'
             + '<tr class="il-total"><td class="il-label">Total, inc GST</td><td class="il-amt">' + E(d.totalStr) + '</td></tr>'
             + '</tbody></table>'
             + '<div class="invsub">Everything above, <b>fully supplied and installed</b> by our own crew. No hidden extras.</div></div>'
