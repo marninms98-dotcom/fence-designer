@@ -2127,7 +2127,15 @@
         _loadStateFn(data.scope_json);
       }
       _renderFrozenBanner(data, scopeRevId);
-      // Skip cloud media + auto-save deliberately: frozen mode is read-only.
+      // Load site photos + video walkthrough so the sealed job's captured media is
+      // viewable/downloadable in the read-only frozen view. Previously skipped, which
+      // hid the scoper's docs on reopen and left them unable to see photos/video
+      // (M4 frozen-docs fix). Auto-save stays OFF: frozen mode is read-only and
+      // _isReadonly already blocks every write path, so this is a pure read.
+      if (_jobId) {
+        try { await _loadCloudMedia(_jobId); }
+        catch (e) { console.warn('[Integration] Frozen media load failed:', e); }
+      }
       updateUI();
     } catch (e) {
       console.warn('[Integration] _autoLoadFrozenRevision threw:', e);
