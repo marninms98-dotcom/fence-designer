@@ -6,6 +6,31 @@
 
 Fencing scoping tool (GitHub Pages). The canonical spec for this repo lives in `SPEC.md` alongside this file. Feature context: `secureworks-docs/features/fencing-scoping-tool.md`.
 
+Single-file app: everything lives in `index.html` (~15.9k lines). `window.app` is the app object (`var app = window.app = {...}`); integration hooks live in the same file inline.
+
+## Client quote render architecture
+
+ONE function renders BOTH the sent PDF and the interactive HTML client quote:
+`app._buildFenceQuoteHTML(d, imgs, opts)`. `opts.forPDF` only swaps page geometry (`body.pdf` fixed 794x1123 A4 vs `body.web` responsive); it does NOT change the scope/price/description markup. So a change inside this function applies to both outputs automatically.
+
+- PDF path: `_renderFenceQuoteHTMLToPDF` calls it with `forPDF:true`, then html2canvas rasterises each `.pgwrap > .page` at a FIXED 794x1123 with `overflow:hidden`. There is NO auto-pagination: content that overflows a page is CLIPPED. Respect the per-page vertical budget when adding to a page.
+- Web path: `generateFenceWebPreview` (preview) and the send flow (`executeSendQuote`, ~line 14520) call it with `forPDF:false` and upload the result as `html_url`.
+- Page order in output: `p1`(cover) + webCtaBar + `p2`(design) + `pSite`(optional site photos) + `p3`(#pgScope, scope) + `p4`(#pg4, investment) + `p5`(terms) + `p6`(close).
+
+Data pipeline: `_collectOutputData()` (raw engine output: totals, line-item arrays, job) → `_gatherFenceQuoteData(rawD)` (the presentation object consumed by `_buildFenceQuoteHTML`, i.e. `d`). All three render callers go through `_gatherFenceQuoteData`, so surface any new render field THERE (it does not pass `job` through; `d.job` is not available inside `_buildFenceQuoteHTML`). Do NOT change the calculation builders `_buildFenceScopeOfWorks` (scope data) or `buildPricingJson` (pricing) — only how their output is rendered. `d.priceLineItems` (client-facing sell rows) is built in `_gatherFenceQuoteData` from the raw engine fields and reconciles to `d.subtotal` (ex GST). In `'itemized'` mode the page-4 table foots with `d.itemizedSubtotalStr` (the exact cent-sum of the displayed line amounts) and `d.itemizedGstStr` (`d.totalStr` minus that subtotal), NOT `d.subtotal`/`d.gst`, so the shown Subtotal + GST always equals the unchanged canonical `d.totalStr` without per-line rounding drift.
+
+Persisted quote settings live on `this.job.quote` and are written via `app.updateQuote(field, value)` (calls `save()`), e.g. `customDescription`, `customLineItems`, `priceDisplay` (`'total'` default | `'itemized'`).
+
+Page-4 budget note: in itemized mode the line-item table can fill the fixed-height page, so the dollar cost-split cards (`splitBlock`) are suppressed there to avoid clipping the PDF. Every party's name still appears on the cover (D5); the per-party dollar split is a deferred slice. In `'total'` mode the split cards are unchanged.
+
+Scope pagination note: the scope section (`.swscope` pages, class-based so it can repeat) renders at the same readable type scale as the rest of the quote and PAGINATES instead of shrinking to cram. In `_buildFenceQuoteHTML` a height estimator packs the stages across 1..N fixed 794x1123 pages (`pagesStages`): Specifications + "About your project" + the Scope-of-works intro live on the first scope page; each stage is a `.scope-table` row; the under-scope total (D1) and the "Included as standard" strip live on the LAST scope page, directly after the last stage. Page numbering is dynamic (`pfn`, `nScopePages`, `_pInvest`/`_pTerms`/`totalPages`) because the scope may span >1 page. Estimator constants (`_estStage` char-per-line, `_USABLE`, etc.) are calibrated to the `.swscope` CSS; if you change the scope type scale, re-measure per-page `scrollHeight - 1123` in headless Chrome (must be <= 0 on every scope page) and re-tune. Cover: shared-boundary jobs (`d.boundaryParties.length >= 2`) list all parties equally (name + address, recipient gets a muted "(you)"); single-party jobs keep the detailed `.clientblock` (site/phone/email/issued).
+
+## Two neighbour-quote paths (do not conflate)
+
+- The PRIMARY client's quote renders via `_buildFenceQuoteHTML` (above), uploads both `pdf_url` and `html_url`.
+- Each NEIGHBOUR's OWN quote renders via the LEGACY `generateNeighbourPDF(contact, d, neighbourKey)` — hand-coordinated jsPDF, `pdf_url` only, no `html_url`, and completely separate markup from `_buildFenceQuoteHTML`. `prepare_neighbour_quotes` creates the per-neighbour docs. Any cover/scope/price feature added to the premium quote does NOT automatically appear on neighbour quotes; the legacy path must be edited separately.
+- The shared-boundary "names only" block (cover) currently lives ONLY on the primary quote. Adding it to the legacy neighbour PDF is a deferred slice.
+
 ## M4 frozen-revision / QA / media gotchas (verified 2026-07)
 
 - **Sent-job reopen is intentionally read-only.** `integration.js` `_autoLoadJob` (G-F1) redirects a job with `latest_frozen_scope_revision_id` to the `?scope_revision_id=` frozen viewer; that viewer sets `_isReadonly` (mode `readonly` **or** any `scope_revision_id`), which makes `save()`/`saveAfterSignOff()` bail with reason `readonly`. This input-lock is BY DESIGN — do not remove it. Editing a sent scope goes through the "Make a revision" clone flow only.
