@@ -6,7 +6,7 @@
 
 Fencing scoping tool (GitHub Pages). The canonical spec for this repo lives in `SPEC.md` alongside this file. Feature context: `secureworks-docs/features/fencing-scoping-tool.md`.
 
-Single-file app: everything lives in `index.html` (~15.7k lines). `window.app` is the app object (`var app = window.app = {...}`); integration hooks live in the same file inline.
+Single-file app: everything lives in `index.html` (~15.9k lines). `window.app` is the app object (`var app = window.app = {...}`); integration hooks live in the same file inline.
 
 ## Client quote render architecture
 
@@ -17,7 +17,7 @@ ONE function renders BOTH the sent PDF and the interactive HTML client quote:
 - Web path: `generateFenceWebPreview` (preview) and the send flow (`executeSendQuote`, ~line 14520) call it with `forPDF:false` and upload the result as `html_url`.
 - Page order in output: `p1`(cover) + webCtaBar + `p2`(design) + `pSite`(optional site photos) + `p3`(#pgScope, scope) + `p4`(#pg4, investment) + `p5`(terms) + `p6`(close).
 
-Data pipeline: `_collectOutputData()` (raw engine output: totals, line-item arrays, job) → `_gatherFenceQuoteData(rawD)` (the presentation object consumed by `_buildFenceQuoteHTML`, i.e. `d`). All three render callers go through `_gatherFenceQuoteData`, so surface any new render field THERE (it does not pass `job` through; `d.job` is not available inside `_buildFenceQuoteHTML`). Do NOT change the calculation builders `_buildFenceScopeOfWorks` (scope data) or `buildPricingJson` (pricing) — only how their output is rendered. `d.priceLineItems` (client-facing sell rows) is built in `_gatherFenceQuoteData` from the raw engine fields and reconciles to `d.subtotal` (ex GST).
+Data pipeline: `_collectOutputData()` (raw engine output: totals, line-item arrays, job) → `_gatherFenceQuoteData(rawD)` (the presentation object consumed by `_buildFenceQuoteHTML`, i.e. `d`). All three render callers go through `_gatherFenceQuoteData`, so surface any new render field THERE (it does not pass `job` through; `d.job` is not available inside `_buildFenceQuoteHTML`). Do NOT change the calculation builders `_buildFenceScopeOfWorks` (scope data) or `buildPricingJson` (pricing) — only how their output is rendered. `d.priceLineItems` (client-facing sell rows) is built in `_gatherFenceQuoteData` from the raw engine fields and reconciles to `d.subtotal` (ex GST). In `'itemized'` mode the page-4 table foots with `d.itemizedSubtotalStr` (the exact cent-sum of the displayed line amounts) and `d.itemizedGstStr` (`d.totalStr` minus that subtotal), NOT `d.subtotal`/`d.gst`, so the shown Subtotal + GST always equals the unchanged canonical `d.totalStr` without per-line rounding drift.
 
 Persisted quote settings live on `this.job.quote` and are written via `app.updateQuote(field, value)` (calls `save()`), e.g. `customDescription`, `customLineItems`, `priceDisplay` (`'total'` default | `'itemized'`).
 
