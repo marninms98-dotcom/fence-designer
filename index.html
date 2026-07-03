@@ -10633,16 +10633,16 @@
 /* D5: shared-boundary parties (names only) as a second column on the cover band.
    These rules follow the .coverband/.clientblock rules above so they win on cascade;
    with no neighbours the boundary block is not rendered and the client block fills the row. */
-'#pg1 .coverband{justify-content:space-between;gap:20px;}',
-'#pg1 .coverband .clientblock{flex:1 1 auto;min-width:0;}',
-'#pg1 .boundaryblock{flex:0 0 auto;max-width:300px;padding:16px 52px 16px 0;display:flex;flex-direction:column;justify-content:center;}',
-'#pg1 .boundaryblock .bb-label{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange);}',
-'#pg1 .boundaryblock .bb-note{font-size:9px;color:var(--mid-blue);margin:5px 0 10px;letter-spacing:0.3px;}',
-'#pg1 .boundaryblock .bb-party{padding:5px 0;border-top:1px solid var(--blue-100);}',
-'#pg1 .boundaryblock .bb-party:first-of-type{border-top:none;}',
-'#pg1 .boundaryblock .bb-name{font-size:12px;font-weight:800;color:var(--dark-blue);letter-spacing:-0.2px;line-height:1.25;}',
-'#pg1 .boundaryblock .bb-you{font-size:8.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--orange);margin-left:6px;}',
-'#pg1 .boundaryblock .bb-addr{font-size:9.5px;color:var(--mid-blue);line-height:1.35;margin-top:1px;}',
+/* Equal-parties cover list (shared-boundary jobs): every party name + address styled
+   identically in a grid; the recipient carries only a subtle muted "(you)" cue. */
+'#pg1 .coverband .partiesblock{flex:1 1 auto;min-width:0;padding:18px 52px;display:flex;flex-direction:column;justify-content:center;}',
+'#pg1 .partiesblock .pt-note{font-size:10px;color:var(--mid-blue);margin:6px 0 12px;letter-spacing:0.3px;}',
+'#pg1 .partiesblock .parties-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 30px;}',
+'#pg1 .partiesblock .party{min-width:0;}',
+'#pg1 .partiesblock .pt-name{font-size:15px;font-weight:800;color:var(--dark-blue);letter-spacing:-0.3px;line-height:1.2;}',
+'#pg1 .partiesblock .pt-you{font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--mid-blue);margin-left:7px;}',
+'#pg1 .partiesblock .pt-addr{font-size:11px;color:var(--body-text);line-height:1.4;margin-top:3px;}',
+'#pg1 .partiesblock .pt-meta{font-size:10px;color:var(--mid-blue);margin-top:14px;letter-spacing:0.2px;}',
 '#pg2 .hero{position:relative;width:100%;flex:0 0 auto;height:430px;overflow:hidden;background:var(--blue-950);}',
 '#pg2 .hero .heroimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;display:block;z-index:0;background:#fff;}',
 '#pg2 .hero .heroscrim{position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(26,39,46,0.20) 0%,rgba(26,39,46,0.00) 30%,rgba(26,39,46,0.00) 64%,rgba(26,39,46,0.30) 88%,rgba(26,39,46,0.55) 100%);}',
@@ -11494,17 +11494,61 @@
         }
 
         var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
-        // Dynamic page numbering: base quote is 6 pages (cover, design, scope, investment,
-        // terms, close). When the "Your Site" photo page renders it sits at position 3,
-        // pushing every page after it down by one, for a 7-page total. pf(n) takes the
-        // 6-page baseline number and shifts it past pgSite automatically.
         var hasSitePage = !!(d.sitePhotos && d.sitePhotos.length > 0);
-        var totalPages = hasSitePage ? 7 : 6;
-        // Baseline (6-page) footer slots: design=2, scope=3, investment=4, terms=5.
-        // With pgSite present, scope/investment/terms each shift +1 (it inserts after design).
-        var pf = function(n) {
-          var shown = (hasSitePage && n >= 3) ? (n + 1) : n;
-          return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + shown + ' of ' + totalPages + '</div></div>';
+
+        // ----- SCOPE PAGINATION (readable type, split across pages when needed) -----
+        // The scope section renders at the same type scale as the rest of the quote, so
+        // Specifications + optional About + the Stage/What-we-do table + the under-scope
+        // total + Included-as-standard do not always fit one fixed 794x1123 page. Rather
+        // than shrink to cram, we PAGINATE: estimate each block's height and pack the
+        // stages across as many scope pages as needed (usually 1). The under-scope total
+        // and the Included strip live on the LAST scope page, right after the last stage.
+        var _scopeLead = d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage, every task listed and nothing hidden.';
+        var _nl = function(s, cpl){ return Math.max(1, Math.ceil(String(s == null ? '' : s).length / cpl)); };
+        var _stages = d.scopeGroups || [];
+        // Height estimates are calibrated to the comfortable #swscope type scale so the
+        // packer fills each page without clipping. The "What we do" column is wide, so an
+        // item wraps at ~80 chars; the About block runs full width (~104 chars/line).
+        var _estStage = function(g){
+          var items = g.items || [];
+          var itemsH = items.reduce(function(a, it){ return a + _nl(it, 80) * 18 + 4; }, 0);
+          var labelH = _nl(g.stage, 20) * 16;
+          return Math.max(itemsH, labelH) + 18; // td padding + border
+        };
+        var _EST_THEAD = 32;
+        var _estSpecs = 30 + Math.ceil((d.specs || []).length / 2) * 29 + 16;
+        var _estAbout = d.customDescription ? (16 + _nl(d.customDescription, 104) * 18 + 22 + 14) : 0;
+        var _estIntro = 22 + _nl(_scopeLead, 100) * 18 + 12;
+        var _EST_TOTAL = 80;
+        var _EST_INCLUDED = 68;
+        var _USABLE = 905;
+        var _firstFixed = _estSpecs + _estAbout + _estIntro + _EST_THEAD;
+        var _reserve = _EST_TOTAL + _EST_INCLUDED + 14;
+        var pagesStages = [];
+        (function(){
+          var cur = [], curH = _firstFixed;
+          for (var i = 0; i < _stages.length; i++){
+            var sh = _estStage(_stages[i]);
+            var isLast = (i === _stages.length - 1);
+            var need = sh + (isLast ? _reserve : 0);
+            if (cur.length > 0 && (curH + need) > _USABLE){
+              pagesStages.push(cur); cur = []; curH = _EST_THEAD;
+            }
+            cur.push(i); curH += sh;
+          }
+          if (cur.length || pagesStages.length === 0) pagesStages.push(cur);
+        })();
+        var nScopePages = pagesStages.length;
+
+        // Dynamic page numbering: cover(1) + design(2) [+ site(3)] + scope(nScopePages)
+        // + investment + terms + close.
+        var _pB = 2 + (hasSitePage ? 1 : 0);
+        var _pInvest = _pB + nScopePages + 1;
+        var _pTerms = _pInvest + 1;
+        var _pClose = _pTerms + 1;
+        var totalPages = _pClose;
+        var pfn = function(n) {
+          return '<div class="pagefoot"><div><span class="pf-name">SecureWorks Group</span> &nbsp;&middot;&nbsp; Quote ' + E(d.qNum) + '</div><div>Page ' + n + ' of ' + totalPages + '</div></div>';
         };
         var stars5 = STAR + STAR + STAR + STAR + STAR;
         // Google-gold stars + Google "G" mark for the premium review card (ported from locked patio).
@@ -11522,19 +11566,30 @@
         // The 3D render lives on the design page (pg2), not the cover.
         var coverHeroSrc = imgs.heroCover;
         var coverScrimStyle = '';
-        // D5: shared-boundary parties (names + address only, no dollars). Only when the
-        // job is a shared-boundary job with named neighbours (d.boundaryParties built in
-        // _gatherFenceQuoteData). The current recipient is flagged "(you)".
-        var boundaryBlock = '';
-        if (d.boundaryParties && d.boundaryParties.length) {
-          var bbRows = d.boundaryParties.map(function(p) {
-            var youTag = p.you ? '<span class="bb-you">(you)</span>' : '';
-            var addr = p.address ? '<div class="bb-addr">' + E(p.address) + '</div>' : '';
-            return '<div class="bb-party"><div class="bb-name">' + E(p.name) + youTag + '</div>' + addr + '</div>';
+        // D5 / cover "Prepared For". When the job spans a shared boundary (>=2 named
+        // parties), list ALL parties EQUALLY (name + address, identical styling) rather
+        // than elevating one recipient with the neighbours in a separate block. The
+        // recipient carries a subtle "(you)" cue only. Names + addresses only, no dollars.
+        // Single-party jobs keep the detailed contact block (site/phone/email/issued).
+        var coverbandInner;
+        if (d.boundaryParties && d.boundaryParties.length >= 2) {
+          var partyCells = d.boundaryParties.map(function(p) {
+            var youTag = p.you ? '<span class="pt-you">(you)</span>' : '';
+            var addr = p.address ? '<div class="pt-addr">' + E(p.address) + '</div>' : '';
+            return '<div class="party"><div class="pt-name">' + E(p.name) + youTag + '</div>' + addr + '</div>';
           }).join('');
-          boundaryBlock = '<div class="boundaryblock"><span class="bb-label">Shared Boundary</span>'
-            + '<div class="bb-note">Everyone on this fence line</div>'
-            + bbRows + '</div>';
+          coverbandInner = '<div class="partiesblock"><span class="label">Prepared For</span>'
+            + '<div class="pt-note">All parties on the shared boundary</div>'
+            + '<div class="parties-grid">' + partyCells + '</div>'
+            + '<div class="pt-meta">Issued ' + E(d.issuedStr) + ' &middot; valid until ' + E(d.validUntilStr) + '</div>'
+            + '</div>';
+        } else {
+          coverbandInner = '<div class="clientblock"><span class="label">Prepared For</span>'
+            + '<div class="cname">' + E(d.clientName) + '</div>'
+            + '<div class="crow"><b>Site</b><span>' + E(d.siteAddr) + '</span></div>'
+            + '<div class="crow"><b>Phone</b><span>' + E(d.phone) + '</span></div>'
+            + '<div class="crow"><b>Email</b><span>' + E(d.email) + '</span></div>'
+            + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div>';
         }
 
         var p1 = '<div id="pg1" class="pgwrap"><section class="page"><div class="coverhero">'
@@ -11546,14 +11601,7 @@
           + '<div class="cover-tagline">A clean, durable boundary that suits your home. Here is everything it takes to build it.</div></div>'
           + '<div class="quoteref"><div class="qno">' + E(d.qNum) + '</div><div class="qsub">Job &nbsp;' + E(d.jobRef) + '</div></div></div>'
           + '<div class="heroedge"></div></div>'
-          + '<div class="coverband"><div class="clientblock"><span class="label">Prepared For</span>'
-          + '<div class="cname">' + E(d.clientName) + '</div>'
-          + '<div class="crow"><b>Site</b><span>' + E(d.siteAddr) + '</span></div>'
-          + '<div class="crow"><b>Phone</b><span>' + E(d.phone) + '</span></div>'
-          + '<div class="crow"><b>Email</b><span>' + E(d.email) + '</span></div>'
-          + '<div class="crow"><b>Issued</b><span>' + E(d.issuedStr) + ' &nbsp;&middot;&nbsp; valid until ' + E(d.validUntilStr) + '</span></div></div>'
-          + boundaryBlock
-          + '</div>'
+          + '<div class="coverband">' + coverbandInner + '</div>'
           + '</section></div>';
 
         // ----- PAGE 2 YOUR DESIGN -----
@@ -11592,7 +11640,7 @@
           + '<div class="body"><div class="intro"><p class="lede">' + E(d.lede) + '</p></div>'
           + (runRows ? ('<div class="runwrap"><div class="shead"><span class="snum">A</span><span class="slabel">Fence Runs</span></div><div class="shead-bar"></div>'
               + '<div class="runlist">' + runRows + '</div></div>') : '')
-          + pf(2) + '</div></section></div>';
+          + pfn(2) + '</div></section></div>';
 
         // ----- PAGE 4 YOUR INVESTMENT -----
         // D1: dedicated investment page — the reputational price page (headline = TOTAL).
@@ -11652,7 +11700,7 @@
           + '<div class="lower">' + invBody
           + (d.priceDisplay === 'itemized' ? '' : splitBlock)
           + '</div>'
-          + pf(4) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
+          + pfn(_pInvest) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
 
         // ----- PAGE 5 TERMS -----
         var p5 = '<div id="pg5" class="pgwrap"><section class="page">'
@@ -11694,7 +11742,7 @@
           + '<li>SecureWorks Group Pty Ltd (ABN ' + d.contact.abn + ') is fully licensed and insured for fencing and outdoor construction in Western Australia.</li>'
           + '<li>We hold public liability insurance and workers’ compensation for all personnel on site.</li>'
           + '<li>Payment of the deposit or written confirmation constitutes acceptance of this quote and these Terms in full.</li></ul></div>'
-          + '</div></div></div>' + pf(5) + '</div></section></div>';
+          + '</div></div></div>' + pfn(_pTerms) + '</div></section></div>';
 
         // ----- PAGE 6 CLOSE -----
         // Locked patio close-page treatment: topband = logo/meta + quiet rating
@@ -11727,59 +11775,62 @@
         // Scope page: full-width numbered stages (patio pattern).
         // Stage index 01/02... item index 1.1/1.2...
         // Reads as an itemised quote section, not a brochure.
-        var scopeCSS = '#pgScope .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
-          + '#pgScope .topband{display:flex;align-items:center;justify-content:space-between;padding:22px 52px 16px;border-bottom:2px solid var(--blue-100,#EDF1F4);flex:0 0 auto;}'
-          + '#pgScope .topband .logo svg{display:block;height:34px;width:auto;}'
-          + '#pgScope .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
-          + '#pgScope .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '#pgScope .scopebody{flex:1;display:flex;flex-direction:column;padding:12px 52px 0;}'
-          + '#pgScope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:4px;}'
-          + '#pgScope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
-          + '#pgScope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
-          + '#pgScope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:4px 0 8px;}'
-          + '#pgScope .sec-a{margin-bottom:12px;}'
-          + '#pgScope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:40px;row-gap:0;}'
-          + '#pgScope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:3px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
-          + '#pgScope .specitem .sk{flex:0 0 auto;font-size:8.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
-          + '#pgScope .specitem .sv{text-align:right;font-size:11.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.3;}'
-          + '#pgScope .sec-b{margin-bottom:6px;flex:1;}'
-          + '#pgScope .scope-lead{font-size:11px;line-height:1.4;color:var(--body-text,#3a4e58);margin-bottom:6px;max-width:100%;}'
-          + '#pgScope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '#pgScope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;}'
-          + '#pgScope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
-          + '#pgScope .sec-head .sh-label{font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+        // Scope page CSS. Class-based (.swscope) so it applies to EVERY scope page when
+        // the scope paginates. Type scale + spacing match the rest of the quote (readable,
+        // not crammed); pagination handles fit instead of shrinking the type.
+        var scopeCSS = '.swscope .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
+          + '.swscope .topband{display:flex;align-items:center;justify-content:space-between;padding:22px 52px 16px;border-bottom:2px solid var(--blue-100,#EDF1F4);flex:0 0 auto;}'
+          + '.swscope .topband .logo svg{display:block;height:34px;width:auto;}'
+          + '.swscope .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
+          + '.swscope .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '.swscope .scopebody{flex:1;display:flex;flex-direction:column;padding:20px 52px 0;}'
+          + '.swscope .scope-content{flex:1;display:flex;flex-direction:column;}'
+          + '.swscope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '.swscope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '.swscope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
+          + '.swscope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 14px;}'
+          + '.swscope .sec-a{margin-bottom:18px;}'
+          + '.swscope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:44px;row-gap:0;}'
+          + '.swscope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:6px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '.swscope .specitem .sk{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
+          + '.swscope .specitem .sv{text-align:right;font-size:12.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.35;}'
+          + '.swscope .scope-lead{font-size:12px;line-height:1.55;color:var(--body-text,#3a4e58);margin-bottom:12px;max-width:100%;}'
+          + '.swscope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
+          + '.swscope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;}'
+          + '.swscope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
+          + '.swscope .sec-head .sh-label{font-size:10.5px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
           // D4: "About your project" intro block (customer description), above the scope table.
-          + '#pgScope .about-block{background:var(--warm-100,#F8F6F3);border:1px solid var(--blue-100,#EDF1F4);border-left:3px solid var(--orange,#F15A29);padding:6px 13px;margin-bottom:8px;}'
-          + '#pgScope .about-block .ab-label{font-size:8.5px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:3px;}'
-          + '#pgScope .about-block .ab-text{font-size:10px;line-height:1.4;color:var(--dark-blue,#293C46);white-space:pre-line;}'
+          + '.swscope .about-block{background:var(--warm-100,#F8F6F3);border:1px solid var(--blue-100,#EDF1F4);border-left:3px solid var(--orange,#F15A29);padding:11px 15px;margin-bottom:16px;}'
+          + '.swscope .about-block .ab-label{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:5px;}'
+          + '.swscope .about-block .ab-text{font-size:11.5px;line-height:1.5;color:var(--dark-blue,#293C46);white-space:pre-line;}'
           // D2: two-column scope-of-works table (Stage | What we do). Dark header, ruled rows.
-          + '#pgScope .scope-table{width:100%;border-collapse:collapse;table-layout:fixed;}'
-          + '#pgScope .scope-table th{background:var(--dark-blue,#293C46);color:#fff;text-align:left;font-size:8.5px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:5px 12px;}'
-          + '#pgScope .scope-table th.sc-stage{width:33%;border-right:1px solid rgba(255,255,255,0.16);}'
-          + '#pgScope .scope-table td{vertical-align:top;padding:5px 12px;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
-          + '#pgScope .scope-table tbody tr:last-child td{border-bottom:none;}'
-          + '#pgScope .scope-table tbody tr:nth-child(even) td{background:rgba(41,60,70,0.03);}'
-          + '#pgScope .scope-table td.sc-stage{border-right:1px solid var(--blue-100,#EDF1F4);}'
-          + '#pgScope .scope-table .sc-num{color:var(--orange,#F15A29);font-weight:800;font-size:9px;margin-right:6px;}'
-          + '#pgScope .scope-table .sc-stage-label{font-size:10px;font-weight:700;letter-spacing:0.4px;color:var(--dark-blue,#293C46);text-transform:uppercase;line-height:1.3;}'
-          + '#pgScope .scope-table td.sc-what{font-size:10px;color:var(--dark-blue,#293C46);line-height:1.42;}'
-          + '#pgScope .scope-table td.sc-what ul{list-style:none;margin:0;padding:0;}'
-          + '#pgScope .scope-table td.sc-what li{position:relative;padding-left:12px;margin-bottom:2px;}'
-          + '#pgScope .scope-table td.sc-what li:last-child{margin-bottom:0;}'
-          + '#pgScope .scope-table td.sc-what li::before{content:"";position:absolute;left:0;top:5px;width:4px;height:4px;background:var(--orange,#F15A29);}'
+          + '.swscope .scope-table{width:100%;border-collapse:collapse;table-layout:fixed;}'
+          + '.swscope .scope-table th{background:var(--dark-blue,#293C46);color:#fff;text-align:left;font-size:9px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:8px 14px;}'
+          + '.swscope .scope-table th.sc-stage{width:33%;border-right:1px solid rgba(255,255,255,0.16);}'
+          + '.swscope .scope-table td{vertical-align:top;padding:9px 14px;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '.swscope .scope-table tbody tr:last-child td{border-bottom:none;}'
+          + '.swscope .scope-table tbody tr:nth-child(even) td{background:rgba(41,60,70,0.03);}'
+          + '.swscope .scope-table td.sc-stage{border-right:1px solid var(--blue-100,#EDF1F4);}'
+          + '.swscope .scope-table .sc-num{color:var(--orange,#F15A29);font-weight:800;font-size:10px;margin-right:7px;}'
+          + '.swscope .scope-table .sc-stage-label{font-size:11px;font-weight:700;letter-spacing:0.4px;color:var(--dark-blue,#293C46);text-transform:uppercase;line-height:1.35;}'
+          + '.swscope .scope-table td.sc-what{font-size:11.5px;color:var(--dark-blue,#293C46);line-height:1.5;}'
+          + '.swscope .scope-table td.sc-what ul{list-style:none;margin:0;padding:0;}'
+          + '.swscope .scope-table td.sc-what li{position:relative;padding-left:13px;margin-bottom:4px;}'
+          + '.swscope .scope-table td.sc-what li:last-child{margin-bottom:0;}'
+          + '.swscope .scope-table td.sc-what li::before{content:"";position:absolute;left:0;top:6.5px;width:4px;height:4px;background:var(--orange,#F15A29);}'
           // D1: total band directly under the scope table (headline = the total).
-          + '#pgScope .scope-total{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--dark-blue,#293C46);color:#fff;padding:8px 15px;margin-top:9px;border-left:3px solid var(--orange,#F15A29);}'
-          + '#pgScope .scope-total .st-left{display:flex;flex-direction:column;gap:2px;}'
-          + '#pgScope .scope-total .st-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange-500,#F4845F);}'
-          + '#pgScope .scope-total .st-sub{font-size:9.5px;color:rgba(255,255,255,0.72);letter-spacing:0.3px;}'
-          + '#pgScope .scope-total .st-right{text-align:right;display:flex;flex-direction:column;gap:2px;}'
-          + '#pgScope .scope-total .st-amt{font-size:22px;font-weight:800;letter-spacing:-0.6px;color:#fff;line-height:1;}'
-          + '#pgScope .scope-total .st-dep{font-size:9px;color:rgba(255,255,255,0.7);letter-spacing:0.2px;}'
-          + '#pgScope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:6px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:auto;}'
-          + '#pgScope .sec-c-head{grid-column:1/-1;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:3px;}'
-          + '#pgScope .sfi{display:flex;align-items:baseline;gap:6px;font-size:9px;color:var(--mid-blue,#4C6A7C);font-weight:600;}'
-          + '#pgScope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
-          + '#pgScope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:8px;margin:5px 0 14px;}';
+          + '.swscope .scope-total{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--dark-blue,#293C46);color:#fff;padding:14px 18px;margin-top:16px;border-left:3px solid var(--orange,#F15A29);}'
+          + '.swscope .scope-total .st-left{display:flex;flex-direction:column;gap:3px;}'
+          + '.swscope .scope-total .st-label{font-size:9.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange-500,#F4845F);}'
+          + '.swscope .scope-total .st-sub{font-size:10px;color:rgba(255,255,255,0.72);letter-spacing:0.3px;}'
+          + '.swscope .scope-total .st-right{text-align:right;display:flex;flex-direction:column;gap:3px;}'
+          + '.swscope .scope-total .st-amt{font-size:26px;font-weight:800;letter-spacing:-0.7px;color:#fff;line-height:1;}'
+          + '.swscope .scope-total .st-dep{font-size:9.5px;color:rgba(255,255,255,0.7);letter-spacing:0.2px;}'
+          + '.swscope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:12px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:18px;}'
+          + '.swscope .sec-c-head{grid-column:1/-1;font-size:8.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:4px;}'
+          + '.swscope .sfi{display:flex;align-items:baseline;gap:6px;font-size:9.5px;color:var(--mid-blue,#4C6A7C);font-weight:600;}'
+          + '.swscope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
+          + '.swscope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:10px 0 22px;}';
 
         // ----- SITE PHOTO CSS -----
         var sitePhotoCSS = '#pgSite .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
@@ -11822,36 +11873,15 @@
             + '</div></section></div>';
         }
 
-        // D2: Scope of works as a two-column table (Stage | What we do). One row per
-        // stage; the stage's items are joined into a bulleted list in the "What we do"
-        // cell. Renders identically for PDF (forPDF) and interactive HTML (same fn).
-        var scopeGroupsHTML = '';
-        if (d.scopeGroups && d.scopeGroups.length > 0) {
-          var scopeRows = d.scopeGroups.map(function(grp, si) {
-            var stageNum = String(si + 1).padStart(2, '0');
-            var items = grp.items || [];
-            var itemsCell = items.length
-              ? '<ul>' + items.map(function(item) { return '<li>' + E(item) + '</li>'; }).join('') + '</ul>'
-              : '';
-            return '<tr>'
-              + '<td class="sc-stage"><span class="sc-num">' + stageNum + '</span><span class="sc-stage-label">' + E(grp.stage) + '</span></td>'
-              + '<td class="sc-what">' + itemsCell + '</td>'
-              + '</tr>';
-          }).join('');
-          scopeGroupsHTML = '<table class="scope-table"><thead><tr>'
-            + '<th class="sc-stage">Stage</th><th class="sc-what">What we do</th>'
-            + '</tr></thead><tbody>' + scopeRows + '</tbody></table>';
-        }
-
         // D4: "About your project" intro block (scoper's custom description), rendered
-        // above the scope table when non-empty. Mirrors the local preview intent.
+        // on the FIRST scope page above the scope table when non-empty.
         var aboutBlock = d.customDescription
           ? '<div class="about-block"><div class="ab-label">About your project</div>'
             + '<div class="ab-text">' + E(d.customDescription) + '</div></div>'
           : '';
 
-        // D1: total band shown directly under the scope table. Headline = the TOTAL,
-        // fully supplied and installed inc GST, with the deposit noted underneath.
+        // D1: total band shown directly under the scope (on the LAST scope page).
+        // Headline = the TOTAL, fully supplied and installed inc GST, deposit noted.
         var underScopeTotal = '<div class="scope-total">'
           + '<div class="st-left"><span class="st-label">Your investment</span>'
           + '<span class="st-sub">Fully supplied and installed, inc GST</span></div>'
@@ -11867,26 +11897,46 @@
           '12-month workmanship warranty'
         ].map(function(t) { return '<div class="sfi">' + t + '</div>'; }).join('');
 
-        var p3 = '<div id="pgScope" class="pgwrap"><section class="page">'
-          + '<style>' + scopeCSS + '</style>'
-          + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
-          + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
-          + '<div class="scopebody">'
-          + '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It</span></div>'
-          + '<div class="scope-accent-bar"></div>'
-          + '<div class="sec-a"><div class="sec-head"><span class="sh-letter">A</span><span class="sh-label">Specifications</span></div>'
-          + '<div class="speclist">' + specRows + '</div></div>'
-          + aboutBlock
-          + '<div class="sec-b">'
-          + '<div class="sec-head"><span class="sh-letter">B</span><span class="sh-label">Scope of Works</span></div>'
-          + '<p class="scope-lead">' + E(d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage — every task listed, nothing hidden.') + '</p>'
-          + scopeGroupsHTML
-          + underScopeTotal
-          + '</div>'
-          + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>'
-          + includedItemsHTML + '</div>'
-          + pf(3)
-          + '</div></section></div>';
+        // D2: Scope of works as a two-column table (Stage | What we do). One row per
+        // stage, items bulleted in the "What we do" cell. Rendered once per scope page
+        // with the header repeated. Renders identically for PDF and interactive HTML.
+        var _scopeThead = '<thead><tr><th class="sc-stage">Stage</th><th class="sc-what">What we do</th></tr></thead>';
+        var _renderStageRow = function(si) {
+          var grp = _stages[si];
+          var stageNum = String(si + 1).padStart(2, '0');
+          var items = grp.items || [];
+          var cell = items.length
+            ? '<ul>' + items.map(function(item) { return '<li>' + E(item) + '</li>'; }).join('') + '</ul>'
+            : '';
+          return '<tr><td class="sc-stage"><span class="sc-num">' + stageNum + '</span><span class="sc-stage-label">' + E(grp.stage) + '</span></td>'
+            + '<td class="sc-what">' + cell + '</td></tr>';
+        };
+        var _specsSection = '<div class="sec-a"><div class="sec-head"><span class="sh-letter">A</span><span class="sh-label">Specifications</span></div>'
+          + '<div class="speclist">' + specRows + '</div></div>';
+        var _scopeIntro = '<div class="sec-head"><span class="sh-letter">B</span><span class="sh-label">Scope of Works</span></div>'
+          + '<p class="scope-lead">' + E(_scopeLead) + '</p>';
+
+        // Build one .pgwrap.swscope page per packed group of stages. Specs/About/intro on
+        // the first page; the total band + Included strip on the last page.
+        var scopePagesHTML = pagesStages.map(function(stageIdxs, pi) {
+          var isFirst = (pi === 0);
+          var isLast = (pi === pagesStages.length - 1);
+          var content = '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It' + (isFirst ? '' : ' &middot; continued') + '</span></div>'
+            + '<div class="scope-accent-bar"></div>';
+          if (isFirst) content += _specsSection + aboutBlock + _scopeIntro;
+          if (stageIdxs && stageIdxs.length) {
+            content += '<table class="scope-table">' + _scopeThead + '<tbody>'
+              + stageIdxs.map(_renderStageRow).join('') + '</tbody></table>';
+          }
+          if (isLast) content += underScopeTotal
+            + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>' + includedItemsHTML + '</div>';
+          return '<div class="pgwrap swscope"><section class="page">'
+            + (isFirst ? ('<style>' + scopeCSS + '</style>') : '')
+            + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
+            + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
+            + '<div class="scopebody"><div class="scope-content">' + content + '</div>'
+            + pfn(_pB + 1 + pi) + '</div></section></div>';
+        }).join('');
 
         // Web-mode only: CTA bar between cover and design page.
         // Hidden in web mode via CSS (loud inter-page band removed per Marnin);
@@ -11974,7 +12024,7 @@
           + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
           + '<style>' + css + '</style></head><body class="' + (forPDF ? 'pdf' : 'web') + '">'
           + (forPDF ? '' : '<div class="sw-qbg"></div><div class="sw-qscrim"></div>')
-          + p1 + webCtaBar + p2 + pSite + p3 + p4 + p5 + p6
+          + p1 + webCtaBar + p2 + pSite + scopePagesHTML + p4 + p5 + p6
           + stickyBar
           + webScript
           + (forPDF ? '' : '<script>(function(){function f(){var ps=document.querySelectorAll(".pgwrap");if(window.innerWidth>820){ps.forEach(function(p){p.style.zoom="";});return;}var z=document.documentElement.clientWidth/794;ps.forEach(function(p){p.style.zoom=z;});}f();addEventListener("resize",f);addEventListener("orientationchange",f);})();<\/script>')
