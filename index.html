@@ -3028,7 +3028,7 @@
 
             // Build per-run allocation items
             const items = [];
-            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'} — ${rd.length.toFixed(1)}m`, total: rd.runFencing });
+            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
             if (rd.plinths > 0) items.push({ key: 'plinths', desc: `Retaining plinths ×${rd.plinths}`, total: rd.runPlinthsCost });
             if (rd.patioTubes > 0) items.push({ key: 'patio_tubes', desc: `Patio tubes ×${rd.patioTubes}`, total: rd.runPatioCost });
             // Pro-rated delivery
@@ -11171,11 +11171,11 @@
           d.gateDetails.forEach(function(g) {
             var widthStr = g.width ? ' ' + g.width + 'mm clear opening' : '';
             if (g.type === 'pedestrian') {
-              gateItems.push('Supply and install pedestrian swing gate' + widthStr + ' — COLORBOND® infill, heavy-duty weld-mesh hinges, adjustable latch, and hinge bolts');
+              gateItems.push('Supply and install pedestrian swing gate' + widthStr + ', COLORBOND® infill, heavy-duty weld-mesh hinges, adjustable latch, and hinge bolts');
             } else if (g.type === 'double') {
-              gateItems.push('Supply and install double swing gate set' + widthStr + ' — COLORBOND® infill, heavy-duty hinges, drop bolt, and bow latch; dropbolt pinned to ground');
+              gateItems.push('Supply and install double swing gate set' + widthStr + ', COLORBOND® infill, heavy-duty hinges, drop bolt, and bow latch; dropbolt pinned to ground');
             } else if (g.type === 'sliding') {
-              gateItems.push('Supply and install sliding gate' + widthStr + ' — COLORBOND® infill, galvanised track and roller set, end stop and latch');
+              gateItems.push('Supply and install sliding gate' + widthStr + ', COLORBOND® infill, galvanised track and roller set, end stop and latch');
             } else {
               var typeStr = g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'Gate';
               gateItems.push('Supply and install ' + typeStr + ' gate' + widthStr + ' with all hardware, hinges and latch');
@@ -11196,7 +11196,7 @@
           finishItems.push(gfDesc);
         }
         finishItems.push('Remove all spoil from post excavation, excess concrete, off-cuts and packaging from site');
-        finishItems.push('Full site clean-up — leave site in same or better condition than found');
+        finishItems.push('Full site clean-up, leaving the site in same or better condition than found');
         finishItems.push('Final inspection of all panels, posts, rails and gates for alignment, fixings and finish');
         finishItems.push('Client walkthrough and handover; confirm operation of all gates and latches');
         groups.push({ stage: 'Finishing & Handover', items: finishItems });
