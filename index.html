@@ -7,7 +7,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>Fence Designer Pro — SecureWorks WA</title>
+  <title>Fence Designer Pro - SecureWorks Group</title>
   <script>(function(){var p=new URLSearchParams(window.location.search);var m=p.get('mode');var hasFrozen=!!p.get('scope_revision_id');if(m==='view')document.documentElement.classList.add('view-mode');if(m==='readonly'||hasFrozen)document.documentElement.classList.add('readonly-mode');})();</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -1375,7 +1375,7 @@
   <!-- Header Bar -->
   <div class="header" id="headerBar">
     <div class="header-top">
-      <img src="logo.png" alt="SecureWorks WA" class="header-logo">
+      <img src="logo.png" alt="SecureWorks Group" class="header-logo">
       <div class="header-search-wrap" id="headerSearchWrap">
         <svg class="header-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" class="header-search" id="headerSearch" placeholder="Search or load a job..." onclick="window._swIntegration?window._swIntegration.loadPicker():void(0)" readonly>
@@ -1870,17 +1870,17 @@
 
     const DISCLAIMERS = [
       'This quote is based on information provided and a standard site assessment. Actual costs may vary if unforeseen site conditions are encountered during installation, including but not limited to rock, tree roots, clay, underground services, water table, or non-standard soil conditions. Any additional costs arising from such conditions will be communicated before proceeding.',
-      'Customer is responsible for confirming property boundaries before installation. SecureWorks WA strongly recommends engaging a licensed surveyor to mark boundaries prior to works commencing. SecureWorks WA accepts no liability for fencing installed on incorrect boundaries or for any disputes arising from boundary placement.',
-      'Retaining walls over 500mm in height may require a Building Permit and/or engineer certification under the Building Act 2011 (WA) and associated regulations. Customer is responsible for obtaining all required approvals, permits, and certifications prior to commencement. SecureWorks WA can assist with applications upon request at additional cost.',
+      'Customer is responsible for confirming property boundaries before installation. SecureWorks Group strongly recommends engaging a licensed surveyor to mark boundaries prior to works commencing. SecureWorks Group accepts no liability for fencing installed on incorrect boundaries or for any disputes arising from boundary placement.',
+      'Retaining walls over 500mm in height may require a Building Permit and/or engineer certification under the Building Act 2011 (WA) and associated regulations. Customer is responsible for obtaining all required approvals, permits, and certifications prior to commencement. SecureWorks Group can assist with applications upon request at additional cost.',
       'This quote does not include any electrical or plumbing relocation, stormwater management, tree removal requiring council approval, asbestos testing or removal, or any works not specifically listed in the scope above. Any additional works requested after acceptance will be quoted separately.',
       'Payment terms: 50% deposit required to confirm booking and secure materials. Balance due on day of completion prior to handover. Overdue accounts incur interest at the rate of 2% per month (24% per annum) compounding. The customer is liable for all collection costs, including legal fees, in the event of non-payment.',
-      'All COLORBOND\u00AE steel products carry the manufacturer\u2019s standard warranty (BlueScope 10-year fencing warranty). SecureWorks WA provides a 12-month workmanship warranty from the date of completion covering defects in installation. This warranty does not cover damage caused by third parties, acts of nature, ground movement, or unauthorised modifications.',
+      'All COLORBOND\u00AE steel products carry the manufacturer\u2019s standard warranty (BlueScope 10-year fencing warranty). SecureWorks Group provides a 12-month workmanship warranty from the date of completion covering defects in installation. This warranty does not cover damage caused by third parties, acts of nature, ground movement, or unauthorised modifications.',
       'This quote is valid for 30 days from the date of issue. After this period, pricing may be subject to change due to material cost fluctuations. A new quote will be provided upon request.',
-      'SecureWorks WA holds appropriate public liability insurance and workers\u2019 compensation coverage for all works performed. Copies of insurance certificates are available upon request.',
-      'The customer must provide clear and safe access to the worksite for the duration of works. Any delays caused by restricted access, adverse weather, or other factors outside SecureWorks WA\u2019s control may result in schedule adjustments. SecureWorks WA is not liable for consequential losses arising from such delays.',
-      'Site cleanup is included as part of the scope of works. SecureWorks WA will remove all installation debris and excess materials. Any existing waste, dumped materials, or items not related to this project remain the customer\u2019s responsibility.',
+      'SecureWorks Group holds appropriate public liability insurance and workers\u2019 compensation coverage for all works performed. Copies of insurance certificates are available upon request.',
+      'The customer must provide clear and safe access to the worksite for the duration of works. Any delays caused by restricted access, adverse weather, or other factors outside SecureWorks Group\u2019s control may result in schedule adjustments. SecureWorks Group is not liable for consequential losses arising from such delays.',
+      'Site cleanup is included as part of the scope of works. SecureWorks Group will remove all installation debris and excess materials. Any existing waste, dumped materials, or items not related to this project remain the customer\u2019s responsibility.',
       'By accepting this quote, the customer agrees to these terms and conditions in full. Acceptance may be communicated in writing, via email, or by payment of the deposit. Verbal acceptance followed by deposit payment constitutes a binding agreement.',
-      'Either party may cancel this agreement in writing. If the customer cancels after deposit has been paid and materials have been ordered, the deposit is non-refundable to the extent of costs already incurred. SecureWorks WA will provide an itemised breakdown of costs incurred upon request.'
+      'Either party may cancel this agreement in writing. If the customer cancels after deposit has been paid and materials have been ordered, the deposit is non-refundable to the extent of costs already incurred. SecureWorks Group will provide an itemised breakdown of costs incurred upon request.'
     ];
 
     // ── Lookup helper ──
@@ -3028,7 +3028,7 @@
 
             // Build per-run allocation items
             const items = [];
-            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'} — ${rd.length.toFixed(1)}m`, total: rd.runFencing });
+            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
             if (rd.plinths > 0) items.push({ key: 'plinths', desc: `Retaining plinths ×${rd.plinths}`, total: rd.runPlinthsCost });
             if (rd.patioTubes > 0) items.push({ key: 'patio_tubes', desc: `Patio tubes ×${rd.patioTubes}`, total: rd.runPatioCost });
             // Pro-rated delivery
@@ -10377,12 +10377,12 @@
           if (r.patioTubes > 0) order += `    Patio tubes: ${r.patioTubes}\n`;
           order += '\n';
         });
-        order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks WA\nfencing@secureworkswa.com.au | 0489 267 772`;
+        order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks Group\nfencing@secureworkswa.com.au | 0489 267 772`;
 
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
+            <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
             <div class="details">fencing@secureworkswa.com.au | 0489 267 772</div>
             <h1>MATERIAL ORDER</h1>
           </div>
@@ -10457,7 +10457,7 @@
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
-            <img src="${this._logoUrl()}" alt="SecureWorks WA" class="header-logo">
+            <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
             <h1>WORK ORDER \u2014 ${d.job.ref || '\u2014'}</h1>
           </div>
           <div class="section">
@@ -10760,10 +10760,13 @@
 '#pg5 .accept-panel .ap-copy{font-size:10.5px;color:var(--dark-blue);line-height:1.6;margin-bottom:14px;}',
 '#pg5 .accept-panel .ap-btn{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(180deg,#FF6A3A 0%,#F15A29 58%,#E5501F 100%);color:#fff;border:none;font-family:inherit;font-weight:800;font-size:11.5px;letter-spacing:0.8px;text-transform:uppercase;padding:13px 26px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28),0 4px 14px rgba(241,90,41,0.25);}',
 '#pg5 .accept-panel .ap-btn::after{content:"→";font-size:13px;line-height:1;}',
-'#pg5 .terms{display:grid;grid-template-columns:1fr 1fr;gap:0 34px;}',
+'#pg5 .terms{column-count:2;column-gap:34px;}',
 '#pg5 .termcol{display:flex;flex-direction:column;gap:15px;}',
-'#pg5 .termgrp h4{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);margin-bottom:7px;display:flex;align-items:center;gap:8px;}',
-'#pg5 .termgrp h4::before{content:"";width:14px;height:2px;background:var(--orange);flex:0 0 14px;}',
+'#pg5 .termgrp{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:13px;}',
+'#pg5 .termgrp h4{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);margin-bottom:5px;display:flex;align-items:flex-start;gap:8px;line-height:1.35;}',
+'#pg5 .termgrp h4::before{content:"";width:14px;height:2px;background:var(--orange);flex:0 0 14px;margin-top:5px;}',
+'#pg5 .termgrp p{font-size:9px;color:var(--mid-blue);line-height:1.55;}',
+'#pg5 .termgrp p b{color:var(--dark-blue);font-weight:700;}',
 '#pg5 .termgrp ul{list-style:none;}',
 '#pg5 .termgrp li{font-size:9px;color:var(--mid-blue);line-height:1.5;margin-bottom:5px;padding-left:11px;position:relative;}',
 '#pg5 .termgrp li::before{content:"";position:absolute;left:0;top:6px;width:3px;height:3px;background:var(--blue-400);}',
@@ -11168,11 +11171,11 @@
           d.gateDetails.forEach(function(g) {
             var widthStr = g.width ? ' ' + g.width + 'mm clear opening' : '';
             if (g.type === 'pedestrian') {
-              gateItems.push('Supply and install pedestrian swing gate' + widthStr + ' — COLORBOND® infill, heavy-duty weld-mesh hinges, adjustable latch, and hinge bolts');
+              gateItems.push('Supply and install pedestrian swing gate' + widthStr + ', COLORBOND® infill, heavy-duty weld-mesh hinges, adjustable latch, and hinge bolts');
             } else if (g.type === 'double') {
-              gateItems.push('Supply and install double swing gate set' + widthStr + ' — COLORBOND® infill, heavy-duty hinges, drop bolt, and bow latch; dropbolt pinned to ground');
+              gateItems.push('Supply and install double swing gate set' + widthStr + ', COLORBOND® infill, heavy-duty hinges, drop bolt, and bow latch; dropbolt pinned to ground');
             } else if (g.type === 'sliding') {
-              gateItems.push('Supply and install sliding gate' + widthStr + ' — COLORBOND® infill, galvanised track and roller set, end stop and latch');
+              gateItems.push('Supply and install sliding gate' + widthStr + ', COLORBOND® infill, galvanised track and roller set, end stop and latch');
             } else {
               var typeStr = g.type ? (g.type.charAt(0).toUpperCase() + g.type.slice(1)) : 'Gate';
               gateItems.push('Supply and install ' + typeStr + ' gate' + widthStr + ' with all hardware, hinges and latch');
@@ -11193,7 +11196,7 @@
           finishItems.push(gfDesc);
         }
         finishItems.push('Remove all spoil from post excavation, excess concrete, off-cuts and packaging from site');
-        finishItems.push('Full site clean-up — leave site in same or better condition than found');
+        finishItems.push('Full site clean-up, leaving the site in same or better condition than found');
         finishItems.push('Final inspection of all panels, posts, rails and gates for alignment, fixings and finish');
         finishItems.push('Client walkthrough and handover; confirm operation of all gates and latches');
         groups.push({ stage: 'Finishing & Handover', items: finishItems });
@@ -11496,49 +11499,70 @@
         var hmeta = '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div>';
         var hasSitePage = !!(d.sitePhotos && d.sitePhotos.length > 0);
 
-        // ----- SCOPE PAGINATION (readable type, split across pages when needed) -----
-        // The scope section renders at the same type scale as the rest of the quote, so
-        // Specifications + optional About + the Stage/What-we-do table + the under-scope
-        // total + Included-as-standard do not always fit one fixed 794x1123 page. Rather
-        // than shrink to cram, we PAGINATE: estimate each block's height and pack the
-        // stages across as many scope pages as needed (usually 1). The under-scope total
-        // and the Included strip live on the LAST scope page, right after the last stage.
+        // ----- SCOPE PAGINATION (one clean block; never strand a lone stage) -----
+        // The scope reads as ONE clean block: all stages stay together on one page when
+        // they fit, with the total directly under them. We NEVER split the stages so a
+        // single stage floats alone on a continuation page. If the stages fit but the
+        // total does not, the WHOLE investment block (total + Included) flows to the next
+        // page as a unit. If the stages genuinely need more than one page, they break at a
+        // BALANCED point between stages (never 4+1, never a lone trailing stage). The row
+        // rhythm is condensed (tighter spacing, readable font) so a typical 5-stage scope
+        // sits cleanly on one page without the earlier cramped look.
         var _scopeLead = d.scopeLeadLine || d.lede || 'Here is exactly how we build your fence, stage by stage, every task listed and nothing hidden.';
         var _nl = function(s, cpl){ return Math.max(1, Math.ceil(String(s == null ? '' : s).length / cpl)); };
         var _stages = d.scopeGroups || [];
-        // Height estimates are calibrated to the comfortable #swscope type scale so the
-        // packer fills each page without clipping. The "What we do" column is wide, so an
-        // item wraps at ~80 chars; the About block runs full width (~104 chars/line).
+        // Estimates are calibrated to the condensed .swscope rhythm. The "What we do"
+        // column is wide (item wraps ~82 chars); the About block is full width (~108).
         var _estStage = function(g){
           var items = g.items || [];
-          var itemsH = items.reduce(function(a, it){ return a + _nl(it, 80) * 18 + 4; }, 0);
-          var labelH = _nl(g.stage, 20) * 16;
-          return Math.max(itemsH, labelH) + 18; // td padding + border
+          var itemsH = items.reduce(function(a, it){ return a + _nl(it, 82) * 16 + 3; }, 0);
+          var labelH = _nl(g.stage, 20) * 15;
+          return Math.max(itemsH, labelH) + 14; // td padding + border
         };
-        var _EST_THEAD = 32;
-        var _estSpecs = 30 + Math.ceil((d.specs || []).length / 2) * 29 + 16;
-        var _estAbout = d.customDescription ? (16 + _nl(d.customDescription, 104) * 18 + 22 + 14) : 0;
-        var _estIntro = 22 + _nl(_scopeLead, 100) * 18 + 12;
-        var _EST_TOTAL = 80;
-        var _EST_INCLUDED = 68;
-        var _USABLE = 905;
+        var _EST_THEAD = 30;
+        var _estSpecs = 28 + Math.ceil((d.specs || []).length / 2) * 25 + 12;
+        var _estAbout = d.customDescription ? (15 + _nl(d.customDescription, 108) * 16 + 18 + 10) : 0;
+        var _estIntro = 20 + _nl(_scopeLead, 104) * 16 + 10;
+        var _EST_INVEST = 70 + 56 + 12; // total band + Included strip + gap
+        // Usable content height per scope page. The block estimates run a touch high
+        // (they over-count real rendered height), so this sits near the true content area
+        // and stays safe: estimate >= real means a "fits" verdict never clips.
+        var _USABLE = 968;
         var _firstFixed = _estSpecs + _estAbout + _estIntro + _EST_THEAD;
-        var _reserve = _EST_TOTAL + _EST_INCLUDED + 14;
-        var pagesStages = [];
-        (function(){
-          var cur = [], curH = _firstFixed;
-          for (var i = 0; i < _stages.length; i++){
-            var sh = _estStage(_stages[i]);
-            var isLast = (i === _stages.length - 1);
-            var need = sh + (isLast ? _reserve : 0);
-            if (cur.length > 0 && (curH + need) > _USABLE){
-              pagesStages.push(cur); cur = []; curH = _EST_THEAD;
-            }
-            cur.push(i); curH += sh;
+        var _stagesSum = _stages.reduce(function(a, g){ return a + _estStage(g); }, 0);
+        var _allIdx = _stages.map(function(_v, i){ return i; });
+
+        var pagesStages, investOnOwnPage;
+        if (_firstFixed + _stagesSum + _EST_INVEST <= _USABLE) {
+          // Everything on one page: all stages + the total directly under them.
+          pagesStages = [_allIdx]; investOnOwnPage = false;
+        } else if (_firstFixed + _stagesSum <= _USABLE) {
+          // All stages fit on page 1, but the total does not: whole investment block as a
+          // unit on the next page (no stage stranded).
+          pagesStages = [_allIdx]; investOnOwnPage = true;
+        } else {
+          // Too many stages for one page: break at a balanced point between stages.
+          pagesStages = [];
+          var _cur = [], _curH = _firstFixed;
+          for (var _i = 0; _i < _stages.length; _i++){
+            var _sh = _estStage(_stages[_i]);
+            if (_cur.length > 0 && (_curH + _sh) > _USABLE){ pagesStages.push(_cur); _cur = []; _curH = _EST_THEAD; }
+            _cur.push(_i); _curH += _sh;
           }
-          if (cur.length || pagesStages.length === 0) pagesStages.push(cur);
-        })();
-        var nScopePages = pagesStages.length;
+          if (_cur.length) pagesStages.push(_cur);
+          // Never leave a lone trailing stage: pull one back from the previous page.
+          while (pagesStages.length >= 2
+                 && pagesStages[pagesStages.length - 1].length === 1
+                 && pagesStages[pagesStages.length - 2].length >= 3) {
+            pagesStages[pagesStages.length - 1].unshift(pagesStages[pagesStages.length - 2].pop());
+          }
+          var _lpFirst = (pagesStages.length === 1);
+          var _lastPageH = (_lpFirst ? _firstFixed : _EST_THEAD)
+            + pagesStages[pagesStages.length - 1].reduce(function(a, si){ return a + _estStage(_stages[si]); }, 0);
+          investOnOwnPage = (_lastPageH + _EST_INVEST > _USABLE);
+        }
+        if (pagesStages.length === 0) { pagesStages = [[]]; investOnOwnPage = false; }
+        var nScopePages = pagesStages.length + (investOnOwnPage ? 1 : 0);
 
         // Dynamic page numbering: cover(1) + design(2) [+ site(3)] + scope(nScopePages)
         // + investment + terms + close.
@@ -11703,6 +11727,24 @@
           + pfn(_pInvest) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
 
         // ----- PAGE 5 TERMS -----
+        // Strong pro-SecureWorks clauses (plain English, no em dashes). Rendered as
+        // break-inside:avoid termgrps that CSS auto-balances into two columns; may span
+        // two pages if the clause set is long.
+        var _termsClauses = [
+          ['Acceptance &amp; Validity', 'This quote is valid for 30 days from issue. Acceptance occurs on payment of the deposit or written confirmation by email or SMS.'],
+          ['Payment', 'A 50% deposit confirms the booking and secures materials. The balance is due and payable in full on site on the day of completion, immediately upon job sign-off and before our crew leaves site. Work is not considered complete until the balance is paid in full. Overdue amounts incur interest, and the client is liable for all reasonable costs of recovery, including debt collection and legal costs. Accepted payment: bank transfer, card, or BPAY.'],
+          ['Boundary &amp; Neighbours', 'For dividing or boundary fences the client confirms the boundary line and is responsible for any agreement or dispute with adjoining owners. SecureWorks Group builds to the line confirmed by the client and is not liable for boundary disputes.'],
+          ['Underground &amp; Above-Ground Services', 'Before works start, the customer is responsible for locating and clearly marking the position of all underground and above-ground services along the fence line, including but not limited to water mains, sewer, stormwater, gas, electrical and power, telecommunications and NBN, and any irrigation or reticulation. SecureWorks Group will take reasonable care, but accepts no liability whatsoever for damage to any service, pipe, cable, irrigation or reticulation line that was not located, marked or disclosed by the customer before works. Any repair of unmarked or undisclosed services damaged during works is at the customer’s cost. We recommend the customer arrange a Dial Before You Dig enquiry and a private locator where services may run along the boundary.'],
+          ['Damage Along the Fence Line', 'Fencing works involve excavation and machinery along the boundary. The client acknowledges that some disturbance to ground, gardens, lawn, paving and adjacent surfaces along the fence line is unavoidable. SecureWorks Group is not responsible for this disturbance, and reinstatement of gardens, lawn, paving or landscaping is not included unless expressly quoted.'],
+          ['Variations', 'This quote is based on the site conditions, access and information available at the time of quoting. If actual conditions differ, including but not limited to rock or hard digging, obstructions, unmarked or additional services, tree roots, unstable ground, retaining or level changes, restricted access, or additional rubbish or old-fence removal, a variation may be required. Any variation and its additional cost will be advised and must be approved by the client before the additional work proceeds. Additional works are payable on the same terms.'],
+          ['Existing Structures &amp; Site Clearance', 'Removal of existing fencing may reveal pre-existing damage or conditions not visible at quoting; SecureWorks Group is not liable for pre-existing defects. The client must clear the fence line of plants, structures and stored items before the start date; delays or extra works from an unclear fence line may incur a variation.'],
+          ['Access', 'The client must provide clear and safe access to the fence line for crew, materials and machinery. Delays caused by lack of access may incur additional charges.'],
+          ['Liability &amp; Warranty', 'To the extent permitted by law, SecureWorks Group’s liability is limited to rectification of defective workmanship and excludes indirect or consequential loss and the matters disclaimed above. Installation carries a 12-month workmanship warranty; materials carry the manufacturer’s warranty.']
+        ];
+        var _termsBody = _termsClauses.map(function(c){
+          return '<div class="termgrp"><h4>' + c[0] + '</h4><p>' + E(c[1]) + '</p></div>';
+        }).join('');
+
         var p5 = '<div id="pg5" class="pgwrap"><section class="page">'
           + '<div class="topband"><div class="logo">' + imgs.logo + '</div>' + hmeta + '<div class="edgebar"></div></div>'
           + '<div class="pad" style="gap:22px;"><div>'
@@ -11711,38 +11753,8 @@
           + '<div class="accept-panel"><div class="ap-head"><span class="ap-title">Accepting this quote</span><span class="ap-ref">Ref ' + E(d.qNum) + ' &middot; valid until ' + E(d.validUntilStr) + '</span></div>'
           + '<p class="ap-copy">To accept, pay the ' + d.depPercent + '% deposit or confirm in writing by email or SMS. On acceptance you agree to the Terms &amp; Conditions set out below. All works are carried out under the National Construction Code (NCC) and the applicable Australian Standards.</p>'
           + '<button class="ap-btn" data-accept>Accept &amp; pay deposit</button></div>'
-          + '<div class="terms"><div class="termcol">'
-          + '<div class="termgrp"><h4>Quotation</h4><ul>'
-          + '<li>This quote is valid for 30 days from the date of issue. Pricing is subject to change after this period due to material cost fluctuations.</li>'
-          + '<li>This quote is based on the scope of works described. Additional works, site conditions not visible at time of quoting, or client-requested changes are quoted separately as a variation.</li>'
-          + '<li>All prices include GST unless otherwise stated.</li></ul></div>'
-          + '<div class="termgrp"><h4>Payment</h4><ul>'
-          + '<li><b>' + d.depPercent + '% deposit</b> confirms your booking date, secures scheduling, and covers material supply.</li>'
-          + '<li><b>' + d.balPercent + '% balance</b> is due on satisfactory completion, after a final walkthrough with you.</li>'
-          + '<li>Where a shared boundary is split with an adjoining owner, each party is invoiced for their agreed share.</li>'
-          + '<li>Overdue accounts may incur interest and delay your project start date.</li></ul></div>'
-          + '<div class="termgrp"><h4>Scope of Works</h4><ul>'
-          + '<li>All fencing is COLORBOND® steel, installed to manufacturer specifications and relevant Australian Standards.</li>'
-          + '<li>All posts are set in concrete footings. Retaining plinths are installed where ground levels require.</li>'
-          + '<li>Removal and disposal of existing fencing is included only where listed in the scope above.</li>'
-          + '<li>Where existing structures are modified for the connection, we take all reasonable care. Pre-existing defects are not our responsibility.</li>'
-          + '<li>Clean-up and removal of construction waste is included as standard.</li></ul></div>'
-          + '</div><div class="termcol">'
-          + '<div class="termgrp"><h4>Boundary &amp; Neighbours</h4><ul>'
-          + '<li>For dividing fences, the client confirms the boundary line and any cost-sharing arrangement with the adjoining owner under the Dividing Fences Act (WA).</li>'
-          + '<li>Where a neighbour share is shown, SecureWorks Group can invoice each party separately on request.</li>'
-          + '<li>The client is responsible for confirming the correct boundary position prior to installation.</li></ul></div>'
-          + '<div class="termgrp"><h4>Construction &amp; Access</h4><ul>'
-          + '<li>The client ensures clear, safe access along the fence line for personnel, materials, and deliveries.</li>'
-          + '<li>The boundary must be clear of vegetation, structures, and obstructions prior to the job start, unless removal is included in the scope.</li>'
-          + '<li>Timelines are estimates and may be affected by weather, material availability, or unforeseen ground conditions.</li>'
-          + '<li>Standard construction hours are Monday to Friday, 7:00am to 3:30pm, per local council noise regulations.</li></ul></div>'
-          + '<div class="termgrp"><h4>Warranty &amp; General</h4><ul>'
-          + '<li>Workmanship is backed by our <b>12-month workmanship warranty</b>. COLORBOND® steel carries the BlueScope manufacturer warranty (up to 10 years) subject to their terms.</li>'
-          + '<li>SecureWorks Group Pty Ltd (ABN ' + d.contact.abn + ') is fully licensed and insured for fencing and outdoor construction in Western Australia.</li>'
-          + '<li>We hold public liability insurance and workers’ compensation for all personnel on site.</li>'
-          + '<li>Payment of the deposit or written confirmation constitutes acceptance of this quote and these Terms in full.</li></ul></div>'
-          + '</div></div></div>' + pfn(_pTerms) + '</div></section></div>';
+          + '<div class="terms">' + _termsBody + '</div>'
+          + '</div>' + pfn(_pTerms) + '</div></section></div>';
 
         // ----- PAGE 6 CLOSE -----
         // Locked patio close-page treatment: topband = logo/meta + quiet rating
@@ -11783,54 +11795,54 @@
           + '.swscope .topband .logo svg{display:block;height:34px;width:auto;}'
           + '.swscope .topband .hmeta{text-align:right;font-size:11px;color:var(--mid-blue,#4C6A7C);line-height:1.9;}'
           + '.swscope .topband .hmeta b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '.swscope .scopebody{flex:1;display:flex;flex-direction:column;padding:20px 52px 0;}'
+          + '.swscope .scopebody{flex:1;display:flex;flex-direction:column;padding:16px 52px 0;}'
           + '.swscope .scope-content{flex:1;display:flex;flex-direction:column;}'
-          + '.swscope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:6px;}'
+          + '.swscope .scope-eyebrow{display:flex;align-items:center;gap:13px;margin-bottom:5px;}'
           + '.swscope .scope-eyebrow .num{font-weight:800;font-size:13px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '.swscope .scope-eyebrow .slabel{font-size:11px;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;color:var(--orange,#F15A29);}'
-          + '.swscope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:6px 0 14px;}'
-          + '.swscope .sec-a{margin-bottom:18px;}'
+          + '.swscope .scope-accent-bar{width:44px;height:3px;background:var(--orange,#F15A29);margin:4px 0 8px;}'
+          + '.swscope .sec-a{margin-bottom:12px;}'
           + '.swscope .speclist{display:grid;grid-template-columns:1fr 1fr;column-gap:44px;row-gap:0;}'
-          + '.swscope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:6px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '.swscope .specitem{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:4px 0;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
           + '.swscope .specitem .sk{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--mid-blue,#4C6A7C);}'
-          + '.swscope .specitem .sv{text-align:right;font-size:12.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.35;}'
-          + '.swscope .scope-lead{font-size:12px;line-height:1.55;color:var(--body-text,#3a4e58);margin-bottom:12px;max-width:100%;}'
+          + '.swscope .specitem .sv{text-align:right;font-size:12.5px;font-weight:700;color:var(--dark-blue,#293C46);letter-spacing:-0.2px;line-height:1.3;}'
+          + '.swscope .scope-lead{font-size:12px;line-height:1.45;color:var(--body-text,#3a4e58);margin-bottom:8px;max-width:100%;}'
           + '.swscope .scope-lead b{color:var(--dark-blue,#293C46);font-weight:700;}'
-          + '.swscope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;}'
+          + '.swscope .sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;}'
           + '.swscope .sec-head .sh-letter{font-weight:800;font-size:11px;color:var(--mid-blue,#4C6A7C);letter-spacing:1px;}'
           + '.swscope .sec-head .sh-label{font-size:10.5px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--orange,#F15A29);}'
           // D4: "About your project" intro block (customer description), above the scope table.
-          + '.swscope .about-block{background:var(--warm-100,#F8F6F3);border:1px solid var(--blue-100,#EDF1F4);border-left:3px solid var(--orange,#F15A29);padding:11px 15px;margin-bottom:16px;}'
-          + '.swscope .about-block .ab-label{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:5px;}'
-          + '.swscope .about-block .ab-text{font-size:11.5px;line-height:1.5;color:var(--dark-blue,#293C46);white-space:pre-line;}'
+          + '.swscope .about-block{background:var(--warm-100,#F8F6F3);border:1px solid var(--blue-100,#EDF1F4);border-left:3px solid var(--orange,#F15A29);padding:8px 14px;margin-bottom:10px;}'
+          + '.swscope .about-block .ab-label{font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:4px;}'
+          + '.swscope .about-block .ab-text{font-size:11.5px;line-height:1.42;color:var(--dark-blue,#293C46);white-space:pre-line;}'
           // D2: two-column scope-of-works table (Stage | What we do). Dark header, ruled rows.
           + '.swscope .scope-table{width:100%;border-collapse:collapse;table-layout:fixed;}'
-          + '.swscope .scope-table th{background:var(--dark-blue,#293C46);color:#fff;text-align:left;font-size:9px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:8px 14px;}'
+          + '.swscope .scope-table th{background:var(--dark-blue,#293C46);color:#fff;text-align:left;font-size:9px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:6px 14px;}'
           + '.swscope .scope-table th.sc-stage{width:33%;border-right:1px solid rgba(255,255,255,0.16);}'
-          + '.swscope .scope-table td{vertical-align:top;padding:9px 14px;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
+          + '.swscope .scope-table td{vertical-align:top;padding:6px 14px;border-bottom:1px solid var(--blue-100,#EDF1F4);}'
           + '.swscope .scope-table tbody tr:last-child td{border-bottom:none;}'
           + '.swscope .scope-table tbody tr:nth-child(even) td{background:rgba(41,60,70,0.03);}'
           + '.swscope .scope-table td.sc-stage{border-right:1px solid var(--blue-100,#EDF1F4);}'
           + '.swscope .scope-table .sc-num{color:var(--orange,#F15A29);font-weight:800;font-size:10px;margin-right:7px;}'
           + '.swscope .scope-table .sc-stage-label{font-size:11px;font-weight:700;letter-spacing:0.4px;color:var(--dark-blue,#293C46);text-transform:uppercase;line-height:1.35;}'
-          + '.swscope .scope-table td.sc-what{font-size:11.5px;color:var(--dark-blue,#293C46);line-height:1.5;}'
+          + '.swscope .scope-table td.sc-what{font-size:11.5px;color:var(--dark-blue,#293C46);line-height:1.42;}'
           + '.swscope .scope-table td.sc-what ul{list-style:none;margin:0;padding:0;}'
-          + '.swscope .scope-table td.sc-what li{position:relative;padding-left:13px;margin-bottom:4px;}'
+          + '.swscope .scope-table td.sc-what li{position:relative;padding-left:13px;margin-bottom:2px;}'
           + '.swscope .scope-table td.sc-what li:last-child{margin-bottom:0;}'
-          + '.swscope .scope-table td.sc-what li::before{content:"";position:absolute;left:0;top:6.5px;width:4px;height:4px;background:var(--orange,#F15A29);}'
+          + '.swscope .scope-table td.sc-what li::before{content:"";position:absolute;left:0;top:5.5px;width:4px;height:4px;background:var(--orange,#F15A29);}'
           // D1: total band directly under the scope table (headline = the total).
-          + '.swscope .scope-total{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--dark-blue,#293C46);color:#fff;padding:14px 18px;margin-top:16px;border-left:3px solid var(--orange,#F15A29);}'
+          + '.swscope .scope-total{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--dark-blue,#293C46);color:#fff;padding:11px 18px;margin-top:12px;border-left:3px solid var(--orange,#F15A29);}'
           + '.swscope .scope-total .st-left{display:flex;flex-direction:column;gap:3px;}'
           + '.swscope .scope-total .st-label{font-size:9.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange-500,#F4845F);}'
           + '.swscope .scope-total .st-sub{font-size:10px;color:rgba(255,255,255,0.72);letter-spacing:0.3px;}'
           + '.swscope .scope-total .st-right{text-align:right;display:flex;flex-direction:column;gap:3px;}'
           + '.swscope .scope-total .st-amt{font-size:26px;font-weight:800;letter-spacing:-0.7px;color:#fff;line-height:1;}'
           + '.swscope .scope-total .st-dep{font-size:9.5px;color:rgba(255,255,255,0.7);letter-spacing:0.2px;}'
-          + '.swscope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:12px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:18px;}'
+          + '.swscope .sec-c{border-top:2px solid var(--blue-100,#EDF1F4);padding:8px 0 0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px 10px;margin-top:12px;}'
           + '.swscope .sec-c-head{grid-column:1/-1;font-size:8.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--orange,#F15A29);margin-bottom:4px;}'
           + '.swscope .sfi{display:flex;align-items:baseline;gap:6px;font-size:9.5px;color:var(--mid-blue,#4C6A7C);font-weight:600;}'
           + '.swscope .sfi::before{content:"";flex:0 0 5px;width:5px;height:5px;background:var(--orange,#F15A29);}'
-          + '.swscope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:11px;margin:10px 0 22px;}';
+          + '.swscope .pagefoot{display:flex;justify-content:space-between;align-items:center;font-size:8.5px;color:var(--mid-blue,#4C6A7C);letter-spacing:0.8px;border-top:1px solid var(--blue-200,#D4DEE4);padding-top:9px;margin:8px 0 14px;}';
 
         // ----- SITE PHOTO CSS -----
         var sitePhotoCSS = '#pgSite .page{background:var(--warm-50,#FCFBFA);display:flex;flex-direction:column;}'
@@ -11917,26 +11929,39 @@
           + '<p class="scope-lead">' + E(_scopeLead) + '</p>';
 
         // Build one .pgwrap.swscope page per packed group of stages. Specs/About/intro on
-        // the first page; the total band + Included strip on the last page.
-        var scopePagesHTML = pagesStages.map(function(stageIdxs, pi) {
-          var isFirst = (pi === 0);
-          var isLast = (pi === pagesStages.length - 1);
-          var content = '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It' + (isFirst ? '' : ' &middot; continued') + '</span></div>'
-            + '<div class="scope-accent-bar"></div>';
-          if (isFirst) content += _specsSection + aboutBlock + _scopeIntro;
-          if (stageIdxs && stageIdxs.length) {
-            content += '<table class="scope-table">' + _scopeThead + '<tbody>'
-              + stageIdxs.map(_renderStageRow).join('') + '</tbody></table>';
-          }
-          if (isLast) content += underScopeTotal
-            + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>' + includedItemsHTML + '</div>';
+        // the first page. The investment block (total + Included) sits on the last stage
+        // page when it fits (total directly under the scope), otherwise it flows onto its
+        // own continuation page as a single unit.
+        var _investBlockHTML = underScopeTotal
+          + '<div class="sec-c"><div class="sec-c-head">Included as standard</div>' + includedItemsHTML + '</div>';
+        var _eyebrowHTML = function(cont) {
+          return '<div class="scope-eyebrow"><span class="num">03</span><span class="slabel">How We Build It'
+            + (cont ? ' &middot; continued' : '') + '</span></div><div class="scope-accent-bar"></div>';
+        };
+        var _renderScopePage = function(bodyHTML, pageNo, isFirst) {
           return '<div class="pgwrap swscope"><section class="page">'
             + (isFirst ? ('<style>' + scopeCSS + '</style>') : '')
             + '<div class="topband"><div class="logo">' + imgs.logo + '</div>'
             + '<div class="hmeta"><div><b>Quote</b> ' + E(d.qNum) + '</div><div><b>Job</b> ' + E(d.jobRef) + '</div></div></div>'
-            + '<div class="scopebody"><div class="scope-content">' + content + '</div>'
-            + pfn(_pB + 1 + pi) + '</div></section></div>';
-        }).join('');
+            + '<div class="scopebody"><div class="scope-content">' + bodyHTML + '</div>'
+            + pfn(pageNo) + '</div></section></div>';
+        };
+        var scopePagesHTML = '';
+        pagesStages.forEach(function(stageIdxs, pi) {
+          var isFirst = (pi === 0);
+          var isLastStagePage = (pi === pagesStages.length - 1);
+          var body = _eyebrowHTML(!isFirst);
+          if (isFirst) body += _specsSection + aboutBlock + _scopeIntro;
+          if (stageIdxs && stageIdxs.length) {
+            body += '<table class="scope-table">' + _scopeThead + '<tbody>'
+              + stageIdxs.map(_renderStageRow).join('') + '</tbody></table>';
+          }
+          if (isLastStagePage && !investOnOwnPage) body += _investBlockHTML;
+          scopePagesHTML += _renderScopePage(body, _pB + 1 + pi, isFirst);
+        });
+        if (investOnOwnPage) {
+          scopePagesHTML += _renderScopePage(_eyebrowHTML(true) + _investBlockHTML, _pB + 1 + pagesStages.length, false);
+        }
 
         // Web-mode only: CTA bar between cover and design page.
         // Hidden in web mode via CSS (loud inter-page band removed per Marnin);
@@ -12534,13 +12559,13 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(100, 100, 100);
-        doc.text('BlueScope 10-year warranty on COLORBOND steel. SecureWorks WA 12-month workmanship warranty.', mx, y);
+        doc.text('BlueScope 10-year warranty on COLORBOND steel. SecureWorks Group 12-month workmanship warranty.', mx, y);
 
         // Footer
         const fy = ph - 8;
         doc.setFontSize(7);
         doc.setTextColor(76, 106, 124);
-        doc.text('SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, fy, { align: 'center' });
+        doc.text('SecureWorks Group PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, fy, { align: 'center' });
 
         return doc.output('blob');
       },
@@ -12770,7 +12795,7 @@
         y = ph - 8;
         doc.setTextColor(150, 150, 150);
         doc.setFontSize(7);
-        doc.text('SecureWorks WA PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, y, { align: 'center' });
+        doc.text('SecureWorks Group PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, y, { align: 'center' });
 
         return doc.output('blob');
       },
@@ -14076,7 +14101,7 @@
       overlay.id = 'sendQuoteModal';
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#fff;z-index:10000;display:flex;flex-direction:column;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;overflow:hidden;';
 
-      var defaultSubject = 'Your fencing quote from SecureWorks WA' + (address ? ' — ' + address : '');
+      var defaultSubject = 'Your fencing quote from SecureWorks Group' + (address ? ' - ' + address : '');
 
       // Build library doc checkboxes
       var docChecks = FENCE_LIBRARY_DOCS.map(function(d) {
