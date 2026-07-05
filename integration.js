@@ -1412,28 +1412,19 @@
                 console.log('[Integration] Draft Labour PO created');
               }
 
-              // Sales Commission PO
-              // Patio: 10% of gross profit (revenue ex GST - material cost - labour cost)
-              // Fencing: 5.25% of total inc GST
-              var totalIncGST = pricing.totalIncGST || 0;
+              // Sales Commission PO — % of expected gross profit, division-specific
+              // patio/decking 13% of GP · fencing 15% of GP (Marnin ruling, 2026-07-05)
+              // GP = revenue ex GST - material cost est - labour cost est
               var totalExGST = pricing.totalExGST || pricing.subtotal || 0;
               var matCostEst = pricing.materialCostEstimate || 0;
               var labCostEst = pricing.labourCostEstimate || 0;
-              var commissionAmount = 0;
-              if (_toolType === 'fencing') {
-                commissionAmount = totalIncGST * 0.0525;
-              } else {
-                // Patio/decking: 10% of gross profit
-                var grossProfit = totalExGST - matCostEst - labCostEst;
-                commissionAmount = grossProfit > 0 ? grossProfit * 0.10 : 0;
-              }
+              var grossProfit = totalExGST - matCostEst - labCostEst;
+              var commissionRate = _toolType === 'fencing' ? 0.15 : 0.13;
+              var commissionPct = _toolType === 'fencing' ? '15' : '13';
+              var commissionAmount = grossProfit > 0 ? grossProfit * commissionRate : 0;
               if (commissionAmount > 0) {
-                var commNote = _toolType === 'fencing'
-                  ? 'SALES COMMISSION — 35% × 15% = 5.25% of total inc GST ($' + totalIncGST.toFixed(2) + ').'
-                  : 'SALES COMMISSION — 10% of gross profit ($' + (totalExGST - matCostEst - labCostEst).toFixed(2) + ' GP).';
-                var commDesc = _toolType === 'fencing'
-                  ? 'Sales commission (5.25%)'
-                  : 'Sales commission (10% of GP)';
+                var commNote = 'SALES COMMISSION — ' + commissionPct + '% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
+                var commDesc = 'Sales commission (' + commissionPct + '% of GP)';
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
