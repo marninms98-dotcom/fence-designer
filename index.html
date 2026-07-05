@@ -2912,9 +2912,9 @@
 
         const f = (n) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        // Commission: 13% of actual gross profit (revenue ex GST − materials − labour)
+        // Commission: 15% of actual gross profit (revenue ex GST − materials − labour)
         const grossProfit = d.subtotal - d.internalCost - d.internalLabour;
-        const commissionAmount = grossProfit > 0 ? grossProfit * 0.13 : 0;
+        const commissionAmount = grossProfit > 0 ? grossProfit * 0.15 : 0;
         const trueTotalCost = d.internalCost + d.internalLabour + commissionAmount;
         const trueGP = d.subtotal - trueTotalCost;
         const trueGPPct = d.subtotal > 0 ? (trueGP / d.subtotal * 100) : 0;
@@ -3206,7 +3206,7 @@
           </div>
         </div>`;
 
-        // ── Sales Commission PO Card (13% of actual GP) ──
+        // ── Sales Commission PO Card (15% of actual GP) ──
         const commApproved = this._poApproved.commission;
         html += `<div class="po-card" style="margin-top:8px;">
           <div class="po-card-header" style="background:${commApproved ? '#dcfce7' : '#fef3c7'};color:${commApproved ? '#16a34a' : '#92400e'};">
@@ -3219,8 +3219,8 @@
             <table>
               <thead><tr><th style="text-align:left;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Item</th><th style="text-align:right;font-size:11px;color:#4C6A70;padding:4px 0;border-bottom:1px solid #e5e7eb;">Cost</th></tr></thead>
               <tbody>
-                <tr><td>Sales commission (13% of $${f(grossProfit)} GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
-                <tr style="font-size:11px;color:#4C6A70;"><td colspan="2">Commission = 13% of actual gross profit (revenue ex GST − materials − labour)</td></tr>
+                <tr><td>Sales commission (15% of $${f(grossProfit)} GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
+                <tr style="font-size:11px;color:#4C6A70;"><td colspan="2">Commission = 15% of actual gross profit (revenue ex GST − materials − labour)</td></tr>
                 <tr class="po-total"><td>Total Commission</td><td class="r">$${f(commissionAmount)}</td></tr>
               </tbody>
             </table>
@@ -3244,7 +3244,7 @@
               <tr><td>Revenue (ex GST)</td><td class="r" style="font-weight:700;">$${f(d.subtotal)}</td></tr>
               <tr><td>Material + removal cost</td><td class="r">$${f(d.internalCost)}</td></tr>
               <tr><td>Labour cost</td><td class="r">$${f(d.internalLabour)}</td></tr>
-              <tr><td>Sales commission (13% of GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
+              <tr><td>Sales commission (15% of GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
               <tr><td style="font-weight:600;">Total cost</td><td class="r" style="font-weight:600;">$${f(trueTotalCost)}</td></tr>
               <tr class="po-total"><td style="color:${gpCol};">True Gross Profit</td><td class="r" style="color:${gpCol};font-size:15px;">$${f(trueGP)}</td></tr>
             </table>
@@ -3270,7 +3270,7 @@
             <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost - d.internalRemovalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matSell - (d.internalCost - d.internalRemovalCost))} (${(matSell > 0 ? ((matSell - (d.internalCost - d.internalRemovalCost)) / matSell * 100) : 0).toFixed(0)}%)</td></tr>
             ${d.removalTotal > 0 ? `<tr><td>Removal: sell $${f(d.removalTotal)}, cost $${f(d.internalRemovalCost)}</td><td class="r" style="color:${remMCol};font-weight:700;">GP $${f(removalMargin)} (${removalMarginPct.toFixed(0)}%)</td></tr>` : ''}
             <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
-            <tr><td>Sales commission (13% of GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
+            <tr><td>Sales commission (15% of GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
             <tr><td>Other (addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
             <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">True GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(trueGP)} (${trueGPPct.toFixed(1)}%)</td></tr>
           </table>
@@ -13236,7 +13236,7 @@
       // Enhanced cost estimates for dashboard/reporting (includes commission)
       var materialCostEstimate = d.internalCost || 0;
       var labourCostEstimate = d.internalLabour || 0;
-      var commissionCostEstimate = (d.subtotal - (d.internalCost || 0) - (d.internalLabour || 0)) > 0 ? (d.subtotal - (d.internalCost || 0) - (d.internalLabour || 0)) * 0.13 : 0;
+      var commissionCostEstimate = (d.subtotal - (d.internalCost || 0) - (d.internalLabour || 0)) > 0 ? (d.subtotal - (d.internalCost || 0) - (d.internalLabour || 0)) * 0.15 : 0;
       var totalCostEstimate = materialCostEstimate + labourCostEstimate + commissionCostEstimate;
       var margin_pct = d.subtotal > 0 ? Math.round(((d.subtotal - totalCostEstimate) / d.subtotal) * 1000) / 10 : 0;
 
@@ -13647,7 +13647,7 @@
           const d = app._collectOutputData();
           if (d.grandTotal <= 0) flag('Pricing', 'red', 'Total quote is $0');
           const _gp12262 = d.subtotal - d.internalCost - d.internalLabour;
-          const commAmt = _gp12262 > 0 ? _gp12262 * 0.13 : 0;
+          const commAmt = _gp12262 > 0 ? _gp12262 * 0.15 : 0;
           const marginPct = d.subtotal > 0 ? ((d.subtotal - d.internalCost - d.internalLabour - commAmt) / d.subtotal * 100) : 0;
           if (marginPct < 25) flag('Pricing', 'amber', `Margin is only ${marginPct.toFixed(1)}% — below 25% floor`);
           if (marginPct > 60) flag('Pricing', 'amber', `Margin is ${marginPct.toFixed(1)}% — unusually high, double check`);
@@ -15283,7 +15283,7 @@
       var d;
       try { d = app._collectOutputData(); } catch(e) { return { title: 'Cost Breakdown', html: '<div style="color:#EF4444;padding:20px;">Cannot calculate pricing — check fence run data</div>', canProceed: false }; }
       var _wizGP = d.subtotal - d.internalCost - d.internalLabour;
-      var commAmt = _wizGP > 0 ? _wizGP * 0.13 : 0;
+      var commAmt = _wizGP > 0 ? _wizGP * 0.15 : 0;
       var marginPct = d.subtotal > 0 ? ((d.subtotal - d.internalCost - d.internalLabour - commAmt) / d.subtotal * 100) : 0;
       if (marginPct < 15) flags.push({ id: 'W-M1', severity: 'red', message: 'Margin is ' + marginPct.toFixed(1) + '% — below 15% minimum' });
       if (d.grandTotal <= 0) flags.push({ id: 'W-M2', severity: 'red', message: 'Total is $0' });
@@ -15307,7 +15307,7 @@
       var gpCol = marginPct < 20 ? '#EF4444' : marginPct < 30 ? '#D97706' : '#22C55E';
       html += '<div style="background:#fff;border-radius:8px;border:1px solid #E5E7EB;padding:14px;margin-bottom:12px;">';
       html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#6B7280;">Material Margin</span><span style="font-weight:700;color:' + gpCol + ';">' + f(d.materialMargin) + '</span></div>';
-      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#6B7280;">Commission (13% of GP)</span><span>' + f(commAmt) + '</span></div>';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#6B7280;">Commission (15% of GP)</span><span>' + f(commAmt) + '</span></div>';
       html += '<div style="display:flex;justify-content:space-between;"><span style="font-weight:700;">Net Margin</span><span style="font-weight:700;color:' + gpCol + ';">' + f(d.materialMargin - commAmt) + ' (' + marginPct.toFixed(1) + '%)</span></div>';
       html += '<div style="background:#E5E7EB;border-radius:4px;height:6px;margin-top:8px;"><div style="background:' + gpCol + ';height:6px;border-radius:4px;width:' + Math.min(100, Math.max(0, marginPct)) + '%;"></div></div></div>';
       // Flags
@@ -15365,14 +15365,14 @@
       var f = function(v) { return '$' + Math.round(v || 0).toLocaleString(); };
       var d; try { d = app._collectOutputData(); } catch(e) { d = { internalCost: 0, internalLabour: 0, grandTotal: 0 }; }
       var _s5GP = (d.subtotal || 0) - (d.internalCost || 0) - (d.internalLabour || 0);
-      var commAmt = _s5GP > 0 ? _s5GP * 0.13 : 0;
+      var commAmt = _s5GP > 0 ? _s5GP * 0.15 : 0;
       var html = '<div style="font-weight:700;color:#293C46;margin-bottom:8px;font-size:14px;">Draft Purchase Orders</div>';
       // PO-1: Materials
       html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-1: Materials</span><br><span style="font-size:12px;color:#6B7280;">Panels, posts, plinths, concrete, tek screws, gates, delivery</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(d.internalCost) + '</span></div></div>';
       // PO-2: Labour
       html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-2: Labour</span><br><span style="font-size:12px;color:#6B7280;">Install crew cost (inc access surcharge)</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(d.internalLabour) + '</span></div></div>';
       // PO-3: Commission
-      html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:12px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-3: Commission</span><br><span style="font-size:12px;color:#6B7280;">13% of GP (' + f(_s5GP) + ' ex GST)</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(commAmt) + '</span></div></div>';
+      html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px;margin-bottom:12px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div><span style="font-weight:700;color:#293C46;">PO-3: Commission</span><br><span style="font-size:12px;color:#6B7280;">15% of GP (' + f(_s5GP) + ' ex GST)</span></div><span style="font-weight:700;color:#293C46;font-size:16px;">' + f(commAmt) + '</span></div></div>';
       // Ops message
       html += '<div style="font-weight:700;color:#293C46;margin-bottom:8px;margin-top:16px;font-size:14px;">Message to Ops (optional)</div>';
       html += '<textarea id="wizardOpsMessage" rows="3" placeholder="Any notes for the ops team..." style="width:100%;padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';

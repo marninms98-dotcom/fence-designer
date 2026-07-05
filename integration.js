@@ -1412,16 +1412,19 @@
                 console.log('[Integration] Draft Labour PO created');
               }
 
-              // Sales Commission PO — 13% of expected gross profit, both divisions
-              // GP = revenue ex GST - material cost est - labour cost est (Marnin ruling D1, 2026-07-03)
+              // Sales Commission PO — % of expected gross profit, division-specific
+              // patio/decking 13% of GP · fencing 15% of GP (Marnin ruling, 2026-07-05)
+              // GP = revenue ex GST - material cost est - labour cost est
               var totalExGST = pricing.totalExGST || pricing.subtotal || 0;
               var matCostEst = pricing.materialCostEstimate || 0;
               var labCostEst = pricing.labourCostEstimate || 0;
               var grossProfit = totalExGST - matCostEst - labCostEst;
-              var commissionAmount = grossProfit > 0 ? grossProfit * 0.13 : 0;
+              var commissionRate = _toolType === 'fencing' ? 0.15 : 0.13;
+              var commissionPct = _toolType === 'fencing' ? '15' : '13';
+              var commissionAmount = grossProfit > 0 ? grossProfit * commissionRate : 0;
               if (commissionAmount > 0) {
-                var commNote = 'SALES COMMISSION — 13% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
-                var commDesc = 'Sales commission (13% of GP)';
+                var commNote = 'SALES COMMISSION — ' + commissionPct + '% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
+                var commDesc = 'Sales commission (' + commissionPct + '% of GP)';
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
