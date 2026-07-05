@@ -1412,28 +1412,16 @@
                 console.log('[Integration] Draft Labour PO created');
               }
 
-              // Sales Commission PO
-              // Patio: 10% of gross profit (revenue ex GST - material cost - labour cost)
-              // Fencing: 5.25% of total inc GST
-              var totalIncGST = pricing.totalIncGST || 0;
+              // Sales Commission PO — 13% of expected gross profit, both divisions
+              // GP = revenue ex GST - material cost est - labour cost est (Marnin ruling D1, 2026-07-03)
               var totalExGST = pricing.totalExGST || pricing.subtotal || 0;
               var matCostEst = pricing.materialCostEstimate || 0;
               var labCostEst = pricing.labourCostEstimate || 0;
-              var commissionAmount = 0;
-              if (_toolType === 'fencing') {
-                commissionAmount = totalIncGST * 0.0525;
-              } else {
-                // Patio/decking: 10% of gross profit
-                var grossProfit = totalExGST - matCostEst - labCostEst;
-                commissionAmount = grossProfit > 0 ? grossProfit * 0.10 : 0;
-              }
+              var grossProfit = totalExGST - matCostEst - labCostEst;
+              var commissionAmount = grossProfit > 0 ? grossProfit * 0.13 : 0;
               if (commissionAmount > 0) {
-                var commNote = _toolType === 'fencing'
-                  ? 'SALES COMMISSION — 35% × 15% = 5.25% of total inc GST ($' + totalIncGST.toFixed(2) + ').'
-                  : 'SALES COMMISSION — 10% of gross profit ($' + (totalExGST - matCostEst - labCostEst).toFixed(2) + ' GP).';
-                var commDesc = _toolType === 'fencing'
-                  ? 'Sales commission (5.25%)'
-                  : 'Sales commission (10% of GP)';
+                var commNote = 'SALES COMMISSION — 13% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
+                var commDesc = 'Sales commission (13% of GP)';
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
