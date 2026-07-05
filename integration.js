@@ -1371,15 +1371,25 @@
                 labourItems = [{ description: 'Installation labour (per scope)', quantity: 1, unit: 'lot', unit_price: labourCost }];
               }
 
+              // U2 reference discipline (mission profit-materials-actuals-2026-07-03):
+              // the draft PO's reference IS the canonical job number, and every
+              // materials PO note carries the quote-back instruction so whoever
+              // reviews/sends the order (in ops.html or by phone) stamps it and asks
+              // the supplier to quote it on their invoice — that is what lets the
+              // inbound bill-linker land the supplier's dollars on this job.
+              var poJobRef = linkResult.jobNumber;
+              var refDiscipline = ' Quote job ref ' + poJobRef + ' on the order and ask the supplier to quote ' + poJobRef + ' on their invoice so their bill lands on this job.';
+
               // Create one PO per supplier group
               var supplierNames = Object.keys(supplierGroups);
               for (var si = 0; si < supplierNames.length; si++) {
                 var sName = supplierNames[si];
                 var sItems = supplierGroups[sName];
                 if (sItems.length === 0) continue;
-                var poNotes = sName
+                var poNotes = (sName
                   ? 'MATERIALS — ' + sName + '. Auto-generated from scope.'
-                  : 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.';
+                  : 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.')
+                  + refDiscipline;
                 await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
