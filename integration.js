@@ -41,6 +41,9 @@
   var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Background upload tracking: maps photo/video id -> { promise, done: bool, error: Error|null }
   var _bgUploads = {};
+  // Site video uploads NON-BLOCKING with bounded auto-retry: create-job never waits on it.
+  var _VIDEO_MAX_RETRIES = 3;
+  var _videoRetryCount = 0;
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
   var _isReadonly = (function() {
@@ -229,24 +232,44 @@
     var entry = { done: false, error: null };
     entry.promise = _doUploadVideo(video, jobId, cloudRef).then(function() {
       video._uploading = false;
+      video._uploadError = null;
+      _videoRetryCount = 0;
       entry.done = true;
       if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'done');
     }).catch(function(err) {
       video._uploading = false;
-      video._uploadError = err;
       entry.done = true;
       entry.error = err;
       console.warn('[Integration] Background video upload failed:', err);
-      if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'error', err);
+      if (_videoRetryCount < _VIDEO_MAX_RETRIES) {
+        // Auto-retry with backoff before surfacing a hard failure. Keep the visible
+        // status as "uploading" so the scoper still sees the video is being handled.
+        _videoRetryCount++;
+        var attempt = _videoRetryCount;
+        console.log('[Integration] Retrying video upload (attempt ' + attempt + '/' + _VIDEO_MAX_RETRIES + ')');
+        if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'uploading');
+        setTimeout(function() {
+          if (video.cloudUrl) return;
+          var cur = _bgUploads['__video__'];
+          if (cur && !cur.error) return; // a healthy upload is already in flight — don't double-start
+          delete _bgUploads['__video__'];
+          _startBgVideoUpload(video);
+        }, 4000 * attempt);
+      } else {
+        video._uploadError = err;
+        if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'error', err);
+      }
     });
     _bgUploads['__video__'] = entry;
   }
 
-  async function _awaitAllBgUploads() {
-    var promises = Object.values(_bgUploads).map(function(e) { return e.promise; });
+  // Await only the PHOTO background uploads. The site video is intentionally NON-BLOCKING
+  // (it keeps uploading after "Job Created"), so it is never awaited here.
+  async function _awaitPhotoBgUploads() {
+    var promises = Object.keys(_bgUploads)
+      .filter(function(k) { return k !== '__video__'; })
+      .map(function(k) { return _bgUploads[k].promise; });
     await Promise.allSettled(promises);
-    var failed = Object.values(_bgUploads).filter(function(e) { return e.error; });
-    return { failed: failed };
   }
 
   async function _retryFailedBgUploads() {
@@ -257,53 +280,54 @@
         _startBgPhotoUpload(p);
       }
     });
-    var siteVideo = window.siteVideo;
-    if (siteVideo && siteVideo._uploadError && !siteVideo.cloudUrl) {
-      delete _bgUploads['__video__'];
-      _startBgVideoUpload(siteVideo);
-    }
-    var result = await _awaitAllBgUploads();
-    return result.failed.length === 0;
+    // Video is non-blocking and self-retries; the gate concerns photos only.
+    await _awaitPhotoBgUploads();
+    var stillFailed = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
+    return stillFailed.length === 0;
   }
 
   async function _mediaUploadGate() {
-    var allDone = Object.values(_bgUploads).every(function(e) { return e.done && !e.error; });
-    var sitePhotos = window.sitePhotos || [];
-    var pendingPhotos = sitePhotos.filter(function(p) { return !p.cloudUrl; });
+    // Video is NON-BLOCKING: make sure its background upload is running (no-op if already
+    // in flight) so it continues after "Job Created", but never wait on it in this gate.
     var siteVideo = window.siteVideo;
-    var pendingVideo = siteVideo && !siteVideo.cloudUrl && (siteVideo.file || siteVideo.dataUrl);
-    if (allDone && !pendingPhotos.length && !pendingVideo) return true;
+    if (siteVideo && !siteVideo.cloudUrl && (siteVideo.file || siteVideo.dataUrl)) {
+      _startBgVideoUpload(siteVideo);
+    }
+
+    var sitePhotos = window.sitePhotos || [];
+    var photosDone = Object.keys(_bgUploads)
+      .filter(function(k) { return k !== '__video__'; })
+      .every(function(k) { var e = _bgUploads[k]; return e.done && !e.error; });
+    var pendingPhotos = sitePhotos.filter(function(p) { return !p.cloudUrl; });
+    if (photosDone && !pendingPhotos.length) return true;
 
     if (window._swShowMediaGate) window._swShowMediaGate('waiting');
-    await _awaitAllBgUploads();
+    await _awaitPhotoBgUploads();
 
     var failedPhotos = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
-    var failedVideo = siteVideo && !siteVideo.cloudUrl && (siteVideo.file || siteVideo.dataUrl);
-    if (!failedPhotos.length && !failedVideo) {
+    if (!failedPhotos.length) {
       if (window._swShowMediaGate) window._swShowMediaGate('done');
       return true;
     }
 
     return new Promise(function(resolve) {
       if (window._swShowMediaGate) {
-        window._swShowMediaGate('failed', failedPhotos.length, !!failedVideo, function onRetry() {
+        window._swShowMediaGate('failed', failedPhotos.length, false, function onRetry() {
           _retryFailedBgUploads().then(function(ok) {
             if (ok) {
               if (window._swShowMediaGate) window._swShowMediaGate('done');
               resolve(true);
             } else {
               var fp2 = (window.sitePhotos || []).filter(function(p) { return !p.cloudUrl && p.dataUrl; });
-              var fv2 = window.siteVideo && !window.siteVideo.cloudUrl && (window.siteVideo.file || window.siteVideo.dataUrl);
-              if (window._swShowMediaGate) window._swShowMediaGate('failed', fp2.length, !!fv2, onRetry, function() { resolve(true); });
+              if (window._swShowMediaGate) window._swShowMediaGate('failed', fp2.length, false, onRetry, function() { resolve(true); });
             }
           });
         }, function onSkip() {
           resolve(true);
         });
       } else {
-        var msg = 'Some media has not finished uploading:\n';
-        if (failedPhotos.length) msg += '- ' + failedPhotos.length + ' photo(s)\n';
-        if (failedVideo) msg += '- Site walkthrough video\n';
+        var msg = 'Some photos have not finished uploading:\n';
+        msg += '- ' + failedPhotos.length + ' photo(s)\n';
         msg += '\nProceed anyway? (Uploads will retry on next save)';
         resolve(confirm(msg));
       }
@@ -1218,23 +1242,18 @@
           window.app.renderChecklist();
         }
 
-        // Upload site video (background-first fallback)
+        // Site video — NON-BLOCKING. Job creation must never wait on the walkthrough
+        // video (it can be large and slow on site cellular). If a background upload is
+        // already in flight we leave it running; if none ever started (fallback) we start
+        // one now. Either way we do NOT await it here: its completion registers the media
+        // against the job on its own (see _doUploadVideo), it self-retries on failure, and
+        // its progress/failed status surfaces via _swUploadStatusChanged('__video__', …).
         var siteVideo = window.siteVideo || null;
         if (siteVideo && !siteVideo.cloudUrl && (siteVideo.file || siteVideo.dataUrl)) {
-          try {
-            var bgVideoEntry = _bgUploads['__video__'];
-            if (bgVideoEntry && !bgVideoEntry.error) {
-              cloud.ui.showSaveStatus('saving', 'Waiting for video upload...');
-              await bgVideoEntry.promise;
-              if (!siteVideo.cloudUrl) throw new Error('Background video upload did not set cloudUrl');
-            } else {
-              cloud.ui.showSaveStatus('saving', 'Uploading video...');
-              delete _bgUploads['__video__'];
-              await _doUploadVideo(siteVideo, _jobId, cloud);
-            }
-          } catch(vidErr) {
-            _failedUploads++;
-            console.warn('[Integration] Video upload failed:', vidErr);
+          var bgVideoEntry = _bgUploads['__video__'];
+          if (!bgVideoEntry || bgVideoEntry.error) {
+            delete _bgUploads['__video__'];
+            _startBgVideoUpload(siteVideo);
           }
         }
 
