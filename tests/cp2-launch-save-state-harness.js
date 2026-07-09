@@ -26,6 +26,14 @@ function record(id, ok, evidence) {
 function has(text, pattern) {
   return typeof pattern === 'string' ? text.includes(pattern) : pattern.test(text);
 }
+function extractMethod(source, signature) {
+  const start = source.indexOf(signature);
+  if (start < 0) throw new Error(`method not found: ${signature}`);
+  const bodyStart = start + signature.length;
+  const bodyEnd = source.indexOf('\n      },', bodyStart);
+  if (bodyEnd < 0) throw new Error(`method end not found: ${signature}`);
+  return new Function('job', source.slice(bodyStart, bodyEnd));
+}
 record(
   'launcher has the three approved entry points',
   has(index, 'showLaunchModal()') && has(index, '1. Load GHL lead/contact') && has(index, '2. Resume draft / previous scope') && has(index, '3. Start new local draft'),
@@ -66,6 +74,126 @@ record(
   'phone-only GHL leads remain selectable',
   /Phone lead/.test(cloud) && !/leads = leads\.filter\(function\(o\)[\s\S]{0,120}phone-only names/.test(cloud),
   'phone-only filter removed; fallback label exists'
+);
+
+record(
+  'phone-only and no-name drafts/saves do not require name or email',
+  !/if \(!this\.job\.email\) missing\.push\('Email'\)/.test(index) &&
+    !/if \(!d\.name\)\s+errors\.push\('Client name is required'\)/.test(integration) &&
+    /Email is intentionally not required here/.test(integration) &&
+    !/errors\.push\('Email address is required'\)/.test(integration) &&
+    !/if \(!meta\.client_name\) meta\.client_name = prompt\(/.test(integration),
+  'draft/output save validation allows phone-only/no-name contact data; send flow still validates email recipients'
+);
+
+record(
+  'no-name GHL contacts can receive phone/address writeback',
+  /if \(_ghlContactId && \(meta\.client_name \|\| meta\.client_email \|\| meta\.client_phone \|\| meta\.site_address \|\| meta\.site_suburb\)\)/.test(integration) &&
+    /if \(meta\.client_name\) contactUpdate\.name = meta\.client_name/.test(integration),
+  'GHL update is keyed by contact id and sends non-empty details without requiring a name'
+);
+
+record(
+  'resume draft enumerates local checkpoints without auth and preserves cloud previous-scope picker',
+  /showResumeDraftModal\(\)/.test(index) &&
+    /_listLocalDraftCheckpoints\(\)/.test(index) &&
+    /hasMeaningfulJob/.test(index) &&
+    /seenIds/.test(index) &&
+    /fenceJob_checkpoint_/.test(index) &&
+    /_openLocalDraftCheckpoint/.test(index) &&
+    /window\._swIntegration\.loadFromSupabase\(\)/.test(index),
+  'Resume draft opens local fenceJob/checkpoint entries directly and keeps existing Supabase job picker behind a cloud button'
+);
+
+record(
+  'dirty draft target switch requires explicit keep-link/open-separately/cancel decision',
+  /resolveFencingTargetSwitch/.test(integration) &&
+    /targetKeepLinkBtn/.test(integration) &&
+    /targetOpenSeparateBtn/.test(integration) &&
+    /targetCancelBtn/.test(integration) &&
+    /switchChoice === 'cancel'/.test(integration) &&
+    /switchChoice === 'keep_link'/.test(integration) &&
+    /inline_ghl_contact_keep_link/.test(index),
+  'GHL picker, lead search, Supabase picker, and inline GHL selection route through an explicit target-switch choice'
+);
+
+try {
+  const scrubLocalResumeJob = extractMethod(index, '_scrubLocalResumeJob(job) {');
+  const resumed = scrubLocalResumeJob({
+    ref: 'SW-OLD-123',
+    clientFirstName: 'Offline',
+    _fieldSync: {
+      localDraftId: 'draft-1',
+      syncAnchorType: 'job',
+      syncAnchorId: 'cloud-old',
+      ghlContactId: 'contact-old',
+      syncState: 'linked_job_local_dirty'
+    }
+  });
+  record(
+    'local checkpoint resume scrubs stale cloud identity',
+    resumed.ref === '' && resumed._fieldSync.syncAnchorType === 'local_only' &&
+      resumed._fieldSync.syncAnchorId === null && resumed._fieldSync.ghlContactId === null &&
+      resumed._fieldSync.requiresLinkBeforeRelease === true && resumed._fieldSync.syncState === 'local_dirty',
+    'executed the production _scrubLocalResumeJob method against a checkpoint carrying stale job/GHL anchors'
+  );
+} catch (e) {
+  record('local checkpoint resume scrubs stale cloud identity', false, e.message);
+}
+
+try {
+  const linkStart = index.indexOf('_linkCloudAnchor(anchor) {');
+  const linkEnd = index.indexOf('\n      },', linkStart);
+  const linkCloudAnchor = new Function('anchor', index.slice(linkStart + '_linkCloudAnchor(anchor) {'.length, linkEnd));
+  const fakeApp = {
+    job: { _fieldSync: {} },
+    _ensureFieldSync() { return this.job._fieldSync; },
+    save() {},
+    _updateHeaderStatus() {}
+  };
+  linkCloudAnchor.call(fakeApp, { jobId: 'cloud-123', opportunityId: 'opp-123', contactId: 'contact-123', launchMode: 'load_from_supabase' });
+  record(
+    'linking a selected cloud target makes the app anchor explicit',
+    fakeApp.job._fieldSync.syncAnchorType === 'job' && fakeApp.job._fieldSync.syncAnchorId === 'cloud-123' &&
+      fakeApp.job._fieldSync.requiresLinkBeforeRelease === false && fakeApp.job._fieldSync.ghlContactId === 'contact-123',
+    'executed the production _linkCloudAnchor method for a selected Supabase target'
+  );
+} catch (e) {
+  record('linking a selected cloud target makes the app anchor explicit', false, e.message);
+}
+
+record(
+  'Supabase keep-link updates app anchor before autosave',
+  /_linkFencingAnchor\(_jobId, _ghlOpportunityId, _ghlContactId, 'load_from_supabase'\)/.test(integration) &&
+    /_linkFencingAnchor\(_jobId, _ghlOpportunityId, _ghlContactId, 'supabase_job_load'\)/.test(integration),
+  'selected cloud jobs link the app field-sync metadata before autosave can start'
+);
+
+const inlineWireStart = index.indexOf('// Write the app anchor before connecting integration; _connectJob can arm autosave immediately.');
+const inlineWireEnd = index.indexOf('this.save();', inlineWireStart);
+const inlineWireBlock = index.slice(inlineWireStart, inlineWireEnd > inlineWireStart ? inlineWireEnd : undefined);
+record(
+  'inline GHL keep-link anchors app before connecting integration',
+  inlineWireStart >= 0 && inlineWireEnd > inlineWireStart &&
+    inlineWireBlock.indexOf('this._linkCloudAnchor(') >= 0 &&
+    inlineWireBlock.indexOf('this._linkCloudAnchor(') < inlineWireBlock.indexOf('window._swIntegration._connectJob('),
+  'inline contact linking writes field-sync metadata before _connectJob can arm autosave'
+);
+
+record(
+  'local-wins cloud target does not hydrate remote number or media',
+  /if \(!localDraftWins\) \{\s*_applyJobNumber\(_lastJobNumber\);\s*try \{ await _loadCloudMedia\(_jobId\)/.test(integration) &&
+    /local draft wins and remote job number\/media stay out of the field draft/.test(integration),
+  'local-wins guards cover Supabase/GHL target job-number and media hydration'
+);
+
+const autoLoadStart = integration.indexOf('async function _autoLoadJob()');
+const autoLoadEnd = integration.indexOf('\n  // Frozen-revision branch of _autoLoadJob', autoLoadStart);
+const autoLoadBranch = integration.slice(autoLoadStart, autoLoadEnd > autoLoadStart ? autoLoadEnd : undefined);
+record(
+  'URL reconnect local-wins path does not hydrate remote job number',
+  autoLoadStart >= 0 && /if \(!localDraftWins\) _applyJobNumber\(_lastJobNumber\)/.test(autoLoadBranch),
+  'auto_load_url_job guards job-number hydration alongside remote scope and media hydration'
 );
 
 record(

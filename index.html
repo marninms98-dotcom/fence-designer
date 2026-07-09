@@ -2044,6 +2044,141 @@
         return true;
       },
 
+      _scrubLocalResumeJob(job) {
+        const resumedJob = JSON.parse(JSON.stringify(job || {}));
+        const previous = resumedJob._fieldSync || {};
+        const now = new Date().toISOString();
+        resumedJob._fieldSync = {
+          ...previous,
+          syncAnchorType: 'local_only',
+          syncAnchorId: null,
+          ghlContactId: null,
+          syncState: 'local_dirty',
+          requiresLinkBeforeRelease: true,
+          updatedAt: now,
+          lastLocalEditAt: previous.lastLocalEditAt || now
+        };
+        if (resumedJob.ref && String(resumedJob.ref).indexOf('SW') === 0) resumedJob.ref = '';
+        return resumedJob;
+      },
+
+      _listLocalDraftCheckpoints() {
+        const items = [];
+        const seenKeys = {};
+        const seenIds = {};
+        const hasMeaningfulJob = (job) => {
+          const j = job || {};
+          return !!(
+            j.clientFirstName || j.clientLastName || j.phone || j.email || j.address || j.suburb || j.siteNotes ||
+            (j.runs && j.runs.some(r => r.length || (r.panels && r.panels.length))) ||
+            (j.gates && j.gates.length) ||
+            (j.checklist && ((j.checklist.photos && j.checklist.photos.length) || j.checklist.videoWalkthrough || j.checklist.finalNotes))
+          );
+        };
+        const readPayload = (key, label, source) => {
+          try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            const job = parsed.job || parsed;
+            if (!job || typeof job !== 'object') return;
+            if (!hasMeaningfulJob(job)) return;
+            const fs = job._fieldSync || {};
+            const id = fs.localDraftId || key;
+            if (seenKeys[key] || seenIds[id]) return;
+            seenKeys[key] = true;
+            seenIds[id] = true;
+            items.push({
+              key,
+              id,
+              label,
+              source: parsed.source || source || '',
+              savedAt: parsed.savedAt || fs.updatedAt || fs.lastLocalEditAt || job.date || '',
+              job
+            });
+          } catch(e) {
+            console.warn('[FenceSync] could not read local checkpoint ' + key + ':', e);
+          }
+        };
+        readPayload('fenceJob', 'Current local draft', 'current');
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.indexOf('fenceJob_checkpoint_') === 0) {
+            readPayload(key, 'Checkpoint', 'checkpoint');
+          }
+        }
+        items.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+        return items;
+      },
+
+      _openLocalDraftCheckpoint(key) {
+        const item = this._listLocalDraftCheckpoints().find(d => d.key === key);
+        if (!item) {
+          this.showToast('Local draft checkpoint not found', 'error');
+          return;
+        }
+        if (this.job && this._hasMeaningfulLocalDraft()) {
+          const currentId = this.job._fieldSync && this.job._fieldSync.localDraftId;
+          const nextId = item.job && item.job._fieldSync && item.job._fieldSync.localDraftId;
+          if (currentId !== nextId) this._checkpointLocalDraftBeforeLoad('resume_local_checkpoint');
+        }
+        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+        if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
+        const resumedJob = this._scrubLocalResumeJob(item.job);
+        localStorage.setItem('fenceJob', JSON.stringify(resumedJob));
+        this.job = null;
+        this.currentRunId = null;
+        this._siteInfoTab = 'client';
+        this._resetSections();
+        this.init();
+        this._ensureFieldSync('resumed_local_checkpoint');
+        this.save();
+        window.history.replaceState({}, '', window.location.pathname);
+        this._updateHeaderStatus();
+        if (typeof updateButtonStages === 'function') updateButtonStages();
+        const modal = document.getElementById('resumeDraftModal');
+        if (modal) modal.remove();
+        this.showToast('Local draft reopened on this iPad', 'success');
+      },
+
+      showResumeDraftModal() {
+        const existing = document.getElementById('resumeDraftModal');
+        if (existing) existing.remove();
+        const drafts = this._listLocalDraftCheckpoints();
+        const cloudReady = !!(window._swIntegration && window._swIntegration.isCloudReady && window._swIntegration.isCloudReady());
+        const overlay = document.createElement('div');
+        overlay.id = 'resumeDraftModal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.72);z-index:10060;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+        const rows = drafts.length ? drafts.map((d, i) => {
+          const j = d.job || {};
+          const name = [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ') || j.client || 'Unnamed local draft';
+          const detail = [j.phone, j.email, j.address || j.suburb, d.source, d.savedAt].filter(Boolean).join(' · ');
+          return '<button type="button" data-local-draft-key="' + this._esc(d.key) + '" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:10px;padding:12px;cursor:pointer;width:100%;">' +
+            '<b style="display:block;color:#293C46;font-size:14px;">' + this._esc(name) + '</b>' +
+            '<span style="display:block;color:#4C6A7C;font-size:12px;margin-top:3px;">' + this._esc(detail || d.id) + '</span>' +
+          '</button>';
+        }).join('') : '<div style="font-size:13px;color:#6B7280;background:#F3F4F6;border-radius:10px;padding:12px;">No local checkpoints found on this iPad.</div>';
+        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:640px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
+          '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:20px;font-weight:800;">Resume Draft / Previous Scope</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Local checkpoints open without auth or Wi-Fi. Cloud scopes still use the existing Supabase picker.</div></div>' +
+          '<div style="padding:18px 22px;display:grid;gap:10px;max-height:60vh;overflow:auto;">' + rows + '</div>' +
+          '<div style="padding:12px 22px;border-top:1px solid #E5E7EB;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">' +
+            '<button id="resumeCloudBtn" style="padding:10px 14px;border:1px solid #F15A29;background:#FFF7ED;color:#F15A29;border-radius:8px;cursor:pointer;font-weight:700;">' + (cloudReady ? 'Open Cloud Previous Scope' : 'Sign in for Cloud Scopes') + '</button>' +
+            '<button id="resumeCloseBtn" style="padding:10px 14px;border:1px solid #D1D5DB;background:#fff;border-radius:8px;cursor:pointer;">Close</button>' +
+          '</div>' +
+        '</div>';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        overlay.querySelectorAll('[data-local-draft-key]').forEach(btn => {
+          btn.addEventListener('click', () => this._openLocalDraftCheckpoint(btn.getAttribute('data-local-draft-key')));
+        });
+        document.getElementById('resumeCloseBtn').onclick = () => overlay.remove();
+        document.getElementById('resumeCloudBtn').onclick = () => {
+          overlay.remove();
+          if (window._swIntegration && window._swIntegration.loadFromSupabase) window._swIntegration.loadFromSupabase();
+          else this.showToast('Cloud loader not ready', 'error');
+        };
+      },
+
       _fillEmptyFromContact(contact) {
         if (!contact || !this.job) return;
         const before = JSON.stringify({ first: this.job.clientFirstName, last: this.job.clientLastName, phone: this.job.phone, email: this.job.email, address: this.job.address, suburb: this.job.suburb });
@@ -2115,7 +2250,7 @@
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         document.getElementById('launchCloseBtn').onclick = () => overlay.remove();
         document.getElementById('launchGhlLeadBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads(''); else this.showToast('Cloud login not ready', 'error'); };
-        document.getElementById('launchResumeDraftBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.loadPicker(); else this.loadFromStorage(); };
+        document.getElementById('launchResumeDraftBtn').onclick = () => { overlay.remove(); this.showResumeDraftModal(); };
         document.getElementById('launchNewLocalBtn').onclick = () => { overlay.remove(); this.startLocalDraft(); };
       },
 
@@ -4967,9 +5102,21 @@
 
           this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
 
-          // Local-wins guard: checkpoint dirty iPad draft before any cloud/GHL load reset.
-          const localDraftWins = this._checkpointLocalDraftBeforeLoad('inline_ghl_contact');
-          if (!localDraftWins) {
+          // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
+          let switchChoice = 'open_separately';
+          if (window._swIntegration && window._swIntegration.resolveFencingTargetSwitch) {
+            switchChoice = await window._swIntegration.resolveFencingTargetSwitch('inline_ghl_contact', {
+              opportunityId: opp.id,
+              label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
+            });
+          }
+          if (switchChoice === 'cancel') return;
+          const localDraftWins = switchChoice === 'keep_link';
+          if (localDraftWins) {
+            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
+            this.showToast('GHL lead linked — keeping local iPad edits', 'success');
+          } else {
+            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_open_separately');
             localStorage.removeItem('fenceJob');
             this.job = null;
             this.currentRunId = null;
@@ -4983,8 +5130,6 @@
             if (window._swIntegration) {
               window._swIntegration._connectJob(null, null, null);
             }
-          } else {
-            this.showToast('GHL lead linked — keeping local iPad edits', 'success');
           }
 
           try {
@@ -5021,12 +5166,14 @@
               console.log('[FenceSync] Existing cloud scope found; local draft wins and cloud data will not overwrite field edits.');
             }
 
+            // Write the app anchor before connecting integration; _connectJob can arm autosave immediately.
+            this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
+
             // Wire up the integration layer so cloud save, auto-save, and sync dot all work.
             if (window._swIntegration) {
               if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
             }
-            this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
 
             this.save();
             this.render();
@@ -12978,7 +13125,6 @@
         if (!this.job.clientLastName) missing.push('Client last name');
         if (!this.job.address) missing.push('Site address');
         if (!this.job.phone) missing.push('Phone');
-        if (!this.job.email) missing.push('Email');
         if (!this.job.runs.some(r => r.panels.length > 0) && !(this.job.gates && this.job.gates.length > 0)) missing.push('At least one fence run with panels (or at least one gate)');
         // Neighbour details validation
         if (this.job.neighboursRequired === undefined) missing.push('Neighbour details (Yes/No)');
@@ -15258,7 +15404,7 @@
       // Stage 3: Has runs + client + valid pricing — ready for output
       // QA is enforced at action time (Send Quote auto-triggers it), not at stage level
       var hasRuns = j.runs && j.runs.some(function(r) { return r.panels && r.panels.length > 0; });
-      var hasClient = !!(j.clientFirstName && j.address && j.email);
+      var hasClient = !!(j.clientFirstName && j.address && j.phone);
       if (hasRuns && hasClient) {
         try {
           var d = app._collectOutputData();
@@ -15443,10 +15589,9 @@
     function _fenceWizardScreen1() {
       var j = app.job || {};
       var fullName = [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ');
-      var emailValid = j.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(j.email);
       var fields = [
         { label: 'Client Name', value: fullName || '(empty)', ok: !!(j.clientFirstName && j.clientLastName), field: 'clientFirstName' },
-        { label: 'Email', value: j.email || '(empty)', ok: emailValid, field: 'clientEmail' },
+        { label: 'Email', value: j.email || '(empty)', ok: true, field: 'clientEmail' },
         { label: 'Phone', value: j.phone || '(empty)', ok: !!j.phone, field: 'clientPhone' },
         { label: 'Site Address', value: j.address || '(empty)', ok: !!j.address, field: 'addressField' }
       ];
