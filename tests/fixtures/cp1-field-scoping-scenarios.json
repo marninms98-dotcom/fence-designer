@@ -1,0 +1,42 @@
+{
+  "mission": "fence-load-save-sync-resilience-2026-07-09 CP1 frontend harness",
+  "networkPolicy": "No real Supabase/GHL calls. Fixtures encode operator-visible failures only.",
+  "scenarios": [
+    {
+      "id": "destructive-load-clears-local-draft-before-reconciliation",
+      "given": { "localDraft": { "dirty": true, "job": { "clientFirstName": "Local", "runs": [{ "id": "run-local", "panels": [{ "retaining": 450 }] }] } }, "incomingGhlOpportunity": "opp-123" },
+      "expectedFutureBehavior": "Loading a GHL/Supabase job must checkpoint or reconcile dirty local work before clearing fenceJob/app.job/currentRunId/QA.",
+      "currentFailureSignal": "index.html/integration.js remove localStorage fenceJob and null app.job before any dirty-draft guard."
+    },
+    {
+      "id": "ghl-prefill-overwrites-scoped-fields",
+      "given": { "savedScope": { "job": { "clientFirstName": "Scoped", "email": "scope@example.test", "phone": "0400000000", "address": "Scoped site" } }, "ghlContact": { "firstName": "GHL", "email": "ghl@example.test", "phone": "0499999999", "address": "GHL site" } },
+      "expectedFutureBehavior": "GHL fills empty/untouched fields only; scoped/dirty fields survive or show conflict.",
+      "currentFailureSignal": "GHL contact is documented and implemented as source of truth and assigns over scope_json fields."
+    },
+    {
+      "id": "offline-create-job-queued-but-not-flushed",
+      "given": { "offlineQueue": [{ "type": "create_job", "data": { "id": "local-1", "type": "fencing", "status": "draft" } }] },
+      "expectedFutureBehavior": "Queued create_job is flushed on reconnect before dependent save/media/release operations.",
+      "currentFailureSignal": "cloud.js _flushQueue handles save_job/update_status but has no create_job branch."
+    },
+    {
+      "id": "media-memory-only-not-durable-across-reload",
+      "given": { "photo": { "id": "p1", "uploadQuality": "window._photoFiles[p1]" }, "video": { "file": "window.siteVideo.file" } },
+      "expectedFutureBehavior": "Photos/videos have durable manifests and recoverable payloads or honest needs-reattach state after reload.",
+      "currentFailureSignal": "Upload-quality photos and video File objects are explicitly kept only on window globals."
+    },
+    {
+      "id": "unsafe-one-shot-sync-release-seam",
+      "given": { "releaseSteps": ["ensure job synced", "assign job number", "freeze scope", "prepare quote", "upload pdf/html", "send quote"] },
+      "expectedFutureBehavior": "One guided release state machine blocks success if any required sync/release step fails and exposes a safe ensureJobSynced seam.",
+      "currentFailureSignal": "index.html calls sync.ensureJobSynced but integration.js does not define/export ensureJobSynced; send flow is not a typed resumable state machine."
+    },
+    {
+      "id": "duplicate-job-number-save-failure-must-not-show-success",
+      "given": { "backendError": { "message": "Save failed: duplicate key value violates unique constraint \"idx_jobs_job_number\"", "code": "23505" } },
+      "expectedFutureBehavior": "Frontend treats duplicate job-number save as failed/recoverable and never shows success or advances send after save failed.",
+      "currentFailureSignal": "Fixture required by field report; no explicit duplicate idx_jobs_job_number handling or success-suppression seam found in frontend source."
+    }
+  ]
+}
