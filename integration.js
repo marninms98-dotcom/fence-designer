@@ -38,6 +38,8 @@
   var _jobLoaded = false;
   var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
+  var _baseScopeHash = null; // Latest server scope hash this iPad loaded/saved against
+  var _baseScopeUpdatedAt = null;
   var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Background upload tracking: maps photo/video id -> { promise, done: bool, error: Error|null }
   var _bgUploads = {};
@@ -64,6 +66,37 @@
 
   function _hasReleaseAnchor() {
     return _isRealJobId(_jobId) || !!_ghlOpportunityId;
+  }
+
+  function _rememberScopeCursor(job) {
+    if (!job) return;
+    var hash = job.current_scope_hash || job.currentScopeHash || null;
+    var updatedAt = job.current_scope_updated_at || job.updated_at || null;
+    if (hash) _baseScopeHash = hash;
+    if (updatedAt) _baseScopeUpdatedAt = updatedAt;
+    if (_toolType === 'fencing' && window.app && window.app.job && (_baseScopeHash || _baseScopeUpdatedAt)) {
+      var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
+      if (_baseScopeHash) {
+        fs.baseScopeHash = _baseScopeHash;
+        fs.currentScopeHash = _baseScopeHash;
+      }
+      if (_baseScopeUpdatedAt) fs.scopeUpdatedAt = _baseScopeUpdatedAt;
+      fs.lastCloudCursorAt = new Date().toISOString();
+    }
+  }
+
+  function _attachScopeSaveCursor(meta) {
+    meta = meta || {};
+    if (_toolType === 'fencing' && _isRealJobId(_jobId) && _baseScopeHash) {
+      meta.baseScopeHash = _baseScopeHash;
+    }
+    return meta;
+  }
+
+  function _isScopeHashConflict(e) {
+    var code = e && (e.code || (e.details && e.details.code));
+    var msg = String((e && (e.message || e.error)) || e || '');
+    return code === 'scope_hash_conflict' || /scope_hash_conflict|Scope changed in Supabase/i.test(msg);
   }
 
   function _hasDirtyFencingDraft() {
@@ -518,10 +551,16 @@
     var photos = media.filter(function(m) { return m.type === 'photo'; });
     var videos = media.filter(function(m) { return m.type === 'video'; });
 
-    // Inject photos into the tool's sitePhotos array
+    // Inject photos into the tool's sitePhotos array. Idempotent: reloads/reconnects
+    // must not append duplicate cloud media when the same job is opened repeatedly.
     if (photos.length > 0 && typeof window.sitePhotos !== 'undefined') {
       for (var i = 0; i < photos.length; i++) {
         var p = photos[i];
+        var alreadyLoaded = window.sitePhotos.some(function(existing) {
+          return (p.id && existing.cloudId === p.id) ||
+            (p.storage_url && (existing.cloudUrl === p.storage_url || existing.dataUrl === p.storage_url));
+        });
+        if (alreadyLoaded) continue;
         // Use numeric IDs (tool's deletePhoto/updatePhotoLabel expect numbers in onclick)
         var numericId = Date.now() + i;
         window.sitePhotos.push({
@@ -560,6 +599,7 @@
           }
         }
         window.app.job.checklist.photosTaken = window.app.job.checklist.photos.length;
+        if (typeof window.app._persistMediaManifest === 'function') window.app._persistMediaManifest();
         if (typeof window.app.renderChecklist === 'function') window.app.renderChecklist();
       }
 
@@ -576,6 +616,11 @@
         originalSize: 0,
         file: null  // No file object for cloud videos
       };
+      if (window.app && window.app.job && window.app.job.checklist) {
+        window.app.job.checklist.videoCloudUrl = v.storage_url;
+        window.app.job.checklist.videoNeedsReattach = false;
+        if (typeof window.app._persistMediaManifest === 'function') window.app._persistMediaManifest();
+      }
       if (typeof window.renderVideoPreview === 'function') window.renderVideoPreview();
       if (typeof window.updateVideoBadge === 'function') window.updateVideoBadge();
       console.log('[Integration] Loaded video from cloud');
@@ -1238,8 +1283,15 @@
 
         // Save via edge function (bypasses RLS)
         console.log('[Integration] Saving scope for job:', _jobId);
-        await cloud.ghl.saveScope(_jobId, state, meta);
-        console.log('[Integration] Scope saved successfully');
+        var savedJob = await cloud.ghl.saveScope(_jobId, state, _attachScopeSaveCursor(meta));
+        var scopeQueuedLocally = !!(savedJob && savedJob.queued);
+        if (!scopeQueuedLocally) _rememberScopeCursor(savedJob);
+        if (scopeQueuedLocally) {
+          console.log('[Integration] Scope saved locally and queued for sync');
+          if (_isSignOff) throw new Error('sync_required: reconnect to Wi-Fi before creating the job or sending the quote');
+        } else {
+          console.log('[Integration] Scope saved successfully');
+        }
 
         // Sync fencing neighbours to job_contacts (if neighbours exist)
         if (_toolType === 'fencing' && state.job && state.job.neighboursRequired && state.job.neighbours && state.job.neighbours.length > 0 && state.job.neighbours[0].firstName) {
@@ -1338,10 +1390,17 @@
           try {
             var updatedState = _getStateFn();
             if (updatedState) {
-              await cloud.ghl.saveScope(_jobId, updatedState, meta);
-              console.log('[Integration] Scope re-saved with cloudUrls');
+              var resavedJob = await cloud.ghl.saveScope(_jobId, updatedState, _attachScopeSaveCursor(meta));
+              if (resavedJob && resavedJob.queued) {
+                console.warn('[Integration] Scope re-save with cloudUrls queued locally; pending sync');
+                if (window.showToast) window.showToast('Media state saved on iPad — pending sync', 'warning');
+              } else {
+                _rememberScopeCursor(resavedJob);
+                console.log('[Integration] Scope re-saved with cloudUrls');
+              }
             }
           } catch(e) {
+            if (_isScopeHashConflict(e)) throw e;
             console.warn('[Integration] Re-save after uploads failed (non-blocking):', e);
           }
         }
@@ -1570,12 +1629,16 @@
           cloud.startAutoSave(_jobId, _getStateFn, 30000);
         }
 
-        if (_lastJobNumber) {
+        if (scopeQueuedLocally) {
+          cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
+          if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+        } else if (_lastJobNumber) {
           cloud.ui.showSaveStatus('saved', 'Saved — ' + _lastJobNumber);
+          if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         } else {
           cloud.ui.showSaveStatus('saved');
+          if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         }
-        if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         if (window.updateHeaderBadge) window.updateHeaderBadge();
         if (window.updateBottomToolbar) window.updateBottomToolbar();
         updateUI();
@@ -1585,7 +1648,9 @@
         cloud.ui.showSaveStatus('error');
         if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
         var message = (e && e.message) || String(e);
-        if (_isDuplicateJobNumberError(e)) {
+        if (_isScopeHashConflict(e)) {
+          message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
+        } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
         }
         alert('Save failed: ' + message);
@@ -1637,6 +1702,7 @@
           if (opp._loadedFromSupabase && opp._supabaseJobId) {
             console.log('[Integration] Loading directly from Supabase job:', opp._supabaseJobId);
             var sbJob = await cloud.ghl.loadJob(opp._supabaseJobId);
+            _rememberScopeCursor(sbJob);
             if (sbJob) {
               _jobId = sbJob.id;
               _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
@@ -1668,6 +1734,7 @@
           try {
             existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
             console.log('[Integration] Existing job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
+            _rememberScopeCursor(existingJob);
           } catch(e) {
             console.warn('[Integration] findJobByOpportunity failed:', e);
           }
@@ -1759,6 +1826,7 @@
           if (lead.supabaseJobId) {
             console.log('[Integration] Lead has existing job, loading:', lead.supabaseJobId);
             var sbJob = await cloud.ghl.loadJob(lead.supabaseJobId);
+            _rememberScopeCursor(sbJob);
             if (sbJob) {
               _jobId = sbJob.id;
               _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
@@ -1786,6 +1854,7 @@
           if (lead.id) {
             try {
               existingJob = await cloud.ghl.findJobByOpportunity(lead.id, _toolType);
+              _rememberScopeCursor(existingJob);
             } catch(e) {
               console.warn('[Integration] findJobByOpportunity failed:', e);
             }
@@ -1870,7 +1939,8 @@
             _resetPatioForm();
           }
 
-          var job = await cloud.jobs.loadJob(jobId);
+          var job = await cloud.ghl.loadJob(jobId);
+          _rememberScopeCursor(job);
           _jobStatus = job.status || 'draft';
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
             var loaded = localDraftWins ? true : _loadFencingStateLocalWins(job.scope_json, 'load_from_supabase');
@@ -2016,6 +2086,17 @@
       return !!(cloud && cloud.auth.isLoggedIn());
     },
 
+    // Cursor shared with cloud.js autosave: every save carries the server scope hash
+    // that this iPad loaded/saved against, so reconnects cannot overwrite newer cloud edits.
+    getScopeSaveCursor: function() {
+      if (!_baseScopeHash && _toolType === 'fencing' && window.app && window.app.job && window.app.job._fieldSync) {
+        _baseScopeHash = window.app.job._fieldSync.baseScopeHash || window.app.job._fieldSync.currentScopeHash || null;
+        _baseScopeUpdatedAt = window.app.job._fieldSync.scopeUpdatedAt || null;
+      }
+      return { baseScopeHash: _baseScopeHash, baseScopeUpdatedAt: _baseScopeUpdatedAt };
+    },
+    _rememberScopeCursor: _rememberScopeCursor,
+
     // Connect integration state from an external load path (e.g. inline name search).
     // Ensures _jobId, _ghlOpportunityId, _ghlContactId are set so saves work correctly.
     _connectJob: function(jobId, opportunityId, contactId, status) {
@@ -2024,10 +2105,11 @@
       _ghlContactId = contactId || null;
       if (status) _jobStatus = status;
       if (jobId) {
+        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; }
         _jobId = jobId;
         _jobLoaded = true;
         // Only update URL and start auto-save for real cloud jobs (not local-only)
-        if (jobId.indexOf('local-') !== 0) {
+        if (String(jobId).indexOf('local-') !== 0) {
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
           if (cloud && _shouldAutoSave()) {
@@ -2043,6 +2125,8 @@
       } else {
         // Full reset — no job, no opportunity
         _jobId = null;
+        _baseScopeHash = null;
+        _baseScopeUpdatedAt = null;
         _jobLoaded = false;
         if (cloud) cloud.stopAutoSave();
         console.log('[Integration] _connectJob: fully cleared');
@@ -2104,6 +2188,10 @@
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
     });
+    cloud.on('autosave:queued', function() {
+      cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
+      if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+    });
     cloud.on('autosave:error', function() {
       cloud.ui.showSaveStatus('error');
     });
@@ -2154,6 +2242,7 @@
     console.log('[Integration] Auto-loading job:', urlJobId, 'localDraftWins:', localDraftWins);
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
+      _rememberScopeCursor(job);
       _jobStatus = job.status || 'draft';
       // (M4 G-F1) Reopening a quoted job defaults to the READ-ONLY frozen view so
       // nobody accidentally re-publishes an old scope. Redirect to the frozen-viewer

@@ -5023,6 +5023,7 @@
 
             // Wire up the integration layer so cloud save, auto-save, and sync dot all work.
             if (window._swIntegration) {
+              if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
             }
             this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
@@ -13046,10 +13047,96 @@
         event.target.value = ''; // reset so same file can be re-imported
       },
 
+      // ── Local media manifest (CP3 offline/reload contract) ──
+      _mediaManifestKey() {
+        const fs = this._ensureFieldSync();
+        const id = (fs && (fs.syncAnchorId || fs.localDraftId)) || 'unanchored';
+        return 'sw_media_manifest_' + id;
+      },
+
+      _mediaManifestEntries() {
+        const checklist = (this.job && this.job.checklist) || {};
+        const photos = (checklist.photos || []).map(function(p) {
+          return {
+            id: p.id,
+            name: p.name || p.label || '',
+            cloudUrl: p.cloudUrl || '',
+            uploadDataUrl: p.uploadDataUrl || '',
+            dataUrl: p.dataUrl || '',
+            needsReattach: !!p.needsReattach,
+            mediaManifestState: p.mediaManifestState || (p.cloudUrl ? 'cloud_uploaded' : 'persisted_local_upload_copy')
+          };
+        });
+        const video = {
+          fileName: checklist.videoFileName || (window.siteVideo && window.siteVideo.label) || '',
+          size: checklist.videoSize || 0,
+          cloudUrl: checklist.videoCloudUrl || (window.siteVideo && window.siteVideo.cloudUrl) || '',
+          needsReattach: !!(checklist.videoNeedsReattach || (window.siteVideo && window.siteVideo.needsReattach)),
+          mediaManifestState: (window.siteVideo && window.siteVideo.mediaManifestState) || (checklist.videoCloudUrl ? 'cloud_uploaded' : (checklist.videoWalkthrough ? 'needs_reattach_until_cloud_upload' : 'none'))
+        };
+        return { photos: photos, video: video };
+      },
+
+      _persistMediaManifest() {
+        if (!this.job) return;
+        try {
+          const entries = this._mediaManifestEntries();
+          const fs = this._ensureFieldSync();
+          const payload = {
+            version: 1,
+            key: this._mediaManifestKey(),
+            localDraftId: fs && fs.localDraftId || null,
+            syncAnchorType: fs && fs.syncAnchorType || null,
+            syncAnchorId: fs && fs.syncAnchorId || null,
+            savedAt: new Date().toISOString(),
+            photos: entries.photos,
+            video: entries.video
+          };
+          localStorage.setItem(payload.key, JSON.stringify(payload));
+        } catch(e) {
+          console.warn('[FenceSync] media manifest persist failed:', e);
+        }
+      },
+
+      _hydrateMediaManifest() {
+        if (!this.job || !this.job.checklist) return;
+        try {
+          const key = this._mediaManifestKey();
+          const raw = localStorage.getItem(key);
+          if (!raw) return;
+          const manifest = JSON.parse(raw);
+          const manifestPhotos = manifest.photos || [];
+          if (!this.job.checklist.photos) this.job.checklist.photos = [];
+          this.job.checklist.photos.forEach(function(photo) {
+            const m = manifestPhotos.find(function(mp) { return mp.id === photo.id; });
+            if (!m) return;
+            if (!photo.cloudUrl && m.cloudUrl) photo.cloudUrl = m.cloudUrl;
+            if (!photo.uploadDataUrl && m.uploadDataUrl) photo.uploadDataUrl = m.uploadDataUrl;
+            if (!photo.dataUrl && m.dataUrl) photo.dataUrl = m.dataUrl;
+            photo.needsReattach = !!m.needsReattach;
+            photo.mediaManifestState = m.mediaManifestState || photo.mediaManifestState || (photo.cloudUrl ? 'cloud_uploaded' : 'persisted_local_upload_copy');
+          });
+          const video = manifest.video || {};
+          if (video.cloudUrl) {
+            this.job.checklist.videoCloudUrl = video.cloudUrl;
+            this.job.checklist.videoNeedsReattach = false;
+            window.siteVideo = window.siteVideo || { file: null, dataUrl: null, label: video.fileName || 'Site Walkthrough' };
+            window.siteVideo.cloudUrl = video.cloudUrl;
+            window.siteVideo.objectUrl = video.cloudUrl;
+            window.siteVideo.needsReattach = false;
+            window.siteVideo.mediaManifestState = 'cloud_uploaded';
+          } else if (video.needsReattach || this.job.checklist.videoNeedsReattach) {
+            this.job.checklist.videoNeedsReattach = true;
+          }
+        } catch(e) {
+          console.warn('[FenceSync] media manifest hydrate failed:', e);
+        }
+      },
+
       // ── LocalStorage ──
       _cleanupStorage() {
         // Remove old unrelated keys, but preserve field-sync checkpoints/offline queue.
-        var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue'];
+        var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue', 'sw_offline_job_id_map', 'sw_offline_journal'];
         var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_'];
         var toRemove = [];
         for (var i = 0; i < localStorage.length; i++) {
@@ -13108,6 +13195,7 @@
       save() {
         try {
           this._markLocalEdited();
+          this._persistMediaManifest();
           localStorage.setItem('fenceJob', JSON.stringify(this.job));
           updateSyncDot('local');
         } catch (e) {
@@ -13121,6 +13209,7 @@
 
             // Step 3: Retry save
             try {
+              this._persistMediaManifest();
               localStorage.setItem('fenceJob', JSON.stringify(this.job));
               updateSyncDot('local');
               this.showToast('Storage recovered — saved successfully', 'success');
@@ -13133,6 +13222,9 @@
                   });
                 }
                 try {
+                  // Do not overwrite sw_media_manifest_* here: this branch has
+                  // deliberately stripped photo data URLs from fenceJob to recover
+                  // quota, so the existing manifest is the safer breadcrumb.
                   localStorage.setItem('fenceJob', JSON.stringify(this.job));
                   updateSyncDot('local');
                   this.showToast('Storage full — photos cleared from local (cloud copies kept)', 'warning');
@@ -13276,6 +13368,7 @@
             if (!this.job.neighbours) this.job.neighbours = [{ id: 'nb-1', firstName: '', lastName: '', phone: '', email: '', address: '' }];
             if (this.job.neighboursRequired === undefined && !('neighboursRequired' in this.job)) this.job.neighboursRequired = undefined;
             if (!this.job.checklist.photos) this.job.checklist.photos = [];
+            this._hydrateMediaManifest();
 
             // Migrate gate objects
             (this.job.gates || []).forEach(g => {

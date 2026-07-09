@@ -87,6 +87,7 @@
   var _orgId = null;
   var _online = navigator.onLine;
   var _offlineQueue = [];
+  var _offlineJobIdMap = {};
   var _listeners = {};
   var _autoSaveTimer = null;
 
@@ -118,11 +119,65 @@
   });
 
   // ── Offline Queue ──
-  function _enqueue(action) {
-    _offlineQueue.push(action);
+  function _newOpId(prefix) {
+    return (prefix || 'op') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function _saveOfflineQueue() {
+    try { localStorage.setItem('sw_offline_queue', JSON.stringify(_offlineQueue)); } catch(e) {}
+  }
+
+  function _loadOfflineJobIdMap() {
     try {
-      localStorage.setItem('sw_offline_queue', JSON.stringify(_offlineQueue));
+      var raw = localStorage.getItem('sw_offline_job_id_map');
+      _offlineJobIdMap = raw ? JSON.parse(raw) : {};
+    } catch(e) { _offlineJobIdMap = {}; }
+    return _offlineJobIdMap;
+  }
+
+  function _saveOfflineJobIdMap() {
+    try { localStorage.setItem('sw_offline_job_id_map', JSON.stringify(_offlineJobIdMap || {})); } catch(e) {}
+  }
+
+  function _recordOfflineJournal(action, status, detail) {
+    try {
+      var raw = localStorage.getItem('sw_offline_journal');
+      var journal = raw ? JSON.parse(raw) : [];
+      journal.push({
+        opId: action && action.opId || _newOpId('journal'),
+        type: action && action.type || 'unknown',
+        localJobId: action && action.jobId || (action && action.data && action.data.id) || null,
+        status: status,
+        detail: detail || null,
+        at: new Date().toISOString()
+      });
+      if (journal.length > 120) journal = journal.slice(journal.length - 120);
+      localStorage.setItem('sw_offline_journal', JSON.stringify(journal));
     } catch(e) {}
+  }
+
+  function _enqueue(action) {
+    action = action || {};
+    if (!action.opId) action.opId = _newOpId(action.type || 'offline');
+    if (!action.createdAt) action.createdAt = new Date().toISOString();
+    _offlineQueue.push(action);
+    _saveOfflineQueue();
+    _recordOfflineJournal(action, 'queued');
+  }
+
+  function _queueScopeSave(jobId, scopeJson, meta) {
+    meta = Object.assign({}, meta || {});
+    delete meta._flushAttempt;
+    try { localStorage.setItem('sw_job_' + jobId, JSON.stringify(scopeJson)); } catch(e) {}
+    _enqueue({ type: 'save_job', jobId: jobId, scopeJson: scopeJson, meta: meta });
+    emit('job:saved_local', { jobId: jobId, queued: true });
+    return {
+      id: jobId,
+      local: true,
+      queued: true,
+      current_scope_hash: meta.baseScopeHash || meta.expectedScopeHash || meta.scope_hash || null,
+      current_scope_updated_at: meta.baseScopeUpdatedAt || null
+    };
   }
 
   function _loadQueue() {
@@ -130,14 +185,16 @@
       var raw = localStorage.getItem('sw_offline_queue');
       if (raw) _offlineQueue = JSON.parse(raw);
     } catch(e) { _offlineQueue = []; }
+    _loadOfflineJobIdMap();
   }
 
   async function _flushQueue() {
+    _loadOfflineJobIdMap();
     if (!_online || _offlineQueue.length === 0) return;
     var queue = _offlineQueue.slice();
     _offlineQueue = [];
     localStorage.removeItem('sw_offline_queue');
-    var localJobIdMap = {};
+    var localJobIdMap = Object.assign({}, _offlineJobIdMap || {});
 
     for (var i = 0; i < queue.length; i++) {
       var action = queue[i];
@@ -147,17 +204,28 @@
           var created = await cloud.createJob(localJob.type || 'patio', localJob);
           if (localJob.id && created && created.id) {
             localJobIdMap[localJob.id] = created.id;
-            try { localStorage.setItem('sw_offline_job_id_map', JSON.stringify(localJobIdMap)); } catch(e0) {}
+            _offlineJobIdMap[localJob.id] = created.id;
+            _saveOfflineJobIdMap();
+            _recordOfflineJournal(action, 'flushed', { jobId: created.id });
           }
         } else if (action.type === 'save_job') {
           var jobId = localJobIdMap[action.jobId] || action.jobId;
-          await ghl.saveScope(jobId, action.scopeJson, action.meta || {});
+          await ghl.saveScope(jobId, action.scopeJson, Object.assign({}, action.meta || {}, { _flushAttempt: true }));
+          _recordOfflineJournal(action, 'flushed', { jobId: jobId });
         } else if (action.type === 'update_status') {
           // Status updates still use direct Supabase (less critical)
-          try { await cloud.updateJobStatus(localJobIdMap[action.jobId] || action.jobId, action.status); } catch(e2) { console.warn('[Cloud] Status update failed:', e2); }
+          var mappedJobId = localJobIdMap[action.jobId] || action.jobId;
+          try {
+            await cloud.updateJobStatus(mappedJobId, action.status);
+            _recordOfflineJournal(action, 'flushed', { jobId: mappedJobId });
+          } catch(e2) {
+            console.warn('[Cloud] Status update failed:', e2);
+            throw e2;
+          }
         }
       } catch(e) {
         console.warn('[Cloud] Failed to flush queued action:', e);
+        _recordOfflineJournal(action, 'failed', { message: e && e.message || String(e) });
         _enqueue(action);
       }
     }
@@ -509,6 +577,8 @@
       if (job) {
         job.latest_frozen_scope_revision_id = data.latest_frozen_scope_revision_id || null;
         job.frozen_revision_count = data.frozen_revision_count || 0;
+        job.current_scope_hash = data.current_scope_hash || job.current_scope_hash || null;
+        job.current_scope_updated_at = data.current_scope_updated_at || job.updated_at || null;
       }
       return job;
     },
@@ -538,14 +608,33 @@
     // Save scope data to a job (via edge function to bypass RLS)
     async saveScope(jobId, scopeJson, meta) {
       console.log('[Cloud] saveScope:', jobId);
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=save_scope', {
-        method: 'POST',
-        headers: _swHeaders(),
-        body: JSON.stringify({ jobId: jobId, scopeJson: scopeJson, meta: meta })
-      });
+      meta = meta || {};
+      if (!_online) {
+        return _queueScopeSave(jobId, scopeJson, meta);
+      }
+
+      var requestMeta = Object.assign({}, meta);
+      delete requestMeta._flushAttempt;
+      var res;
+      try {
+        res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=save_scope', {
+          method: 'POST',
+          headers: _swHeaders(),
+          body: JSON.stringify({ jobId: jobId, scopeJson: scopeJson, meta: requestMeta })
+        });
+      } catch(e) {
+        if (meta._flushAttempt) throw e;
+        console.warn('[Cloud] saveScope network failure; queued local scope save:', e);
+        return _queueScopeSave(jobId, scopeJson, requestMeta);
+      }
       var data = await res.json();
       console.log('[Cloud] saveScope result:', data);
-      if (!res.ok) throw new Error(data.error || 'Failed to save scope');
+      if (!res.ok) {
+        var err = new Error(data.error || 'Failed to save scope');
+        err.code = data.code || null;
+        err.details = data;
+        throw err;
+      }
       return data.job;
     },
 
@@ -932,8 +1021,17 @@
           meta.pricing_json = state._pricing_json;
         }
 
-        await ghl.saveScope(jobId, state, meta);
-        emit('autosave:success', { jobId: jobId });
+        if (window._swIntegration && window._swIntegration.getScopeSaveCursor) {
+          var cursor = window._swIntegration.getScopeSaveCursor();
+          if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
+        }
+        var savedJob = await ghl.saveScope(jobId, state, meta);
+        if (savedJob && savedJob.queued) {
+          emit('autosave:queued', { jobId: jobId });
+        } else {
+          if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);
+          emit('autosave:success', { jobId: jobId });
+        }
       } catch(e) {
         console.warn('[Cloud] Auto-save failed:', e);
         emit('autosave:error', { jobId: jobId, error: e });
@@ -1427,7 +1525,7 @@
       } else if (status === 'offline') {
         el.style.background = '#FF950020';
         el.style.color = '#FF9500';
-        el.textContent = 'Saved locally (offline)';
+        el.textContent = message || 'Saved locally (offline)';
         el.style.opacity = '1';
         setTimeout(function() { el.style.opacity = '0'; }, 3000);
       } else if (status === 'error') {
@@ -1536,6 +1634,7 @@
 
     // State
     isOnline: function() { return _online; },
+    getOfflineState: function() { return { queue: _offlineQueue.slice(), jobIdMap: Object.assign({}, _offlineJobIdMap || {}) }; },
 
     // Direct Supabase access (escape hatch)
     supabase: sb,
