@@ -137,15 +137,24 @@
     var queue = _offlineQueue.slice();
     _offlineQueue = [];
     localStorage.removeItem('sw_offline_queue');
+    var localJobIdMap = {};
 
     for (var i = 0; i < queue.length; i++) {
       var action = queue[i];
       try {
-        if (action.type === 'save_job') {
-          await ghl.saveScope(action.jobId, action.scopeJson, action.meta || {});
+        if (action.type === 'create_job') {
+          var localJob = action.data || {};
+          var created = await cloud.createJob(localJob.type || 'patio', localJob);
+          if (localJob.id && created && created.id) {
+            localJobIdMap[localJob.id] = created.id;
+            try { localStorage.setItem('sw_offline_job_id_map', JSON.stringify(localJobIdMap)); } catch(e0) {}
+          }
+        } else if (action.type === 'save_job') {
+          var jobId = localJobIdMap[action.jobId] || action.jobId;
+          await ghl.saveScope(jobId, action.scopeJson, action.meta || {});
         } else if (action.type === 'update_status') {
           // Status updates still use direct Supabase (less critical)
-          try { await cloud.updateJobStatus(action.jobId, action.status); } catch(e2) { console.warn('[Cloud] Status update failed:', e2); }
+          try { await cloud.updateJobStatus(localJobIdMap[action.jobId] || action.jobId, action.status); } catch(e2) { console.warn('[Cloud] Status update failed:', e2); }
         }
       } catch(e) {
         console.warn('[Cloud] Failed to flush queued action:', e);
@@ -1295,8 +1304,10 @@
 
       // Render a lead card
       function _renderLeadCard(lead) {
-        var name = (lead.contactName || lead.name || 'Unknown').trim();
         var phone = lead.contactPhone || '';
+        var rawName = (lead.contactName || lead.name || '').trim();
+        var phoneOnlyName = /^\+?\d[\d\s\-]+$/.test(rawName);
+        var name = (!rawName || phoneOnlyName) ? (phone ? 'Phone lead ' + phone : 'Unnamed lead') : rawName;
         var stage = lead.stageName || 'New';
         var hasJob = !!lead.supabaseJobId;
         var hasScope = !!lead.hasScope;
@@ -1330,11 +1341,8 @@
         try {
           var leads = await ghl.searchLeads(query || '', pipelineKey);
 
-          // Filter out phone-only names
-          leads = leads.filter(function(o) {
-            var name = (o.contactName || o.name || '').trim();
-            return name && !/^\+?\d[\d\s\-]+$/.test(name);
-          });
+          // Keep phone-only/no-name leads; field launch still needs a sync target.
+          leads = leads || [];
 
           if (leads.length === 0) {
             list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">' + (query ? 'No leads matching "' + query + '"' : 'No leads in pipeline') + '</p>';

@@ -58,6 +58,61 @@
     return blocked.indexOf(_jobStatus) === -1;
   }
 
+  function _isRealJobId(id) {
+    return !!(id && String(id).indexOf('local-') !== 0 && String(id).indexOf('local-fence-') !== 0);
+  }
+
+  function _hasReleaseAnchor() {
+    return _isRealJobId(_jobId) || !!_ghlOpportunityId;
+  }
+
+  function _hasDirtyFencingDraft() {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return false;
+    if (window.app._hasMeaningfulLocalDraft && !window.app._hasMeaningfulLocalDraft()) return false;
+    var fs = window.app.job._fieldSync || {};
+    return !!(fs.localDraftId || fs.lastLocalEditAt || fs.syncState || window.app._hasMeaningfulLocalDraft());
+  }
+
+  function _checkpointLocalDraftBeforeLoad(source) {
+    if (_toolType !== 'fencing' || !window.app || !window.app._checkpointLocalDraftBeforeLoad) return false;
+    return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
+  }
+
+  function _resetFencingForCloudLoad(source) {
+    // Dirty local draft checkpoint/reconcile seam: local iPad draft wins over incoming cloud state.
+    if (_checkpointLocalDraftBeforeLoad(source)) {
+      console.log('[FenceSync] Local draft checkpointed before ' + source + '; remote load will link/fill blanks only.');
+      return false;
+    }
+    localStorage.removeItem('fenceJob');
+    window.app.job = null;
+    window.app.currentRunId = null;
+    if (typeof window.app._resetSections === 'function') window.app._resetSections();
+    window.app.init();
+    localStorage.removeItem('fenceQA_verification');
+    if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+    return true;
+  }
+
+  function _loadFencingStateLocalWins(scopeJson, source) {
+    if (_toolType === 'fencing' && _hasDirtyFencingDraft()) {
+      console.log('[FenceSync] Local draft wins; skipping remote scope_json load for ' + (source || 'cloud load'));
+      return false;
+    }
+    return _loadStateFn(scopeJson);
+  }
+
+  function _linkFencingAnchor(jobId, opportunityId, contactId, launchMode) {
+    if (_toolType === 'fencing' && window.app && window.app._linkCloudAnchor) {
+      window.app._linkCloudAnchor({ jobId: jobId || null, opportunityId: opportunityId || null, contactId: contactId || null, launchMode: launchMode || 'cloud_load' });
+    }
+  }
+
+  function _isDuplicateJobNumberError(e) {
+    var msg = String((e && (e.message || e.error || e.code)) || e || '');
+    return /idx_jobs_job_number|duplicate key value|23505|job_number.*duplicate|duplicate.*job_number/i.test(msg);
+  }
+
   // Upload a document blob to Supabase storage + register in job_documents
   async function _uploadDocBlob(cloudRef, jobId, jobNumber, blob, fileName, docType) {
     if (!cloudRef || !jobId || !blob) return;
@@ -352,30 +407,42 @@
     // Only use suburb separately — don't concatenate everything
     var suburb = contact.suburb || '';
 
-    // Set individual fields — these selectors cover both patio and fencing tools
+    var firstName = contact.firstName || '';
+    var lastName = contact.lastName || '';
+    if (!firstName && displayName) {
+      var parts = displayName.trim().split(/\s+/);
+      firstName = parts[0] || '';
+      lastName = parts.slice(1).join(' ') || '';
+    }
+
+    // Fill-empty only: GHL/cloud data must not overwrite local iPad edits.
     var mapping = [
       { val: displayName, selectors: '#customerName, #clientName, [name="clientName"]' },
+      { val: firstName, selectors: '#clientFirstNameInput, [name="clientFirstName"]' },
+      { val: lastName, selectors: '#clientLastNameInput, [name="clientLastName"]' },
       { val: contact.email, selectors: '#clientEmail, #customerEmail, [name="clientEmail"], [name="email"]' },
       { val: contact.phone, selectors: '#customerPhone, #clientPhone, [name="clientPhone"], [name="phone"]' },
-      { val: streetAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, [name="siteAddress"], [name="address"]' },
+      { val: streetAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, #addressInput, [name="siteAddress"], [name="address"]' },
       { val: suburb, selectors: '#customerSuburb, #clientSuburb' }
     ];
 
     mapping.forEach(function(m) {
       if (!m.val) return;
       document.querySelectorAll(m.selectors).forEach(function(el) {
+        var current = (el.value || '').trim();
+        if (current) return;
         el.value = m.val;
-        // Trigger input event so the tool picks up the change
         el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       });
     });
 
-    // Also set window globals if the tool uses them
+    // Also set window globals if the tool uses them, preserving non-empty local values.
     if (typeof window.customer === 'object' && window.customer) {
-      if (displayName) window.customer.name = displayName;
-      if (contact.phone) window.customer.phone = contact.phone;
-      if (contact.email) window.customer.email = contact.email;
-      if (streetAddress) window.customer.address = streetAddress;
+      if (displayName && !window.customer.name) window.customer.name = displayName;
+      if (contact.phone && !window.customer.phone) window.customer.phone = contact.phone;
+      if (contact.email && !window.customer.email) window.customer.email = contact.email;
+      if (streetAddress && !window.customer.address) window.customer.address = streetAddress;
     }
   }
 
@@ -534,6 +601,10 @@
 
   // ── Inject cloud bar below the header ──
   function injectToolbar() {
+    if (detectToolType() === 'fencing') {
+      console.log('[Integration] Fencing uses the built-in field launcher; skipping duplicate cloud Save/Load/Dashboard bar');
+      return;
+    }
     var header = document.querySelector('.header') ||
                  document.querySelector('header') ||
                  document.querySelector('[class*="header"]');
@@ -1192,7 +1263,7 @@
             if (cp.cloudUrl) continue;
             var alreadyBridged = window.sitePhotos.some(function(sp) { return sp._checklistId === cp.id; });
             if (alreadyBridged) continue;
-            var uploadDataUrl = (window._photoFiles && window._photoFiles[cp.id]) || cp.dataUrl;
+            var uploadDataUrl = (window._photoFiles && window._photoFiles[cp.id]) || cp.uploadDataUrl || cp.dataUrl;
             if (!uploadDataUrl) continue;
             var bridgedPhoto = {
               id: cp.id + '_bridged',
@@ -1281,36 +1352,21 @@
         if (_isSignOff) {
           // Write scope link back to GHL opportunity notes + assign job number
           var linkResult = null;
-          if (_ghlOpportunityId) {
-            try {
-              linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
-              if (linkResult && linkResult.jobNumber) {
-                _lastJobNumber = linkResult.jobNumber;
-                console.log('[Integration] Job number assigned:', linkResult.jobNumber);
-              }
-            } catch(ghlErr) {
-              console.warn('[Integration] GHL link failed (non-blocking):', ghlErr);
-            }
+          if (!_ghlOpportunityId) {
+            throw new Error('link_required: choose a GHL lead/contact before release');
           }
-
-          // Fallback: if no GHL opportunity linked, still assign job number directly
-          if (!_lastJobNumber && _jobId) {
-            try {
-              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
-              var assignRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=assign_job_number', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                body: JSON.stringify({ jobId: _jobId, toolType: _toolType })
-              });
-              var assignData = await assignRes.json();
-              if (assignData.jobNumber) {
-                _lastJobNumber = assignData.jobNumber;
-                linkResult = { jobNumber: assignData.jobNumber };
-                console.log('[Integration] Job number assigned (no GHL):', assignData.jobNumber);
-              }
-            } catch(assignErr) {
-              console.warn('[Integration] Direct job number assignment failed:', assignErr);
+          try {
+            linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
+            if (linkResult && linkResult.jobNumber) {
+              _lastJobNumber = linkResult.jobNumber;
+              console.log('[Integration] Job number assigned:', linkResult.jobNumber);
             }
+          } catch(ghlErr) {
+            console.warn('[Integration] GHL link failed:', ghlErr);
+            throw new Error('ghl_link_failed: ' + (ghlErr.message || ghlErr));
+          }
+          if (!_lastJobNumber) {
+            throw new Error('job_number_missing_after_ghl_link');
           }
 
           // Apply job number to DOM so PDFs, toolbar, and header show the real number.
@@ -1528,7 +1584,12 @@
         console.error('[Integration] Save failed:', e);
         cloud.ui.showSaveStatus('error');
         if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
-        alert('Save failed: ' + e.message);
+        var message = (e && e.message) || String(e);
+        if (_isDuplicateJobNumberError(e)) {
+          message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
+        }
+        alert('Save failed: ' + message);
+        throw e;
       }
     },
 
@@ -1545,20 +1606,15 @@
           _ghlOpportunityId = opp.id;
           _ghlContactId = opp.contactId || null;
 
-          // ── Reset tool to clean state before loading new opportunity ──
+          // ── Local-wins checkpoint before loading new opportunity ──
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            localDraftWins = !_resetFencingForCloudLoad('loadPicker');
           } else {
             _resetPatioForm();
           }
@@ -1588,7 +1644,7 @@
               _lastJobNumber = sbJob.job_number || null;
               _jobStatus = sbJob.status || 'draft';
               if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
-                _loadStateFn(sbJob.scope_json);
+                if (!localDraftWins) _loadFencingStateLocalWins(sbJob.scope_json, 'supabase_job_load');
               }
               _applyJobNumber(_lastJobNumber);
               try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
@@ -1622,7 +1678,7 @@
             _jobStatus = existingJob.status || 'draft';
             console.log('[Integration] Found existing job:', _jobId, 'number:', _lastJobNumber);
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              _loadStateFn(existingJob.scope_json);
+              if (!localDraftWins) _loadFencingStateLocalWins(existingJob.scope_json, 'existing_opportunity_scope');
             }
             // Override local job ref with Supabase job number (single source of truth)
             _applyJobNumber(_lastJobNumber);
@@ -1639,6 +1695,7 @@
 
           // Pre-fill contact fields in the tool
           if (contact) _prefillContact(contact);
+          _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'ghl_picker');
 
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
@@ -1672,20 +1729,15 @@
           _ghlOpportunityId = lead.id;
           _ghlContactId = lead.contactId || null;
 
-          // Reset tool to clean state
+          // Local-wins checkpoint before loading the selected lead.
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            localDraftWins = !_resetFencingForCloudLoad('lead_search');
           } else {
             _resetPatioForm();
           }
@@ -1714,7 +1766,7 @@
               _lastJobNumber = sbJob.job_number || null;
               _jobStatus = sbJob.status || 'draft';
               if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
-                _loadStateFn(sbJob.scope_json);
+                if (!localDraftWins) _loadFencingStateLocalWins(sbJob.scope_json, 'lead_supabase_job');
               }
               _applyJobNumber(_lastJobNumber);
               try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
@@ -1744,7 +1796,7 @@
             _lastJobNumber = existingJob.job_number || null;
             _jobStatus = existingJob.status || 'draft';
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              _loadStateFn(existingJob.scope_json);
+              if (!localDraftWins) _loadFencingStateLocalWins(existingJob.scope_json, 'lead_existing_scope');
             }
             _applyJobNumber(_lastJobNumber);
             try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
@@ -1755,6 +1807,7 @@
           }
 
           if (contact) _prefillContact(contact);
+          _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'lead_search');
           if (_jobId) {
             var newUrl = window.location.pathname + '?jobId=' + _jobId;
             window.history.replaceState({}, '', newUrl);
@@ -1795,11 +1848,8 @@
             _lastJobNumber = null;
             _jobLoaded = false;
             if (_toolType === 'fencing' && window.app) {
-              localStorage.removeItem('fenceJob');
-              window.app.job = null;
-              window.app.currentRunId = null;
-              if (typeof window.app._resetSections === 'function') window.app._resetSections();
-              window.app.init();
+              if (!window.app.job) window.app.init();
+              if (window.app._ensureFieldSync) window.app._ensureFieldSync('local_only_resume');
             } else {
               _resetPatioForm();
             }
@@ -1807,20 +1857,15 @@
             return;
           }
 
-          // ── Reset tool to clean state before loading new job ──
+          // ── Local-wins checkpoint before loading previous cloud job ──
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            localDraftWins = !_resetFencingForCloudLoad('load_from_supabase');
           } else {
             _resetPatioForm();
           }
@@ -1828,7 +1873,7 @@
           var job = await cloud.jobs.loadJob(jobId);
           _jobStatus = job.status || 'draft';
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-            var loaded = _loadStateFn(job.scope_json);
+            var loaded = localDraftWins ? true : _loadFencingStateLocalWins(job.scope_json, 'load_from_supabase');
             if (loaded) {
               _jobId = jobId;
               _ghlOpportunityId = job.ghl_opportunity_id || null;
@@ -1852,8 +1897,12 @@
             updateUI();
 
             if (job.client_name) {
-              var nameFields = document.querySelectorAll('#clientName, #customerName, [name="clientName"]');
-              nameFields.forEach(function(f) { f.value = job.client_name; });
+              if (_toolType === 'fencing') {
+                _prefillContact({ name: job.client_name, phone: job.client_phone || '', email: job.client_email || '', address: job.site_address || '', suburb: job.site_suburb || '' });
+              } else {
+                var nameFields = document.querySelectorAll('#clientName, #customerName, [name="clientName"]');
+                nameFields.forEach(function(f) { if (!f.value) f.value = job.client_name; });
+              }
             }
 
             if (_shouldAutoSave()) {
@@ -1870,6 +1919,34 @@
 
     openDashboard: function() {
       window.location.href = '../dashboard/index.html';
+    },
+
+    hasReleaseAnchor: function() {
+      return _hasReleaseAnchor();
+    },
+
+    getSyncState: function() {
+      return {
+        jobId: _jobId,
+        ghlOpportunityId: _ghlOpportunityId,
+        ghlContactId: _ghlContactId,
+        jobNumber: _lastJobNumber,
+        hasReleaseAnchor: _hasReleaseAnchor(),
+        isLocalOnly: !_isRealJobId(_jobId)
+      };
+    },
+
+    ensureJobSynced: async function(options) {
+      options = options || {};
+      if (_isReadonly) return { ok: false, reason: 'readonly' };
+      if (!_hasReleaseAnchor()) return { ok: false, reason: 'link_required', releaseState: 'needs_ghl_or_job_anchor' };
+      if (!cloud) return { ok: false, reason: 'no_cloud' };
+      if (!cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
+      if (!_isRealJobId(_jobId) && _ghlOpportunityId) {
+        // Release state machine seam: saveAfterSignOff will create/link the real job.
+        return { ok: true, reason: 'anchored_pending_cloud_job', releaseState: 'resumable_prepare_quote' };
+      }
+      return { ok: true, jobId: _jobId, jobNumber: _lastJobNumber || null, linked: true, releaseState: 'ready_to_freeze_scope' };
     },
 
     // ── Cloud save triggered after QA sign-off ──
@@ -1907,8 +1984,11 @@
         // Set sign-off flag — this gates GHL link, job number, PO creation
         _isSignOff = true;
         await integration.save();
+        if (!_lastJobNumber) {
+          throw new Error('job_number_missing_after_save');
+        }
         console.log('[Integration] Cloud save after sign-off completed');
-        return { success: true, jobNumber: _lastJobNumber };
+        return { success: true, jobNumber: _lastJobNumber, linked: _hasReleaseAnchor(), jobId: _jobId };
       } catch(e) {
         console.error('[Integration] Cloud save after sign-off failed:', e);
         return { success: false, reason: e.message };
@@ -2064,8 +2144,14 @@
     if (!urlJobId) return;
     _jobLoaded = true;
 
+    var localDraftWins = false;
+    if (_toolType === 'fencing' && window.app) {
+      // Startup/reconnect local-wins guard: app.init() may have already restored fenceJob.
+      // Do not let ?jobId= auto-hydration overwrite an iPad draft after refresh/auth restore.
+      localDraftWins = _checkpointLocalDraftBeforeLoad('auto_load_url_job');
+    }
     _jobId = urlJobId;
-    console.log('[Integration] Auto-loading job:', urlJobId);
+    console.log('[Integration] Auto-loading job:', urlJobId, 'localDraftWins:', localDraftWins);
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
       _jobStatus = job.status || 'draft';
@@ -2083,18 +2169,23 @@
         return;
       }
       if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-        _loadStateFn(job.scope_json);
+        if (!localDraftWins) _loadFencingStateLocalWins(job.scope_json, 'auto_load_url_job');
       }
       _ghlOpportunityId = job.ghl_opportunity_id || null;
       _ghlContactId = job.ghl_contact_id || null;
       _lastJobNumber = job.job_number || null;
+      _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'auto_load_url_job');
       // Apply job number AFTER loadStateFn has finished setting the local ref
       _applyJobNumber(_lastJobNumber);
-      try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
-      if (_shouldAutoSave()) {
+      if (!localDraftWins) {
+        try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+      } else {
+        console.log('[FenceSync] Auto-load linked cloud job but skipped remote media/scope hydration because local draft wins.');
+      }
+      if (_shouldAutoSave() && !localDraftWins) {
         cloud.startAutoSave(_jobId, _getStateFn, 30000);
       } else {
-        console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+        console.log('[Integration] Auto-save skipped — job status:', _jobStatus, 'localDraftWins:', localDraftWins);
       }
       updateUI();
     } catch(e) {

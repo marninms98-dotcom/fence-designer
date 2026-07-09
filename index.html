@@ -1378,7 +1378,7 @@
       <img src="logo.png" alt="SecureWorks Group" class="header-logo">
       <div class="header-search-wrap" id="headerSearchWrap">
         <svg class="header-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" class="header-search" id="headerSearch" placeholder="Search or load a job..." onclick="window._swIntegration?window._swIntegration.loadPicker():void(0)" readonly>
+        <input type="text" class="header-search" id="headerSearch" placeholder="Launch / resume / link scope..." onclick="app.showLaunchModal()" readonly>
       </div>
       <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
       <span class="header-tag hidden" id="headerStatusTag">DRAFT</span>
@@ -1397,8 +1397,8 @@
           <span class="signin-dot" id="swSignInDot"></span>
           <span id="swSignInLabel">Sign in to save &amp; freeze</span>
         </button>
-        <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()">Load Job</button>
-        <button class="btn-header" onclick="app.newJob()">New</button>
+        <button class="btn-header" onclick="app.showLaunchModal()">Launch</button>
+        <button class="btn-header" onclick="app.startLocalDraft()">New Local</button>
       </div>
     </div>
   </div>
@@ -1984,6 +1984,160 @@
         });
       },
 
+      // ── Field Sync / Launcher (CP2 local-wins contract) ──
+      _newLocalDraftId() {
+        return 'local-fence-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+      },
+
+      _ensureFieldSync(launchMode) {
+        if (!this.job) return null;
+        const now = new Date().toISOString();
+        if (!this.job._fieldSync) {
+          this.job._fieldSync = {
+            localDraftId: this._newLocalDraftId(),
+            launchMode: launchMode || 'local_draft',
+            syncAnchorType: 'local_only',
+            syncAnchorId: null,
+            syncState: 'local_dirty',
+            requiresLinkBeforeRelease: true,
+            createdAt: now,
+            updatedAt: now,
+            lastLocalEditAt: now
+          };
+        }
+        if (!this.job._fieldSync.localDraftId) this.job._fieldSync.localDraftId = this._newLocalDraftId();
+        if (launchMode) this.job._fieldSync.launchMode = launchMode;
+        if (this.job._fieldSync.requiresLinkBeforeRelease === undefined) this.job._fieldSync.requiresLinkBeforeRelease = true;
+        this.job._fieldSync.updatedAt = now;
+        return this.job._fieldSync;
+      },
+
+      _markLocalEdited() {
+        const fs = this._ensureFieldSync();
+        if (!fs) return;
+        const now = new Date().toISOString();
+        fs.syncState = fs.syncAnchorType === 'job' ? 'linked_local_dirty' : (fs.syncAnchorType === 'ghl_opportunity' ? 'linked_ghl_local_dirty' : 'local_dirty');
+        fs.updatedAt = now;
+        fs.lastLocalEditAt = now;
+      },
+
+      _hasMeaningfulLocalDraft() {
+        const j = this.job || {};
+        return !!(
+          j.clientFirstName || j.clientLastName || j.phone || j.email || j.address || j.suburb || j.siteNotes ||
+          (j.runs && j.runs.some(r => r.length || (r.panels && r.panels.length))) ||
+          (j.gates && j.gates.length) ||
+          (j.checklist && ((j.checklist.photos && j.checklist.photos.length) || j.checklist.videoWalkthrough || j.checklist.finalNotes))
+        );
+      },
+
+      _checkpointLocalDraftBeforeLoad(source) {
+        if (!this.job || !this._hasMeaningfulLocalDraft()) return false;
+        const fs = this._ensureFieldSync('preserved_before_' + (source || 'cloud_load'));
+        fs.syncState = 'local_dirty_checkpointed';
+        fs.pendingOps = fs.pendingOps || [];
+        fs.pendingOps.push({ type: 'cloud_load_attempt', source: source || 'unknown', at: new Date().toISOString() });
+        this.save();
+        try {
+          localStorage.setItem('fenceJob_checkpoint_' + fs.localDraftId, JSON.stringify({ job: this.job, source: source || 'unknown', savedAt: new Date().toISOString() }));
+        } catch(e) { console.warn('[FenceSync] checkpoint local draft failed:', e); }
+        return true;
+      },
+
+      _fillEmptyFromContact(contact) {
+        if (!contact || !this.job) return;
+        const before = JSON.stringify({ first: this.job.clientFirstName, last: this.job.clientLastName, phone: this.job.phone, email: this.job.email, address: this.job.address, suburb: this.job.suburb });
+        let first = contact.firstName || '';
+        let last = contact.lastName || '';
+        const fullName = contact.name || contact.contactName || '';
+        if (!first && fullName) {
+          const parts = fullName.trim().split(/\s+/);
+          first = parts[0] || '';
+          last = parts.slice(1).join(' ') || '';
+        }
+        const fillEmpty = (field, value) => {
+          if (!value) return;
+          if (!this.job[field]) this.job[field] = value;
+        };
+        fillEmpty('clientFirstName', first);
+        fillEmpty('clientLastName', last);
+        fillEmpty('phone', contact.phone || contact.contactPhone || '');
+        fillEmpty('email', contact.email || contact.contactEmail || '');
+        const street = contact.address || '';
+        const fullAddr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
+        fillEmpty('address', fullAddr || street);
+        fillEmpty('suburb', contact.suburb || '');
+        this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        if (before !== JSON.stringify({ first: this.job.clientFirstName, last: this.job.clientLastName, phone: this.job.phone, email: this.job.email, address: this.job.address, suburb: this.job.suburb })) {
+          this.save();
+        }
+      },
+
+      _linkCloudAnchor(anchor) {
+        if (!this.job) return;
+        const fs = this._ensureFieldSync(anchor && anchor.launchMode || 'linked_from_launcher');
+        if (anchor && anchor.jobId) {
+          fs.syncAnchorType = 'job';
+          fs.syncAnchorId = anchor.jobId;
+          fs.requiresLinkBeforeRelease = false;
+          fs.syncState = 'linked_job_local_wins';
+        } else if (anchor && anchor.opportunityId) {
+          fs.syncAnchorType = 'ghl_opportunity';
+          fs.syncAnchorId = anchor.opportunityId;
+          fs.requiresLinkBeforeRelease = false;
+          fs.syncState = 'linked_ghl_local_wins';
+        }
+        fs.ghlContactId = anchor && anchor.contactId || fs.ghlContactId || null;
+        fs.updatedAt = new Date().toISOString();
+        this.save();
+        this._updateHeaderStatus();
+      },
+
+      showLaunchModal() {
+        const existing = document.getElementById('fieldLaunchModal');
+        if (existing) existing.remove();
+        const fs = this.job && this._ensureFieldSync();
+        const savedLabel = fs && fs.localDraftId ? ('Local draft saved: ' + fs.localDraftId) : 'No local draft yet';
+        const overlay = document.createElement('div');
+        overlay.id = 'fieldLaunchModal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.72);z-index:10050;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
+          '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:20px;font-weight:800;">Start / Resume Fence Scope</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Pick the sync target before field work. Local iPad edits win; cloud fills blanks only.</div></div>' +
+          '<div style="padding:18px 22px;display:grid;gap:12px;">' +
+            '<button id="launchGhlLeadBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">1. Load GHL lead/contact</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Use when you have Wi-Fi/hotspot at the start. Links this iPad draft to the lead; fills blank client fields only.</span></button>' +
+            '<button id="launchResumeDraftBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">2. Resume draft / previous scope</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Open existing local/cloud work without silently deleting the current iPad draft.</span></button>' +
+            '<button id="launchNewLocalBtn" style="text-align:left;border:1px solid #F15A29;background:#FFF7ED;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#F15A29;font-size:16px;">3. Start new local draft</b><span style="display:block;color:#92400E;font-size:13px;margin-top:4px;">Works offline. You can scope now and link/sync before release.</span></button>' +
+            '<div style="font-size:12px;color:#6B7280;background:#F3F4F6;border-radius:10px;padding:10px 12px;">' + this._esc(savedLabel) + '</div>' +
+          '</div>' +
+          '<div style="padding:12px 22px;border-top:1px solid #E5E7EB;text-align:right;"><button id="launchCloseBtn" style="padding:10px 16px;border:1px solid #D1D5DB;background:#fff;border-radius:8px;cursor:pointer;">Close</button></div>' +
+        '</div>';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('launchCloseBtn').onclick = () => overlay.remove();
+        document.getElementById('launchGhlLeadBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads(''); else this.showToast('Cloud login not ready', 'error'); };
+        document.getElementById('launchResumeDraftBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.loadPicker(); else this.loadFromStorage(); };
+        document.getElementById('launchNewLocalBtn').onclick = () => { overlay.remove(); this.startLocalDraft(); };
+      },
+
+      startLocalDraft() {
+        if (this.job && this._hasMeaningfulLocalDraft()) this._checkpointLocalDraftBeforeLoad('start_new_local_draft');
+        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+        if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
+        localStorage.removeItem('fenceJob');
+        this.job = null;
+        this.currentRunId = null;
+        this._siteInfoTab = 'client';
+        this._resetSections();
+        this.init();
+        this._ensureFieldSync('new_local');
+        this.save();
+        window.history.replaceState({}, '', window.location.pathname);
+        this._updateHeaderStatus();
+        if (typeof updateButtonStages === 'function') updateButtonStages();
+        window.scrollTo(0, 0);
+        this.showToast('New local draft started — saved on this iPad', 'success');
+      },
+
       // ── Colour dropdown (Section 9.3) ──
       populateColourDropdown() {
         const select = document.getElementById('colour');
@@ -2040,32 +2194,38 @@
       _updateHeaderStatus() {
         var infoEl = document.getElementById('headerJobInfo');
         var tagEl = document.getElementById('headerStatusTag');
-        if (!infoEl || !tagEl) return;
+        if (!infoEl || !tagEl || !this.job) return;
 
+        var fs = this.job._fieldSync || {};
         var name = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
         var addr = this.job.address || '';
         if (name || addr) {
           infoEl.textContent = name + (addr ? ' — ' + addr : '');
           infoEl.classList.remove('empty');
+        } else if (fs.localDraftId) {
+          infoEl.textContent = 'Local draft saved on this iPad';
+          infoEl.classList.remove('empty');
         } else {
-          infoEl.textContent = 'No job loaded';
+          infoEl.textContent = 'No scope launched';
           infoEl.classList.add('empty');
         }
 
-        // Update search bar with current job
+        // Update launcher bar with current draft/link state
         var searchEl = document.getElementById('headerSearch');
         if (searchEl) {
           searchEl.value = name ? name + (this.job.suburb ? ', ' + this.job.suburb : '') : '';
-          searchEl.placeholder = name ? 'Change job...' : 'Search or load a job...';
+          searchEl.placeholder = name ? 'Open launcher / change link...' : 'Launch / resume / link scope...';
         }
 
-        // Two states: DRAFT or job number — nothing in between
         var jobNumber = this.job.ref || (window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber()) || '';
         if (jobNumber && jobNumber.startsWith('SW')) {
           tagEl.textContent = jobNumber;
           tagEl.className = 'header-tag job-number';
-        } else if (name) {
-          tagEl.textContent = 'DRAFT';
+        } else if (fs.syncAnchorType === 'ghl_opportunity') {
+          tagEl.textContent = 'LINKED LEAD';
+          tagEl.className = 'header-tag draft';
+        } else if (fs.localDraftId || name) {
+          tagEl.textContent = 'LOCAL DRAFT';
           tagEl.className = 'header-tag draft';
         } else {
           tagEl.className = 'header-tag hidden';
@@ -3297,31 +3457,7 @@
 
       // ── New Job ──
       newJob() {
-        if (!confirm('Start a new job? This will clear all current data.')) return;
-        // Stop cloud auto-save for old job
-        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-        // Clear integration state (jobId, GHL IDs, job number)
-        if (window._swIntegration) {
-          window._swIntegration._connectJob(null, null, null);
-        }
-        // Clear all local storage for this tool
-        localStorage.removeItem('fenceJob');
-        localStorage.removeItem('fenceQA_verification');
-        // Reset QA state in memory
-        if (typeof fenceQA !== 'undefined') {
-          fenceQA._verificationState = {};
-        }
-        // Reset app state
-        this.job = null;
-        this.currentRunId = null;
-        this._resetSections();
-        this.init();
-        // Strip ?jobId= from URL so reload doesn't re-load old job
-        window.history.replaceState({}, '', window.location.pathname);
-        // Update header + toolbar to reflect empty state
-        this._updateHeaderStatus();
-        if (typeof updateButtonStages === 'function') updateButtonStages();
-        window.scrollTo(0, 0);
+        this.startLocalDraft();
       },
 
       resetJob() {
@@ -3431,7 +3567,7 @@
           contentHtml = `
             <div class="form-row">
               <div class="form-group">
-                <label>First Name * <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(type to search GHL)</span></label>
+                <label>First Name * <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(client details — link from Launch)</span></label>
                 <div class="address-autocomplete-wrap">
                   <input type="text" id="clientFirstNameInput" value="${this._esc(j.clientFirstName)}" placeholder="Client first name"
                     oninput="app.onClientNameInput(this.value)"
@@ -4806,9 +4942,11 @@
           return;
         }
         dd.innerHTML = results.map((opp, i) => {
+          const phoneLeadLabel = opp.contactPhone ? ('Phone lead ' + opp.contactPhone) : 'Unnamed lead';
+          const displayName = opp.contactName || opp.name || phoneLeadLabel;
           const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
           return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;">' +
-            '<div style="font-weight:600;color:#293C46;">' + this._esc(opp.contactName || opp.name || '') + '</div>' +
+            '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
             (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
           '</div>';
         }).join('');
@@ -4827,24 +4965,26 @@
           var cloud = window.SECUREWORKS_CLOUD;
           if (!cloud) return;
 
-          this.showToast('Loading ' + (opp.contactName || opp.name) + ' from GHL...', 'info');
+          this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
 
-          // ── Reset to clean state before loading new opportunity ──
-          localStorage.removeItem('fenceJob');
-          this.job = null;
-          this.currentRunId = null;
-          this._resetSections();
-          this.init();
-          // Clear QA state for old job
-          localStorage.removeItem('fenceQA_verification');
-          if (typeof fenceQA !== 'undefined') {
-            fenceQA._verificationState = {};
-          }
-          // Stop any running auto-save for old job
-          if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-          // Clear integration state for old job
-          if (window._swIntegration) {
-            window._swIntegration._connectJob(null, null, null);
+          // Local-wins guard: checkpoint dirty iPad draft before any cloud/GHL load reset.
+          const localDraftWins = this._checkpointLocalDraftBeforeLoad('inline_ghl_contact');
+          if (!localDraftWins) {
+            localStorage.removeItem('fenceJob');
+            this.job = null;
+            this.currentRunId = null;
+            this._resetSections();
+            this.init();
+            localStorage.removeItem('fenceQA_verification');
+            if (typeof fenceQA !== 'undefined') {
+              fenceQA._verificationState = {};
+            }
+            if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+            if (window._swIntegration) {
+              window._swIntegration._connectJob(null, null, null);
+            }
+          } else {
+            this.showToast('GHL lead linked — keeping local iPad edits', 'success');
           }
 
           try {
@@ -4860,24 +5000,8 @@
               contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
             }
 
-            // Prefill contact into the job
-            if (contact) {
-              if (contact.firstName) {
-                this.job.clientFirstName = contact.firstName;
-                this.job.clientLastName = contact.lastName || '';
-              } else {
-                var parts = (contact.name || '').split(' ');
-                this.job.clientFirstName = parts[0] || '';
-                this.job.clientLastName = parts.slice(1).join(' ');
-              }
-              this.job.client = contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' ');
-              if (contact.email) this.job.email = contact.email;
-              if (contact.phone) this.job.phone = contact.phone;
-              var fullAddr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
-              if (fullAddr) this.job.address = fullAddr;
-              else if (contact.address) this.job.address = contact.address;
-              if (contact.suburb) this.job.suburb = contact.suburb;
-            }
+            // Prefill contact into blank fields only; local iPad edits win.
+            if (contact) this._fillEmptyFromContact(contact);
 
             // Check for existing cloud job linked to this opportunity
             var existingJob = null;
@@ -4885,32 +5009,23 @@
               existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
             } catch(e) { /* no existing job */ }
 
-            if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              // Load cloud scope data
+            if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0 && !localDraftWins) {
+              // Load cloud scope data only when there is no dirty local iPad draft.
               window.app.job = existingJob.scope_json.job || window.app.job;
               if (!window.app.job.scopeType) window.app.job.scopeType = 'fence-and-gate';
               if (window.app.job.runs && window.app.job.runs.length > 0) {
                 window.app.currentRunId = window.app.job.runs[0].id;
               }
-              // GHL contact is source of truth — overwrite stale scope_json contact fields
-              if (contact.firstName) {
-                window.app.job.clientFirstName = contact.firstName;
-                window.app.job.clientLastName = contact.lastName || '';
-              }
-              if (contact.email) window.app.job.email = contact.email;
-              if (contact.phone) window.app.job.phone = contact.phone;
-              if (contact.address) {
-                var addr = [contact.address, contact.suburb, contact.state, contact.postcode].filter(Boolean).join(', ');
-                window.app.job.address = addr || contact.address;
-              }
-              if (contact.suburb) window.app.job.suburb = contact.suburb;
-              window.app.job.client = [window.app.job.clientFirstName, window.app.job.clientLastName].filter(Boolean).join(' ');
+              if (contact) window.app._fillEmptyFromContact(contact);
+            } else if (existingJob && localDraftWins) {
+              console.log('[FenceSync] Existing cloud scope found; local draft wins and cloud data will not overwrite field edits.');
             }
 
-            // Wire up the integration layer so cloud save, auto-save, and sync dot all work
+            // Wire up the integration layer so cloud save, auto-save, and sync dot all work.
             if (window._swIntegration) {
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
             }
+            this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
 
             this.save();
             this.render();
@@ -5776,6 +5891,10 @@
               id: id,
               name: file.name,
               dataUrl: thumbUrl,
+              uploadDataUrl: uploadUrl,
+              mediaManifestState: 'persisted_local_upload_copy',
+              mediaManifestNote: 'persisted upload copy; no needs reattach for photos',
+              needsReattach: false,
               timestamp: Date.now()
             };
             this.job.checklist.photos.push(checklistPhoto);
@@ -5854,8 +5973,12 @@
         window.siteVideo = {
           file: file,
           dataUrl: null,
-          label: file.name || 'Site Walkthrough'
+          label: file.name || 'Site Walkthrough',
+          mediaManifestState: 'memory_until_cloud_upload',
+          mediaManifestNote: 'needs reattach after reload until cloud upload finishes',
+          needsReattach: true
         };
+        this.job.checklist.videoNeedsReattach = true;
 
         // Kick off background video upload immediately
         if (window._swIntegration && window._swIntegration.hasJobId()) {
@@ -12925,12 +13048,14 @@
 
       // ── LocalStorage ──
       _cleanupStorage() {
-        // Remove any localStorage keys that aren't ours
-        var keep = ['fenceJob', 'fenceQA_verification'];
+        // Remove old unrelated keys, but preserve field-sync checkpoints/offline queue.
+        var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue'];
+        var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_'];
         var toRemove = [];
         for (var i = 0; i < localStorage.length; i++) {
           var key = localStorage.key(i);
-          if (keep.indexOf(key) === -1) toRemove.push(key);
+          var prefixed = keepPrefixes.some(function(prefix) { return key && key.indexOf(prefix) === 0; });
+          if (keep.indexOf(key) === -1 && !prefixed) toRemove.push(key);
         }
         toRemove.forEach(function(k) { localStorage.removeItem(k); });
         return toRemove.length;
@@ -12982,6 +13107,7 @@
 
       save() {
         try {
+          this._markLocalEdited();
           localStorage.setItem('fenceJob', JSON.stringify(this.job));
           updateSyncDot('local');
         } catch (e) {
@@ -13104,6 +13230,7 @@
               this.job.clientLastName = parts.slice(1).join(' ') || '';
             }
             if (!this.job.clientLastName && this.job.clientLastName !== '') this.job.clientLastName = '';
+            this._ensureFieldSync('resumed_local');
 
             if (!this.job.removal) {
               const js = this.job.jobSettings || {};
@@ -14050,6 +14177,9 @@
           if (signOffResult.success && signOffResult.jobNumber) {
             app.job.ref = signOffResult.jobNumber;
             app.showToast('Job number assigned: ' + signOffResult.jobNumber, 'success');
+          } else {
+            app.showToast('Release blocked until this scope is linked and synced: ' + (signOffResult.reason || 'sync failed'), 'error');
+            return;
           }
           // Refresh header + bottom bar to show job number
           app._updateHeaderStatus();
@@ -15157,6 +15287,12 @@
     var _wizardAmberAcks = new Set();
 
     function showCreateJobWizard() {
+      if (window._swIntegration && window._swIntegration.hasReleaseAnchor && !window._swIntegration.hasReleaseAnchor()) {
+        app.save();
+        app.showToast('Link this local draft to a GHL lead or previous job before release. Local save is safe.', 'error');
+        app.showLaunchModal();
+        return;
+      }
       _wizardScreen = 1;
       _wizardAmberAcks = new Set();
       _renderWizard();
@@ -15675,6 +15811,13 @@
         fenceQA._verificationState = fenceQA._verificationState || {};
         fenceQA._verificationState.scoper = { signedOff: true, by: scoperName, at: new Date().toISOString(), amberAcknowledged: Array.from(_wizardAmberAcks) };
         fenceQA._saveState();
+        if (window._swIntegration && window._swIntegration.ensureJobSynced) {
+          var ensureSync = await window._swIntegration.ensureJobSynced({ release: true });
+          if (!ensureSync.ok) {
+            renderProgress(0, false, 'Release blocked until scope is linked/synced: ' + (ensureSync.reason || 'sync target missing'));
+            return;
+          }
+        }
         // Generate PDF blob
         renderProgress(2);
         try { app._capturePdfBlob = undefined; await app.generateQuotePDF(); } catch(pe) { console.warn('[CreateJob] PDF gen failed:', pe); app._capturePdfBlob = null; }
@@ -15737,12 +15880,12 @@
       var mode = getFenceWorkflowMode();
 
       if (mode === 'draft') {
-        // ── DRAFT: Save Local + Preview + Save Draft + Create/Update Job ──
-        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">Save Local</button>';
+        // ── DRAFT: one local save, one explicit link/sync, one release action ──
+        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved on this iPad\', \'success\')">Save on iPad</button>';
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
-        html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveDraft()">Save Draft ☁</button>';
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="app.showLaunchModal()">Link / Sync</button>';
         var hasCloudJob = window._swIntegration && window._swIntegration.getJobId && window._swIntegration.getJobId();
-        html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Update Job ▶' : 'Create Job ▶') + '</button>';
+        html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Update Job ▶' : 'Link + Create Job ▶') + '</button>';
       } else {
         // ── JOB: Save Local + Preview + PDFs + Send Quote + Save ──
         html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">💾 Local</button>';
