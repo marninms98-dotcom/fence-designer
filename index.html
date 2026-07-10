@@ -1376,10 +1376,6 @@
   <div class="header" id="headerBar">
     <div class="header-top">
       <img src="logo.png" alt="SecureWorks Group" class="header-logo">
-      <div class="header-search-wrap" id="headerSearchWrap">
-        <svg class="header-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" class="header-search" id="headerSearch" placeholder="Launch / resume / link scope..." onclick="app.showLaunchModal()" readonly>
-      </div>
       <span class="header-job-info empty" id="headerJobInfo">No job loaded</span>
       <span class="header-tag hidden" id="headerStatusTag">DRAFT</span>
       <div class="header-actions" id="headerActions">
@@ -1393,12 +1389,11 @@
             <button id="syncRetryBtn" style="display:none;padding:6px 12px;background:#F15A29;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;" onclick="event.stopPropagation();window._swIntegration&&window._swIntegration.save()">Retry</button>
           </div>
         </div>
-        <button id="swSignInBtn" class="btn-signin" onclick="swSignInClick()" title="Sign in to save and freeze your scope">
+        <button id="swSignInBtn" class="btn-signin" onclick="swSignInClick()" title="Sign in to link and sync this scope">
           <span class="signin-dot" id="swSignInDot"></span>
-          <span id="swSignInLabel">Sign in to save &amp; freeze</span>
+          <span id="swSignInLabel">Sign in to link / sync</span>
         </button>
         <button class="btn-header" onclick="app.showLaunchModal()">Launch</button>
-        <button class="btn-header" onclick="app.startLocalDraft()">New Local</button>
       </div>
     </div>
   </div>
@@ -2255,7 +2250,11 @@
       },
 
       startLocalDraft() {
-        if (this.job && this._hasMeaningfulLocalDraft()) this._checkpointLocalDraftBeforeLoad('start_new_local_draft');
+        if (this.job && this._hasMeaningfulLocalDraft()) {
+          const ok = confirm('Start a new local draft? Your current work will be checkpointed on this iPad first.');
+          if (!ok) return false;
+          this._checkpointLocalDraftBeforeLoad('start_new_local_draft');
+        }
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
         localStorage.removeItem('fenceJob');
@@ -2271,6 +2270,7 @@
         if (typeof updateButtonStages === 'function') updateButtonStages();
         window.scrollTo(0, 0);
         this.showToast('New local draft started — saved on this iPad', 'success');
+        return true;
       },
 
       // ── Colour dropdown (Section 9.3) ──
@@ -2343,13 +2343,6 @@
         } else {
           infoEl.textContent = 'No scope launched';
           infoEl.classList.add('empty');
-        }
-
-        // Update launcher bar with current draft/link state
-        var searchEl = document.getElementById('headerSearch');
-        if (searchEl) {
-          searchEl.value = name ? name + (this.job.suburb ? ', ' + this.job.suburb : '') : '';
-          searchEl.placeholder = name ? 'Open launcher / change link...' : 'Launch / resume / link scope...';
         }
 
         var jobNumber = this.job.ref || (window._swIntegration && window._swIntegration.getLastJobNumber && window._swIntegration.getLastJobNumber()) || '';
@@ -3002,38 +2995,7 @@
         this.render();
       },
 
-      // ── Scope Decision Logging ──
-      logScopeDecision(decisionType, details) {
-        try {
-          const jobId = this.job?.id || null;
-          const payload = {
-            event_type: 'scope.decision',
-            source: 'fence-designer',
-            entity_type: 'scope',
-            entity_id: jobId || 'no-job',
-            payload: {
-              decision_type: decisionType,
-              ...details,
-              timestamp: new Date().toISOString(),
-            },
-          };
-          fetch(`${window.SUPABASE_URL}/rest/v1/business_events`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': window.SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${window.SUPABASE_ANON_KEY}`,
-              'Prefer': 'return=minimal',
-            },
-            body: JSON.stringify(payload),
-          }).catch(() => {});
-        } catch (e) {
-          // Never break UI for logging
-        }
-      },
-
       updatePanel(runId, panelIdx, field, value) {
-        this.logScopeDecision('panel_change', { runId, panelIdx, field, value });
         const run = this.job.runs.find(r => r.id === runId);
         if (!run || !run.panels[panelIdx]) return;
 
@@ -3093,13 +3055,11 @@
           gatePosts: '',
           groundFinish: 'none'
         });
-        this.logScopeDecision('gate_added', { gate_type: 'new' });
         this.save();
         this.render();
       },
 
       updateGate(gateId, field, value) {
-        this.logScopeDecision('gate_change', { gateId, field, value });
         const gate = this.job.gates.find(g => g.id === gateId);
         if (!gate) return;
         if (field === 'type') gate.type = value;
@@ -3702,18 +3662,14 @@
           contentHtml = `
             <div class="form-row">
               <div class="form-group">
-                <label>First Name * <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(client details — link from Launch)</span></label>
-                <div class="address-autocomplete-wrap">
+                <label>First Name <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(optional for local draft — link from Launch)</span></label>
                   <input type="text" id="clientFirstNameInput" value="${this._esc(j.clientFirstName)}" placeholder="Client first name"
-                    oninput="app.onClientNameInput(this.value)"
+                    oninput="app.updateField('clientFirstName', this.value)"
                     onchange="app.updateField('clientFirstName', this.value)"
-                    onkeydown="app.onClientNameKeydown(event)"
                     autocomplete="off">
-                  <div class="address-dropdown" id="clientNameDropdown"></div>
-                </div>
               </div>
               <div class="form-group">
-                <label>Last Name *</label>
+                <label>Last Name <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(optional for local draft)</span></label>
                 <input type="text" id="clientLastNameInput" value="${this._esc(j.clientLastName)}" placeholder="Client last name"
                   onchange="app.updateField('clientLastName', this.value)">
               </div>
@@ -3725,7 +3681,7 @@
                   onchange="app.updateField('phone', this.value)">
               </div>
               <div class="form-group">
-                <label>Email *</label>
+                <label>Email <span style="font-size:11px;font-weight:400;color:#4C6A7C;">(required only to email quote)</span></label>
                 <input type="email" id="clientEmail" value="${this._esc(j.email)}" placeholder="client@example.com"
                   onchange="app.updateField('email', this.value)">
               </div>
@@ -5892,7 +5848,6 @@
       },
 
       updateRemoval(field, value) {
-        this.logScopeDecision('removal_change', { field, value });
         if (!this.job.removal) this.job.removal = {};
         if (field === 'existingFenceLength') value = parseFloat(value) || 0;
         if (field === 'asbestosSheetCount') value = parseInt(value) || 0;
@@ -5950,7 +5905,6 @@
       },
 
       updateSupplier(value) {
-        this.logScopeDecision('supplier_change', { supplier: value });
         this.job.supplier = value;
         const supplierData = SUPPLIER_PROFILES[value];
         if (supplierData && !supplierData.profiles.includes(this.job.profile)) {
@@ -5962,7 +5916,6 @@
       },
 
       updateProfile(value) {
-        this.logScopeDecision('profile_change', { profile: value });
         this.job.profile = value;
         this.save();
         this.renderInstallation();
@@ -5978,7 +5931,6 @@
       },
 
       updateQuote(field, value) {
-        this.logScopeDecision('quote_override', { field, value });
         if (!this.job.quote) this.job.quote = {};
         if (field === 'deliveryFee') value = parseFloat(value) || 200;
         this.job.quote[field] = value;
@@ -14815,14 +14767,15 @@
               var runFileName = 'Quote_' + (jobRef || 'SWF') + '_' + (run.run_label || 'RUN') + '.pdf';
               try {
                 updateStep('Uploading...', run.run_label);
-                var upRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
+                var upRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ job_id: jobId, file_name: runFileName, content_type: 'application/pdf' })
                 });
+                await _fenceExpectOk(upRes, 'Run quote upload URL');
                 var upData = await upRes.json();
                 if (upData.signedUrl) {
-                  await fetch(upData.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: runBlob });
+                  await fetch(upData.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: runBlob }).then(function(res) { return _fenceExpectOk(res, 'Run quote PDF upload'); });
                   runPdfs[run.run_label] = upData.publicUrl || '';
                 }
               } catch(ue) {
@@ -14840,9 +14793,9 @@
 
           // Call send-runs endpoint with PDF URLs
           updateStep('Sending quotes...', '');
-          var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send-runs', {
+          var sendRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/send-quote/send-runs', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               job_id: jobId,
               message: message,
@@ -14971,9 +14924,9 @@
                 });
               }
 
-              var nbRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
+              var nbRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_neighbour_quotes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ jobId: jobId, contacts: contacts, fileName: fileName })
               });
               var nbData = await nbRes.json();
@@ -14984,9 +14937,9 @@
                 throw new Error('Could not prepare neighbour quotes: ' + (nbData.error || 'Unknown error. Check your connection.'));
               }
             } else {
-              var prepRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
+              var prepRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=prepare_quote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ jobId: jobId, fileName: fileName })
               });
               var prepData = await prepRes.json();
@@ -15107,9 +15060,9 @@
             }
             try {
               updateStep('Sending email...', 'to ' + contactEmail);
-              var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
+              var sendRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   document_id: contact.document_id,
                   client_email: contactEmail,
@@ -15175,9 +15128,9 @@
                 }
               }
               try {
-                var sendRes = await fetch(cloud.supabaseUrl + '/functions/v1/send-quote/send', {
+                var sendRes = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/send-quote/send', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     document_id: prepData.documentId,
                     client_email: toEmail,
@@ -15486,11 +15439,55 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _startDraftAutoSave);
     else _startDraftAutoSave();
 
+    function _fenceAuthorizedFetch(cloud, url, opts) {
+      if (!cloud || typeof cloud.authorizedFetch !== 'function') {
+        return Promise.reject(new Error('authenticated_request_unavailable: cloud.authorizedFetch is required'));
+      }
+      return cloud.authorizedFetch(url, opts || {});
+    }
+
+    async function _fenceReadErrorBody(res) {
+      try {
+        var json = await res.clone().json();
+        return json && (json.error || json.message || JSON.stringify(json));
+      } catch(_e) {
+        try { return await res.text(); } catch(_e2) { return ''; }
+      }
+    }
+
+    async function _fenceExpectOk(res, label) {
+      if (res && res.ok) return res;
+      var body = res ? await _fenceReadErrorBody(res) : '';
+      throw new Error(label + ' failed (' + (res ? res.status : 'network') + ')' + (body ? ': ' + body : ''));
+    }
+
+    async function _fenceLoadAuthoritativeQuoteStatus(jobId) {
+      var cloud = window.SECUREWORKS_CLOUD;
+      if (!jobId || !cloud) throw new Error('quote_status_unverified');
+      var res = await _fenceAuthorizedFetch(cloud, cloud.supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId));
+      await _fenceExpectOk(res, 'Quote status check');
+      var data = await res.json();
+      if (!data || !data.status) throw new Error('quote_status_unverified');
+      data.job_id = jobId;
+      window._quoteStatusCache = data;
+      return data;
+    }
+
     // ── Save Job Edit (Job Mode) ──
     async function saveJobEdit() {
       if (_savingInProgress) return;
-      if (window._quoteStatusCache && window._quoteStatusCache.status) {
-        if (!confirm('A quote has already been sent. Saving updates internal docs but the client still has the old quote.\n\nContinue?')) return;
+      var editJobId = window._swIntegration && window._swIntegration.getJobId && window._swIntegration.getJobId();
+      if (editJobId) {
+        var quoteStatus;
+        try {
+          quoteStatus = await _fenceLoadAuthoritativeQuoteStatus(editJobId);
+        } catch(statusErr) {
+          app.showToast('Cannot save job edit until quote status is verified. Check connection and retry.', 'error');
+          return;
+        }
+        if (quoteStatus && /^(sent|quoted|viewed|accepted|declined)$/i.test(String(quoteStatus.status || ''))) {
+          if (!confirm('A quote has already been sent. Saving updates internal docs but the client still has the old quote.\n\nContinue?')) return;
+        }
       }
       try {
         _savingInProgress = true;
@@ -15504,14 +15501,12 @@
           // Publishing a quote happens exclusively via Send Quote (prepare_quote), which is idempotent.
           // Increment scope version
           try {
-            var _sess = (_cloud.auth && typeof _cloud.auth.session === 'function') ? await _cloud.auth.session() : null;
-            var token = _sess?.access_token || null;
-            var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
-            await fetch(_cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=increment_scope_version', {
+            var versionRes = await _fenceAuthorizedFetch(_cloud, _cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=increment_scope_version', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ job_id: jobId })
             });
+            await _fenceExpectOk(versionRes, 'Scope version increment');
           } catch(ve) { console.warn('[saveJobEdit] Version increment failed:', ve); }
         }
         _markClean();
@@ -15560,7 +15555,7 @@
       if (_wizardScreen < totalScreens) {
         navHtml += '<button onclick="_wizardNext()" style="flex:2;padding:12px;border:none;background:' + (canProceed ? '#F15A29' : '#D1D5DB') + ';color:#fff;border-radius:8px;font-size:14px;font-weight:600;cursor:' + (canProceed ? 'pointer' : 'not-allowed') + ';"' + (canProceed ? '' : ' disabled') + '>Next →</button>';
       } else {
-        navHtml += '<button onclick="_fenceExecuteCreateJob()" style="flex:2;padding:12px;border:none;background:' + (canProceed ? '#F15A29' : '#D1D5DB') + ';color:#fff;border-radius:8px;font-size:14px;font-weight:700;cursor:' + (canProceed ? 'pointer' : 'not-allowed') + ';"' + (canProceed ? '' : ' disabled') + '>Create Job & Send to Ops 🚀</button>';
+        navHtml += '<button onclick="_fenceExecuteCreateJob()" style="flex:2;padding:12px;border:none;background:' + (canProceed ? '#F15A29' : '#D1D5DB') + ';color:#fff;border-radius:8px;font-size:14px;font-weight:700;cursor:' + (canProceed ? 'pointer' : 'not-allowed') + ';"' + (canProceed ? '' : ' disabled') + '>Create Job for Ops</button>';
       }
       navHtml += '</div></div>';
       overlay.innerHTML = headerHtml + contentHtml + navHtml;
@@ -15751,7 +15746,7 @@
       html += '<div style="font-weight:700;color:#293C46;margin-bottom:8px;margin-top:16px;font-size:14px;">Message to Ops (optional)</div>';
       html += '<textarea id="wizardOpsMessage" rows="3" placeholder="Any notes for the ops team..." style="width:100%;padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>';
       // Info
-      html += '<div style="margin-top:16px;padding:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;"><div style="font-weight:700;color:#1E40AF;margin-bottom:8px;font-size:13px;">When you tap "Create Job":</div><ul style="margin:0;padding-left:20px;font-size:12px;color:#1E40AF;line-height:1.8;"><li>Scope data saved to cloud</li><li>Job number assigned (SWF-XXXX)</li><li>Quote PDF generated & uploaded</li><li>Draft POs created for ops</li><li>Xero contact created</li><li>GHL opportunity stage updated</li></ul></div>';
+      html += '<div style="margin-top:16px;padding:14px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;"><div style="font-weight:700;color:#1E40AF;margin-bottom:8px;font-size:13px;">When you tap "Create Job for Ops":</div><ul style="margin:0;padding-left:20px;font-size:12px;color:#1E40AF;line-height:1.8;"><li>Scope data saved to cloud</li><li>Job number assigned (SWF-XXXX)</li><li>Quote PDF generated and uploaded for ops if available</li><li>Draft POs attempted for ops review</li><li>Scope frozen and render artifacts attempted</li></ul><div style="font-size:12px;color:#1E40AF;margin-top:8px;">This does not send the client quote. Use Send Quote after ops review when that is the intended release step.</div></div>';
       return { title: 'Purchase Orders & Notify Ops', html: html, canProceed: true };
     }
 
@@ -15842,12 +15837,11 @@
       if (!cloud || !cloud.auth) {
         return { ok: false, reason: 'cloud-unavailable' };
       }
-      var session = await cloud.auth.session();
-      if (!session) {
+      if (!cloud.auth.isLoggedIn || !cloud.auth.isLoggedIn()) {
         return { ok: false, reason: 'cloud-unavailable' };
       }
-      var token = session.access_token;
       var supabaseUrl = cloud.supabaseUrl;
+      var authorizedFetch = _fenceAuthorizedFetch;
 
       // Step 0: if job has an embedded base64 site plan, strip it from jobs.scope_json
       // BEFORE freeze so scope_canonical_text does not contain the blob (~1-2.5 MB).
@@ -15878,9 +15872,9 @@
       // Step 1: freeze.
       var freezeRes;
       try {
-        freezeRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=freeze_scope', {
+        freezeRes = await authorizedFetch(cloud, supabaseUrl + '/functions/v1/ops-api?action=freeze_scope', {
           method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ job_id: jobId, tool_kind: 'fencing' }),
         });
       } catch(e) {
@@ -15913,9 +15907,9 @@
           if (spParsed) {
             var spBytes = _fenceBase64ToBytes(spParsed.base64);
             var spSha = await _fenceSha256Hex(spBytes);
-            var spArtRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
+            var spArtRes = await authorizedFetch(cloud, supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
               method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 scope_revision_id: scopeRevisionId,
                 artifact_type: 'render_site_plan',
@@ -15970,9 +15964,9 @@
         try {
           var bytes = _fenceBase64ToBytes(parsed.base64);
           var sha = await _fenceSha256Hex(bytes);
-          var artRes = await fetch(supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
+          var artRes = await authorizedFetch(cloud, supabaseUrl + '/functions/v1/ops-api?action=record_scope_artifact', {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               scope_revision_id: scopeRevisionId,
               artifact_type: 'render_profile',
@@ -16015,12 +16009,25 @@
       overlay.id = 'createJobProgress';
       overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;';
       var steps = ['Saving scope data...','Assigning job number...','Generating quote PDF...','Uploading documents...','Creating purchase orders...','Notifying ops...'];
-      function renderProgress(step, done, error, jobNumber) {
+      function renderProgress(step, done, error, jobNumber, summary) {
         var html = '<div style="background:#fff;border-radius:16px;width:90%;max-width:400px;padding:32px;text-align:center;">';
         if (done) {
-          html += '<div style="font-size:48px;margin-bottom:12px;">✅</div><div style="font-size:20px;font-weight:700;color:#065F46;margin-bottom:4px;">Job Created!</div>';
+          summary = summary || {};
+          var failures = (summary.partialFailures || []).slice();
+          if (summary.freezeFailed) failures.push({ step: 'freeze', message: summary.freezeFailed });
+          if (summary.mediaWarning) failures.push({ step: 'media', message: summary.mediaWarning });
+          var hasFailures = failures.length > 0;
+          html += '<div style="font-size:48px;margin-bottom:12px;">' + (hasFailures ? '⚠' : '✅') + '</div><div style="font-size:20px;font-weight:700;color:' + (hasFailures ? '#92400E' : '#065F46') + ';margin-bottom:4px;">' + (hasFailures ? 'Job Created — Follow Up Needed' : 'Job Created for Ops') + '</div>';
           if (jobNumber) html += '<div style="font-size:28px;font-weight:800;color:#F15A29;margin:8px 0;">' + jobNumber + '</div>';
-          html += '<div style="font-size:13px;color:#6B7280;margin-bottom:16px;">Scope locked. Quote PDF + POs sent to ops.</div>';
+          html += '<div style="font-size:13px;color:#6B7280;margin-bottom:12px;">Scope saved to the ops job. This did not send the client quote.</div>';
+          if (summary.freezeOk) html += '<div style="font-size:12px;color:#065F46;margin-bottom:6px;">Scope frozen: revision ' + app._esc(summary.scopeRevisionId || '') + '</div>';
+          if (hasFailures) {
+            html += '<div style="text-align:left;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px;margin:12px 0;color:#92400E;font-size:12px;"><div style="font-weight:700;margin-bottom:6px;">Retry/check these in ops:</div>';
+            failures.forEach(function(f) {
+              html += '<div>• ' + app._esc((f.step ? f.step + ': ' : '') + (f.message || f.reason || 'partial failure')) + '</div>';
+            });
+            html += '</div>';
+          }
           html += '<button onclick="document.getElementById(\'createJobProgress\').remove()" style="padding:12px 32px;background:#F15A29;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>';
         } else if (error) {
           html += '<div style="font-size:48px;margin-bottom:12px;">❌</div><div style="font-size:18px;font-weight:700;color:#991B1B;margin-bottom:8px;">Failed</div><div style="font-size:13px;color:#6B7280;margin-bottom:16px;">' + error + '</div>';
@@ -16065,16 +16072,25 @@
           renderProgress(4);
           var result = await window._swIntegration.saveAfterSignOff();
           renderProgress(5);
+          var releaseSummary = {
+            partialFailures: (result && result.partialFailures) ? result.partialFailures.slice() : [],
+            freezeOk: false,
+            freezeFailed: '',
+            scopeRevisionId: ''
+          };
           // Ops message
           if (opsMsg.trim() && result.success && window._swIntegration.getJobId()) {
             try {
               var _cloud = window.SECUREWORKS_CLOUD;
-              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
-              await fetch(_cloud.supabaseUrl + '/functions/v1/ops-api', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+              var noteRes = await _fenceAuthorizedFetch(_cloud, _cloud.supabaseUrl + '/functions/v1/ops-api', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'add_job_event', job_id: window._swIntegration.getJobId(), event_type: 'scoper_note', detail_json: { message: opsMsg.trim(), source: 'create_job_wizard' } })
               });
-            } catch(me) { console.warn('[CreateJob] Ops message failed:', me); }
+              await _fenceExpectOk(noteRes, 'Ops message');
+            } catch(me) {
+              console.warn('[CreateJob] Ops message failed:', me);
+              releaseSummary.partialFailures.push({ step: 'ops note', message: me && me.message || String(me) });
+            }
           }
           if (result.success) {
             app.save(); _markClean();
@@ -16087,13 +16103,23 @@
                 var __fz = await _fenceFreezeScopeAndUploadRenders(__jobId);
                 if (__fz && __fz.ok) {
                   console.log('[ScopeFreeze] revision=' + __fz.scopeRevisionId + ' uploaded=' + __fz.artifactsUploaded + ' failed=' + (__fz.artifactsFailed || 0) + ' skipped=' + (__fz.artifactsSkipped || 0));
+                  releaseSummary.freezeOk = true;
+                  releaseSummary.scopeRevisionId = __fz.scopeRevisionId || '';
+                  if ((__fz.artifactsFailed || 0) > 0 || (__fz.artifactsSkipped || 0) > 0) {
+                    releaseSummary.partialFailures.push({ step: 'freeze artifacts', message: (__fz.artifactsFailed || 0) + ' failed, ' + (__fz.artifactsSkipped || 0) + ' skipped' });
+                  }
+                  if (__fz.reason) releaseSummary.partialFailures.push({ step: 'freeze artifacts', message: __fz.reason });
                 } else {
                   console.warn('[ScopeFreeze] not completed:', __fz && __fz.reason);
+                  releaseSummary.freezeFailed = (__fz && __fz.reason) || 'not completed';
                 }
               }
-            } catch(__fzErr) { console.warn('[ScopeFreeze] threw:', __fzErr); }
+            } catch(__fzErr) {
+              console.warn('[ScopeFreeze] threw:', __fzErr);
+              releaseSummary.freezeFailed = __fzErr && __fzErr.message || String(__fzErr);
+            }
 
-            renderProgress(5, true, null, result.jobNumber || null);
+            renderProgress(5, true, null, result.jobNumber || null, releaseSummary);
             if (app._updateHeaderStatus) app._updateHeaderStatus();
             updateButtonStages();
           } else { renderProgress(0, false, 'Cloud save failed: ' + (result.reason || 'unknown')); }
@@ -16123,16 +16149,15 @@
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-save-cloud" onclick="app.showLaunchModal()">Link / Sync</button>';
         var hasCloudJob = window._swIntegration && window._swIntegration.getJobId && window._swIntegration.getJobId();
-        html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Update Job ▶' : 'Link + Create Job ▶') + '</button>';
+        html += '<button class="gen-btn gen-btn-send" onclick="showCreateJobWizard()">' + (hasCloudJob ? 'Create Job for Ops' : 'Link + Create Job for Ops') + '</button>';
       } else {
-        // ── JOB: Save Local + Preview + PDFs + Send Quote + Save ──
-        html += '<button class="gen-btn gen-btn-save-local" onclick="app.save(); app.showToast(\'Saved locally\', \'success\')">💾 Local</button>';
+        // ── JOB: one cloud save, preview/PDF utilities, explicit Send Quote ──
+        html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveJobEdit()">Save Job</button>';
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateQuotePDF()">📄 Quote PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateMaterialOrder()">📄 Material PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateWorkOrder()">📄 Work Order PDF</button>';
         html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote ✉</button>';
-        html += '<button class="gen-btn gen-btn-save-cloud" onclick="saveJobEdit()">Save ☁</button>';
       }
 
       inner.innerHTML = html;
@@ -16152,15 +16177,9 @@
         _applyQuoteStatusBadge(window._quoteStatusCache);
         return;
       }
-      var cloud = window.SECUREWORKS_CLOUD;
-      fetch(cloud.supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId), {
-        headers: { 'Authorization': 'Bearer ' + cloud.supabaseAnonKey }
-      })
-      .then(function(r) { return r.json(); })
+      _fenceLoadAuthoritativeQuoteStatus(jobId)
       .then(function(data) {
         if (data && data.status) {
-          data.job_id = jobId;
-          window._quoteStatusCache = data;
           _applyQuoteStatusBadge(data);
         }
       })
@@ -16254,8 +16273,8 @@
         } else {
             btn.classList.add('signed-out');
             btn.classList.remove('signed-in');
-            label.textContent = 'Sign in to save & freeze';
-            btn.title = 'You must sign in to save and freeze your scope';
+            label.textContent = 'Sign in to link / sync';
+            btn.title = 'Sign in when you are ready to link and sync this iPad scope';
         }
     }
 
@@ -16263,7 +16282,7 @@
         var integ = window._swIntegration;
         if (!integ) return;
         if (integ.isLoggedIn && integ.isLoggedIn()) {
-            if (confirm('Sign out? You will need to sign back in to save or freeze.')) {
+            if (confirm('Sign out? Local iPad saving will continue, but you will need to sign back in to link or sync.')) {
                 integ.logout && integ.logout();
             }
         } else {

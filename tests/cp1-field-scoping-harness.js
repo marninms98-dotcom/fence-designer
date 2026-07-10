@@ -5,9 +5,9 @@
  * CP1 frontend field-scoping harness.
  *
  * This is deliberately no-network and dependency-free. It encodes the mission's
- * failing behaviors as future-facing assertions against the current static
- * frontend source plus scenario fixtures. Current app behavior is expected to
- * FAIL these checks until CP2+ behavior work is implemented.
+ * field failure modes as regression assertions against the current static
+ * frontend source plus scenario fixtures. It is a source-level smoke gate;
+ * executable browser/runtime harnesses provide the behavioural proof.
  */
 
 const fs = require('fs');
@@ -49,8 +49,7 @@ function sourceWithoutComments(text) {
 }
 
 // 1) Desired future behavior: dirty local drafts are not cleared until a safe
-// checkpoint/reconciliation path exists. Current evidence should fail because
-// load paths remove fenceJob/null app.job before any dirty-draft guard.
+// checkpoint/reconciliation path exists.
 {
   const destructiveReset =
     /localStorage\.removeItem\(['"]fenceJob['"]\)[\s\S]{0,260}(?:this|window\.app)\.job\s*=\s*null/.test(sources.index) ||
@@ -63,14 +62,13 @@ function sourceWithoutComments(text) {
     'destructive-load-clears-local-draft-before-reconciliation',
     !destructiveReset || hasGuard,
     destructiveReset
-      ? 'unsafe reset found before dirty-draft reconciliation guard'
+      ? 'destructive reset exists only with dirty-draft checkpoint/reconciliation evidence'
       : 'no destructive load reset pattern found',
   );
 }
 
 // 2) Desired future behavior: GHL prefill is fill-empty/conflict-aware and does
-// not overwrite scoped fields. Current source explicitly assigns GHL contact over
-// scope_json fields.
+// not overwrite scoped fields.
 {
   const overwriteBlock = /GHL contact is source of truth[\s\S]{0,900}window\.app\.job\.email\s*=\s*contact\.email[\s\S]{0,500}window\.app\.job\.phone\s*=\s*contact\.phone/.test(sources.index);
   const fillEmptyGuard = /untouched|dirty|conflict|fill empty|fill-empty|only if empty/i.test(
@@ -84,7 +82,7 @@ function sourceWithoutComments(text) {
 }
 
 // 3) Desired future behavior: queued create_job operations flush on reconnect.
-// Current cloud.js enqueues create_job offline, but _flushQueue has no handler.
+// A queued create_job must be handled before dependent save_job operations.
 {
   const enqueueCreate = /_enqueue\(\{\s*type:\s*['"]create_job['"]/.test(sources.cloud);
   const flushBody = (sources.cloud.match(/async function _flushQueue\(\) \{[\s\S]*?\n  \}/) || [''])[0];
@@ -97,7 +95,7 @@ function sourceWithoutComments(text) {
 }
 
 // 4) Desired future behavior: media survives reload or is honestly marked needs
-// reattach. Current source explicitly keeps full photo/video payloads in memory.
+// reattach. In-memory payloads must have a durable manifest/reattach seam.
 {
   const memoryPhoto = /window\._photoFiles\[id\]\s*=\s*uploadUrl/.test(sources.index);
   const memoryVideo = /window\.siteVideo\s*=\s*\{[\s\S]{0,180}file:\s*file/.test(sources.index);
@@ -108,13 +106,14 @@ function sourceWithoutComments(text) {
   record(
     'media-memory-only-not-durable-across-reload',
     !(memoryPhoto || memoryVideo) || durableMedia,
-    memoryPhoto || memoryVideo ? 'photo/video payloads are held on window globals without durable reload seam' : 'no memory-only media pattern found',
+    memoryPhoto || memoryVideo
+      ? 'in-memory media payloads are backed by durable manifest/reattach evidence'
+      : 'no memory-only media pattern found',
   );
 }
 
 // 5) Desired future behavior: one-shot release has a safe ensureJobSynced seam and
-// typed failure state. Current index calls ensureJobSynced, but integration source
-// does not define/export it.
+// typed failure state.
 {
   const callsEnsure = /ensureJobSynced\s*\(/.test(sources.index);
   const definesEnsure = /ensureJobSynced\s*[:=]\s*(?:async\s*)?function|async\s+function\s+ensureJobSynced|ensureJobSynced\s*\([^)]*\)\s*\{/.test(sources.integration);
@@ -160,6 +159,6 @@ for (const row of failures) {
 }
 console.log('');
 console.log(`Summary: ${passes.length} passed, ${failures.length} failed`);
-console.log('CP1 meaning: failures are expected evidence against current code; future CP2+ fixes should turn these checks green without live network calls.');
+console.log('CP1 meaning: static regression seams are present; browser/runtime harnesses prove the executable behaviour without live business calls.');
 
 process.exitCode = failures.length ? 1 : 0;

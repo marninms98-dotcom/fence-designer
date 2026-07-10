@@ -41,9 +41,35 @@ record(
 );
 
 record(
-  'header routes through launcher instead of hidden loadPicker search',
-  /id="headerSearch"[^>]+onclick="app\.showLaunchModal\(\)"/.test(index) && !/id="headerSearch"[^>]+loadPicker/.test(index),
-  'headerSearch opens app.showLaunchModal and no longer calls loadPicker directly'
+  'header has no fake search launcher',
+  !/id="headerSearch"/.test(index) && !/Launch \/ resume \/ link scope/.test(index),
+  'the search-looking duplicate launcher was removed'
+);
+
+record(
+  'header has one launcher and no separate New Local shortcut',
+  /<button class="btn-header" onclick="app\.showLaunchModal\(\)">Launch<\/button>/.test(index) &&
+    !/<button class="btn-header" onclick="app\.startLocalDraft\(\)">New Local<\/button>/.test(index) &&
+    /Sign in to link \/ sync/.test(index) &&
+    !/Sign in to save &amp; freeze/.test(index),
+  'header exposes Launch only; new local remains inside the launcher confirmation flow'
+);
+
+record(
+  'phone-only draft labels are honest about progressive client identity',
+  /First Name <span[^>]*>\(optional for local draft/.test(index) &&
+    /Last Name <span[^>]*>\(optional for local draft\)/.test(index) &&
+    /Email <span[^>]*>\(required only to email quote\)/.test(index) &&
+    /<label>Phone \*<\/label>/.test(index),
+  'name/email are optional for local draft; phone remains the minimum identity and email is required at send'
+);
+
+record(
+  'First Name field has no hidden GHL lookup side effect',
+  /id="clientFirstNameInput"[\s\S]{0,220}oninput="app\.updateField\('clientFirstName', this\.value\)"/.test(index) &&
+    !/id="clientFirstNameInput"[\s\S]{0,260}oninput="app\.onClientNameInput/.test(index) &&
+    !/id="clientFirstNameInput"[\s\S]{0,320}onkeydown="app\.onClientNameKeydown/.test(index),
+  'first-name typing updates local state only; linking/search remains behind launcher/link surfaces'
 );
 
 record(
@@ -191,15 +217,54 @@ const autoLoadStart = integration.indexOf('async function _autoLoadJob()');
 const autoLoadEnd = integration.indexOf('\n  // Frozen-revision branch of _autoLoadJob', autoLoadStart);
 const autoLoadBranch = integration.slice(autoLoadStart, autoLoadEnd > autoLoadStart ? autoLoadEnd : undefined);
 record(
-  'URL reconnect local-wins path does not hydrate remote job number',
-  autoLoadStart >= 0 && /if \(!localDraftWins\) _applyJobNumber\(_lastJobNumber\)/.test(autoLoadBranch),
-  'auto_load_url_job guards job-number hydration alongside remote scope and media hydration'
+  'URL auto-load prompts before setting job anchor or autosave',
+  autoLoadStart >= 0 &&
+    /_resolveFencingTargetSwitch\('auto_load_url_job'/.test(autoLoadBranch) &&
+    /switchChoice === 'cancel'[\s\S]{0,160}_jobLoaded = false/.test(autoLoadBranch) &&
+    autoLoadBranch.indexOf("_resolveFencingTargetSwitch('auto_load_url_job'") < autoLoadBranch.indexOf('_jobId = urlJobId') &&
+    autoLoadBranch.indexOf('_jobId = urlJobId') < autoLoadBranch.indexOf("_linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'auto_load_url_job')") &&
+    /if \(_shouldAutoSave\(\) && !localDraftWins\)/.test(autoLoadBranch),
+  '?jobId= target switch is resolved before _jobId/link/autosave; cancel exits without anchoring'
 );
 
 record(
   'release is blocked until linked/synced',
   /hasReleaseAnchor/.test(integration) && /ensureJobSynced\s*:\s*async function/.test(integration) && /link_required/.test(integration) && /Release blocked until/.test(index),
   'release readiness seam blocks local-only unanchored drafts'
+);
+
+record(
+  'direct operator backend calls require authorized cloud fetch',
+  /authenticated_request_unavailable: cloud\.authorizedFetch is required/.test(index) &&
+    /authenticated_request_unavailable: cloud\.authorizedFetch is required/.test(integration) &&
+    !/x-api-key': window\.SW_API_KEY/.test(index) &&
+    !/x-api-key': window\.SW_API_KEY/.test(integration) &&
+    !/Bearer ' \+ cloud\.supabaseAnonKey/.test(index),
+  'index/integration use cloud.authorizedFetch for ops-api/ghl-proxy/send-quote operator requests'
+);
+
+record(
+  'Create Job for Ops does not claim client quote sent',
+  /Create Job for Ops/.test(index) &&
+    /This does not send the client quote/.test(index) &&
+    /Job Created for Ops/.test(index) &&
+    /partialFailures/.test(index) &&
+    !/Quote PDF \+ POs sent to ops/.test(index),
+  'release action and success copy describe ops job creation only and expose partial failures'
+);
+
+record(
+  'Create Job retains photo upload failures in its final partial-failure result',
+  integration.indexOf('if (_isSignOff) _lastReleasePartialFailures = [];') > -1 &&
+    integration.indexOf('var sitePhotos = window.sitePhotos || [];', integration.indexOf('if (_isSignOff) _lastReleasePartialFailures = [];')) > integration.indexOf('if (_isSignOff) _lastReleasePartialFailures = [];') &&
+    /_lastReleasePartialFailures\.push\(\{ step: 'media'/.test(integration),
+  'release failures are reset before media work, so failed photos remain visible in the returned summary'
+);
+
+record(
+  'Supabase picker restores the selected real job number',
+  /loadFromSupabase:[\s\S]{0,2600}_lastJobNumber = job\.job_number \|\| null;[\s\S]{0,120}_applyJobNumber\(_lastJobNumber\)/.test(integration),
+  'opening a previous Supabase scope cannot silently reopen a numbered job as an unnumbered draft'
 );
 
 record(
@@ -223,9 +288,41 @@ record(
 
 record(
   'URL auto-load/reconnect uses local-wins guard',
-  /auto_load_url_job/.test(integration) && /app\.init\(\) may have already restored fenceJob/.test(integration) && /if \(!localDraftWins\) _loadFencingStateLocalWins\(job\.scope_json, 'auto_load_url_job'\)/.test(integration),
-  '?jobId= auto-load checkpoints local draft and does not hydrate remote scope when local wins'
+  /auto_load_url_job/.test(integration) && /Never attach an existing local draft to a different \?jobId without an explicit operator choice/.test(integration) && /if \(!localDraftWins\) _loadFencingStateLocalWins\(job\.scope_json, 'auto_load_url_job'\)/.test(integration),
+  '?jobId= auto-load asks first and does not hydrate remote scope when local wins'
 );
+
+try {
+  const startLocalDraft = extractMethod(index, 'startLocalDraft() {');
+  let confirmed = false;
+  let checkpointed = false;
+  global.confirm = function() { return confirmed; };
+  global.window = { SECUREWORKS_CLOUD: { stopAutoSave() {} }, _swIntegration: { _connectJob() {} }, history: { replaceState() {} }, location: { pathname: '/fence' }, scrollTo() {} };
+  global.localStorage = { removeItem() {} };
+  const fakeApp = {
+    job: { clientFirstName: 'Existing' },
+    currentRunId: 'run-1',
+    _siteInfoTab: 'client',
+    _hasMeaningfulLocalDraft() { return true; },
+    _checkpointLocalDraftBeforeLoad() { checkpointed = true; },
+    _resetSections() {},
+    init() { this.job = {}; },
+    _ensureFieldSync() {},
+    save() {},
+    _updateHeaderStatus() {},
+    showToast() {}
+  };
+  const cancelled = startLocalDraft.call(fakeApp);
+  confirmed = true;
+  const proceeded = startLocalDraft.call(fakeApp);
+  record(
+    'New Local confirmation gates meaningful draft reset',
+    cancelled === false && proceeded === true && checkpointed === true,
+    'executed production startLocalDraft twice: cancel preserved draft, confirm checkpointed before reset'
+  );
+} catch (e) {
+  record('New Local confirmation gates meaningful draft reset', false, e.message);
+}
 
 record(
   'empty-scope Supabase load fills blank client fields only',

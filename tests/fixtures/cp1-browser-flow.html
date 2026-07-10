@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CP1 Production Browser Flow</title>
+</head>
+<body>
+<iframe id="tool" title="Fence scoping tool" src="/index.html" style="width:1200px;height:900px"></iframe>
+<pre id="result">running</pre>
+<script>
+(async function() {
+  var results = [];
+  var pageError = '';
+  var frame = document.getElementById('tool');
+
+  function record(id, ok, evidence) {
+    results.push({ id: id, ok: !!ok, evidence: evidence });
+  }
+
+  function waitFor(check, label, timeoutMs) {
+    var deadline = Date.now() + (timeoutMs || 12000);
+    return new Promise(function(resolve, reject) {
+      (function poll() {
+        try {
+          var value = check();
+          if (value) { resolve(value); return; }
+        } catch (error) {}
+        if (Date.now() >= deadline) { reject(new Error('Timed out waiting for ' + label)); return; }
+        setTimeout(poll, 50);
+      })();
+    });
+  }
+
+  function meaningfulDraft(app, name) {
+    app.job.clientFirstName = name || 'Existing local client';
+    app.job.phone = '0400000000';
+    app._ensureFieldSync('browser_test');
+    app.save();
+  }
+
+  try {
+    var win = await waitFor(function() {
+      var candidate = frame.contentWindow;
+      return candidate && candidate.app && candidate.app.job && candidate._swIntegration &&
+        candidate.document.getElementById('clientFirstNameInput') ? candidate : null;
+    }, 'production fence page');
+    var doc = win.document;
+    var app = win.app;
+    var integration = win._swIntegration;
+    // integration.js deliberately initializes 200 ms after DOMContentLoaded.
+    // Wait past that boundary so this tests the real fencing mode, not its
+    // pre-initialization fallback.
+    await new Promise(function(resolve) { setTimeout(resolve, 350); });
+
+    var launchButtons = Array.prototype.filter.call(doc.querySelectorAll('button'), function(button) {
+      return button.textContent.trim() === 'Launch';
+    });
+    record(
+      'production-single-launch-entry',
+      launchButtons.length === 1 && !doc.getElementById('headerSearch') && !doc.getElementById('headerNewLocalBtn'),
+      'launchButtons=' + launchButtons.length + ', headerSearch=' + !!doc.getElementById('headerSearch') + ', headerNewLocal=' + !!doc.getElementById('headerNewLocalBtn')
+    );
+
+    launchButtons[0].click();
+    var launchModal = await waitFor(function() { return doc.getElementById('fieldLaunchModal'); }, 'launch modal');
+    var launchIds = ['launchGhlLeadBtn', 'launchResumeDraftBtn', 'launchNewLocalBtn'];
+    record(
+      'production-launcher-three-clear-paths',
+      launchIds.every(function(id) { return !!doc.getElementById(id); }),
+      launchIds.map(function(id) { return id + '=' + !!doc.getElementById(id); }).join(', ')
+    );
+    doc.getElementById('launchCloseBtn').click();
+    record('production-launcher-closes', !doc.body.contains(launchModal), 'launch modal removed through production close control');
+
+    var input = doc.getElementById('clientFirstNameInput');
+    input.value = 'Phone Only Lead';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    record(
+      'production-first-name-edit-stays-local',
+      app.job.clientFirstName === 'Phone Only Lead' && !doc.getElementById('clientNameDropdown'),
+      'jobName=' + app.job.clientFirstName + ', hiddenGhlDropdown=' + !!doc.getElementById('clientNameDropdown')
+    );
+
+    meaningfulDraft(app, 'Draft protected from reset');
+    var oldConfirm = win.confirm;
+    var checkpointCount = 0;
+    var originalCheckpoint = app._checkpointLocalDraftBeforeLoad;
+    app._checkpointLocalDraftBeforeLoad = function(reason) {
+      checkpointCount += 1;
+      return originalCheckpoint.call(app, reason);
+    };
+    win.confirm = function() { return false; };
+    var cancelledReset = app.startLocalDraft();
+    var nameAfterCancel = app.job.clientFirstName;
+    win.confirm = function() { return true; };
+    var acceptedReset = app.startLocalDraft();
+    win.confirm = oldConfirm;
+    app._checkpointLocalDraftBeforeLoad = originalCheckpoint;
+    record(
+      'production-new-local-checkpoints-before-reset',
+      cancelledReset === false && nameAfterCancel === 'Draft protected from reset' && acceptedReset === true && checkpointCount === 1,
+      'cancelled=' + cancelledReset + ', preservedName=' + nameAfterCancel + ', accepted=' + acceptedReset + ', checkpoints=' + checkpointCount
+    );
+
+    meaningfulDraft(app, 'Unsynced target-switch draft');
+    var beforeTarget = integration.getSyncState().jobId;
+    var cancelPromise = integration.resolveFencingTargetSwitch('browser_test', { jobId: 'job-cancel', label: 'cancel target' });
+    await waitFor(function() { return doc.getElementById('targetCancelBtn'); }, 'cancel target option');
+    doc.getElementById('targetCancelBtn').click();
+    var cancelChoice = await cancelPromise;
+    var keepPromise = integration.resolveFencingTargetSwitch('browser_test', { jobId: 'job-keep', label: 'keep target' });
+    await waitFor(function() { return doc.getElementById('targetKeepLinkBtn'); }, 'keep target option');
+    doc.getElementById('targetKeepLinkBtn').click();
+    var keepChoice = await keepPromise;
+    var separatePromise = integration.resolveFencingTargetSwitch('browser_test', { jobId: 'job-separate', label: 'separate target' });
+    await waitFor(function() { return doc.getElementById('targetOpenSeparateBtn'); }, 'separate target option');
+    doc.getElementById('targetOpenSeparateBtn').click();
+    var separateChoice = await separatePromise;
+    var afterTarget = integration.getSyncState().jobId;
+    record(
+      'production-target-switch-is-explicit-and-side-effect-free',
+      cancelChoice === 'cancel' && keepChoice === 'keep_link' && separateChoice === 'open_separately' && beforeTarget === afterTarget,
+      'choices=' + [cancelChoice, keepChoice, separateChoice].join('/') + ', jobIdBefore=' + beforeTarget + ', jobIdAfter=' + afterTarget
+    );
+  } catch (error) {
+    pageError = error && (error.stack || error.message) || String(error);
+    record('production-page-load-and-flow', false, pageError);
+  }
+
+  var failed = results.filter(function(result) { return !result.ok; });
+  document.getElementById('result').textContent = JSON.stringify({
+    ok: failed.length === 0,
+    results: results,
+    pageError: pageError
+  }, null, 2);
+  document.body.setAttribute('data-ok', failed.length === 0 ? 'true' : 'false');
+})();
+</script>
+</body>
+</html>

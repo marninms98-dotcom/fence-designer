@@ -51,14 +51,6 @@
   var metaKey = document.querySelector('meta[name="supabase-anon-key"]');
   var SUPABASE_URL = window.SUPABASE_URL || (metaUrl && metaUrl.content) || '';
   var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || (metaKey && metaKey.content) || '';
-  var SW_API_KEY = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
-
-  // Helper: standard headers for edge function calls
-  function _swHeaders(extra) {
-    var h = { 'Content-Type': 'application/json', 'x-api-key': SW_API_KEY };
-    if (extra) { for (var k in extra) h[k] = extra[k]; }
-    return h;
-  }
 
   console.log('[SecureWorks Cloud] URL:', SUPABASE_URL ? 'found' : 'MISSING');
   console.log('[SecureWorks Cloud] Key:', SUPABASE_ANON_KEY ? 'found' : 'MISSING');
@@ -90,6 +82,7 @@
   var _offlineJobIdMap = {};
   var _listeners = {};
   var _autoSaveTimer = null;
+  var _flushPromise = null;
 
   // ── Event System ──
   function emit(event, data) {
@@ -104,6 +97,28 @@
   function off(event, fn) {
     if (!_listeners[event]) return;
     _listeners[event] = _listeners[event].filter(function(f) { return f !== fn; });
+  }
+
+  function _authError() {
+    var err = new Error('Authentication required: sign in before syncing SecureWorks cloud data.');
+    err.code = 'auth_required';
+    return err;
+  }
+
+  async function authorizedHeaders(extra) {
+    var result = await sb.auth.getSession();
+    var session = result && result.data && result.data.session;
+    var token = session && session.access_token;
+    if (!token) throw _authError();
+    var h = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+    if (extra) { for (var k in extra) h[k] = extra[k]; }
+    return h;
+  }
+
+  async function authorizedFetch(url, options) {
+    options = options || {};
+    var headers = await authorizedHeaders(options.headers || {});
+    return fetch(url, Object.assign({}, options, { headers: headers }));
   }
 
   // ── Online/Offline Detection ──
@@ -156,13 +171,68 @@
     } catch(e) {}
   }
 
-  function _enqueue(action) {
+  function _sameLogicalSave(a, b) {
+    return a && b && a.type === 'save_job' && b.type === 'save_job' && String(a.jobId) === String(b.jobId);
+  }
+
+  function _mergeSaveMeta(original, latest) {
+    original = Object.assign({}, original || {});
+    latest = Object.assign({}, latest || {});
+    delete original._flushAttempt;
+    delete latest._flushAttempt;
+    var baseScopeHash = original.baseScopeHash || original.expectedScopeHash || original.scope_hash || latest.baseScopeHash || latest.expectedScopeHash || latest.scope_hash || null;
+    var baseScopeUpdatedAt = original.baseScopeUpdatedAt || latest.baseScopeUpdatedAt || null;
+    var merged = Object.assign({}, original, latest);
+    if (baseScopeHash) merged.baseScopeHash = baseScopeHash;
+    if (baseScopeUpdatedAt) merged.baseScopeUpdatedAt = baseScopeUpdatedAt;
+    delete merged._flushAttempt;
+    return merged;
+  }
+
+  function _upsertQueuedAction(action, recordStatus, detail) {
     action = action || {};
     if (!action.opId) action.opId = _newOpId(action.type || 'offline');
     if (!action.createdAt) action.createdAt = new Date().toISOString();
+    if (action.meta) delete action.meta._flushAttempt;
+    if (action.type === 'save_job') {
+      for (var i = 0; i < _offlineQueue.length; i++) {
+        if (_sameLogicalSave(_offlineQueue[i], action)) {
+          var existing = _offlineQueue[i];
+          existing.scopeJson = action.scopeJson;
+          existing.meta = _mergeSaveMeta(existing.meta, action.meta);
+          existing.updatedAt = new Date().toISOString();
+          _offlineQueue[i] = existing;
+          _saveOfflineQueue();
+          if (recordStatus) _recordOfflineJournal(action, recordStatus, Object.assign({ coalescedIntoOpId: existing.opId }, detail || {}));
+          return existing;
+        }
+      }
+    }
     _offlineQueue.push(action);
     _saveOfflineQueue();
-    _recordOfflineJournal(action, 'queued');
+    if (recordStatus) _recordOfflineJournal(action, recordStatus, detail);
+    return action;
+  }
+
+  function _enqueue(action) {
+    return _upsertQueuedAction(action, 'queued');
+  }
+
+  function _retainUnresolvedAction(action) {
+    if (action && action.meta) delete action.meta._flushAttempt;
+    if (action && action.type === 'save_job') {
+      for (var i = 0; i < _offlineQueue.length; i++) {
+        if (_sameLogicalSave(_offlineQueue[i], action)) {
+          var newer = _offlineQueue[i];
+          newer.meta = _mergeSaveMeta(action.meta, newer.meta);
+          newer.updatedAt = new Date().toISOString();
+          _offlineQueue[i] = newer;
+          _saveOfflineQueue();
+          return newer;
+        }
+      }
+    }
+    return _upsertQueuedAction(action, null);
   }
 
   function _queueScopeSave(jobId, scopeJson, meta) {
@@ -188,46 +258,110 @@
     _loadOfflineJobIdMap();
   }
 
-  async function _flushQueue() {
-    _loadOfflineJobIdMap();
-    if (!_online || _offlineQueue.length === 0) return;
-    var queue = _offlineQueue.slice();
-    _offlineQueue = [];
-    localStorage.removeItem('sw_offline_queue');
-    var localJobIdMap = Object.assign({}, _offlineJobIdMap || {});
+  function _scopeCursorFromJob(job) {
+    if (!job) return null;
+    var hash = job.current_scope_hash || job.currentScopeHash || null;
+    var updatedAt = job.current_scope_updated_at || job.updated_at || null;
+    return hash || updatedAt ? { baseScopeHash: hash, baseScopeUpdatedAt: updatedAt } : null;
+  }
 
-    for (var i = 0; i < queue.length; i++) {
-      var action = queue[i];
-      try {
-        if (action.type === 'create_job') {
-          var localJob = action.data || {};
-          var created = await cloud.createJob(localJob.type || 'patio', localJob);
-          if (localJob.id && created && created.id) {
-            localJobIdMap[localJob.id] = created.id;
-            _offlineJobIdMap[localJob.id] = created.id;
-            _saveOfflineJobIdMap();
-            _recordOfflineJournal(action, 'flushed', { jobId: created.id });
+  function _applyScopeCursor(meta, cursor) {
+    meta = Object.assign({}, meta || {});
+    if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
+    if (cursor && cursor.baseScopeUpdatedAt) meta.baseScopeUpdatedAt = cursor.baseScopeUpdatedAt;
+    delete meta._flushAttempt;
+    return meta;
+  }
+
+  function _advancePendingSaveCursor(originalJobId, mappedJobId, savedJob) {
+    var cursor = _scopeCursorFromJob(savedJob);
+    if (!cursor) return;
+    var changed = false;
+    for (var i = 0; i < _offlineQueue.length; i++) {
+      var action = _offlineQueue[i];
+      if (action.type !== 'save_job') continue;
+      if (String(action.jobId) !== String(originalJobId) && String(action.jobId) !== String(mappedJobId)) continue;
+      action.meta = _applyScopeCursor(action.meta, cursor);
+      changed = true;
+    }
+    if (changed) _saveOfflineQueue();
+  }
+
+  function _isScopeConflict(e) {
+    var code = e && (e.code || (e.details && e.details.code));
+    var msg = String((e && (e.message || e.error)) || e || '');
+    return ['scope_hash_conflict', 'missing_scope_cursor', 'scope_ref_mismatch'].indexOf(code) !== -1 ||
+      /scope_hash_conflict|missing_scope_cursor|scope_ref_mismatch|Scope changed in Supabase/i.test(msg);
+  }
+
+  function _emitFlush(status, action, detail) {
+    emit('offline:flush', Object.assign({
+      status: status,
+      type: action && action.type || 'unknown',
+      jobId: action && action.jobId || (action && action.data && action.data.id) || null,
+      opId: action && action.opId || null
+    }, detail || {}));
+  }
+
+  async function _flushQueue() {
+    if (_flushPromise) return _flushPromise;
+    _flushPromise = (async function() {
+      _loadOfflineJobIdMap();
+      if (!_online || _offlineQueue.length === 0) return;
+      var queue = _offlineQueue.slice();
+      _offlineQueue = [];
+      localStorage.removeItem('sw_offline_queue');
+      var localJobIdMap = Object.assign({}, _offlineJobIdMap || {});
+      var scopeCursors = {};
+
+      for (var i = 0; i < queue.length; i++) {
+        var action = queue[i];
+        try {
+          if (action.type === 'create_job') {
+            var localJob = action.data || {};
+            var created = await cloud.createJob(localJob.type || 'patio', localJob);
+            if (localJob.id && created && created.id) {
+              localJobIdMap[localJob.id] = created.id;
+              _offlineJobIdMap[localJob.id] = created.id;
+              _saveOfflineJobIdMap();
+              _recordOfflineJournal(action, 'flushed', { jobId: created.id });
+              _emitFlush('success', action, { jobId: created.id });
+            }
+          } else if (action.type === 'save_job') {
+            var jobId = localJobIdMap[action.jobId] || action.jobId;
+            var cursorKey = String(jobId);
+            var meta = Object.assign({}, action.meta || {}, { _flushAttempt: true });
+            if (scopeCursors[cursorKey]) meta = Object.assign(_applyScopeCursor(meta, scopeCursors[cursorKey]), { _flushAttempt: true });
+            var savedJob = await ghl.saveScope(jobId, action.scopeJson, meta);
+            var cursor = _scopeCursorFromJob(savedJob);
+            if (cursor) scopeCursors[cursorKey] = cursor;
+            _advancePendingSaveCursor(action.jobId, jobId, savedJob);
+            _recordOfflineJournal(action, 'flushed', { jobId: jobId });
+            _emitFlush('success', action, { jobId: jobId, cursor: cursor || null });
+          } else if (action.type === 'update_status') {
+            var mappedJobId = localJobIdMap[action.jobId] || action.jobId;
+            try {
+              await cloud.updateJobStatus(mappedJobId, action.status);
+              _recordOfflineJournal(action, 'flushed', { jobId: mappedJobId });
+              _emitFlush('success', action, { jobId: mappedJobId });
+            } catch(e2) {
+              console.warn('[Cloud] Status update failed:', e2);
+              throw e2;
+            }
           }
-        } else if (action.type === 'save_job') {
-          var jobId = localJobIdMap[action.jobId] || action.jobId;
-          await ghl.saveScope(jobId, action.scopeJson, Object.assign({}, action.meta || {}, { _flushAttempt: true }));
-          _recordOfflineJournal(action, 'flushed', { jobId: jobId });
-        } else if (action.type === 'update_status') {
-          // Status updates still use direct Supabase (less critical)
-          var mappedJobId = localJobIdMap[action.jobId] || action.jobId;
-          try {
-            await cloud.updateJobStatus(mappedJobId, action.status);
-            _recordOfflineJournal(action, 'flushed', { jobId: mappedJobId });
-          } catch(e2) {
-            console.warn('[Cloud] Status update failed:', e2);
-            throw e2;
-          }
+        } catch(e) {
+          var conflict = _isScopeConflict(e);
+          console.warn('[Cloud] Failed to flush queued action:', e);
+          _recordOfflineJournal(action, conflict ? 'conflict' : 'failed', { message: e && e.message || String(e), code: e && e.code || null });
+          _retainUnresolvedAction(action);
+          _emitFlush(conflict ? 'conflict' : 'failure', action, { message: e && e.message || String(e), code: e && e.code || null });
         }
-      } catch(e) {
-        console.warn('[Cloud] Failed to flush queued action:', e);
-        _recordOfflineJournal(action, 'failed', { message: e && e.message || String(e) });
-        _enqueue(action);
       }
+    })();
+    try {
+      await _flushPromise;
+    } finally {
+      _flushPromise = null;
     }
   }
 
@@ -289,9 +423,8 @@
   async function _loadUserProfile() {
     if (!_user) return;
     try {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=get_profile', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=get_profile', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify({ userId: _user.id, email: _user.email || '' })
       });
       var data = await res.json();
@@ -477,7 +610,7 @@
   var ghl = {
     // Get opportunities from a pipeline
     async getOpportunities(pipeline) {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=opportunities&pipeline=' + encodeURIComponent(pipeline), { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=opportunities&pipeline=' + encodeURIComponent(pipeline));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load opportunities');
       return data.opportunities || [];
@@ -485,7 +618,7 @@
 
     // Search opportunities by contact name
     async search(query) {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=search&q=' + encodeURIComponent(query), { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=search&q=' + encodeURIComponent(query));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
       return data.opportunities || [];
@@ -493,7 +626,7 @@
 
     // Get full contact details from GHL
     async getContact(contactId) {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId), { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to get contact');
       return data.contact;
@@ -501,9 +634,8 @@
 
     // Update GHL contact with details from the tool
     async updateContact(contactId, details) {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=update_contact', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=update_contact', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify(Object.assign({ contactId: contactId }, details))
       });
       var data = await res.json();
@@ -513,9 +645,8 @@
 
     // Link a scope to a GHL opportunity (adds note to contact + tags opportunity)
     async linkScope(opportunityId, jobId, toolType, contactId) {
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=link', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=link', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify({ opportunityId: opportunityId, jobId: jobId, toolType: toolType, contactId: contactId || '' })
       });
       var data = await res.json();
@@ -528,7 +659,7 @@
       console.log('[Cloud] findJobByOpportunity:', opportunityId, 'type:', type || 'any');
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=find_job&opportunityId=' + encodeURIComponent(opportunityId);
       if (type) url += '&type=' + encodeURIComponent(type);
-      var res = await fetch(url);
+      var res = await authorizedFetch(url);
       var data = await res.json();
       console.log('[Cloud] findJobByOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to find job');
@@ -540,7 +671,7 @@
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search';
       if (pipeline) url += '&pipeline=' + encodeURIComponent(pipeline);
       if (query) url += '&q=' + encodeURIComponent(query);
-      var res = await fetch(url, { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(url);
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
       return data.opportunities || [];
@@ -553,7 +684,7 @@
       if (type) url += '&type=' + encodeURIComponent(type);
       if (limit) url += '&limit=' + limit;
       if (hasScope) url += '&has_scope=true';
-      var res = await fetch(url, { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(url);
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
       return data.jobs || [];
@@ -563,13 +694,12 @@
     async loadJob(jobId) {
       console.log('[Cloud] loadJob:', jobId);
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=load_job&jobId=' + encodeURIComponent(jobId);
-      var headers = { 'x-api-key': SW_API_KEY };
       // Retry once on 503 (Supabase cold start / transient timeout)
-      var res = await fetch(url, { headers: headers });
+      var res = await authorizedFetch(url);
       if (res.status === 503) {
         console.warn('[Cloud] loadJob got 503, retrying...');
         await new Promise(function(r) { setTimeout(r, 1500); });
-        res = await fetch(url, { headers: headers });
+        res = await authorizedFetch(url);
       }
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load job');
@@ -586,7 +716,7 @@
     // List photos/videos for a job (via edge function)
     async listMedia(jobId) {
       console.log('[Cloud] listMedia:', jobId);
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=list_media&jobId=' + encodeURIComponent(jobId), { headers: { 'x-api-key': SW_API_KEY } });
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=list_media&jobId=' + encodeURIComponent(jobId));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to list media');
       return data.media || [];
@@ -595,9 +725,8 @@
     // Upload a photo to Supabase Storage (via edge function)
     async uploadPhoto(jobId, dataUrl, label, caption) {
       console.log('[Cloud] uploadPhoto:', jobId, label);
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=upload_photo', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=upload_photo', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify({ jobId: jobId, dataUrl: dataUrl, label: label || '', caption: caption || '' })
       });
       var data = await res.json();
@@ -617,9 +746,8 @@
       delete requestMeta._flushAttempt;
       var res;
       try {
-        res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=save_scope', {
+        res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=save_scope', {
           method: 'POST',
-          headers: _swHeaders(),
           body: JSON.stringify({ jobId: jobId, scopeJson: scopeJson, meta: requestMeta })
         });
       } catch(e) {
@@ -633,6 +761,12 @@
         var err = new Error(data.error || 'Failed to save scope');
         err.code = data.code || null;
         err.details = data;
+        var authRetryable = res.status === 401 ||
+          ['missing_auth', 'invalid_user_jwt', 'user_jwt_required'].indexOf(err.code) !== -1;
+        if (authRetryable && !meta._flushAttempt) {
+          console.warn('[Cloud] saveScope login expired; queued local scope save:', err);
+          return _queueScopeSave(jobId, scopeJson, requestMeta);
+        }
         throw err;
       }
       return data.job;
@@ -648,9 +782,8 @@
         firstName = parts[0] || '';
         lastName = parts.slice(1).join(' ') || '';
       }
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify({
           firstName: firstName,
           lastName: lastName,
@@ -680,9 +813,8 @@
       };
       if (opportunityId) payload.opportunityId = opportunityId;
       if (contact.contactId) payload.contactId = contact.contactId;
-      var res = await fetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
         method: 'POST',
-        headers: _swHeaders(),
         body: JSON.stringify(payload)
       });
       var data = await res.json();
@@ -991,13 +1123,6 @@
         var state = getStateFn();
         if (!state) return;
 
-        // Prevent orphan auto-saves — skip if no client name set
-        var clientName = '';
-        if (state.customer) clientName = state.customer.name || '';
-        else if (state.client) clientName = state.client.name || '';
-        else if (state.job) clientName = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim();
-        if (!clientName) return; // Don't auto-save empty/ghost records
-
         // Build meta so auto-save keeps jobs table fields current
         var meta = {};
         if (state.customer || state.client) {
@@ -1015,6 +1140,17 @@
           meta.site_address = state.job.address || '';
           meta.site_suburb = state.job.suburb || '';
         }
+
+        // Prevent empty ghost saves, but keep phone/address-only field leads.
+        var hasMeaningfulContact = !!(
+          (meta.client_name && meta.client_name.trim()) ||
+          (meta.client_phone && meta.client_phone.trim()) ||
+          (meta.client_email && meta.client_email.trim()) ||
+          (meta.site_address && meta.site_address.trim()) ||
+          (meta.site_suburb && meta.site_suburb.trim())
+        );
+        if (!hasMeaningfulContact) return;
+
         if (state.job && state.job._pricing_json) {
           meta.pricing_json = state.job._pricing_json;
         } else if (state._pricing_json) {
@@ -1627,6 +1763,9 @@
     // Auto-save helpers
     startAutoSave: startAutoSave,
     stopAutoSave: stopAutoSave,
+    authorizedHeaders: authorizedHeaders,
+    authorizedFetch: authorizedFetch,
+    flushOfflineQueue: _flushQueue,
 
     // Event system
     on: on,

@@ -61,7 +61,6 @@ async function run() {
     supabase: makeSupabaseStub(),
     SUPABASE_URL: 'https://supabase.example',
     SUPABASE_ANON_KEY: 'anon-key',
-    SW_API_KEY: 'test-api-key',
   };
   window.top = window;
 
@@ -106,8 +105,8 @@ async function run() {
 
   cloud.startAutoSave('job-1', () => ({
     job: {
-      clientFirstName: 'Ada',
-      clientLastName: 'Lovelace',
+      clientFirstName: '',
+      clientLastName: '',
       phone: '+61 400 000 000',
       address: '1 Field Rd',
     },
@@ -131,7 +130,7 @@ async function run() {
   assert.strictEqual(journal[0].status, 'queued');
 
   console.log('CP3 cloud runtime harness');
-  console.log('PASS offline autosave queues local save without cloud success');
+  console.log('PASS phone-only offline autosave queues local save without cloud success');
   console.log('PASS queued save preserves baseScopeHash and journal entry');
   console.log('\nSummary: 2 passed, 0 failed');
 }

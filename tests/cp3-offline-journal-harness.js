@@ -47,12 +47,51 @@ record(
 );
 
 record(
-  'offline flush maps local jobs before dependent save_job actions and records failures',
+  'cloud proxy calls use Supabase session bearer auth instead of browser api keys',
+  /async function authorizedHeaders/.test(cloud) &&
+    /Authorization': 'Bearer ' \+ token/.test(cloud) &&
+    /async function authorizedFetch/.test(cloud) &&
+    !/SW_API_KEY/.test(cloud) &&
+    !/x-api-key/.test(cloud),
+  'cloud.js exports a session-JWT request surface and no longer embeds or sends x-api-key for GHL proxy calls'
+);
+
+record(
+  'field edits do not fire anonymous direct database writes',
+  !/\/rest\/v1\/business_events/.test(index) &&
+    !/logScopeDecision/.test(index),
+  'scope changes persist through the draft/sync pathway instead of a separate fire-and-forget anon-key request'
+);
+
+record(
+  'offline save queue coalesces latest scope while preserving the original server cursor',
+  /function _sameLogicalSave/.test(cloud) &&
+    /function _mergeSaveMeta/.test(cloud) &&
+    /existing\.scopeJson = action\.scopeJson/.test(cloud) &&
+    /baseScopeHash = original\.baseScopeHash/.test(cloud) &&
+    /coalescedIntoOpId/.test(cloud),
+  'pending save_job actions for one logical job are merged to the latest scope with the first base cursor retained'
+);
+
+record(
+  'offline flush maps local jobs, emits explicit outcomes and retains failures',
   /action\.type === 'create_job'[\s\S]{0,260}_offlineJobIdMap\[localJob\.id\] = created\.id/.test(cloud) &&
     /action\.type === 'save_job'[\s\S]{0,220}localJobIdMap\[action\.jobId\] \|\| action\.jobId/.test(cloud) &&
-    /_recordOfflineJournal\(action, 'failed'/.test(cloud) &&
-    /_enqueue\(action\)/.test(cloud),
-  'create_job establishes the cloud id before save_job; failed flushes stay queued and visible'
+    /_recordOfflineJournal\(action, conflict \? 'conflict' : 'failed'/.test(cloud) &&
+    /_retainUnresolvedAction\(action\)/.test(cloud) &&
+    /_emitFlush\(conflict \? 'conflict' : 'failure'/.test(cloud) &&
+    /_emitFlush\('success'/.test(cloud),
+  'create_job establishes the cloud id before save_job; failed/conflicted flushes stay queued and emit visible outcomes'
+);
+
+record(
+  'offline flush is serialized and advances returned cursors to newer saves',
+  /var _flushPromise = null/.test(cloud) &&
+    /if \(_flushPromise\) return _flushPromise/.test(cloud) &&
+    /function _advancePendingSaveCursor/.test(cloud) &&
+    /scopeCursors\[cursorKey\] = cursor/.test(cloud) &&
+    /_applyScopeCursor\(meta, scopeCursors\[cursorKey\]\)/.test(cloud),
+  'reconnect flush is single-flight and newer pending saves inherit the server cursor returned by earlier saves'
 );
 
 record(
@@ -81,6 +120,24 @@ record(
     /scope_hash_conflict/.test(integration) &&
     /Your iPad draft stayed local/.test(integration),
   '409 scope_hash_conflict becomes an explicit sync-conflict message, not a green save'
+);
+
+record(
+  'wrong-target and missing-cursor failures remain explicit sync conflicts',
+  /function _isScopeConflict/.test(cloud) &&
+    /missing_scope_cursor/.test(cloud) &&
+    /scope_ref_mismatch/.test(cloud) &&
+    /function _isScopeHashConflict/.test(integration) &&
+    /missing_scope_cursor/.test(integration) &&
+    /scope_ref_mismatch/.test(integration),
+  'reconnect cannot discard pending work when the server target or save cursor is missing'
+);
+
+record(
+  'media retries reuse a stable client upload identity',
+  /clientMediaId: photo\.clientMediaId/.test(integration) &&
+    /clientMediaId: video\.clientMediaId/.test(integration),
+  'upload-success/register-failure retries request the same storage object instead of creating duplicates'
 );
 
 record(

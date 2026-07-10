@@ -40,6 +40,7 @@
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
   var _baseScopeHash = null; // Latest server scope hash this iPad loaded/saved against
   var _baseScopeUpdatedAt = null;
+  var _lastReleasePartialFailures = [];
   var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Background upload tracking: maps photo/video id -> { promise, done: bool, error: Error|null }
   var _bgUploads = {};
@@ -96,7 +97,8 @@
   function _isScopeHashConflict(e) {
     var code = e && (e.code || (e.details && e.details.code));
     var msg = String((e && (e.message || e.error)) || e || '');
-    return code === 'scope_hash_conflict' || /scope_hash_conflict|Scope changed in Supabase/i.test(msg);
+    return ['scope_hash_conflict', 'missing_scope_cursor', 'scope_ref_mismatch'].indexOf(code) !== -1 ||
+      /scope_hash_conflict|missing_scope_cursor|scope_ref_mismatch|Scope changed in Supabase/i.test(msg);
   }
 
   function _hasDirtyFencingDraft() {
@@ -211,15 +213,40 @@
     return /idx_jobs_job_number|duplicate key value|23505|job_number.*duplicate|duplicate.*job_number/i.test(msg);
   }
 
+  function _requireAuthorizedFetch(cloudRef) {
+    if (!cloudRef || typeof cloudRef.authorizedFetch !== 'function') {
+      throw new Error('authenticated_request_unavailable: cloud.authorizedFetch is required');
+    }
+    return cloudRef.authorizedFetch.bind(cloudRef);
+  }
+
+  async function _readErrorBody(res) {
+    try {
+      var json = await res.clone().json();
+      return json && (json.error || json.message || JSON.stringify(json));
+    } catch(_e) {
+      try { return await res.text(); } catch(_e2) { return ''; }
+    }
+  }
+
+  async function _expectOk(res, label) {
+    if (res && res.ok) return res;
+    var status = res ? res.status : 'network';
+    var body = res ? await _readErrorBody(res) : '';
+    throw new Error(label + ' failed (' + status + ')' + (body ? ': ' + body : ''));
+  }
+
   // Upload a document blob to Supabase storage + register in job_documents
   async function _uploadDocBlob(cloudRef, jobId, jobNumber, blob, fileName, docType) {
     if (!cloudRef || !jobId || !blob) return;
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     // Step 1: Get signed upload URL
-    var uploadRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
+    var uploadRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: jobId, file_name: fileName, content_type: blob.type || 'application/pdf' })
     });
+    await _expectOk(uploadRes, 'Quote document upload URL');
     var uploadData = await uploadRes.json();
     if (!uploadData.signedUrl) throw new Error('No signed URL returned');
     // Step 2: PUT the blob
@@ -227,11 +254,11 @@
       method: 'PUT',
       headers: { 'Content-Type': blob.type || 'application/pdf' },
       body: blob
-    });
+    }).then(function(res) { return _expectOk(res, 'Quote document storage upload'); });
     // Step 3: Confirm upload (insert into job_documents)
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
+    var confirmRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         job_id: jobId,
         file_name: fileName,
@@ -240,6 +267,7 @@
         reference: jobNumber
       })
     });
+    await _expectOk(confirmRes, 'Quote document registration');
   }
 
   // ── Background media upload helpers ──────────────────────────────────────────
@@ -267,18 +295,19 @@
   }
 
   async function _doUploadPhoto(photo, jobId, cloudRef) {
-    var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     var blob = _dataUrlToBlob(photo.dataUrl);
     var mime = blob.type;
     var ext = mime.includes('png') ? 'png' : 'jpg';
 
-    var urlRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+    photo.clientMediaId = photo.clientMediaId || photo.id || photo._checklistId || ('photo-' + Date.now());
+    var urlRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ jobId: jobId, fileName: (photo.label || 'photo') + '.' + ext, contentType: mime })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: jobId, fileName: (photo.label || 'photo') + '.' + ext, contentType: mime, clientMediaId: photo.clientMediaId })
     });
+    await _expectOk(urlRes, 'Photo upload URL');
     var urlData = await urlRes.json();
-    if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
 
     var uploadRes = await fetch(urlData.signedUrl, {
       method: 'PUT',
@@ -287,11 +316,12 @@
     });
     if (!uploadRes.ok) throw new Error('Photo upload failed: ' + uploadRes.status);
 
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+    var regRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId: jobId, storageUrl: urlData.publicUrl, type: 'photo', label: photo.label || 'Photo' })
     });
+    await _expectOk(regRes, 'Photo registration');
 
     photo.cloudUrl = urlData.publicUrl;
     if (photo._checklistId && window.app && window.app.job && window.app.job.checklist && window.app.job.checklist.photos) {
@@ -302,7 +332,7 @@
   }
 
   async function _doUploadVideo(video, jobId, cloudRef) {
-    var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     var videoBody = video.file || null;
     var videoMime = 'video/mp4';
     var videoName = video.label || 'walkthrough.mp4';
@@ -319,13 +349,16 @@
 
     console.log('[Integration] Uploading video...', videoName, ((videoBody.size || 0) / 1048576).toFixed(1) + 'MB');
 
-    var urlRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+    video.clientMediaId = video.clientMediaId || [
+      'video', videoName, videoBody.size || 0, videoBody.lastModified || 0
+    ].join('-');
+    var urlRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ jobId: jobId, fileName: videoName, contentType: videoMime })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: jobId, fileName: videoName, contentType: videoMime, clientMediaId: video.clientMediaId })
     });
+    await _expectOk(urlRes, 'Video upload URL');
     var urlData = await urlRes.json();
-    if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
 
     var uploadRes = await fetch(urlData.signedUrl, {
       method: 'PUT',
@@ -334,11 +367,12 @@
     });
     if (!uploadRes.ok) throw new Error('Video upload failed: ' + uploadRes.status);
 
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+    var regRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId: jobId, storageUrl: urlData.publicUrl, type: 'video', label: video.label || 'Site Walkthrough' })
     });
+    await _expectOk(regRes, 'Video registration');
 
     video.cloudUrl = urlData.publicUrl;
     console.log('[Integration] Video uploaded:', urlData.publicUrl);
@@ -1358,11 +1392,12 @@
 
         // Sync fencing neighbours to job_contacts (if neighbours exist)
         if (_toolType === 'fencing' && state.job && state.job.neighboursRequired && state.job.neighbours && state.job.neighbours.length > 0 && state.job.neighbours[0].firstName) {
-          fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=sync_fencing_neighbours', {
+          var neighbourFetch = _requireAuthorizedFetch(cloud);
+          neighbourFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=sync_fencing_neighbours', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ job_id: _jobId })
-          }).then(function(r) { return r.json(); }).then(function(res) {
+          }).then(function(r) { return _expectOk(r, 'Neighbour sync'); }).then(function(r) { return r.json(); }).then(function(res) {
             if (res.synced_count > 0) console.log('[Integration] Neighbours synced:', res.synced_count, 'contacts');
           }).catch(function(e) { console.warn('[Integration] Neighbour sync failed (non-blocking):', e); });
         }
@@ -1396,6 +1431,7 @@
         }
 
         // ── Media upload: background-first, save-loop fallback ───────────────────
+        if (_isSignOff) _lastReleasePartialFailures = [];
         var sitePhotos = window.sitePhotos || [];
         var photosNeedingUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
         var _failedUploads = 0;
@@ -1444,6 +1480,7 @@
         }
 
         if (_failedUploads > 0) {
+          if (_isSignOff) _lastReleasePartialFailures.push({ step: 'media', message: _failedUploads + ' photo upload(s) failed and will retry on next save' });
           if (window.showToast) window.showToast(_failedUploads + ' upload(s) failed — they\'ll retry on next save', 'warning');
         }
         // ── End media upload ──────────────────────────────────────────────────────
@@ -1503,10 +1540,9 @@
             try {
               // Check for existing draft POs before creating new ones
               var existingPOs = [];
+              var authorizedFetch = _requireAuthorizedFetch(cloud);
               try {
-                var poResp = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=list_pos&job_id=' + _jobId, {
-                  headers: { 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' }
-                });
+                var poResp = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=list_pos&job_id=' + _jobId);
                 if (poResp.ok) {
                   var poData = await poResp.json();
                   existingPOs = (poData.purchase_orders || poData || []);
@@ -1556,7 +1592,8 @@
               // Fallback: if no line items but we have totals, create summary items
               if (Object.keys(supplierGroups).length === 0 && materialCost > 0) {
                 // Fall back to scope_to_po extraction
-                var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
+                var poRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
+                await _expectOk(poRes, 'PO material extraction');
                 var poMaterials = await poRes.json();
                 if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
                   supplierGroups[''] = poMaterials.materials;
@@ -1587,7 +1624,7 @@
                   ? 'MATERIALS — ' + sName + '. Auto-generated from scope.'
                   : 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.')
                   + refDiscipline;
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var createMaterialPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1599,12 +1636,13 @@
                     notes: poNotes
                   })
                 });
+                await _expectOk(createMaterialPoRes, 'Material PO creation');
                 console.log('[Integration] Draft PO created for ' + (sName || 'unassigned') + ': ' + sItems.length + ' items');
               }
 
               // Create Labour PO
               if (labourItems.length > 0) {
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var labourPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1616,6 +1654,7 @@
                     notes: 'LABOUR — Auto-generated from scope. Assign to trade crew and review before approving.'
                   })
                 });
+                await _expectOk(labourPoRes, 'Labour PO creation');
                 console.log('[Integration] Draft Labour PO created');
               }
 
@@ -1632,7 +1671,7 @@
               if (commissionAmount > 0) {
                 var commNote = 'SALES COMMISSION — ' + commissionPct + '% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
                 var commDesc = 'Sales commission (' + commissionPct + '% of GP)';
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var commissionPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1644,11 +1683,13 @@
                     notes: commNote + ' Auto-generated from scope.'
                   })
                 });
+                await _expectOk(commissionPoRes, 'Commission PO creation');
                 console.log('[Integration] Draft Commission PO created: $' + commissionAmount.toFixed(2));
               }
               } // end if (!hasDraftPOs)
             } catch(poErr) {
               console.warn('[Integration] Draft PO creation failed (non-blocking):', poErr);
+              _lastReleasePartialFailures.push({ step: 'po', message: poErr && poErr.message || String(poErr) });
             }
 
             // Upload quote PDF if available (blob captured during scope complete)
@@ -1669,6 +1710,7 @@
               }
             } catch(docErr) {
               console.warn('[Integration] Quote PDF upload failed (non-blocking):', docErr);
+              _lastReleasePartialFailures.push({ step: 'pdf', message: docErr && docErr.message || String(docErr) });
             }
           }
 
@@ -2057,6 +2099,8 @@
           var job = await cloud.ghl.loadJob(jobId);
           _rememberScopeCursor(job);
           _jobStatus = job.status || 'draft';
+          _lastJobNumber = job.job_number || null;
+          if (_lastJobNumber) _applyJobNumber(_lastJobNumber);
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
             var loaded = localDraftWins ? true : _loadFencingStateLocalWins(job.scope_json, 'load_from_supabase');
             if (loaded) {
@@ -2181,7 +2225,7 @@
           throw new Error('job_number_missing_after_save');
         }
         console.log('[Integration] Cloud save after sign-off completed');
-        return { success: true, jobNumber: _lastJobNumber, linked: _hasReleaseAnchor(), jobId: _jobId };
+        return { success: true, jobNumber: _lastJobNumber, linked: _hasReleaseAnchor(), jobId: _jobId, partialFailures: _lastReleasePartialFailures.slice() };
       } catch(e) {
         console.error('[Integration] Cloud save after sign-off failed:', e);
         return { success: false, reason: e.message };
@@ -2356,10 +2400,26 @@
     _jobLoaded = true;
 
     var localDraftWins = false;
+    var switchChoice = 'open_separately';
     if (_toolType === 'fencing' && window.app) {
-      // Startup/reconnect local-wins guard: app.init() may have already restored fenceJob.
-      // Do not let ?jobId= auto-hydration overwrite an iPad draft after refresh/auth restore.
-      localDraftWins = _checkpointLocalDraftBeforeLoad('auto_load_url_job');
+      // Startup/reconnect target guard: app.init() may have already restored fenceJob.
+      // Never attach an existing local draft to a different ?jobId without an explicit operator choice.
+      switchChoice = await _resolveFencingTargetSwitch('auto_load_url_job', {
+        jobId: urlJobId,
+        opportunityId: null,
+        label: 'job from the URL'
+      });
+      if (switchChoice === 'cancel') {
+        _jobLoaded = false;
+        console.log('[FenceSync] URL auto-load cancelled before setting job anchor:', urlJobId);
+        return;
+      }
+      if (switchChoice === 'keep_link') {
+        localDraftWins = true;
+        _checkpointLocalDraftBeforeLoad('auto_load_url_job_keep_link');
+      } else {
+        localDraftWins = !_openFencingTargetSeparately('auto_load_url_job');
+      }
     }
     _jobId = urlJobId;
     console.log('[Integration] Auto-loading job:', urlJobId, 'localDraftWins:', localDraftWins);
@@ -2415,9 +2475,7 @@
     _jobLoaded = true;
     console.log('[Integration] Auto-loading frozen revision:', scopeRevId);
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
-      if (!token) {
+      if (!cloud || !cloud.auth || !cloud.auth.isLoggedIn || !cloud.auth.isLoggedIn()) {
         console.warn('[Integration] No auth session — cannot load frozen revision');
         _renderFrozenError(0, 'Not signed in. Sign in via the dashboard first, then re-open this URL.');
         return;
@@ -2428,9 +2486,10 @@
         _renderFrozenError(0, 'Cloud config missing supabaseUrl');
         return;
       }
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=get_scope_revision_for_viewer', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=get_scope_revision_for_viewer', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope_revision_id: scopeRevId })
       });
       if (!resp.ok) {
@@ -2549,18 +2608,20 @@
   // reopen the tool in edit mode. Warns first if the client already accepted.
   async function _makeRevision(scopeRevId, jobId) {
     var accepted = false;
-    try { accepted = await _quoteAccepted(jobId); } catch (_e) {}
+    try { accepted = await _quoteAccepted(jobId); } catch (_e) {
+      window.alert('Could not verify whether the client has accepted this quote. Revision editing is blocked until quote status can be checked.');
+      return;
+    }
     var msg = accepted
       ? 'This quote was ACCEPTED by the client (a deposit invoice may exist).\n\nMaking a revision creates a new version. It will NOT change or void the existing deposit invoice.\n\nContinue?'
       : 'Make a revision?\n\nThis creates an editable copy of the sealed scope. On sign-off it becomes a new version that supersedes this one.';
     if (!window.confirm(msg)) return;
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=clone_scope_for_edit', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=clone_scope_for_edit', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope_revision_id: scopeRevId })
       });
       var data = await resp.json();
@@ -2587,12 +2648,11 @@
   async function _loadRevisionSwitcher(jobId, currentRevId, selectEl) {
     if (!selectEl || !jobId) return;
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=list_scope_revisions_for_job', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=list_scope_revisions_for_job', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_id: jobId })
       });
       var data = await resp.json();
@@ -2617,7 +2677,7 @@
     } catch (e) { console.warn('[Integration] revision switcher load failed:', e); }
   }
 
-  // (M4 G-F5 helper) Best-effort check whether this job's quote was accepted.
+  // (M4 G-F5 helper) Authoritative check whether this job's quote was accepted.
   // Reuses window._quoteStatusCache (populated by the quote-status badge in
   // index.html). Falls back to a direct GET on /functions/v1/send-quote/status.
   async function _quoteAccepted(jobId) {
@@ -2626,14 +2686,12 @@
     }
     try {
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var anonKey = window.SUPABASE_ANON_KEY || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId), {
-        headers: { 'Authorization': 'Bearer ' + anonKey }
-      });
-      if (!resp.ok) return false;
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId));
+      await _expectOk(resp, 'Quote status check');
       var d = await resp.json();
       return !!(d && d.status === 'accepted');
-    } catch (_e) { return false; }
+    } catch (_e) { throw new Error('quote_status_unverified: ' + (_e && _e.message || _e)); }
   }
 
   if (document.readyState === 'loading') {
