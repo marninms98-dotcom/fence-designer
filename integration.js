@@ -38,6 +38,9 @@
   var _jobLoaded = false;
   var _isSignOff = false; // Set true only during saveAfterSignOff — gates GHL link + job number
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
+  var _baseScopeHash = null; // Latest server scope hash this iPad loaded/saved against
+  var _baseScopeUpdatedAt = null;
+  var _lastReleasePartialFailures = [];
   var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Background upload tracking: maps photo/video id -> { promise, done: bool, error: Error|null }
   var _bgUploads = {};
@@ -58,15 +61,192 @@
     return blocked.indexOf(_jobStatus) === -1;
   }
 
+  function _isRealJobId(id) {
+    return !!(id && String(id).indexOf('local-') !== 0 && String(id).indexOf('local-fence-') !== 0);
+  }
+
+  function _hasReleaseAnchor() {
+    return _isRealJobId(_jobId) || !!_ghlOpportunityId;
+  }
+
+  function _rememberScopeCursor(job) {
+    if (!job) return;
+    var hash = job.current_scope_hash || job.currentScopeHash || null;
+    var updatedAt = job.current_scope_updated_at || job.updated_at || null;
+    if (hash) _baseScopeHash = hash;
+    if (updatedAt) _baseScopeUpdatedAt = updatedAt;
+    if (_toolType === 'fencing' && window.app && window.app.job && (_baseScopeHash || _baseScopeUpdatedAt)) {
+      var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
+      if (_baseScopeHash) {
+        fs.baseScopeHash = _baseScopeHash;
+        fs.currentScopeHash = _baseScopeHash;
+      }
+      if (_baseScopeUpdatedAt) fs.scopeUpdatedAt = _baseScopeUpdatedAt;
+      fs.lastCloudCursorAt = new Date().toISOString();
+    }
+  }
+
+  function _attachScopeSaveCursor(meta) {
+    meta = meta || {};
+    if (_toolType === 'fencing' && _isRealJobId(_jobId) && _baseScopeHash) {
+      meta.baseScopeHash = _baseScopeHash;
+    }
+    return meta;
+  }
+
+  function _isScopeHashConflict(e) {
+    var code = e && (e.code || (e.details && e.details.code));
+    var msg = String((e && (e.message || e.error)) || e || '');
+    return ['scope_hash_conflict', 'missing_scope_cursor', 'scope_ref_mismatch'].indexOf(code) !== -1 ||
+      /scope_hash_conflict|missing_scope_cursor|scope_ref_mismatch|Scope changed in Supabase/i.test(msg);
+  }
+
+  function _hasDirtyFencingDraft() {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return false;
+    if (window.app._hasMeaningfulLocalDraft && !window.app._hasMeaningfulLocalDraft()) return false;
+    var fs = window.app.job._fieldSync || {};
+    return !!(fs.localDraftId || fs.lastLocalEditAt || fs.syncState || window.app._hasMeaningfulLocalDraft());
+  }
+
+  function _checkpointLocalDraftBeforeLoad(source) {
+    if (_toolType !== 'fencing' || !window.app || !window.app._checkpointLocalDraftBeforeLoad) return false;
+    return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
+  }
+
+  function _resetFencingForCloudLoad(source) {
+    // Dirty local draft checkpoint/reconcile seam: local iPad draft wins over incoming cloud state.
+    if (_checkpointLocalDraftBeforeLoad(source)) {
+      console.log('[FenceSync] Local draft checkpointed before ' + source + '; remote load will link/fill blanks only.');
+      return false;
+    }
+    localStorage.removeItem('fenceJob');
+    window.app.job = null;
+    window.app.currentRunId = null;
+    if (typeof window.app._resetSections === 'function') window.app._resetSections();
+    window.app.init();
+    localStorage.removeItem('fenceQA_verification');
+    if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+    return true;
+  }
+
+  function _openFencingTargetSeparately(source) {
+    if (_toolType !== 'fencing' || !window.app) return true;
+    _checkpointLocalDraftBeforeLoad((source || 'cloud_load') + '_open_separately');
+    localStorage.removeItem('fenceJob');
+    window.app.job = null;
+    window.app.currentRunId = null;
+    if (typeof window.app._resetSections === 'function') window.app._resetSections();
+    window.app.init();
+    localStorage.removeItem('fenceQA_verification');
+    if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+    return true;
+  }
+
+  function _currentFencingTargetKey() {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return '';
+    var fs = window.app.job._fieldSync || {};
+    if (fs.syncAnchorType === 'job' && fs.syncAnchorId) return 'job:' + fs.syncAnchorId;
+    if (fs.syncAnchorType === 'ghl_opportunity' && fs.syncAnchorId) return 'opp:' + fs.syncAnchorId;
+    if (_isRealJobId(_jobId)) return 'job:' + _jobId;
+    if (_ghlOpportunityId) return 'opp:' + _ghlOpportunityId;
+    return fs.localDraftId ? 'local:' + fs.localDraftId : '';
+  }
+
+  function _targetKey(target) {
+    target = target || {};
+    if (target.jobId) return 'job:' + target.jobId;
+    if (target.opportunityId) return 'opp:' + target.opportunityId;
+    return '';
+  }
+
+  function _resolveFencingTargetSwitch(source, target) {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job || !window.app._hasMeaningfulLocalDraft || !window.app._hasMeaningfulLocalDraft()) {
+      return Promise.resolve('open_separately');
+    }
+    var currentKey = _currentFencingTargetKey();
+    var nextKey = _targetKey(target);
+    if (currentKey && nextKey && currentKey === nextKey) return Promise.resolve('keep_link');
+
+    return new Promise(function(resolve) {
+      var existing = document.getElementById('fenceTargetSwitchModal');
+      if (existing) existing.remove();
+      var label = (target && target.label) || 'the selected target';
+      var overlay = document.createElement('div');
+      overlay.id = 'fenceTargetSwitchModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.74);z-index:10070;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+      overlay.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
+        '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:19px;font-weight:800;">This iPad has unsynced fence work</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Choose what to do before opening ' + label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '.</div></div>' +
+        '<div style="padding:18px 22px;display:grid;gap:10px;">' +
+          '<button id="targetKeepLinkBtn" style="text-align:left;border:1px solid #F15A29;background:#FFF7ED;border-radius:10px;padding:14px;cursor:pointer;"><b style="display:block;color:#F15A29;font-size:15px;">Keep this draft and link it</b><span style="display:block;color:#92400E;font-size:12px;margin-top:4px;">Use the selected target for sync, but keep the local scope as the source of truth.</span></button>' +
+          '<button id="targetOpenSeparateBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:10px;padding:14px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:15px;">Open selected target separately</b><span style="display:block;color:#4C6A7C;font-size:12px;margin-top:4px;">Checkpoint this draft first, then load the selected cloud/GHL scope.</span></button>' +
+          '<button id="targetCancelBtn" style="text-align:left;border:1px solid #D1D5DB;background:#fff;border-radius:10px;padding:14px;cursor:pointer;"><b style="display:block;color:#374151;font-size:15px;">Cancel</b><span style="display:block;color:#6B7280;font-size:12px;margin-top:4px;">Do not link or load anything.</span></button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(overlay);
+      var done = function(choice) {
+        var el = document.getElementById('fenceTargetSwitchModal');
+        if (el) el.remove();
+        resolve(choice);
+      };
+      document.getElementById('targetKeepLinkBtn').onclick = function() { done('keep_link'); };
+      document.getElementById('targetOpenSeparateBtn').onclick = function() { done('open_separately'); };
+      document.getElementById('targetCancelBtn').onclick = function() { done('cancel'); };
+    });
+  }
+
+  function _loadFencingStateLocalWins(scopeJson, source) {
+    if (_toolType === 'fencing' && _hasDirtyFencingDraft()) {
+      console.log('[FenceSync] Local draft wins; skipping remote scope_json load for ' + (source || 'cloud load'));
+      return false;
+    }
+    return _loadStateFn(scopeJson);
+  }
+
+  function _linkFencingAnchor(jobId, opportunityId, contactId, launchMode) {
+    if (_toolType === 'fencing' && window.app && window.app._linkCloudAnchor) {
+      window.app._linkCloudAnchor({ jobId: jobId || null, opportunityId: opportunityId || null, contactId: contactId || null, launchMode: launchMode || 'cloud_load' });
+    }
+  }
+
+  function _isDuplicateJobNumberError(e) {
+    var msg = String((e && (e.message || e.error || e.code)) || e || '');
+    return /idx_jobs_job_number|duplicate key value|23505|job_number.*duplicate|duplicate.*job_number/i.test(msg);
+  }
+
+  function _requireAuthorizedFetch(cloudRef) {
+    if (!cloudRef || typeof cloudRef.authorizedFetch !== 'function') {
+      throw new Error('authenticated_request_unavailable: cloud.authorizedFetch is required');
+    }
+    return cloudRef.authorizedFetch.bind(cloudRef);
+  }
+
+  async function _readErrorBody(res) {
+    try {
+      var json = await res.clone().json();
+      return json && (json.error || json.message || JSON.stringify(json));
+    } catch(_e) {
+      try { return await res.text(); } catch(_e2) { return ''; }
+    }
+  }
+
+  async function _expectOk(res, label) {
+    if (res && res.ok) return res;
+    var status = res ? res.status : 'network';
+    var body = res ? await _readErrorBody(res) : '';
+    throw new Error(label + ' failed (' + status + ')' + (body ? ': ' + body : ''));
+  }
+
   // Upload a document blob to Supabase storage + register in job_documents
   async function _uploadDocBlob(cloudRef, jobId, jobNumber, blob, fileName, docType) {
     if (!cloudRef || !jobId || !blob) return;
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     // Step 1: Get signed upload URL
-    var uploadRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
+    var uploadRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=upload_document', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: jobId, file_name: fileName, content_type: blob.type || 'application/pdf' })
     });
+    await _expectOk(uploadRes, 'Quote document upload URL');
     var uploadData = await uploadRes.json();
     if (!uploadData.signedUrl) throw new Error('No signed URL returned');
     // Step 2: PUT the blob
@@ -74,11 +254,11 @@
       method: 'PUT',
       headers: { 'Content-Type': blob.type || 'application/pdf' },
       body: blob
-    });
+    }).then(function(res) { return _expectOk(res, 'Quote document storage upload'); });
     // Step 3: Confirm upload (insert into job_documents)
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
+    var confirmRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ops-api?action=confirm_document_upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         job_id: jobId,
         file_name: fileName,
@@ -87,6 +267,7 @@
         reference: jobNumber
       })
     });
+    await _expectOk(confirmRes, 'Quote document registration');
   }
 
   // ── Background media upload helpers ──────────────────────────────────────────
@@ -114,18 +295,19 @@
   }
 
   async function _doUploadPhoto(photo, jobId, cloudRef) {
-    var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     var blob = _dataUrlToBlob(photo.dataUrl);
     var mime = blob.type;
     var ext = mime.includes('png') ? 'png' : 'jpg';
 
-    var urlRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+    photo.clientMediaId = photo.clientMediaId || photo.id || photo._checklistId || ('photo-' + Date.now());
+    var urlRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ jobId: jobId, fileName: (photo.label || 'photo') + '.' + ext, contentType: mime })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: jobId, fileName: (photo.label || 'photo') + '.' + ext, contentType: mime, clientMediaId: photo.clientMediaId })
     });
+    await _expectOk(urlRes, 'Photo upload URL');
     var urlData = await urlRes.json();
-    if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
 
     var uploadRes = await fetch(urlData.signedUrl, {
       method: 'PUT',
@@ -134,11 +316,12 @@
     });
     if (!uploadRes.ok) throw new Error('Photo upload failed: ' + uploadRes.status);
 
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+    var regRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId: jobId, storageUrl: urlData.publicUrl, type: 'photo', label: photo.label || 'Photo' })
     });
+    await _expectOk(regRes, 'Photo registration');
 
     photo.cloudUrl = urlData.publicUrl;
     if (photo._checklistId && window.app && window.app.job && window.app.job.checklist && window.app.job.checklist.photos) {
@@ -149,7 +332,7 @@
   }
 
   async function _doUploadVideo(video, jobId, cloudRef) {
-    var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
+    var authorizedFetch = _requireAuthorizedFetch(cloudRef);
     var videoBody = video.file || null;
     var videoMime = 'video/mp4';
     var videoName = video.label || 'walkthrough.mp4';
@@ -166,13 +349,16 @@
 
     console.log('[Integration] Uploading video...', videoName, ((videoBody.size || 0) / 1048576).toFixed(1) + 'MB');
 
-    var urlRes = await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
+    video.clientMediaId = video.clientMediaId || [
+      'video', videoName, videoBody.size || 0, videoBody.lastModified || 0
+    ].join('-');
+    var urlRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=get_upload_url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ jobId: jobId, fileName: videoName, contentType: videoMime })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: jobId, fileName: videoName, contentType: videoMime, clientMediaId: video.clientMediaId })
     });
+    await _expectOk(urlRes, 'Video upload URL');
     var urlData = await urlRes.json();
-    if (!urlRes.ok) throw new Error(urlData.error || 'Failed to get upload URL');
 
     var uploadRes = await fetch(urlData.signedUrl, {
       method: 'PUT',
@@ -181,11 +367,12 @@
     });
     if (!uploadRes.ok) throw new Error('Video upload failed: ' + uploadRes.status);
 
-    await fetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
+    var regRes = await authorizedFetch(cloudRef.supabaseUrl + '/functions/v1/ghl-proxy?action=register_media', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId: jobId, storageUrl: urlData.publicUrl, type: 'video', label: video.label || 'Site Walkthrough' })
     });
+    await _expectOk(regRes, 'Video registration');
 
     video.cloudUrl = urlData.publicUrl;
     console.log('[Integration] Video uploaded:', urlData.publicUrl);
@@ -352,30 +539,42 @@
     // Only use suburb separately — don't concatenate everything
     var suburb = contact.suburb || '';
 
-    // Set individual fields — these selectors cover both patio and fencing tools
+    var firstName = contact.firstName || '';
+    var lastName = contact.lastName || '';
+    if (!firstName && displayName) {
+      var parts = displayName.trim().split(/\s+/);
+      firstName = parts[0] || '';
+      lastName = parts.slice(1).join(' ') || '';
+    }
+
+    // Fill-empty only: GHL/cloud data must not overwrite local iPad edits.
     var mapping = [
       { val: displayName, selectors: '#customerName, #clientName, [name="clientName"]' },
+      { val: firstName, selectors: '#clientFirstNameInput, [name="clientFirstName"]' },
+      { val: lastName, selectors: '#clientLastNameInput, [name="clientLastName"]' },
       { val: contact.email, selectors: '#clientEmail, #customerEmail, [name="clientEmail"], [name="email"]' },
       { val: contact.phone, selectors: '#customerPhone, #clientPhone, [name="clientPhone"], [name="phone"]' },
-      { val: streetAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, [name="siteAddress"], [name="address"]' },
+      { val: streetAddress, selectors: '#customerAddress, #clientAddress, #siteAddress, #addressInput, [name="siteAddress"], [name="address"]' },
       { val: suburb, selectors: '#customerSuburb, #clientSuburb' }
     ];
 
     mapping.forEach(function(m) {
       if (!m.val) return;
       document.querySelectorAll(m.selectors).forEach(function(el) {
+        var current = (el.value || '').trim();
+        if (current) return;
         el.value = m.val;
-        // Trigger input event so the tool picks up the change
         el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       });
     });
 
-    // Also set window globals if the tool uses them
+    // Also set window globals if the tool uses them, preserving non-empty local values.
     if (typeof window.customer === 'object' && window.customer) {
-      if (displayName) window.customer.name = displayName;
-      if (contact.phone) window.customer.phone = contact.phone;
-      if (contact.email) window.customer.email = contact.email;
-      if (streetAddress) window.customer.address = streetAddress;
+      if (displayName && !window.customer.name) window.customer.name = displayName;
+      if (contact.phone && !window.customer.phone) window.customer.phone = contact.phone;
+      if (contact.email && !window.customer.email) window.customer.email = contact.email;
+      if (streetAddress && !window.customer.address) window.customer.address = streetAddress;
     }
   }
 
@@ -451,10 +650,16 @@
     var photos = media.filter(function(m) { return m.type === 'photo'; });
     var videos = media.filter(function(m) { return m.type === 'video'; });
 
-    // Inject photos into the tool's sitePhotos array
+    // Inject photos into the tool's sitePhotos array. Idempotent: reloads/reconnects
+    // must not append duplicate cloud media when the same job is opened repeatedly.
     if (photos.length > 0 && typeof window.sitePhotos !== 'undefined') {
       for (var i = 0; i < photos.length; i++) {
         var p = photos[i];
+        var alreadyLoaded = window.sitePhotos.some(function(existing) {
+          return (p.id && existing.cloudId === p.id) ||
+            (p.storage_url && (existing.cloudUrl === p.storage_url || existing.dataUrl === p.storage_url));
+        });
+        if (alreadyLoaded) continue;
         // Use numeric IDs (tool's deletePhoto/updatePhotoLabel expect numbers in onclick)
         var numericId = Date.now() + i;
         window.sitePhotos.push({
@@ -493,6 +698,7 @@
           }
         }
         window.app.job.checklist.photosTaken = window.app.job.checklist.photos.length;
+        if (typeof window.app._persistMediaManifest === 'function') window.app._persistMediaManifest();
         if (typeof window.app.renderChecklist === 'function') window.app.renderChecklist();
       }
 
@@ -509,6 +715,11 @@
         originalSize: 0,
         file: null  // No file object for cloud videos
       };
+      if (window.app && window.app.job && window.app.job.checklist) {
+        window.app.job.checklist.videoCloudUrl = v.storage_url;
+        window.app.job.checklist.videoNeedsReattach = false;
+        if (typeof window.app._persistMediaManifest === 'function') window.app._persistMediaManifest();
+      }
       if (typeof window.renderVideoPreview === 'function') window.renderVideoPreview();
       if (typeof window.updateVideoBadge === 'function') window.updateVideoBadge();
       console.log('[Integration] Loaded video from cloud');
@@ -534,6 +745,10 @@
 
   // ── Inject cloud bar below the header ──
   function injectToolbar() {
+    if (detectToolType() === 'fencing') {
+      console.log('[Integration] Fencing uses the built-in field launcher; skipping duplicate cloud Save/Load/Dashboard bar');
+      return;
+    }
     var header = document.querySelector('.header') ||
                  document.querySelector('header') ||
                  document.querySelector('[class*="header"]');
@@ -967,14 +1182,14 @@
     return data;
   }
 
-  // Run 8 validation checks. Returns { valid: boolean, errors: string[] }
+  // Run save validation checks. Email is intentionally not required here:
+  // phone-only leads can be drafted/saved, while quote email sending validates
+  // recipients in the send flow.
   function _validateForSave() {
     var d = _collectValidationData();
     var errors = [];
 
-    if (!d.name)       errors.push('Client name is required');
     if (!d.phone)      errors.push('Phone number is required');
-    if (!d.email)      errors.push('Email address is required');
     if (!d.address)    errors.push('Site address is required');
     if (!d.suburb)     errors.push('Suburb is required');
     if (!d.hasItems)   errors.push('At least one scope item is required');
@@ -1126,8 +1341,6 @@
         if (!_jobId || (_jobId && _jobId.indexOf('local-') === 0)) {
           // Use DOM fields first, then prompt as last resort
           if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || {}).value || '';
-          if (!meta.client_name) meta.client_name = prompt('Client name for this job:');
-          if (!meta.client_name) { cloud.ui.showSaveStatus('error'); return; }
 
           // Walk-up: auto-create GHL contact + opportunity if not linked yet
           var contact = { name: meta.client_name, phone: meta.client_phone, email: meta.client_email, address: meta.site_address, suburb: meta.site_suburb };
@@ -1167,16 +1380,24 @@
 
         // Save via edge function (bypasses RLS)
         console.log('[Integration] Saving scope for job:', _jobId);
-        await cloud.ghl.saveScope(_jobId, state, meta);
-        console.log('[Integration] Scope saved successfully');
+        var savedJob = await cloud.ghl.saveScope(_jobId, state, _attachScopeSaveCursor(meta));
+        var scopeQueuedLocally = !!(savedJob && savedJob.queued);
+        if (!scopeQueuedLocally) _rememberScopeCursor(savedJob);
+        if (scopeQueuedLocally) {
+          console.log('[Integration] Scope saved locally and queued for sync');
+          if (_isSignOff) throw new Error('sync_required: reconnect to Wi-Fi before creating the job or sending the quote');
+        } else {
+          console.log('[Integration] Scope saved successfully');
+        }
 
         // Sync fencing neighbours to job_contacts (if neighbours exist)
         if (_toolType === 'fencing' && state.job && state.job.neighboursRequired && state.job.neighbours && state.job.neighbours.length > 0 && state.job.neighbours[0].firstName) {
-          fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=sync_fencing_neighbours', {
+          var neighbourFetch = _requireAuthorizedFetch(cloud);
+          neighbourFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=sync_fencing_neighbours', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ job_id: _jobId })
-          }).then(function(r) { return r.json(); }).then(function(res) {
+          }).then(function(r) { return _expectOk(r, 'Neighbour sync'); }).then(function(r) { return r.json(); }).then(function(res) {
             if (res.synced_count > 0) console.log('[Integration] Neighbours synced:', res.synced_count, 'contacts');
           }).catch(function(e) { console.warn('[Integration] Neighbour sync failed (non-blocking):', e); });
         }
@@ -1192,7 +1413,7 @@
             if (cp.cloudUrl) continue;
             var alreadyBridged = window.sitePhotos.some(function(sp) { return sp._checklistId === cp.id; });
             if (alreadyBridged) continue;
-            var uploadDataUrl = (window._photoFiles && window._photoFiles[cp.id]) || cp.dataUrl;
+            var uploadDataUrl = (window._photoFiles && window._photoFiles[cp.id]) || cp.uploadDataUrl || cp.dataUrl;
             if (!uploadDataUrl) continue;
             var bridgedPhoto = {
               id: cp.id + '_bridged',
@@ -1210,6 +1431,7 @@
         }
 
         // ── Media upload: background-first, save-loop fallback ───────────────────
+        if (_isSignOff) _lastReleasePartialFailures = [];
         var sitePhotos = window.sitePhotos || [];
         var photosNeedingUpload = sitePhotos.filter(function(p) { return !p.cloudUrl && p.dataUrl; });
         var _failedUploads = 0;
@@ -1258,6 +1480,7 @@
         }
 
         if (_failedUploads > 0) {
+          if (_isSignOff) _lastReleasePartialFailures.push({ step: 'media', message: _failedUploads + ' photo upload(s) failed and will retry on next save' });
           if (window.showToast) window.showToast(_failedUploads + ' upload(s) failed — they\'ll retry on next save', 'warning');
         }
         // ── End media upload ──────────────────────────────────────────────────────
@@ -1267,10 +1490,17 @@
           try {
             var updatedState = _getStateFn();
             if (updatedState) {
-              await cloud.ghl.saveScope(_jobId, updatedState, meta);
-              console.log('[Integration] Scope re-saved with cloudUrls');
+              var resavedJob = await cloud.ghl.saveScope(_jobId, updatedState, _attachScopeSaveCursor(meta));
+              if (resavedJob && resavedJob.queued) {
+                console.warn('[Integration] Scope re-save with cloudUrls queued locally; pending sync');
+                if (window.showToast) window.showToast('Media state saved on iPad — pending sync', 'warning');
+              } else {
+                _rememberScopeCursor(resavedJob);
+                console.log('[Integration] Scope re-saved with cloudUrls');
+              }
             }
           } catch(e) {
+            if (_isScopeHashConflict(e)) throw e;
             console.warn('[Integration] Re-save after uploads failed (non-blocking):', e);
           }
         }
@@ -1281,36 +1511,21 @@
         if (_isSignOff) {
           // Write scope link back to GHL opportunity notes + assign job number
           var linkResult = null;
-          if (_ghlOpportunityId) {
-            try {
-              linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
-              if (linkResult && linkResult.jobNumber) {
-                _lastJobNumber = linkResult.jobNumber;
-                console.log('[Integration] Job number assigned:', linkResult.jobNumber);
-              }
-            } catch(ghlErr) {
-              console.warn('[Integration] GHL link failed (non-blocking):', ghlErr);
-            }
+          if (!_ghlOpportunityId) {
+            throw new Error('link_required: choose a GHL lead/contact before release');
           }
-
-          // Fallback: if no GHL opportunity linked, still assign job number directly
-          if (!_lastJobNumber && _jobId) {
-            try {
-              var apiKey = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
-              var assignRes = await fetch(cloud.supabaseUrl + '/functions/v1/ghl-proxy?action=assign_job_number', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                body: JSON.stringify({ jobId: _jobId, toolType: _toolType })
-              });
-              var assignData = await assignRes.json();
-              if (assignData.jobNumber) {
-                _lastJobNumber = assignData.jobNumber;
-                linkResult = { jobNumber: assignData.jobNumber };
-                console.log('[Integration] Job number assigned (no GHL):', assignData.jobNumber);
-              }
-            } catch(assignErr) {
-              console.warn('[Integration] Direct job number assignment failed:', assignErr);
+          try {
+            linkResult = await cloud.ghl.linkScope(_ghlOpportunityId, _jobId, _toolType, _ghlContactId);
+            if (linkResult && linkResult.jobNumber) {
+              _lastJobNumber = linkResult.jobNumber;
+              console.log('[Integration] Job number assigned:', linkResult.jobNumber);
             }
+          } catch(ghlErr) {
+            console.warn('[Integration] GHL link failed:', ghlErr);
+            throw new Error('ghl_link_failed: ' + (ghlErr.message || ghlErr));
+          }
+          if (!_lastJobNumber) {
+            throw new Error('job_number_missing_after_ghl_link');
           }
 
           // Apply job number to DOM so PDFs, toolbar, and header show the real number.
@@ -1325,10 +1540,9 @@
             try {
               // Check for existing draft POs before creating new ones
               var existingPOs = [];
+              var authorizedFetch = _requireAuthorizedFetch(cloud);
               try {
-                var poResp = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=list_pos&job_id=' + _jobId, {
-                  headers: { 'x-api-key': window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc' }
-                });
+                var poResp = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=list_pos&job_id=' + _jobId);
                 if (poResp.ok) {
                   var poData = await poResp.json();
                   existingPOs = (poData.purchase_orders || poData || []);
@@ -1378,7 +1592,8 @@
               // Fallback: if no line items but we have totals, create summary items
               if (Object.keys(supplierGroups).length === 0 && materialCost > 0) {
                 // Fall back to scope_to_po extraction
-                var poRes = await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
+                var poRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=scope_to_po&jobId=' + _jobId);
+                await _expectOk(poRes, 'PO material extraction');
                 var poMaterials = await poRes.json();
                 if (poMaterials && poMaterials.materials && poMaterials.materials.length > 0) {
                   supplierGroups[''] = poMaterials.materials;
@@ -1409,7 +1624,7 @@
                   ? 'MATERIALS — ' + sName + '. Auto-generated from scope.'
                   : 'MATERIALS — Auto-generated from scope. Assign supplier and review before approving.')
                   + refDiscipline;
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var createMaterialPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1421,12 +1636,13 @@
                     notes: poNotes
                   })
                 });
+                await _expectOk(createMaterialPoRes, 'Material PO creation');
                 console.log('[Integration] Draft PO created for ' + (sName || 'unassigned') + ': ' + sItems.length + ' items');
               }
 
               // Create Labour PO
               if (labourItems.length > 0) {
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var labourPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1438,6 +1654,7 @@
                     notes: 'LABOUR — Auto-generated from scope. Assign to trade crew and review before approving.'
                   })
                 });
+                await _expectOk(labourPoRes, 'Labour PO creation');
                 console.log('[Integration] Draft Labour PO created');
               }
 
@@ -1454,7 +1671,7 @@
               if (commissionAmount > 0) {
                 var commNote = 'SALES COMMISSION — ' + commissionPct + '% of gross profit ($' + grossProfit.toFixed(2) + ' GP).';
                 var commDesc = 'Sales commission (' + commissionPct + '% of GP)';
-                await fetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
+                var commissionPoRes = await authorizedFetch(cloud.supabaseUrl + '/functions/v1/ops-api?action=create_po', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -1466,11 +1683,13 @@
                     notes: commNote + ' Auto-generated from scope.'
                   })
                 });
+                await _expectOk(commissionPoRes, 'Commission PO creation');
                 console.log('[Integration] Draft Commission PO created: $' + commissionAmount.toFixed(2));
               }
               } // end if (!hasDraftPOs)
             } catch(poErr) {
               console.warn('[Integration] Draft PO creation failed (non-blocking):', poErr);
+              _lastReleasePartialFailures.push({ step: 'po', message: poErr && poErr.message || String(poErr) });
             }
 
             // Upload quote PDF if available (blob captured during scope complete)
@@ -1491,13 +1710,15 @@
               }
             } catch(docErr) {
               console.warn('[Integration] Quote PDF upload failed (non-blocking):', docErr);
+              _lastReleasePartialFailures.push({ step: 'pdf', message: docErr && docErr.message || String(docErr) });
             }
           }
 
           // Push contact details back to GHL — only send non-empty fields
-          if (_ghlContactId && meta.client_name) {
+          if (_ghlContactId && (meta.client_name || meta.client_email || meta.client_phone || meta.site_address || meta.site_suburb)) {
             try {
-              var contactUpdate = { name: meta.client_name };
+              var contactUpdate = {};
+              if (meta.client_name) contactUpdate.name = meta.client_name;
               if (meta.client_email) contactUpdate.email = meta.client_email;
               if (meta.client_phone) contactUpdate.phone = meta.client_phone;
               if (meta.site_address) contactUpdate.address = meta.site_address;
@@ -1514,12 +1735,16 @@
           cloud.startAutoSave(_jobId, _getStateFn, 30000);
         }
 
-        if (_lastJobNumber) {
+        if (scopeQueuedLocally) {
+          cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
+          if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+        } else if (_lastJobNumber) {
           cloud.ui.showSaveStatus('saved', 'Saved — ' + _lastJobNumber);
+          if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         } else {
           cloud.ui.showSaveStatus('saved');
+          if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         }
-        if (window.updateSyncStatus) window.updateSyncStatus('saved', new Date().toISOString());
         if (window.updateHeaderBadge) window.updateHeaderBadge();
         if (window.updateBottomToolbar) window.updateBottomToolbar();
         updateUI();
@@ -1528,7 +1753,14 @@
         console.error('[Integration] Save failed:', e);
         cloud.ui.showSaveStatus('error');
         if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
-        alert('Save failed: ' + e.message);
+        var message = (e && e.message) || String(e);
+        if (_isScopeHashConflict(e)) {
+          message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
+        } else if (_isDuplicateJobNumberError(e)) {
+          message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
+        }
+        alert('Save failed: ' + message);
+        throw e;
       }
     },
 
@@ -1542,23 +1774,29 @@
       cloud.ui.showGHLPicker(_toolType, async function(opp) {
         console.log('[Integration] GHL opportunity selected:', opp.id, opp.contactName);
         try {
+          var switchChoice = await _resolveFencingTargetSwitch('loadPicker', {
+            jobId: opp._supabaseJobId || null,
+            opportunityId: opp.id,
+            label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
+          });
+          if (switchChoice === 'cancel') return;
           _ghlOpportunityId = opp.id;
           _ghlContactId = opp.contactId || null;
 
-          // ── Reset tool to clean state before loading new opportunity ──
+          // ── Local-wins checkpoint before loading new opportunity ──
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            if (switchChoice === 'keep_link') {
+              localDraftWins = true;
+              _checkpointLocalDraftBeforeLoad('loadPicker_keep_link');
+            } else {
+              localDraftWins = !_openFencingTargetSeparately('loadPicker');
+            }
           } else {
             _resetPatioForm();
           }
@@ -1581,6 +1819,7 @@
           if (opp._loadedFromSupabase && opp._supabaseJobId) {
             console.log('[Integration] Loading directly from Supabase job:', opp._supabaseJobId);
             var sbJob = await cloud.ghl.loadJob(opp._supabaseJobId);
+            _rememberScopeCursor(sbJob);
             if (sbJob) {
               _jobId = sbJob.id;
               _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
@@ -1588,11 +1827,16 @@
               _lastJobNumber = sbJob.job_number || null;
               _jobStatus = sbJob.status || 'draft';
               if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
-                _loadStateFn(sbJob.scope_json);
+                if (!localDraftWins) _loadFencingStateLocalWins(sbJob.scope_json, 'supabase_job_load');
               }
-              _applyJobNumber(_lastJobNumber);
-              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              if (!localDraftWins) {
+                _applyJobNumber(_lastJobNumber);
+                try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              } else {
+                console.log('[FenceSync] Supabase target found; local draft wins and remote job number/media stay out of the field draft.');
+              }
               if (contact) _prefillContact(contact);
+              _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'supabase_job_load');
               var newUrl = window.location.pathname + '?jobId=' + _jobId;
               window.history.replaceState({}, '', newUrl);
               console.log('[Integration] Supabase job loaded, URL updated:', newUrl);
@@ -1612,6 +1856,7 @@
           try {
             existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
             console.log('[Integration] Existing job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
+            _rememberScopeCursor(existingJob);
           } catch(e) {
             console.warn('[Integration] findJobByOpportunity failed:', e);
           }
@@ -1622,12 +1867,16 @@
             _jobStatus = existingJob.status || 'draft';
             console.log('[Integration] Found existing job:', _jobId, 'number:', _lastJobNumber);
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              _loadStateFn(existingJob.scope_json);
+              if (!localDraftWins) _loadFencingStateLocalWins(existingJob.scope_json, 'existing_opportunity_scope');
             }
-            // Override local job ref with Supabase job number (single source of truth)
-            _applyJobNumber(_lastJobNumber);
-            // Load photos/videos from cloud
-            try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+            if (!localDraftWins) {
+              // Override local job ref with Supabase job number (single source of truth)
+              _applyJobNumber(_lastJobNumber);
+              // Load photos/videos from cloud
+              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+            } else {
+              console.log('[FenceSync] Existing target found; local draft wins and remote job number/media stay out of the field draft.');
+            }
           } else {
             // Create a new Supabase job linked to this GHL opportunity (via edge function)
             var contactForJob = contact || { name: opp.contactName, phone: opp.contactPhone, email: opp.contactEmail };
@@ -1639,6 +1888,7 @@
 
           // Pre-fill contact fields in the tool
           if (contact) _prefillContact(contact);
+          _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'ghl_picker');
 
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
@@ -1669,23 +1919,29 @@
       cloud.ui.showLeadSearch(_toolType, async function(lead) {
         console.log('[Integration] Lead selected:', lead.id, lead.contactName);
         try {
+          var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
+            jobId: lead.supabaseJobId || null,
+            opportunityId: lead.id,
+            label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
+          });
+          if (switchChoice === 'cancel') return;
           _ghlOpportunityId = lead.id;
           _ghlContactId = lead.contactId || null;
 
-          // Reset tool to clean state
+          // Local-wins checkpoint before loading the selected lead.
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            if (switchChoice === 'keep_link') {
+              localDraftWins = true;
+              _checkpointLocalDraftBeforeLoad('lead_search_keep_link');
+            } else {
+              localDraftWins = !_openFencingTargetSeparately('lead_search');
+            }
           } else {
             _resetPatioForm();
           }
@@ -1707,6 +1963,7 @@
           if (lead.supabaseJobId) {
             console.log('[Integration] Lead has existing job, loading:', lead.supabaseJobId);
             var sbJob = await cloud.ghl.loadJob(lead.supabaseJobId);
+            _rememberScopeCursor(sbJob);
             if (sbJob) {
               _jobId = sbJob.id;
               _ghlOpportunityId = sbJob.ghl_opportunity_id || null;
@@ -1714,10 +1971,15 @@
               _lastJobNumber = sbJob.job_number || null;
               _jobStatus = sbJob.status || 'draft';
               if (sbJob.scope_json && Object.keys(sbJob.scope_json).length > 0) {
-                _loadStateFn(sbJob.scope_json);
+                if (!localDraftWins) _loadFencingStateLocalWins(sbJob.scope_json, 'lead_supabase_job');
               }
-              _applyJobNumber(_lastJobNumber);
-              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              if (!localDraftWins) {
+                _applyJobNumber(_lastJobNumber);
+                try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+              } else {
+                console.log('[FenceSync] Lead target found; local draft wins and remote job number/media stay out of the field draft.');
+              }
+              _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'lead_supabase_job');
               if (contact) _prefillContact(contact);
               var newUrl = window.location.pathname + '?jobId=' + _jobId;
               window.history.replaceState({}, '', newUrl);
@@ -1734,6 +1996,7 @@
           if (lead.id) {
             try {
               existingJob = await cloud.ghl.findJobByOpportunity(lead.id, _toolType);
+              _rememberScopeCursor(existingJob);
             } catch(e) {
               console.warn('[Integration] findJobByOpportunity failed:', e);
             }
@@ -1744,10 +2007,14 @@
             _lastJobNumber = existingJob.job_number || null;
             _jobStatus = existingJob.status || 'draft';
             if (existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0) {
-              _loadStateFn(existingJob.scope_json);
+              if (!localDraftWins) _loadFencingStateLocalWins(existingJob.scope_json, 'lead_existing_scope');
             }
-            _applyJobNumber(_lastJobNumber);
-            try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+            if (!localDraftWins) {
+              _applyJobNumber(_lastJobNumber);
+              try { await _loadCloudMedia(_jobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+            } else {
+              console.log('[FenceSync] Existing lead target found; local draft wins and remote job number/media stay out of the field draft.');
+            }
           } else if (lead.id) {
             var contactForJob = contact || { name: lead.contactName, phone: lead.contactPhone, email: lead.contactEmail };
             var job = await cloud.ghl.createJobForOpportunity(lead.id, _toolType, contactForJob);
@@ -1755,6 +2022,7 @@
           }
 
           if (contact) _prefillContact(contact);
+          _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'lead_search');
           if (_jobId) {
             var newUrl = window.location.pathname + '?jobId=' + _jobId;
             window.history.replaceState({}, '', newUrl);
@@ -1795,11 +2063,8 @@
             _lastJobNumber = null;
             _jobLoaded = false;
             if (_toolType === 'fencing' && window.app) {
-              localStorage.removeItem('fenceJob');
-              window.app.job = null;
-              window.app.currentRunId = null;
-              if (typeof window.app._resetSections === 'function') window.app._resetSections();
-              window.app.init();
+              if (!window.app.job) window.app.init();
+              if (window.app._ensureFieldSync) window.app._ensureFieldSync('local_only_resume');
             } else {
               _resetPatioForm();
             }
@@ -1807,31 +2072,42 @@
             return;
           }
 
-          // ── Reset tool to clean state before loading new job ──
+          // ── Local-wins checkpoint before loading previous cloud job ──
+          var switchChoice = await _resolveFencingTargetSwitch('load_from_supabase', {
+            jobId: jobId,
+            opportunityId: null,
+            label: 'selected previous scope'
+          });
+          if (switchChoice === 'cancel') return;
           if (cloud) cloud.stopAutoSave();
           _jobId = null;
           _lastJobNumber = null;
           _jobLoaded = false;
+          var localDraftWins = false;
 
           if (_toolType === 'fencing' && window.app) {
-            localStorage.removeItem('fenceJob');
-            window.app.job = null;
-            window.app.currentRunId = null;
-            if (typeof window.app._resetSections === 'function') window.app._resetSections();
-            window.app.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
+            if (switchChoice === 'keep_link') {
+              localDraftWins = true;
+              _checkpointLocalDraftBeforeLoad('load_from_supabase_keep_link');
+            } else {
+              localDraftWins = !_openFencingTargetSeparately('load_from_supabase');
+            }
           } else {
             _resetPatioForm();
           }
 
-          var job = await cloud.jobs.loadJob(jobId);
+          var job = await cloud.ghl.loadJob(jobId);
+          _rememberScopeCursor(job);
           _jobStatus = job.status || 'draft';
+          _lastJobNumber = job.job_number || null;
+          if (_lastJobNumber) _applyJobNumber(_lastJobNumber);
           if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-            var loaded = _loadStateFn(job.scope_json);
+            var loaded = localDraftWins ? true : _loadFencingStateLocalWins(job.scope_json, 'load_from_supabase');
             if (loaded) {
               _jobId = jobId;
               _ghlOpportunityId = job.ghl_opportunity_id || null;
+              _ghlContactId = job.ghl_contact_id || null;
+              _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'load_from_supabase');
               var newUrl = window.location.pathname + '?jobId=' + _jobId;
               window.history.replaceState({}, '', newUrl);
               updateUI();
@@ -1847,13 +2123,19 @@
           } else {
             _jobId = jobId;
             _ghlOpportunityId = job.ghl_opportunity_id || null;
+            _ghlContactId = job.ghl_contact_id || null;
+            _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'load_from_supabase');
             var newUrl = window.location.pathname + '?jobId=' + _jobId;
             window.history.replaceState({}, '', newUrl);
             updateUI();
 
             if (job.client_name) {
-              var nameFields = document.querySelectorAll('#clientName, #customerName, [name="clientName"]');
-              nameFields.forEach(function(f) { f.value = job.client_name; });
+              if (_toolType === 'fencing') {
+                _prefillContact({ name: job.client_name, phone: job.client_phone || '', email: job.client_email || '', address: job.site_address || '', suburb: job.site_suburb || '' });
+              } else {
+                var nameFields = document.querySelectorAll('#clientName, #customerName, [name="clientName"]');
+                nameFields.forEach(function(f) { if (!f.value) f.value = job.client_name; });
+              }
             }
 
             if (_shouldAutoSave()) {
@@ -1870,6 +2152,38 @@
 
     openDashboard: function() {
       window.location.href = '../dashboard/index.html';
+    },
+
+    hasReleaseAnchor: function() {
+      return _hasReleaseAnchor();
+    },
+
+    resolveFencingTargetSwitch: function(source, target) {
+      return _resolveFencingTargetSwitch(source, target);
+    },
+
+    getSyncState: function() {
+      return {
+        jobId: _jobId,
+        ghlOpportunityId: _ghlOpportunityId,
+        ghlContactId: _ghlContactId,
+        jobNumber: _lastJobNumber,
+        hasReleaseAnchor: _hasReleaseAnchor(),
+        isLocalOnly: !_isRealJobId(_jobId)
+      };
+    },
+
+    ensureJobSynced: async function(options) {
+      options = options || {};
+      if (_isReadonly) return { ok: false, reason: 'readonly' };
+      if (!_hasReleaseAnchor()) return { ok: false, reason: 'link_required', releaseState: 'needs_ghl_or_job_anchor' };
+      if (!cloud) return { ok: false, reason: 'no_cloud' };
+      if (!cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
+      if (!_isRealJobId(_jobId) && _ghlOpportunityId) {
+        // Release state machine seam: saveAfterSignOff will create/link the real job.
+        return { ok: true, reason: 'anchored_pending_cloud_job', releaseState: 'resumable_prepare_quote' };
+      }
+      return { ok: true, jobId: _jobId, jobNumber: _lastJobNumber || null, linked: true, releaseState: 'ready_to_freeze_scope' };
     },
 
     // ── Cloud save triggered after QA sign-off ──
@@ -1907,8 +2221,11 @@
         // Set sign-off flag — this gates GHL link, job number, PO creation
         _isSignOff = true;
         await integration.save();
+        if (!_lastJobNumber) {
+          throw new Error('job_number_missing_after_save');
+        }
         console.log('[Integration] Cloud save after sign-off completed');
-        return { success: true, jobNumber: _lastJobNumber };
+        return { success: true, jobNumber: _lastJobNumber, linked: _hasReleaseAnchor(), jobId: _jobId, partialFailures: _lastReleasePartialFailures.slice() };
       } catch(e) {
         console.error('[Integration] Cloud save after sign-off failed:', e);
         return { success: false, reason: e.message };
@@ -1936,6 +2253,17 @@
       return !!(cloud && cloud.auth.isLoggedIn());
     },
 
+    // Cursor shared with cloud.js autosave: every save carries the server scope hash
+    // that this iPad loaded/saved against, so reconnects cannot overwrite newer cloud edits.
+    getScopeSaveCursor: function() {
+      if (!_baseScopeHash && _toolType === 'fencing' && window.app && window.app.job && window.app.job._fieldSync) {
+        _baseScopeHash = window.app.job._fieldSync.baseScopeHash || window.app.job._fieldSync.currentScopeHash || null;
+        _baseScopeUpdatedAt = window.app.job._fieldSync.scopeUpdatedAt || null;
+      }
+      return { baseScopeHash: _baseScopeHash, baseScopeUpdatedAt: _baseScopeUpdatedAt };
+    },
+    _rememberScopeCursor: _rememberScopeCursor,
+
     // Connect integration state from an external load path (e.g. inline name search).
     // Ensures _jobId, _ghlOpportunityId, _ghlContactId are set so saves work correctly.
     _connectJob: function(jobId, opportunityId, contactId, status) {
@@ -1944,10 +2272,11 @@
       _ghlContactId = contactId || null;
       if (status) _jobStatus = status;
       if (jobId) {
+        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; }
         _jobId = jobId;
         _jobLoaded = true;
         // Only update URL and start auto-save for real cloud jobs (not local-only)
-        if (jobId.indexOf('local-') !== 0) {
+        if (String(jobId).indexOf('local-') !== 0) {
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
           if (cloud && _shouldAutoSave()) {
@@ -1963,6 +2292,8 @@
       } else {
         // Full reset — no job, no opportunity
         _jobId = null;
+        _baseScopeHash = null;
+        _baseScopeUpdatedAt = null;
         _jobLoaded = false;
         if (cloud) cloud.stopAutoSave();
         console.log('[Integration] _connectJob: fully cleared');
@@ -2024,6 +2355,10 @@
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
     });
+    cloud.on('autosave:queued', function() {
+      cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
+      if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+    });
     cloud.on('autosave:error', function() {
       cloud.ui.showSaveStatus('error');
     });
@@ -2064,10 +2399,33 @@
     if (!urlJobId) return;
     _jobLoaded = true;
 
+    var localDraftWins = false;
+    var switchChoice = 'open_separately';
+    if (_toolType === 'fencing' && window.app) {
+      // Startup/reconnect target guard: app.init() may have already restored fenceJob.
+      // Never attach an existing local draft to a different ?jobId without an explicit operator choice.
+      switchChoice = await _resolveFencingTargetSwitch('auto_load_url_job', {
+        jobId: urlJobId,
+        opportunityId: null,
+        label: 'job from the URL'
+      });
+      if (switchChoice === 'cancel') {
+        _jobLoaded = false;
+        console.log('[FenceSync] URL auto-load cancelled before setting job anchor:', urlJobId);
+        return;
+      }
+      if (switchChoice === 'keep_link') {
+        localDraftWins = true;
+        _checkpointLocalDraftBeforeLoad('auto_load_url_job_keep_link');
+      } else {
+        localDraftWins = !_openFencingTargetSeparately('auto_load_url_job');
+      }
+    }
     _jobId = urlJobId;
-    console.log('[Integration] Auto-loading job:', urlJobId);
+    console.log('[Integration] Auto-loading job:', urlJobId, 'localDraftWins:', localDraftWins);
     try {
       var job = await cloud.ghl.loadJob(urlJobId);
+      _rememberScopeCursor(job);
       _jobStatus = job.status || 'draft';
       // (M4 G-F1) Reopening a quoted job defaults to the READ-ONLY frozen view so
       // nobody accidentally re-publishes an old scope. Redirect to the frozen-viewer
@@ -2083,18 +2441,23 @@
         return;
       }
       if (job.scope_json && Object.keys(job.scope_json).length > 0) {
-        _loadStateFn(job.scope_json);
+        if (!localDraftWins) _loadFencingStateLocalWins(job.scope_json, 'auto_load_url_job');
       }
       _ghlOpportunityId = job.ghl_opportunity_id || null;
       _ghlContactId = job.ghl_contact_id || null;
       _lastJobNumber = job.job_number || null;
+      _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'auto_load_url_job');
       // Apply job number AFTER loadStateFn has finished setting the local ref
-      _applyJobNumber(_lastJobNumber);
-      try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
-      if (_shouldAutoSave()) {
+      if (!localDraftWins) _applyJobNumber(_lastJobNumber);
+      if (!localDraftWins) {
+        try { await _loadCloudMedia(urlJobId); } catch(e) { console.warn('[Integration] Media load failed:', e); }
+      } else {
+        console.log('[FenceSync] Auto-load linked cloud job but skipped remote media/scope hydration because local draft wins.');
+      }
+      if (_shouldAutoSave() && !localDraftWins) {
         cloud.startAutoSave(_jobId, _getStateFn, 30000);
       } else {
-        console.log('[Integration] Auto-save skipped — job status:', _jobStatus);
+        console.log('[Integration] Auto-save skipped — job status:', _jobStatus, 'localDraftWins:', localDraftWins);
       }
       updateUI();
     } catch(e) {
@@ -2112,9 +2475,7 @@
     _jobLoaded = true;
     console.log('[Integration] Auto-loading frozen revision:', scopeRevId);
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
-      if (!token) {
+      if (!cloud || !cloud.auth || !cloud.auth.isLoggedIn || !cloud.auth.isLoggedIn()) {
         console.warn('[Integration] No auth session — cannot load frozen revision');
         _renderFrozenError(0, 'Not signed in. Sign in via the dashboard first, then re-open this URL.');
         return;
@@ -2125,9 +2486,10 @@
         _renderFrozenError(0, 'Cloud config missing supabaseUrl');
         return;
       }
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=get_scope_revision_for_viewer', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=get_scope_revision_for_viewer', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope_revision_id: scopeRevId })
       });
       if (!resp.ok) {
@@ -2246,18 +2608,20 @@
   // reopen the tool in edit mode. Warns first if the client already accepted.
   async function _makeRevision(scopeRevId, jobId) {
     var accepted = false;
-    try { accepted = await _quoteAccepted(jobId); } catch (_e) {}
+    try { accepted = await _quoteAccepted(jobId); } catch (_e) {
+      window.alert('Could not verify whether the client has accepted this quote. Revision editing is blocked until quote status can be checked.');
+      return;
+    }
     var msg = accepted
       ? 'This quote was ACCEPTED by the client (a deposit invoice may exist).\n\nMaking a revision creates a new version. It will NOT change or void the existing deposit invoice.\n\nContinue?'
       : 'Make a revision?\n\nThis creates an editable copy of the sealed scope. On sign-off it becomes a new version that supersedes this one.';
     if (!window.confirm(msg)) return;
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=clone_scope_for_edit', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=clone_scope_for_edit', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope_revision_id: scopeRevId })
       });
       var data = await resp.json();
@@ -2284,12 +2648,11 @@
   async function _loadRevisionSwitcher(jobId, currentRevId, selectEl) {
     if (!selectEl || !jobId) return;
     try {
-      var session = await cloud.auth.session();
-      var token = session && session.access_token;
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/ops-api?action=list_scope_revisions_for_job', {
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/ops-api?action=list_scope_revisions_for_job', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job_id: jobId })
       });
       var data = await resp.json();
@@ -2314,7 +2677,7 @@
     } catch (e) { console.warn('[Integration] revision switcher load failed:', e); }
   }
 
-  // (M4 G-F5 helper) Best-effort check whether this job's quote was accepted.
+  // (M4 G-F5 helper) Authoritative check whether this job's quote was accepted.
   // Reuses window._quoteStatusCache (populated by the quote-status badge in
   // index.html). Falls back to a direct GET on /functions/v1/send-quote/status.
   async function _quoteAccepted(jobId) {
@@ -2323,14 +2686,12 @@
     }
     try {
       var supabaseUrl = cloud.supabaseUrl || (cloud.config && cloud.config.supabaseUrl) || '';
-      var anonKey = window.SUPABASE_ANON_KEY || '';
-      var resp = await fetch(supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId), {
-        headers: { 'Authorization': 'Bearer ' + anonKey }
-      });
-      if (!resp.ok) return false;
+      var authorizedFetch = _requireAuthorizedFetch(cloud);
+      var resp = await authorizedFetch(supabaseUrl + '/functions/v1/send-quote/status?job_id=' + encodeURIComponent(jobId));
+      await _expectOk(resp, 'Quote status check');
       var d = await resp.json();
       return !!(d && d.status === 'accepted');
-    } catch (_e) { return false; }
+    } catch (_e) { throw new Error('quote_status_unverified: ' + (_e && _e.message || _e)); }
   }
 
   if (document.readyState === 'loading') {
