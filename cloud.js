@@ -1509,48 +1509,85 @@
       };
     },
 
-    // Lead search dropdown — anchored below header search bar
+    // Lead search — self-contained centered modal (no header dependency)
     showLeadSearch: function(toolType, onSelect, initialQuery) {
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
 
-      // Remove any existing dropdown
+      // Remove any existing modal
       var existing = document.getElementById('sw-lead-search-dropdown');
       if (existing) existing.remove();
       var existingBackdrop = document.getElementById('sw-lead-search-backdrop');
       if (existingBackdrop) existingBackdrop.remove();
 
-      var anchor = document.getElementById('headerSearchWrap');
-      if (!anchor) return;
+      // Fail loud rather than silently: the modal renders straight into body,
+      // so the only way it can't is if body is not ready.
+      if (!document.body) { alert('Cannot open lead search — page not ready.'); return; }
 
-      // Backdrop for click-away dismissal
+      // Backdrop doubles as the centering container + click-away dismissal
       var backdrop = document.createElement('div');
       backdrop.id = 'sw-lead-search-backdrop';
-      backdrop.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.25);';
+      backdrop.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(41,60,70,0.45);display:flex;align-items:flex-start;justify-content:center;padding:8vh 16px 16px;';
       backdrop.onclick = function() { _close(); };
 
-      // Dropdown panel
-      var dropdown = document.createElement('div');
-      dropdown.id = 'sw-lead-search-dropdown';
-      dropdown.style.cssText = 'position:fixed;left:0;right:0;top:' + (anchor.getBoundingClientRect().bottom + 2) + 'px;background:#fff;max-height:70vh;overflow-y:auto;z-index:10001;box-shadow:0 8px 32px rgba(41,60,70,0.25);border-bottom-left-radius:12px;border-bottom-right-radius:12px;';
-      dropdown.innerHTML = '<div id="sw-lead-list" style="padding:8px 12px;"><p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Loading leads...</p></div>';
+      // Centered modal panel (id kept as sw-lead-search-dropdown so the
+      // integration.js reopen guard stays consistent)
+      var modal = document.createElement('div');
+      modal.id = 'sw-lead-search-dropdown';
+      modal.style.cssText = 'width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(41,60,70,0.35);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+      // Prevent clicks inside the modal from closing it
+      modal.onclick = function(e) { e.stopPropagation(); };
 
-      // Prevent clicks inside dropdown from closing
-      dropdown.onclick = function(e) { e.stopPropagation(); };
+      // Header row: title + close button
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid #eee;';
+      header.innerHTML = '<div style="font-weight:700;color:' + hex.dark + ';font-size:15px;">Load lead / contact</div>';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.textContent = '×';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.style.cssText = 'border:none;background:transparent;color:' + hex.mid + ';font-size:24px;line-height:1;cursor:pointer;padding:0 4px;';
+      closeBtn.onclick = function() { _close(); };
+      header.appendChild(closeBtn);
 
+      // Search input row (the modal owns its own input)
+      var searchWrap = document.createElement('div');
+      searchWrap.style.cssText = 'padding:12px 16px;border-bottom:1px solid #f2f2f2;';
+      var searchInput = document.createElement('input');
+      searchInput.id = 'sw-lead-search-input';
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Search leads by name or phone...';
+      searchInput.value = initialQuery || '';
+      searchInput.style.cssText = 'width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;color:' + hex.dark + ';outline:none;';
+      searchInput.onfocus = function() { this.style.borderColor = hex.orange; };
+      searchInput.onblur = function() { this.style.borderColor = '#ddd'; };
+      searchWrap.appendChild(searchInput);
+
+      // Scrollable list area
+      var listWrap = document.createElement('div');
+      listWrap.style.cssText = 'flex:1;overflow-y:auto;padding:8px 12px;';
+      listWrap.innerHTML = '<div id="sw-lead-list"><p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Loading leads...</p></div>';
+
+      modal.appendChild(header);
+      modal.appendChild(searchWrap);
+      modal.appendChild(listWrap);
+      backdrop.appendChild(modal);
       document.body.appendChild(backdrop);
-      document.body.appendChild(dropdown);
+
+      // Autofocus the search input
+      setTimeout(function() { try { searchInput.focus(); } catch(e) {} }, 0);
 
       function _close() {
-        dropdown.remove();
-        backdrop.remove();
-        var searchInput = document.getElementById('headerSearch');
-        if (searchInput) searchInput.blur();
+        document.removeEventListener('keydown', _escHandler);
+        var bd = document.getElementById('sw-lead-search-backdrop');
+        if (bd) bd.remove();
+        var md = document.getElementById('sw-lead-search-dropdown');
+        if (md) md.remove();
       }
 
       // Escape key to close
       function _escHandler(e) {
-        if (e.key === 'Escape') { _close(); document.removeEventListener('keydown', _escHandler); }
+        if (e.key === 'Escape') { _close(); }
       }
       document.addEventListener('keydown', _escHandler);
 
@@ -1615,10 +1652,6 @@
                 var lead = leads.find(function(l) { return l.id === oppId; });
                 if (!lead) return;
                 _close();
-                document.removeEventListener('keydown', _escHandler);
-                // Clear search bar
-                var searchInput = document.getElementById('headerSearch');
-                if (searchInput) searchInput.value = '';
                 if (onSelect) onSelect(lead);
               };
             });
@@ -1631,28 +1664,13 @@
       // Initial load
       _loadLeads(initialQuery || '');
 
-      // Wire up live search from the header input
-      var searchInput = document.getElementById('headerSearch');
+      // Live search from the modal's own input (300ms debounce)
       var _searchTimer;
-      if (searchInput) {
-        searchInput._leadSearchHandler = function() {
-          clearTimeout(_searchTimer);
-          var val = searchInput.value;
-          _searchTimer = setTimeout(function() { _loadLeads(val); }, 300);
-        };
-        searchInput.addEventListener('input', searchInput._leadSearchHandler);
-      }
-
-      // Cleanup handler — remove input listener when dropdown closes
-      var _origClose = _close;
-      _close = function() {
-        if (searchInput && searchInput._leadSearchHandler) {
-          searchInput.removeEventListener('input', searchInput._leadSearchHandler);
-          delete searchInput._leadSearchHandler;
-        }
-        document.removeEventListener('keydown', _escHandler);
-        _origClose();
-      };
+      searchInput.addEventListener('input', function() {
+        clearTimeout(_searchTimer);
+        var val = searchInput.value;
+        _searchTimer = setTimeout(function() { _loadLeads(val); }, 300);
+      });
     },
 
     // Small save indicator badge
