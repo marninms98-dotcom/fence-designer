@@ -14774,9 +14774,14 @@
                 });
                 await _fenceExpectOk(upRes, 'Run quote upload URL');
                 var upData = await upRes.json();
-                if (upData.signedUrl) {
-                  await fetch(upData.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: runBlob }).then(function(res) { return _fenceExpectOk(res, 'Run quote PDF upload'); });
+                // ops-api upload_document returns `uploadUrl`; accept `signedUrl` as fallback.
+                var runUploadUrl = upData.uploadUrl || upData.signedUrl;
+                if (runUploadUrl) {
+                  await fetch(runUploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: runBlob }).then(function(res) { return _fenceExpectOk(res, 'Run quote PDF upload'); });
                   runPdfs[run.run_label] = upData.publicUrl || '';
+                } else {
+                  // Neither field present: treat as a failed upload rather than silently sending without the PDF.
+                  throw new Error('No upload URL returned (neither uploadUrl nor signedUrl present)');
                 }
               } catch(ue) {
                 console.warn('[SendQuote] Run PDF upload failed for', run.run_label, ue.message);

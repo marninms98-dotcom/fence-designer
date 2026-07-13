@@ -248,9 +248,11 @@
     });
     await _expectOk(uploadRes, 'Quote document upload URL');
     var uploadData = await uploadRes.json();
-    if (!uploadData.signedUrl) throw new Error('No signed URL returned');
+    // ops-api upload_document returns `uploadUrl`; some endpoints return `signedUrl` — accept either.
+    var signedUploadUrl = uploadData.uploadUrl || uploadData.signedUrl;
+    if (!signedUploadUrl) throw new Error('No upload URL returned (neither uploadUrl nor signedUrl present)');
     // Step 2: PUT the blob
-    await fetch(uploadData.signedUrl, {
+    await fetch(signedUploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': blob.type || 'application/pdf' },
       body: blob
