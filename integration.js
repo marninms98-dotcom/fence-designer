@@ -2444,6 +2444,14 @@
       return _openFencingTargetSeparately(source);
     },
 
+    // The media wipe on its own, for reset paths that already own their
+    // checkpoint/reset sequence (startLocalDraft, resetJob) and only need the
+    // queue cleared. Same invariant as openFencingTargetSeparately: a reset that
+    // skips this leaks the previous client's photos into the next job.
+    resetToolMediaState: function() {
+      _resetToolMediaState();
+    },
+
     // Selecting a real opportunity row settles any earlier failed new-job
     // attempt for that contact. Every path that links a row must call this or
     // the orphan opportunity gets reused by a later, legitimately-new job.

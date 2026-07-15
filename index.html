@@ -2265,6 +2265,9 @@
         this._siteInfoTab = 'client';
         this._resetSections();
         this.init();
+        if (window._swIntegration && window._swIntegration.resetToolMediaState) {
+          window._swIntegration.resetToolMediaState();
+        }
         this._ensureFieldSync('new_local');
         this.save();
         window.history.replaceState({}, '', window.location.pathname);
@@ -3569,6 +3572,9 @@
         this._siteInfoTab = 'client';
         this._resetSections();
         this.init();
+        if (window._swIntegration && window._swIntegration.resetToolMediaState) {
+          window._swIntegration.resetToolMediaState();
+        }
         window.history.replaceState({}, '', window.location.pathname);
         this._updateHeaderStatus();
         if (typeof updateButtonStages === 'function') updateButtonStages();
@@ -5123,7 +5129,7 @@
 
           // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
           let switchChoice = 'open_separately';
-          if (window._swIntegration && window._swIntegration.resolveFencingTargetSwitch) {
+          if (window._swIntegration.resolveFencingTargetSwitch) {
             switchChoice = await window._swIntegration.resolveFencingTargetSwitch('inline_ghl_contact', {
               opportunityId: opp.id,
               label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
@@ -5133,7 +5139,7 @@
           // Linking a real opportunity row settles any earlier failed new-job
           // attempt for this contact, so its cached orphan opportunity must not
           // survive to be reused by a later, legitimately-new job.
-          if (window._swIntegration && window._swIntegration.clearPendingNewOpp) {
+          if (window._swIntegration.clearPendingNewOpp) {
             window._swIntegration.clearPendingNewOpp(opp.contactId);
           }
           const localDraftWins = switchChoice === 'keep_link';
@@ -5146,9 +5152,7 @@
             // so the previous client's media cannot upload into this target.
             window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
             if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-            if (window._swIntegration) {
-              window._swIntegration._connectJob(null, null, null);
-            }
+            window._swIntegration._connectJob(null, null, null);
           }
 
           try {
