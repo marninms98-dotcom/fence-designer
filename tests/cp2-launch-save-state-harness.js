@@ -697,6 +697,35 @@ record(
   'the fencing reset lives only in _openFencingTargetSeparately'
 );
 
+// The scope-save cursor is per-job module state. Left pointing at the previous
+// client it rides along on the new job's first saveScope, and since it only
+// refreshes on a successful save, a strict backend would reject it forever.
+record(
+  'the new-job path drops the previous job\'s scope-save cursor (review #25)',
+  /_ghlContactId = null;[\s\S]{0,400}_baseScopeHash = null;\s*\n\s*_baseScopeUpdatedAt = null;/.test(newJobHelper),
+  '_startNewJobForContact nulls _baseScopeHash/_baseScopeUpdatedAt with the rest of the per-job state'
+);
+
+// Loading a real opportunity row settles the earlier failed attempt, so its
+// cached opportunity must not be reused by a later new job for that contact.
+record(
+  'selecting an opportunity to load clears that contact\'s pending-opp cache (review #26)',
+  /function _clearPendingNewOpp\(contactId\) \{\s*\n\s*if \(contactId\) delete _pendingNewOpps\[contactId\];/.test(integration) &&
+    /_clearPendingNewOpp\(lead\.contactId\);/.test(integration) &&
+    /_clearPendingNewOpp\(opp\.contactId\);/.test(integration),
+  'both the lead-search load branch and the opportunity picker clear the cache before loading'
+);
+
+// The media reset carries the cross-client leak protection, so it cannot be
+// fencing-only: integration.js is the shared multi-tool file.
+record(
+  'the patio reset gets the same media teardown as fencing (review #27)',
+  /function _resetToolMediaState\(\)/.test(integration) &&
+    !/_resetFencingMediaState/.test(integration) &&
+    /function _resetPatioForm\(\) \{[\s\S]{0,1400}_resetToolMediaState\(\);/.test(integration),
+  '_resetPatioForm routes through the shared helper, so it clears _bgUploads, the retry timer and the media epoch too'
+);
+
 console.log('CP2 Fence launch/save-state harness');
 for (const row of passes) {
   console.log(`PASS ${row.id}`);

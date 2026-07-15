@@ -59,6 +59,16 @@
   // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
   // the orphan instead of minting another; cleared once the job lands.
   var _pendingNewOpps = {};
+
+  // Selecting a real opportunity row for this contact settles the earlier failed
+  // attempt: either it committed after all (a timed-out create can land without
+  // its id ever reaching us) or the scoper has moved on. Either way the cached
+  // opportunity must not be reused by a later, legitimately-new job for the same
+  // contact — that would hang a second Supabase job off one opportunity and make
+  // findJobByOpportunity ambiguous.
+  function _clearPendingNewOpp(contactId) {
+    if (contactId) delete _pendingNewOpps[contactId];
+  }
   // Ceiling on the repeat-client create sequence (contact fetch + opportunity +
   // job) so the lead-search modal's in-flight lock can never outlive it.
   var _NEW_JOB_TIMEOUT_MS = 45000;
@@ -134,7 +144,9 @@
   // repeat-client path creates an empty job and loads nothing. The _bgUploads
   // entries go with them — a surviving '__video__' entry makes _startBgVideoUpload
   // skip the next job's video entirely, and stale keys skew _mediaUploadGate.
-  function _resetFencingMediaState() {
+  // Tool-agnostic: every reset path (fencing and patio) goes through it, so the
+  // cross-client leak protection cannot fall off one branch.
+  function _resetToolMediaState() {
     if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
     if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
     if (_videoRetryTimer) { clearTimeout(_videoRetryTimer); _videoRetryTimer = null; }
@@ -155,7 +167,7 @@
     window.app.currentRunId = null;
     if (typeof window.app._resetSections === 'function') window.app._resetSections();
     window.app.init();
-    _resetFencingMediaState();
+    _resetToolMediaState();
     localStorage.removeItem('fenceQA_verification');
     if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
     return true;
@@ -720,6 +732,12 @@
     _jobLoaded = false;
     _ghlOpportunityId = null;
     _ghlContactId = null;
+    // The scope-save cursor belongs to the job we are leaving. Carried into a
+    // brand-new job (whose server-side scope hash is NULL) it would be attached
+    // to every saveScope by _attachScopeSaveCursor, and since it only refreshes
+    // on a SUCCESSFUL save, a strict backend would reject the new job forever.
+    _baseScopeHash = null;
+    _baseScopeUpdatedAt = null;
 
     // Same checkpoint+reset sequence as opening a target separately — never
     // loadJob/findJobByOpportunity here; the old job must stay untouched.
@@ -784,8 +802,7 @@
     if (typeof window.siteDetails === 'object') {
       window.siteDetails = { existingSite: 'clear', demoScope: 'na', electrical: 'none', siteAccess: 'easy', groundSurface: 'grass', fasciaMaterial: 'timber', wallType: 'doublebrick', existingRoof: 'tiles' };
     }
-    if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
-    if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+    _resetToolMediaState();
 
     // Reset arrays/objects
     if (typeof window.flashingProfiles !== 'undefined') window.flashingProfiles = [];
@@ -1965,6 +1982,7 @@
             label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
           });
           if (switchChoice === 'cancel') return;
+          _clearPendingNewOpp(opp.contactId);
           _ghlOpportunityId = opp.id;
           _ghlContactId = opp.contactId || null;
 
@@ -2120,6 +2138,7 @@
             label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
           });
           if (switchChoice === 'cancel') return;
+          _clearPendingNewOpp(lead.contactId);
           _ghlOpportunityId = lead.id;
           _ghlContactId = lead.contactId || null;
 
