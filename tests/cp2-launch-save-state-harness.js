@@ -102,7 +102,7 @@ record(
 
 record(
   'load paths checkpoint local draft before reset',
-  /_resetFencingForCloudLoad/.test(integration) && /_checkpointLocalDraftBeforeLoad\(source/.test(integration) && /Local draft checkpointed before/.test(integration),
+  /_openFencingTargetSeparately/.test(integration) && /_checkpointLocalDraftBeforeLoad\(\(source \|\| 'cloud_load'\)/.test(integration) && /_keep_link'\)/.test(integration),
   'loadPicker/search/loadFromSupabase use local-wins checkpoint seam'
 );
 
@@ -392,7 +392,7 @@ record(
   'searchLeads parses error bodies defensively (review #13)',
   /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
     /async function _safeJson\(res\)/.test(cloud) &&
-    /if \(res\.status === 400 && !data\) return 'maybe';/.test(cloud),
+    /if \(res\.status !== 400 && res\.status !== 404\) return false;[\s\S]{0,1200}?if \(!data\) return 'maybe';/.test(cloud),
   'an unparseable error body still reaches _unknownActionSignal and triggers the legacy fallback'
 );
 
@@ -490,7 +490,7 @@ record(
   /var _NEW_JOB_TIMEOUT_MS = \d+;/.test(integration) &&
     /new AbortController\(\)/.test(newJobHelper) &&
     /_NEW_JOB_TIMEOUT_MS\)/.test(newJobHelper) &&
-    /Timed out — refreshing the list/.test(newJobHelper) &&
+    /Timed out before we could confirm/.test(newJobHelper) &&
     /clearTimeout\(timer\)/.test(newJobHelper),
   'a stalled create aborts, unlocks the modal and surfaces a timeout error'
 );
@@ -625,6 +625,43 @@ record(
     /isContactOnly[\s\S]{0,200}>Contact</.test(index) &&
     /isContactOnly \? '<div[^']*>Creates a new job for this client/.test(index),
   'a contact-only dropdown row shows the grey Contact badge + "Creates a new job" caption'
+);
+
+// A video-retry timer left armed across a reset re-reads _jobId when it fires,
+// so it would upload the previous client's walkthrough to the new job.
+record(
+  'the fencing reset cancels a pending video-retry timer (review #21)',
+  /_videoRetryTimer = setTimeout\(/.test(integration) &&
+    /if \(_videoRetryTimer\) \{ clearTimeout\(_videoRetryTimer\); _videoRetryTimer = null; \}[\s\S]{0,60}_videoRetryCount = 0;/.test(integration) &&
+    /if \(_jobId !== jobId\) return;/.test(integration),
+  'the retry timer is tracked, cleared on reset with the retry count, and bails if the job changed'
+);
+
+// A 500 or a payload-validation 400 must never latch the session onto the
+// legacy search action, which cannot return contact-only rows.
+record(
+  'only a route-shaped status can confirm an unknown action (review #22)',
+  /if \(res\.status !== 400 && res\.status !== 404\) return false;/.test(cloud) &&
+    /res\.status === 404 && msg\.indexOf\('action'\) !== -1/.test(cloud) &&
+    /if \(signal === 'maybe'\) _leadSearchMisses\+\+; else _leadSearchMisses = 0;/.test(cloud),
+  'a 5xx never confirms, 400 prose never confirms (only an explicit code does), and the miss streak resets on any non-maybe outcome'
+);
+
+// _rethrow is shared by the modal and the autocomplete, so its message cannot
+// promise a list refresh that only one of them performs.
+record(
+  'the timeout error is surface-neutral and both callers recover (review #23)',
+  !/Timed out — refreshing the list/.test(integration) &&
+    /Timed out before we could confirm whether the job was created/.test(integration) &&
+    /if \(e && e\.code === 'timeout'\)[\s\S]{0,400}_searchGHLContacts\(q\)/.test(index),
+  'the autocomplete re-runs its own search on timeout rather than showing the modal-only text'
+);
+
+// Dead code that duplicates the live reset silently drifts from it.
+record(
+  'the unreachable cloud-load reset is gone (review #24)',
+  !/_resetFencingForCloudLoad/.test(integration),
+  'the fencing reset lives only in _openFencingTargetSeparately'
 );
 
 console.log('CP2 Fence launch/save-state harness');

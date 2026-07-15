@@ -160,15 +160,25 @@
   // call only, so a transient blip self-heals on the next keystroke.
   function _unknownActionSignal(res, data) {
     if (res.status === 501) return 'confirmed';
+    // Only a status that plausibly means "this route does not exist" may confirm,
+    // so a 500 whose body happens to mention an action can never latch the
+    // session onto the legacy path.
+    if (res.status !== 400 && res.status !== 404) return false;
+    // An explicit machine-readable code is the one signal that means the ACTION
+    // was rejected rather than the payload.
+    var code = String((data && data.code) || '').toLowerCase();
+    if (/^(unknown|invalid|unsupported|unrecogni[sz]ed)_action$/.test(code)) return 'confirmed';
+    // Prose only confirms on a 404. A 400 is how a live action rejects a bad
+    // payload — "invalid action parameters" means the action EXISTS.
     var msg = String((data && data.error) || '').toLowerCase();
-    if (msg.indexOf('action') !== -1 &&
+    if (res.status === 404 && msg.indexOf('action') !== -1 &&
       /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg)) {
       return 'confirmed';
     }
     // A 404, or a 400 whose body won't parse, can't be ruled out as an unknown
     // action — but can't be confirmed as one either.
     if (res.status === 404) return 'maybe';
-    if (res.status === 400 && !data) return 'maybe';
+    if (!data) return 'maybe';
     return false;
   }
 
@@ -755,7 +765,9 @@
         } else {
           var signal = _unknownActionSignal(res, data);
           fallBack = !!signal;
-          if (signal === 'maybe') _leadSearchMisses++;
+          // Anything that is not an ambiguous miss breaks the streak — the
+          // limit only latches on misses that were genuinely CONSECUTIVE.
+          if (signal === 'maybe') _leadSearchMisses++; else _leadSearchMisses = 0;
           if (signal === 'confirmed' || _leadSearchMisses >= _LEAD_SEARCH_MISS_LIMIT) {
             _leadSearchUnavailable = true;
             console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action for the rest of this session.');

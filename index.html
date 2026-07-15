@@ -5002,6 +5002,7 @@
       _clientNameDebounce: null,
       _clientNameResults: [],
       _clientNameActiveIdx: -1,
+      _clientNameQuery: '',
 
       onClientNameInput(query) {
         clearTimeout(this._clientNameDebounce);
@@ -5015,6 +5016,7 @@
       async _searchGHLContacts(query) {
         var cloud = window.SECUREWORKS_CLOUD;
         if (!cloud || !cloud.auth.isLoggedIn()) return;
+        this._clientNameQuery = query;
         // Fast path (AM-G): lead_search returns in seconds. Abort any stale
         // in-flight request so out-of-order responses can't clobber the list.
         if (this._clientNameAbort) { try { this._clientNameAbort.abort(); } catch(e) {} }
@@ -5093,6 +5095,17 @@
             this.showToast('New job started for ' + (opp.contactName || opp.name || 'client'), 'success');
           } catch(e) {
             if (e && e.code === 'cancelled') return;
+            // A timed-out create may have committed server-side without us
+            // learning the opportunity id, so never invite a blind retry —
+            // re-run the search. Anything that landed comes back as a real opp
+            // row, which LOADS rather than minting a duplicate.
+            if (e && e.code === 'timeout') {
+              this.showToast('Timed out. Re-checking — if the job was created it will be listed, tap it to open.', 'error');
+              this._hideCreatingJobOverlay();
+              const q = this._clientNameQuery;
+              if (q) await this._searchGHLContacts(q);
+              return;
+            }
             this.showToast('Failed to start new job: ' + e.message, 'error');
           } finally {
             this._hideCreatingJobOverlay();

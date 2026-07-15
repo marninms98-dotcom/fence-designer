@@ -47,6 +47,10 @@
   // Site video uploads NON-BLOCKING with bounded auto-retry: create-job never waits on it.
   var _VIDEO_MAX_RETRIES = 3;
   var _videoRetryCount = 0;
+  // Pending video-retry timer. It closes over the video object and re-reads
+  // _jobId when it fires, so a reset that leaves it armed would upload the
+  // previous client's walkthrough to the new job.
+  var _videoRetryTimer = null;
   // Opportunities minted by a repeat-client new-job attempt whose job create then
   // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
   // the orphan instead of minting another; cleared once the job lands.
@@ -129,28 +133,15 @@
   function _resetFencingMediaState() {
     if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
     if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+    if (_videoRetryTimer) { clearTimeout(_videoRetryTimer); _videoRetryTimer = null; }
+    _videoRetryCount = 0;
     _bgUploads = {};
     if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
     if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
   }
 
-  function _resetFencingForCloudLoad(source) {
-    // Dirty local draft checkpoint/reconcile seam: local iPad draft wins over incoming cloud state.
-    if (_checkpointLocalDraftBeforeLoad(source)) {
-      console.log('[FenceSync] Local draft checkpointed before ' + source + '; remote load will link/fill blanks only.');
-      return false;
-    }
-    localStorage.removeItem('fenceJob');
-    window.app.job = null;
-    window.app.currentRunId = null;
-    if (typeof window.app._resetSections === 'function') window.app._resetSections();
-    window.app.init();
-    _resetFencingMediaState();
-    localStorage.removeItem('fenceQA_verification');
-    if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
-    return true;
-  }
-
+  // Dirty local draft checkpoint/reconcile seam: the local iPad draft wins over
+  // incoming cloud state, so it is checkpointed before the form is reset.
   function _openFencingTargetSeparately(source) {
     if (_toolType !== 'fencing' || !window.app) return true;
     _checkpointLocalDraftBeforeLoad((source || 'cloud_load') + '_open_separately');
@@ -460,8 +451,12 @@
         var attempt = _videoRetryCount;
         console.log('[Integration] Retrying video upload (attempt ' + attempt + '/' + _VIDEO_MAX_RETRIES + ')');
         if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'uploading');
-        setTimeout(function() {
+        _videoRetryTimer = setTimeout(function() {
+          _videoRetryTimer = null;
           if (video.cloudUrl) return;
+          // The job this video belongs to may have been swapped out from under
+          // the timer (repeat-client new job); never upload it to a new client.
+          if (_jobId !== jobId) return;
           var cur = _bgUploads['__video__'];
           if (cur && !cur.error) return; // a healthy upload is already in flight — don't double-start
           delete _bgUploads['__video__'];
@@ -644,8 +639,9 @@
       if (timedOut) {
         // An abort can land AFTER the backend committed the opportunity, in which
         // case we never got its id to cache — so the caller must re-check what
-        // actually exists rather than blindly minting another one on retry.
-        var toErr = new Error('Timed out — refreshing the list to check whether the job was created');
+        // actually exists rather than blindly minting another one on retry. The
+        // message stays surface-neutral: each caller phrases its own recovery.
+        var toErr = new Error('Timed out before we could confirm whether the job was created');
         toErr.code = 'timeout';
         throw toErr;
       }
