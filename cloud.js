@@ -148,18 +148,28 @@
   // does not exist, so the hot path (400ms-debounced autocomplete) stops paying
   // for a doomed probe on every keystroke. A page reload re-probes.
   var _leadSearchUnavailable = false;
+  // Consecutive ambiguous misses. A CDN 404 mid-redeploy or an HTML 400 from a
+  // gateway looks identical to a missing action, so one is never enough to latch
+  // the session onto the legacy path (which cannot return contact-only rows).
+  var _leadSearchMisses = 0;
+  var _LEAD_SEARCH_MISS_LIMIT = 2;
 
-  // True when the edge function rejected the action itself (rather than the
-  // request payload) — i.e. this build is ahead of the deployed ghl-proxy.
-  function _isUnknownActionError(res, data) {
-    if (res.status === 404 || res.status === 501) return true;
-    if (res.status !== 400) return false;
-    // A 400 with an unparseable body can't be ruled out as an unknown action;
-    // retrying the legacy action costs one request and keeps the build usable.
-    if (!data) return true;
-    var msg = String(data.error || '').toLowerCase();
-    return msg.indexOf('action') !== -1 &&
-      /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg);
+  // The edge function rejected the ACTION itself (rather than the request
+  // payload) — i.e. this build is ahead of the deployed ghl-proxy.
+  // 'confirmed' is safe to latch on for the session; 'maybe' falls back for this
+  // call only, so a transient blip self-heals on the next keystroke.
+  function _unknownActionSignal(res, data) {
+    if (res.status === 501) return 'confirmed';
+    var msg = String((data && data.error) || '').toLowerCase();
+    if (msg.indexOf('action') !== -1 &&
+      /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg)) {
+      return 'confirmed';
+    }
+    // A 404, or a 400 whose body won't parse, can't be ruled out as an unknown
+    // action — but can't be confirmed as one either.
+    if (res.status === 404) return 'maybe';
+    if (res.status === 400 && !data) return 'maybe';
+    return false;
   }
 
   // Merge a caller's abort signal into a fetch options object.
@@ -726,7 +736,8 @@
     // opts.signal lets the caller abort/timeout a stale in-flight request.
     // If lead_search is not deployed yet this falls back to the legacy search
     // action, so a Pages build can never outrun the edge function. The fallback
-    // is sticky for the session — only the first call pays for the probe.
+    // only goes sticky once the backend has confirmed the action is missing;
+    // an ambiguous failure falls back for that call alone and re-probes next time.
     async searchLeads(query, pipeline, opts) {
       opts = opts || {};
       var qs = '';
@@ -735,16 +746,25 @@
       var fetchOpts = opts.signal ? { signal: opts.signal } : undefined;
       var base = SUPABASE_URL + '/functions/v1/ghl-proxy?action=';
 
-      var res, data;
+      var res, data, fallBack = false;
       if (!_leadSearchUnavailable) {
         res = await authorizedFetch(base + 'lead_search' + qs, fetchOpts);
         data = await _safeJson(res);
-        if (!res.ok && _isUnknownActionError(res, data)) {
-          _leadSearchUnavailable = true;
-          console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action for the rest of this session.');
+        if (res.ok) {
+          _leadSearchMisses = 0;
+        } else {
+          var signal = _unknownActionSignal(res, data);
+          fallBack = !!signal;
+          if (signal === 'maybe') _leadSearchMisses++;
+          if (signal === 'confirmed' || _leadSearchMisses >= _LEAD_SEARCH_MISS_LIMIT) {
+            _leadSearchUnavailable = true;
+            console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action for the rest of this session.');
+          } else if (signal) {
+            console.warn('[Cloud] lead_search failed (HTTP ' + res.status + ') — retrying this search on the legacy action.');
+          }
         }
       }
-      if (_leadSearchUnavailable && (!res || !res.ok)) {
+      if ((_leadSearchUnavailable || fallBack) && (!res || !res.ok)) {
         res = await authorizedFetch(base + 'search' + qs, fetchOpts);
         data = await _safeJson(res);
       }
@@ -1733,6 +1753,16 @@
       // swallows flashes it, so the tap reads as "still working", not "dead UI".
       var _lockedStatusEl = null;
       var _flashTimer = null;
+      // Survives the list rebuild that _loadLeads performs, so a message about
+      // the search that was just re-run can outlive the innerHTML it replaces.
+      var _pendingRefreshMsg = '';
+      function _takeRefreshNotice() {
+        if (!_pendingRefreshMsg) return '';
+        var html = '<p id="sw-lead-modal-error" style="text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;">' +
+          _esc(_pendingRefreshMsg) + '</p>';
+        _pendingRefreshMsg = '';
+        return html;
+      }
       function _flashCreatingStatus() {
         var el = _lockedStatusEl;
         if (!el) return;
@@ -1769,7 +1799,8 @@
           leads = leads || [];
 
           if (leads.length === 0) {
-            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">No matches — check spelling or try a phone number.</p>';
+            list.innerHTML = _takeRefreshNotice() +
+              '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">No matches — check spelling or try a phone number.</p>';
             return;
           }
 
@@ -1781,7 +1812,8 @@
             return 0;
           });
 
-          list.innerHTML = leads.map(function(lead, i) { return _renderLeadCard(lead, i); }).join('');
+          list.innerHTML = _takeRefreshNotice() +
+            leads.map(function(lead, i) { return _renderLeadCard(lead, i); }).join('');
 
           // Click handlers — keyed by array index (AM-D).
           list.querySelectorAll('.sw-lead-item').forEach(function(el) {
@@ -1831,6 +1863,15 @@
                   if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
                   var msg = (err && err.message) ? err.message : 'Could not create the job';
                   if (err && err.code === 'cancelled') return; // user backed out of the confirm
+                  // A timed-out create may have committed server-side without us
+                  // learning the opportunity id, so never invite a blind retry:
+                  // re-run the search instead. Anything that landed comes back as
+                  // a real opp row, which LOADS rather than minting a duplicate.
+                  if (err && err.code === 'timeout') {
+                    _pendingRefreshMsg = 'Timed out. If the job was created it is listed below — tap it to open. Otherwise tap the client to try again.';
+                    _loadLeads(query || '');
+                    return;
+                  }
                   var banner = document.getElementById('sw-lead-modal-error');
                   if (!banner) {
                     banner = document.createElement('p');
@@ -1853,11 +1894,13 @@
             // Our own cancellation of a superseded fetch is silent; only a real
             // client-side timeout surfaces an error state.
             if (timedOut) {
-              list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Search timed out. Retry, or refine your search.</p>';
+              list.innerHTML = _takeRefreshNotice() +
+                '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Search timed out. Retry, or refine your search.</p>';
             }
             return;
           }
-          list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + _esc(e.message) + ' — Retry.</p>';
+          list.innerHTML = _takeRefreshNotice() +
+            '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + _esc(e.message) + ' — Retry.</p>';
         }
       };
 

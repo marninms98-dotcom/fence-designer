@@ -120,6 +120,20 @@
     return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
   }
 
+  // window.sitePhotos / window.siteVideo are globals that app.init() does not
+  // touch, so without this a reset leaves the PREVIOUS job's media in the queue:
+  // load paths only mask it by calling _loadCloudMedia straight after, and the
+  // repeat-client path creates an empty job and loads nothing. The _bgUploads
+  // entries go with them — a surviving '__video__' entry makes _startBgVideoUpload
+  // skip the next job's video entirely, and stale keys skew _mediaUploadGate.
+  function _resetFencingMediaState() {
+    if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
+    if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+    _bgUploads = {};
+    if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
+    if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
+  }
+
   function _resetFencingForCloudLoad(source) {
     // Dirty local draft checkpoint/reconcile seam: local iPad draft wins over incoming cloud state.
     if (_checkpointLocalDraftBeforeLoad(source)) {
@@ -131,6 +145,7 @@
     window.app.currentRunId = null;
     if (typeof window.app._resetSections === 'function') window.app._resetSections();
     window.app.init();
+    _resetFencingMediaState();
     localStorage.removeItem('fenceQA_verification');
     if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
     return true;
@@ -144,6 +159,7 @@
     window.app.currentRunId = null;
     if (typeof window.app._resetSections === 'function') window.app._resetSections();
     window.app.init();
+    _resetFencingMediaState();
     localStorage.removeItem('fenceQA_verification');
     if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
     return true;
@@ -625,7 +641,14 @@
     }, _NEW_JOB_TIMEOUT_MS);
     var netOpts = { signal: abortCtl.signal };
     var _rethrow = function(e) {
-      if (timedOut) throw new Error('Timed out — check connection and tap to retry');
+      if (timedOut) {
+        // An abort can land AFTER the backend committed the opportunity, in which
+        // case we never got its id to cache — so the caller must re-check what
+        // actually exists rather than blindly minting another one on retry.
+        var toErr = new Error('Timed out — refreshing the list to check whether the job was created');
+        toErr.code = 'timeout';
+        throw toErr;
+      }
       throw e;
     };
 

@@ -54,8 +54,13 @@ function sourceWithoutComments(text) {
   const destructiveReset =
     /localStorage\.removeItem\(['"]fenceJob['"]\)[\s\S]{0,260}(?:this|window\.app)\.job\s*=\s*null/.test(sources.index) ||
     /localStorage\.removeItem\(['"]fenceJob['"]\)[\s\S]{0,260}window\.app\.job\s*=\s*null/.test(sources.integration);
+  // Anchor on the method definition, not the first textual mention of the name
+  // (which is the onmousedown= in the dropdown render): the guard belongs to the
+  // load path inside the method, so a window measured from the render call drifts
+  // off it whenever the branches above the guard grow.
+  const selectStart = sources.index.indexOf('async selectGHLContact(');
   const hasGuard = /dirty|unsynced|pendingOps|localDraftId|baseScopeHash|reconcile/i.test(
-    sources.index.slice(Math.max(0, sources.index.indexOf('selectGHLContact') - 800), sources.index.indexOf('selectGHLContact') + 2600) +
+    sources.index.slice(Math.max(0, selectStart - 800), selectStart + 2600) +
     sources.integration.slice(Math.max(0, sources.integration.indexOf('loadPicker') - 800), sources.integration.indexOf('loadPicker') + 2600)
   );
   record(

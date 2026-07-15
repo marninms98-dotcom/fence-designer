@@ -5078,7 +5078,12 @@
             this.showToast('Cannot start a new job for this client right now — reload the page and try again.', 'error');
             return;
           }
-          this.showToast('Starting a new job for ' + (opp.contactName || opp.name || opp.contactPhone || 'this client') + '...', 'info');
+          const clientLabel = opp.contactName || opp.name || opp.contactPhone || 'this client';
+          // The create ends in a form reset, and the draft confirm has already
+          // been answered — so the form must not stay editable underneath it,
+          // or anything typed in the next few seconds is silently wiped. The
+          // lead-search modal locks itself for the same reason.
+          this._showCreatingJobOverlay(clientLabel);
           try {
             await window._swIntegration.startNewJobForContact(opp);
             this.render();
@@ -5089,6 +5094,8 @@
           } catch(e) {
             if (e && e.code === 'cancelled') return;
             this.showToast('Failed to start new job: ' + e.message, 'error');
+          } finally {
+            this._hideCreatingJobOverlay();
           }
           return;
         }
@@ -5191,6 +5198,30 @@
         if (dd) { dd.classList.remove('open'); dd.innerHTML = ''; }
         this._clientNameResults = [];
         this._clientNameActiveIdx = -1;
+      },
+
+      _showCreatingJobOverlay(clientLabel) {
+        this._hideCreatingJobOverlay();
+        if (!document.getElementById('sw-spin-style')) {
+          const s = document.createElement('style');
+          s.id = 'sw-spin-style';
+          s.textContent = '@keyframes sw-spin{to{transform:rotate(360deg)}}';
+          document.head.appendChild(s);
+        }
+        const overlay = document.createElement('div');
+        overlay.id = 'swCreatingJobOverlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.72);z-index:10070;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;padding:28px 32px;text-align:center;max-width:360px;box-shadow:0 20px 70px rgba(0,0,0,0.35);">' +
+          '<div style="width:36px;height:36px;border:3px solid #F15A29;border-top-color:transparent;border-radius:50%;animation:sw-spin 0.8s linear infinite;margin:0 auto 16px;"></div>' +
+          '<div style="font-size:15px;font-weight:700;color:#293C46;">Creating job for ' + this._esc(clientLabel) + '…</div>' +
+          '<div style="font-size:12px;color:#4C6A7C;margin-top:6px;">This scope will reset once the new job is ready.</div>' +
+        '</div>';
+        document.body.appendChild(overlay);
+      },
+
+      _hideCreatingJobOverlay() {
+        const el = document.getElementById('swCreatingJobOverlay');
+        if (el) el.remove();
       },
 
       onClientNameKeydown(e) {

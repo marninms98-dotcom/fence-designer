@@ -356,7 +356,7 @@ record(
 // ghl-proxy deploy that adds the lead_search action.
 record(
   'searchLeads falls back to the legacy search action (review #10)',
-  /_isUnknownActionError\(res, data\)/.test(searchLeadsBody) &&
+  /_unknownActionSignal\(res, data\)/.test(searchLeadsBody) &&
     /'search' \+ qs/.test(searchLeadsBody) &&
     /res\.status === 404/.test(cloud) &&
     /unknown\|invalid\|unsupported/.test(cloud),
@@ -373,14 +373,27 @@ record(
   'a module-scoped sticky flag keeps post-fallback calls at one request each'
 );
 
+// Review round 6: a transient 404/non-JSON blip must fall back for THAT call
+// only — latching the session onto legacy search silently drops contact-only
+// rows, which are exactly what the repeat-client path exists to find.
+record(
+  'searchLeads only latches the sticky flag on a confirmed signal (review #21)',
+  /return 'confirmed';/.test(cloud) &&
+    /return 'maybe';/.test(cloud) &&
+    /if \(signal === 'maybe'\) _leadSearchMisses\+\+;/.test(searchLeadsBody) &&
+    /signal === 'confirmed' \|\| _leadSearchMisses >= _LEAD_SEARCH_MISS_LIMIT/.test(searchLeadsBody) &&
+    /if \(res\.ok\) \{\s*\n\s*_leadSearchMisses = 0;/.test(searchLeadsBody),
+  'an ambiguous miss falls back once without latching, and a success resets the counter'
+);
+
 // Review round 4: a non-JSON error body (plain-text 404, HTML 502) must not
 // throw before the fallback is consulted.
 record(
   'searchLeads parses error bodies defensively (review #13)',
   /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
     /async function _safeJson\(res\)/.test(cloud) &&
-    /if \(!data\) return true;/.test(cloud),
-  'an unparseable error body still reaches _isUnknownActionError and triggers the legacy fallback'
+    /if \(res\.status === 400 && !data\) return 'maybe';/.test(cloud),
+  'an unparseable error body still reaches _unknownActionSignal and triggers the legacy fallback'
 );
 
 // Review round 3: contact-only is derived once, at the data boundary, so the
@@ -477,9 +490,21 @@ record(
   /var _NEW_JOB_TIMEOUT_MS = \d+;/.test(integration) &&
     /new AbortController\(\)/.test(newJobHelper) &&
     /_NEW_JOB_TIMEOUT_MS\)/.test(newJobHelper) &&
-    /Timed out — check connection and tap to retry/.test(newJobHelper) &&
+    /Timed out — refreshing the list/.test(newJobHelper) &&
     /clearTimeout\(timer\)/.test(newJobHelper),
-  'a stalled create aborts, unlocks the modal and surfaces a retryable timeout error'
+  'a stalled create aborts, unlocks the modal and surfaces a timeout error'
+);
+
+// Review round 6: an aborted create may have committed the opportunity without
+// returning its id, so the timeout path must re-check what exists rather than
+// invite a blind retry that mints a second orphan.
+record(
+  'a timed-out create refreshes the list instead of offering a retry (review #22)',
+  /toErr\.code = 'timeout';/.test(newJobHelper) &&
+    /err\.code === 'timeout'/.test(cloud) &&
+    /_pendingRefreshMsg = /.test(cloud) &&
+    /function _takeRefreshNotice\(\)/.test(cloud),
+  'the timeout error is tagged and re-runs the search so a committed job surfaces as a loadable row'
 );
 
 // The abort signal must actually reach the network layer, or the timeout only
