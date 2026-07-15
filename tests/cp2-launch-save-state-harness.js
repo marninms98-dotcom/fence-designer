@@ -348,7 +348,7 @@ const searchLeadsBody = (function () {
 })();
 record(
   'searchLeads uses the fast lead_search backend action',
-  /action=lead_search/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
+  /'lead_search'/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
   'cloud.ghl.searchLeads points at lead_search, forwards an abort signal'
 );
 
@@ -357,18 +357,27 @@ record(
 record(
   'searchLeads falls back to the legacy search action (review #10)',
   /_isUnknownActionError\(res, data\)/.test(searchLeadsBody) &&
-    /action=search'/.test(searchLeadsBody) &&
+    /'search' \+ qs/.test(searchLeadsBody) &&
     /res\.status === 404/.test(cloud) &&
     /unknown\|invalid\|unsupported/.test(cloud),
-  'an undeployed lead_search (404 / unknown-action 400) retries once against action=search'
+  'an undeployed lead_search (404 / unknown-action 400) retries against action=search'
+);
+
+// Review round 5: the fallback is sticky for the session, so the 400ms-debounced
+// autocomplete stops paying for a doomed lead_search probe on every keystroke.
+record(
+  'searchLeads stops re-probing lead_search once it is known missing (review #19)',
+  /var _leadSearchUnavailable = false;/.test(cloud) &&
+    /if \(!_leadSearchUnavailable\) \{/.test(searchLeadsBody) &&
+    /_leadSearchUnavailable = true;/.test(searchLeadsBody),
+  'a module-scoped sticky flag keeps post-fallback calls at one request each'
 );
 
 // Review round 4: a non-JSON error body (plain-text 404, HTML 502) must not
 // throw before the fallback is consulted.
 record(
   'searchLeads parses error bodies defensively (review #13)',
-  /var data = await _safeJson\(res\);/.test(searchLeadsBody) &&
-    /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
+  /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
     /async function _safeJson\(res\)/.test(cloud) &&
     /if \(!data\) return true;/.test(cloud),
   'an unparseable error body still reaches _isUnknownActionError and triggers the legacy fallback'
@@ -392,7 +401,7 @@ record(
 
 record(
   'new-job call site creates the opportunity in the tool-type pipeline (AM-A)',
-  /createContactAndOpportunity\(\{\s*contactId: contactId,[\s\S]{0,400}?\}, _toolType\)/.test(integration),
+  /createContactAndOpportunity\(\{\s*contactId: contactId,[\s\S]{0,400}?\}, _toolType, netOpts\)/.test(integration),
   'toolType passed as 2nd arg so the new opp lands in the fencing pipeline'
 );
 
@@ -448,9 +457,40 @@ record(
 // error banner mounts into, leaving the user no feedback and no retry.
 record(
   'modal dismissal is ignored while a create is in flight (review #12)',
-  /function _close\(force\) \{\s*\n\s*if \(_locked && !force\) return;/.test(cloud) &&
+  /function _close\(force\) \{\s*\n\s*if \(_locked && !force\) \{ _flashCreatingStatus\(\); return; \}/.test(cloud) &&
     /_close\(true\);/.test(cloud),
   'backdrop/×/Escape all route through _close, which early-returns while _locked'
+);
+
+// Review round 5: a swallowed dismissal must still acknowledge the tap.
+record(
+  'a dismissal swallowed by the lock flashes the create status (review #18)',
+  /function _flashCreatingStatus\(\) \{/.test(cloud) &&
+    /_lockedStatusEl = statusEl \|\| null;/.test(cloud),
+  'tapping ×/backdrop during a create flashes "Creating job…" instead of no-oping silently'
+);
+
+// Review round 5: nothing may leave the modal locked indefinitely — the create
+// sequence carries its own abort/timeout so the error banner + retry can render.
+record(
+  'the new-job create sequence is bounded by a timeout (review #18)',
+  /var _NEW_JOB_TIMEOUT_MS = \d+;/.test(integration) &&
+    /new AbortController\(\)/.test(newJobHelper) &&
+    /_NEW_JOB_TIMEOUT_MS\)/.test(newJobHelper) &&
+    /Timed out — check connection and tap to retry/.test(newJobHelper) &&
+    /clearTimeout\(timer\)/.test(newJobHelper),
+  'a stalled create aborts, unlocks the modal and surfaces a retryable timeout error'
+);
+
+// The abort signal must actually reach the network layer, or the timeout only
+// masks a still-running request.
+record(
+  'the ghl create calls forward the caller abort signal (review #18)',
+  /async getContact\(contactId, opts\)/.test(cloud) &&
+    /async createContactAndOpportunity\(contact, toolType, opts\)/.test(cloud) &&
+    /async createJobForOpportunity\(opportunityId, toolType, contact, opts\)/.test(cloud) &&
+    /function _signalOpts\(opts, base\)/.test(cloud),
+  'getContact/createContactAndOpportunity/createJobForOpportunity thread opts.signal into authorizedFetch'
 );
 
 // Review round 3: lookupFailed rows are inert, so the failed-create reset must
@@ -505,7 +545,7 @@ record(
 // opportunity create must not send blank names/phones over the top of it.
 record(
   'new-job path sends real contact fields to createContactAndOpportunity (review #17)',
-  /createContactAndOpportunity\(\{[\s\S]{0,400}?contact && contact\.name[\s\S]{0,400}?\}, _toolType\)/.test(newJobHelper),
+  /createContactAndOpportunity\(\{[\s\S]{0,400}?contact && contact\.name[\s\S]{0,400}?\}, _toolType, netOpts\)/.test(newJobHelper),
   'the already-fetched contact details are passed through rather than empty strings'
 );
 
@@ -550,6 +590,16 @@ record(
   'contact-only selection never falls through to the load path (review #7)',
   /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,240}startNewJobForContact\)\s*\{[\s\S]{0,200}return;/.test(index),
   'selectGHLContact early-returns on contact-only rows even when the helper is missing'
+);
+
+// Review round 5: the autocomplete exposes the same job-minting action as the
+// lead modal, so it must carry the same warning affordances.
+record(
+  'the autocomplete labels contact-only rows like the lead modal (review #20)',
+  /const isContactOnly = opp\.isContactOnly \|\| opp\.id == null;/.test(index) &&
+    /isContactOnly[\s\S]{0,200}>Contact</.test(index) &&
+    /isContactOnly \? '<div[^']*>Creates a new job for this client/.test(index),
+  'a contact-only dropdown row shows the grey Contact badge + "Creates a new job" caption'
 );
 
 console.log('CP2 Fence launch/save-state harness');

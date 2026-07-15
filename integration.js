@@ -51,6 +51,9 @@
   // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
   // the orphan instead of minting another; cleared once the job lands.
   var _pendingNewOpps = {};
+  // Ceiling on the repeat-client create sequence (contact fetch + opportunity +
+  // job) so the lead-search modal's in-flight lock can never outlive it.
+  var _NEW_JOB_TIMEOUT_MS = 45000;
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
   var _isReadonly = (function() {
@@ -610,52 +613,73 @@
     // so a failure can neither strand the scoper on a blank scope nor leave the
     // next save pointing at the previous client's opportunity.
 
-    // Full contact fetch first (AM-H) so client + site fields aren't empty.
-    var contact = null;
-    try {
-      contact = await cloud.ghl.getContact(contactId);
-    } catch(e) {
-      console.warn('[Integration] Contact fetch failed, using row data:', e);
-      contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
-    }
+    // The lead-search modal makes itself undismissable while this runs (AM-C),
+    // so the whole create sequence is bounded — a stalled connection must fail
+    // loudly and hand the scoper back a retry rather than hang the modal until
+    // the browser's own multi-minute fetch timeout fires.
+    var abortCtl = new AbortController();
+    var timedOut = false;
+    var timer = setTimeout(function() {
+      timedOut = true;
+      try { abortCtl.abort(); } catch(e) {}
+    }, _NEW_JOB_TIMEOUT_MS);
+    var netOpts = { signal: abortCtl.signal };
+    var _rethrow = function(e) {
+      if (timedOut) throw new Error('Timed out — check connection and tap to retry');
+      throw e;
+    };
 
-    // Create a NEW opportunity for this contact in the fencing pipeline (AM-A:
-    // toolType is the 2nd arg). Backend skips dedup because contactId is set.
-    // Reuse an opportunity minted by an earlier failed attempt for this same
-    // contact so retries can't accumulate orphans in the pipeline. The cache is
-    // keyed by contactId in module scope, not on the row, so it survives the
-    // re-search / re-render that rebuilds the lead objects.
-    var pending = _pendingNewOpps[contactId] || null;
-    var newOppId = pending && pending.opportunityId;
-    var newContactId = (pending && pending.contactId) || contactId;
-    if (!newOppId) {
-      var created = await cloud.ghl.createContactAndOpportunity({
-        contactId: contactId,
+    try {
+      // Full contact fetch first (AM-H) so client + site fields aren't empty.
+      var contact = null;
+      try {
+        contact = await cloud.ghl.getContact(contactId, netOpts);
+      } catch(e) {
+        if (timedOut) _rethrow(e);
+        console.warn('[Integration] Contact fetch failed, using row data:', e);
+        contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
+      }
+
+      // Create a NEW opportunity for this contact in the fencing pipeline (AM-A:
+      // toolType is the 2nd arg). Backend skips dedup because contactId is set.
+      // Reuse an opportunity minted by an earlier failed attempt for this same
+      // contact so retries can't accumulate orphans in the pipeline. The cache is
+      // keyed by contactId in module scope, not on the row, so it survives the
+      // re-search / re-render that rebuilds the lead objects.
+      var pending = _pendingNewOpps[contactId] || null;
+      var newOppId = pending && pending.opportunityId;
+      var newContactId = (pending && pending.contactId) || contactId;
+      if (!newOppId) {
+        var created = await cloud.ghl.createContactAndOpportunity({
+          contactId: contactId,
+          name: (contact && contact.name) || row.contactName || '',
+          phone: (contact && contact.phone) || row.contactPhone || '',
+          email: (contact && contact.email) || row.contactEmail || '',
+          address: (contact && contact.address) || '',
+          suburb: (contact && contact.suburb) || ''
+        }, _toolType, netOpts).catch(_rethrow);
+        newOppId = created && created.opportunityId;
+        if (!newOppId) throw new Error('Could not create a new opportunity for this client');
+        newContactId = (created && created.contactId) || contactId;
+        _pendingNewOpps[contactId] = { opportunityId: newOppId, contactId: newContactId };
+      }
+
+      // Create the job with contact details so site fields populate (AM-H).
+      // Include contactId so the new job row gets ghl_contact_id set (not NULL);
+      // createJobForOpportunity forwards body.contactId when present.
+      var contactForJob = {
+        contactId: newContactId || null,
         name: (contact && contact.name) || row.contactName || '',
         phone: (contact && contact.phone) || row.contactPhone || '',
         email: (contact && contact.email) || row.contactEmail || '',
         address: (contact && contact.address) || '',
         suburb: (contact && contact.suburb) || ''
-      }, _toolType);
-      newOppId = created && created.opportunityId;
-      if (!newOppId) throw new Error('Could not create a new opportunity for this client');
-      newContactId = (created && created.contactId) || contactId;
-      _pendingNewOpps[contactId] = { opportunityId: newOppId, contactId: newContactId };
+      };
+      var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob, netOpts).catch(_rethrow);
+      if (!job || !job.id) throw new Error('Could not create a new job for this client');
+    } finally {
+      clearTimeout(timer);
     }
-
-    // Create the job with contact details so site fields populate (AM-H).
-    // Include contactId so the new job row gets ghl_contact_id set (not NULL);
-    // createJobForOpportunity forwards body.contactId when present.
-    var contactForJob = {
-      contactId: newContactId || null,
-      name: (contact && contact.name) || row.contactName || '',
-      phone: (contact && contact.phone) || row.contactPhone || '',
-      email: (contact && contact.email) || row.contactEmail || '',
-      address: (contact && contact.address) || '',
-      suburb: (contact && contact.suburb) || ''
-    };
-    var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob);
-    if (!job || !job.id) throw new Error('Could not create a new job for this client');
 
     // The opportunity is consumed — a later new job for this same contact must
     // mint its own rather than reuse this one.

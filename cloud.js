@@ -144,6 +144,11 @@
     }
   }
 
+  // Sticky for the session once the deployed ghl-proxy has told us lead_search
+  // does not exist, so the hot path (400ms-debounced autocomplete) stops paying
+  // for a doomed probe on every keystroke. A page reload re-probes.
+  var _leadSearchUnavailable = false;
+
   // True when the edge function rejected the action itself (rather than the
   // request payload) — i.e. this build is ahead of the deployed ghl-proxy.
   function _isUnknownActionError(res, data) {
@@ -155,6 +160,13 @@
     var msg = String(data.error || '').toLowerCase();
     return msg.indexOf('action') !== -1 &&
       /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg);
+  }
+
+  // Merge a caller's abort signal into a fetch options object.
+  function _signalOpts(opts, base) {
+    var out = Object.assign({}, base || {});
+    if (opts && opts.signal) out.signal = opts.signal;
+    return out;
   }
 
   async function authorizedFetch(url, options) {
@@ -666,9 +678,10 @@
       return data.opportunities || [];
     },
 
-    // Get full contact details from GHL
-    async getContact(contactId) {
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId));
+    // Get full contact details from GHL. opts.signal lets the caller bound how
+    // long the request can hang.
+    async getContact(contactId, opts) {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId), _signalOpts(opts));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to get contact');
       return data.contact;
@@ -711,25 +724,31 @@
     // Search GHL leads with pipeline filter + Supabase cross-reference.
     // Uses the fast lead_search action (contacts-first + parallel opp lookup);
     // opts.signal lets the caller abort/timeout a stale in-flight request.
-    // If lead_search is not deployed yet this falls back once to the legacy
-    // search action, so a Pages build can never outrun the edge function.
+    // If lead_search is not deployed yet this falls back to the legacy search
+    // action, so a Pages build can never outrun the edge function. The fallback
+    // is sticky for the session — only the first call pays for the probe.
     async searchLeads(query, pipeline, opts) {
       opts = opts || {};
       var qs = '';
       if (pipeline) qs += '&pipeline=' + encodeURIComponent(pipeline);
       if (query) qs += '&q=' + encodeURIComponent(query);
       var fetchOpts = opts.signal ? { signal: opts.signal } : undefined;
+      var base = SUPABASE_URL + '/functions/v1/ghl-proxy?action=';
 
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=lead_search' + qs, fetchOpts);
-      var data = await _safeJson(res);
-      if (!res.ok) {
-        if (_isUnknownActionError(res, data)) {
-          console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action.');
-          res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=search' + qs, fetchOpts);
-          data = await _safeJson(res);
+      var res, data;
+      if (!_leadSearchUnavailable) {
+        res = await authorizedFetch(base + 'lead_search' + qs, fetchOpts);
+        data = await _safeJson(res);
+        if (!res.ok && _isUnknownActionError(res, data)) {
+          _leadSearchUnavailable = true;
+          console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action for the rest of this session.');
         }
-        if (!res.ok) throw new Error((data && data.error) || ('Search failed (HTTP ' + res.status + ')'));
       }
+      if (_leadSearchUnavailable && (!res || !res.ok)) {
+        res = await authorizedFetch(base + 'search' + qs, fetchOpts);
+        data = await _safeJson(res);
+      }
+      if (!res.ok) throw new Error((data && data.error) || ('Search failed (HTTP ' + res.status + ')'));
       // Contact-only is DERIVED here, at the data boundary, so the card render,
       // the tap handler and integration.js can never disagree about what a row
       // does. The backend flag is advisory only.
@@ -835,7 +854,7 @@
     },
 
     // Auto-create GHL contact + opportunity for walk-up clients (dedup by email/phone)
-    async createContactAndOpportunity(contact, toolType) {
+    async createContactAndOpportunity(contact, toolType, opts) {
       console.log('[Cloud] createContactAndOpportunity:', toolType);
       var firstName = contact.firstName || '';
       var lastName = contact.lastName || '';
@@ -856,10 +875,10 @@
       // Repeat-client path: caller already knows the contact — skip dedup/creation
       // on the backend and just spin up a NEW opportunity for this contact.
       if (contact.contactId) body.contactId = contact.contactId;
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', _signalOpts(opts, {
         method: 'POST',
         body: JSON.stringify(body)
-      });
+      }));
       var data = await res.json();
       console.log('[Cloud] createContactAndOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to create contact/opportunity');
@@ -867,7 +886,7 @@
     },
 
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
-    async createJobForOpportunity(opportunityId, toolType, contact) {
+    async createJobForOpportunity(opportunityId, toolType, contact, opts) {
       console.log('[Cloud] createJobForOpportunity:', opportunityId, toolType);
       var payload = {
         toolType: toolType,
@@ -879,10 +898,10 @@
       };
       if (opportunityId) payload.opportunityId = opportunityId;
       if (contact.contactId) payload.contactId = contact.contactId;
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', _signalOpts(opts, {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }));
       var data = await res.json();
       console.log('[Cloud] createJobForOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to create job');
@@ -1633,7 +1652,7 @@
       // flight (AM-C), so the modal is still mounted to show the error banner
       // and offer a retry if it fails.
       function _close(force) {
-        if (_locked && !force) return;
+        if (_locked && !force) { _flashCreatingStatus(); return; }
         document.removeEventListener('keydown', _escHandler);
         var bd = document.getElementById('sw-lead-search-backdrop');
         if (bd) bd.remove();
@@ -1710,6 +1729,21 @@
       var _abortController = null;
       var _seq = 0;
       var _locked = false;
+      // The "Creating job…" pill on the tapped card. A dismissal that the lock
+      // swallows flashes it, so the tap reads as "still working", not "dead UI".
+      var _lockedStatusEl = null;
+      var _flashTimer = null;
+      function _flashCreatingStatus() {
+        var el = _lockedStatusEl;
+        if (!el) return;
+        clearTimeout(_flashTimer);
+        el.style.transition = 'none';
+        el.style.opacity = '0.25';
+        _flashTimer = setTimeout(function() {
+          el.style.transition = 'opacity 0.25s';
+          el.style.opacity = '1';
+        }, 120);
+      }
 
       // Load leads
       var _loadLeads = async function(query) {
@@ -1778,11 +1812,15 @@
                   statusEl.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;';
                   statusEl.textContent = 'Creating job…';
                 }
+                _lockedStatusEl = statusEl || null;
                 Promise.resolve(onSelect ? onSelect(lead) : null).then(function() {
                   _locked = false;
+                  _lockedStatusEl = null;
                   _close(true);
                 }).catch(function(err) {
                   _locked = false;
+                  _lockedStatusEl = null;
+                  clearTimeout(_flashTimer);
                   list.querySelectorAll('.sw-lead-item').forEach(function(c) {
                     // lookupFailed rows stay dimmed + inert — they were never
                     // selectable, so the reset must not make them look tappable.

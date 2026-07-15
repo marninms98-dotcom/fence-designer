@@ -5046,9 +5046,18 @@
           const phoneLeadLabel = opp.contactPhone ? ('Phone lead ' + opp.contactPhone) : 'Unnamed lead';
           const displayName = opp.contactName || opp.name || phoneLeadLabel;
           const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
-          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;">' +
-            '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
-            (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
+          // Tapping a contact-only row mints an opportunity + job rather than
+          // loading one, so it carries the same badge/caption as the lead modal.
+          const isContactOnly = opp.isContactOnly || opp.id == null;
+          const badge = isContactOnly
+            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;flex-shrink:0;">Contact</span>'
+            : '';
+          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
+              (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
+              (isContactOnly ? '<div style="font-size:11px;color:#F15A29;margin-top:2px;">Creates a new job for this client</div>' : '') +
+            '</div>' + badge +
           '</div>';
         }).join('');
         dd.classList.add('open');
