@@ -51,6 +51,10 @@
   // _jobId when it fires, so a reset that leaves it armed would upload the
   // previous client's walkthrough to the new job.
   var _videoRetryTimer = null;
+  // Bumped by every fencing media reset. A deferred upload compares against it so
+  // it can tell a job SWAP (media wiped, must not upload) apart from the same
+  // draft being promoted from a local- id to its real cloud id.
+  var _mediaEpoch = 0;
   // Opportunities minted by a repeat-client new-job attempt whose job create then
   // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
   // the orphan instead of minting another; cleared once the job lands.
@@ -135,6 +139,7 @@
     if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
     if (_videoRetryTimer) { clearTimeout(_videoRetryTimer); _videoRetryTimer = null; }
     _videoRetryCount = 0;
+    _mediaEpoch++;
     _bgUploads = {};
     if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
     if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
@@ -451,12 +456,16 @@
         var attempt = _videoRetryCount;
         console.log('[Integration] Retrying video upload (attempt ' + attempt + '/' + _VIDEO_MAX_RETRIES + ')');
         if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'uploading');
+        var epoch = _mediaEpoch;
         _videoRetryTimer = setTimeout(function() {
           _videoRetryTimer = null;
           if (video.cloudUrl) return;
           // The job this video belongs to may have been swapped out from under
           // the timer (repeat-client new job); never upload it to a new client.
-          if (_jobId !== jobId) return;
+          // A local- id walking up to its real cloud id is the SAME draft, so
+          // only an intervening media reset invalidates the retry.
+          if (_mediaEpoch !== epoch) return;
+          if (_isRealJobId(jobId) && _jobId !== jobId) return;
           var cur = _bgUploads['__video__'];
           if (cur && !cur.error) return; // a healthy upload is already in flight — don't double-start
           delete _bgUploads['__video__'];

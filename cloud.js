@@ -168,11 +168,14 @@
     // was rejected rather than the payload.
     var code = String((data && data.code) || '').toLowerCase();
     if (/^(unknown|invalid|unsupported|unrecogni[sz]ed)_action$/.test(code)) return 'confirmed';
-    // Prose only confirms on a 404. A 400 is how a live action rejects a bad
-    // payload — "invalid action parameters" means the action EXISTS.
+    // This backend reports errors as {error: '...'} with no code field, so the
+    // canonical undeployed-action reply is a 400 "Unknown action: lead_search"
+    // and prose has to be able to confirm on a 400 too. Only phrasing that
+    // rejects the ACTION ITSELF counts — a live action rejecting its payload
+    // ("invalid action parameters") means the action EXISTS.
     var msg = String((data && data.error) || '').toLowerCase();
-    if (res.status === 404 && msg.indexOf('action') !== -1 &&
-      /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg)) {
+    if (/\b(unknown|invalid|unsupported|unrecogni[sz]ed|no such)\s+action\b(?!\s+(?:param|arg|payload|body|input|field))/.test(msg) ||
+      /\baction\b[^.]{0,40}\b(?:is\s+)?(?:not supported|not recogni[sz]ed|not allowed|unknown|does not exist)/.test(msg)) {
       return 'confirmed';
     }
     // A 404, or a 400 whose body won't parse, can't be ruled out as an unknown

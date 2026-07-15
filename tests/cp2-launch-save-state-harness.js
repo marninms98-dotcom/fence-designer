@@ -392,8 +392,8 @@ record(
   'searchLeads parses error bodies defensively (review #13)',
   /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
     /async function _safeJson\(res\)/.test(cloud) &&
-    /if \(res\.status !== 400 && res\.status !== 404\) return false;[\s\S]{0,1200}?if \(!data\) return 'maybe';/.test(cloud),
-  'an unparseable error body still reaches _unknownActionSignal and triggers the legacy fallback'
+    /if \(!data\) return 'maybe';/.test(cloud),
+  'an unparseable error body still reaches _unknownActionSignal and triggers the legacy fallback (the signal table below proves the verdict)'
 );
 
 // Review round 3: contact-only is derived once, at the data boundary, so the
@@ -633,18 +633,51 @@ record(
   'the fencing reset cancels a pending video-retry timer (review #21)',
   /_videoRetryTimer = setTimeout\(/.test(integration) &&
     /if \(_videoRetryTimer\) \{ clearTimeout\(_videoRetryTimer\); _videoRetryTimer = null; \}[\s\S]{0,60}_videoRetryCount = 0;/.test(integration) &&
-    /if \(_jobId !== jobId\) return;/.test(integration),
-  'the retry timer is tracked, cleared on reset with the retry count, and bails if the job changed'
+    /_videoRetryCount = 0;\s*\n\s*_mediaEpoch\+\+;/.test(integration),
+  'the retry timer is tracked, and a reset clears it, the retry count and the media epoch'
+);
+
+// The retry must tell a job SWAP (reset — never upload) apart from the same
+// draft walking its local- id up to a real cloud id, which happens routinely
+// inside the 4s backoff and used to abandon the upload at the exact moment it
+// would have succeeded, pinning the checklist at "uploading" forever.
+record(
+  'a deferred video retry survives local-to-real promotion but not a reset (review #24)',
+  /var epoch = _mediaEpoch;/.test(integration) &&
+    /if \(_mediaEpoch !== epoch\) return;/.test(integration) &&
+    /if \(_isRealJobId\(jobId\) && _jobId !== jobId\) return;/.test(integration),
+  'only an intervening media reset invalidates the retry; a captured real id still has to match the current job'
 );
 
 // A 500 or a payload-validation 400 must never latch the session onto the
-// legacy search action, which cannot return contact-only rows.
+// legacy search action, which cannot return contact-only rows. But the backend
+// reports errors as {error:'...'} with no code field, so its real undeployed
+// reply — 400 "Unknown action: lead_search" — must still confirm, or the
+// deploy-order fallback is dead on the one response it exists for.
+const unknownActionSignal = (() => {
+  const src = cloud.match(/function _unknownActionSignal\(res, data\) \{[\s\S]*?\n  \}\n/);
+  if (!src) throw new Error('_unknownActionSignal not found');
+  return new Function(`${src[0]}; return _unknownActionSignal;`)();
+})();
+const signalCases = [
+  [400, { error: 'Unknown action: lead_search' }, 'confirmed'],
+  [400, { error: 'Unsupported action: lead_search' }, 'confirmed'],
+  [400, { error: 'Action lead_search is not supported' }, 'confirmed'],
+  [400, { code: 'unknown_action' }, 'confirmed'],
+  [404, { error: 'Unknown action: lead_search' }, 'confirmed'],
+  [501, {}, 'confirmed'],
+  [404, null, 'maybe'],
+  [400, null, 'maybe'],
+  [400, { error: 'invalid action parameters' }, false],
+  [400, { error: 'Missing required field: q' }, false],
+  [500, { error: 'Unknown action: lead_search' }, false],
+  [502, { error: 'bad gateway' }, false],
+];
 record(
-  'only a route-shaped status can confirm an unknown action (review #22)',
-  /if \(res\.status !== 400 && res\.status !== 404\) return false;/.test(cloud) &&
-    /res\.status === 404 && msg\.indexOf\('action'\) !== -1/.test(cloud) &&
+  'the unknown-action signal confirms a rejected action but never a 5xx or bad payload (review #22/#24)',
+  signalCases.every(([status, data, want]) => unknownActionSignal({ status }, data) === want) &&
     /if \(signal === 'maybe'\) _leadSearchMisses\+\+; else _leadSearchMisses = 0;/.test(cloud),
-  'a 5xx never confirms, 400 prose never confirms (only an explicit code does), and the miss streak resets on any non-maybe outcome'
+  'a 400/404 rejecting the ACTION confirms, a 5xx or payload-validation 400 never does, an unparseable body falls back once, and the miss streak resets on any non-maybe outcome'
 );
 
 // _rethrow is shared by the modal and the autocomplete, so its message cannot
