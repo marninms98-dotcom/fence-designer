@@ -5064,7 +5064,11 @@
         // Contact-only row (no opportunity in this pipeline) — there is nothing
         // to load, so start a brand-new job via the shared helper (AM-G). Never
         // call findJobByOpportunity with a null opp id.
-        if ((opp.isContactOnly || opp.id == null) && window._swIntegration && window._swIntegration.startNewJobForContact) {
+        if (opp.isContactOnly || opp.id == null) {
+          if (!window._swIntegration || !window._swIntegration.startNewJobForContact) {
+            this.showToast('Cannot start a new job for this client right now — reload the page and try again.', 'error');
+            return;
+          }
           this.showToast('Starting a new job for ' + (opp.contactName || opp.name || opp.contactPhone || 'this client') + '...', 'info');
           try {
             await window._swIntegration.startNewJobForContact(opp);

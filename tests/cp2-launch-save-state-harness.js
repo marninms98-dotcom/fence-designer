@@ -360,9 +360,9 @@ record(
 );
 
 record(
-  'new-job call site creates the opportunity in the fencing pipeline (AM-A)',
-  /createContactAndOpportunity\(\{ contactId: contactId \}, 'fencing'\)/.test(integration),
-  'toolType passed as 2nd arg = fencing so the new opp lands in the fencing pipeline'
+  'new-job call site creates the opportunity in the tool-type pipeline (AM-A)',
+  /createContactAndOpportunity\(\{ contactId: contactId \}, _toolType\)/.test(integration),
+  'toolType passed as 2nd arg so the new opp lands in the fencing pipeline'
 );
 
 // _startNewJobForContact must NEVER resurrect an old job.
@@ -416,8 +416,43 @@ record(
 // Review finding 3: the new job row must carry ghl_contact_id (not NULL).
 record(
   'new-job create_job payload carries the contactId (review #3)',
-  /contactId: _ghlContactId \|\| contactId \|\| null,/.test(newJobHelper),
+  /contactId: newContactId \|\| null,/.test(newJobHelper),
   'contactForJob includes contactId so createJobForOpportunity forwards ghl_contact_id'
+);
+
+// Review round 2: every network create must complete BEFORE any state/form
+// mutation, so a failed create leaves the scoper's job + draft untouched.
+record(
+  'new-job path creates before it resets (review #4)',
+  newJobHelper.indexOf('createJobForOpportunity(') > 0 &&
+    newJobHelper.indexOf('createJobForOpportunity(') < newJobHelper.indexOf("_openFencingTargetSeparately('repeat_client_new_job')") &&
+    newJobHelper.indexOf('createContactAndOpportunity(') < newJobHelper.indexOf('cloud.stopAutoSave()') &&
+    newJobHelper.indexOf('_ghlOpportunityId = newOppId;') > newJobHelper.indexOf('createJobForOpportunity('),
+  'contact fetch + opportunity + job creates all precede the checkpoint/reset and state assignment'
+);
+
+record(
+  'new-job path clears the previous GHL ids on reset (review #4)',
+  /_ghlOpportunityId = null;/.test(newJobHelper) && /_ghlContactId = null;/.test(newJobHelper),
+  'stale opportunity/contact ids cannot survive into the new job'
+);
+
+record(
+  'new-job path reuses a cached opportunity on retry (review #5)',
+  /row\._createdOppId/.test(newJobHelper) && /if \(!newOppId\) \{/.test(newJobHelper),
+  'a retry after a failed create_job reuses the opportunity instead of minting an orphan'
+);
+
+record(
+  'new-job path requires a known contactId (review #6)',
+  /if \(!contactId\) throw new Error\(/.test(newJobHelper),
+  'a contact-less row is rejected before any network call, so no blank GHL contact is created'
+);
+
+record(
+  'contact-only selection never falls through to the load path (review #7)',
+  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,240}startNewJobForContact\)\s*\{[\s\S]{0,200}return;/.test(index),
+  'selectGHLContact early-returns on contact-only rows even when the helper is missing'
 );
 
 console.log('CP2 Fence launch/save-state harness');

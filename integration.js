@@ -587,17 +587,70 @@
     if (!row) throw new Error('No client selected');
     var displayName = row.contactName || row.name || row.contactPhone || 'this client';
 
-    // AM-H: guard a meaningful local draft behind an explicit confirm, then
-    // checkpoint it on this iPad before we reset — mirrors startLocalDraft().
-    if (window.app && window.app._hasMeaningfulLocalDraft && window.app._hasMeaningfulLocalDraft()) {
+    // This path is premised on an already-known contact. Without a contactId the
+    // backend has nothing to dedup on and would mint a blank contact.
+    var contactId = row.contactId || null;
+    if (!contactId) throw new Error('This client has no GHL contact on file — search again or start a new local draft');
+
+    // AM-H: a meaningful local draft is checkpointed and cleared below, so get
+    // the explicit confirm BEFORE any network create — cancelling must not leave
+    // a stray opportunity behind.
+    var hadMeaningfulDraft = !!(window.app && window.app._hasMeaningfulLocalDraft && window.app._hasMeaningfulLocalDraft());
+    if (hadMeaningfulDraft) {
       var ok = window.confirm('Start a new job for ' + displayName + '? Your current work will be checkpointed on this iPad first.');
       if (!ok) { var cancelErr = new Error('cancelled'); cancelErr.code = 'cancelled'; throw cancelErr; }
     }
 
+    // Every network create runs FIRST. Until they all succeed, _jobId /
+    // _ghlOpportunityId / _ghlContactId and the form stay exactly as they were,
+    // so a failure can neither strand the scoper on a blank scope nor leave the
+    // next save pointing at the previous client's opportunity.
+
+    // Full contact fetch first (AM-H) so client + site fields aren't empty.
+    var contact = null;
+    try {
+      contact = await cloud.ghl.getContact(contactId);
+    } catch(e) {
+      console.warn('[Integration] Contact fetch failed, using row data:', e);
+      contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
+    }
+
+    // Create a NEW opportunity for this contact in the fencing pipeline (AM-A:
+    // toolType is the 2nd arg). Backend skips dedup because contactId is set.
+    // Reuse an opportunity minted by an earlier failed attempt on this same row
+    // so retries can't accumulate orphans in the pipeline.
+    var newOppId = row._createdOppId || null;
+    var newContactId = row._createdContactId || contactId;
+    if (!newOppId) {
+      var created = await cloud.ghl.createContactAndOpportunity({ contactId: contactId }, _toolType);
+      newOppId = created && created.opportunityId;
+      if (!newOppId) throw new Error('Could not create a new opportunity for this client');
+      newContactId = (created && created.contactId) || contactId;
+      row._createdOppId = newOppId;
+      row._createdContactId = newContactId;
+    }
+
+    // Create the job with contact details so site fields populate (AM-H).
+    // Include contactId so the new job row gets ghl_contact_id set (not NULL);
+    // createJobForOpportunity forwards body.contactId when present.
+    var contactForJob = {
+      contactId: newContactId || null,
+      name: (contact && contact.name) || row.contactName || '',
+      phone: (contact && contact.phone) || row.contactPhone || '',
+      email: (contact && contact.email) || row.contactEmail || '',
+      address: (contact && contact.address) || '',
+      suburb: (contact && contact.suburb) || ''
+    };
+    var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob);
+    if (!job || !job.id) throw new Error('Could not create a new job for this client');
+
+    // Creates all landed — now it is safe to checkpoint, reset and re-point state.
     if (cloud) cloud.stopAutoSave();
     _jobId = null;
     _lastJobNumber = null;
     _jobLoaded = false;
+    _ghlOpportunityId = null;
+    _ghlContactId = null;
 
     // Same checkpoint+reset sequence as opening a target separately — never
     // loadJob/findJobByOpportunity here; the old job must stay untouched.
@@ -607,40 +660,8 @@
       _resetPatioForm();
     }
 
-    // Full contact fetch first (AM-H) so client + site fields aren't empty.
-    var contactId = row.contactId || null;
-    var contact = null;
-    if (contactId) {
-      try {
-        contact = await cloud.ghl.getContact(contactId);
-      } catch(e) {
-        console.warn('[Integration] Contact fetch failed, using row data:', e);
-        contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
-      }
-    } else {
-      contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
-    }
-
-    // Create a NEW opportunity for this contact in the FENCING pipeline (AM-A:
-    // toolType is the 2nd arg). Backend skips dedup because contactId is set.
-    var created = await cloud.ghl.createContactAndOpportunity({ contactId: contactId }, 'fencing');
-    var newOppId = created && created.opportunityId;
-    if (!newOppId) throw new Error('Could not create a new opportunity for this client');
     _ghlOpportunityId = newOppId;
-    _ghlContactId = (created && created.contactId) || contactId || null;
-
-    // Create the job with contact details so site fields populate (AM-H).
-    // Include contactId so the new job row gets ghl_contact_id set (not NULL);
-    // createJobForOpportunity forwards body.contactId when present.
-    var contactForJob = {
-      contactId: _ghlContactId || contactId || null,
-      name: (contact && contact.name) || row.contactName || '',
-      phone: (contact && contact.phone) || row.contactPhone || '',
-      email: (contact && contact.email) || row.contactEmail || '',
-      address: (contact && contact.address) || '',
-      suburb: (contact && contact.suburb) || ''
-    };
-    var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob);
+    _ghlContactId = newContactId || null;
     _jobId = job.id;
     _jobStatus = job.status || 'draft';
 
