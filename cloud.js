@@ -133,6 +133,15 @@
     return h;
   }
 
+  // True when the edge function rejected the action itself (rather than the
+  // request payload) — i.e. this build is ahead of the deployed ghl-proxy.
+  function _isUnknownActionError(res, data) {
+    if (res.status === 404) return true;
+    if (res.status !== 400) return false;
+    var msg = String((data && data.error) || '').toLowerCase();
+    return msg.indexOf('unknown action') !== -1 || msg.indexOf('invalid action') !== -1;
+  }
+
   async function authorizedFetch(url, options) {
     options = options || {};
     var headers = await authorizedHeaders(options.headers || {});
@@ -687,15 +696,32 @@
     // Search GHL leads with pipeline filter + Supabase cross-reference.
     // Uses the fast lead_search action (contacts-first + parallel opp lookup);
     // opts.signal lets the caller abort/timeout a stale in-flight request.
+    // If lead_search is not deployed yet this falls back once to the legacy
+    // search action, so a Pages build can never outrun the edge function.
     async searchLeads(query, pipeline, opts) {
       opts = opts || {};
-      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=lead_search';
-      if (pipeline) url += '&pipeline=' + encodeURIComponent(pipeline);
-      if (query) url += '&q=' + encodeURIComponent(query);
-      var res = await authorizedFetch(url, opts.signal ? { signal: opts.signal } : undefined);
+      var qs = '';
+      if (pipeline) qs += '&pipeline=' + encodeURIComponent(pipeline);
+      if (query) qs += '&q=' + encodeURIComponent(query);
+      var fetchOpts = opts.signal ? { signal: opts.signal } : undefined;
+
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=lead_search' + qs, fetchOpts);
       var data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Search failed');
-      return data.opportunities || [];
+      if (!res.ok) {
+        if (_isUnknownActionError(res, data)) {
+          console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action.');
+          res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=search' + qs, fetchOpts);
+          data = await res.json();
+        }
+        if (!res.ok) throw new Error((data && data.error) || 'Search failed');
+      }
+      // Contact-only is DERIVED here, at the data boundary, so the card render,
+      // the tap handler and integration.js can never disagree about what a row
+      // does. The backend flag is advisory only.
+      return (data.opportunities || []).map(function(lead) {
+        lead.isContactOnly = (lead.id == null) && !lead.lookupFailed;
+        return lead;
+      });
     },
 
     // Search Supabase jobs (via edge function, bypasses RLS)
@@ -1587,7 +1613,12 @@
       // Autofocus the search input
       setTimeout(function() { try { searchInput.focus(); } catch(e) {} }, 0);
 
-      function _close() {
+      // `force` is for the internal post-create teardown only. A user-driven
+      // dismissal (backdrop / × / Escape) is IGNORED while a create is in
+      // flight (AM-C), so the modal is still mounted to show the error banner
+      // and offer a retry if it fails.
+      function _close(force) {
+        if (_locked && !force) return;
         document.removeEventListener('keydown', _escHandler);
         var bd = document.getElementById('sw-lead-search-backdrop');
         if (bd) bd.remove();
@@ -1615,7 +1646,9 @@
         var stage = lead.stageName || 'New';
         var hasJob = !!lead.supabaseJobId;
         var hasScope = !!lead.hasScope;
-        var isContactOnly = (lead.id == null) && !lead.lookupFailed;
+        // Normalised by ghl.searchLeads — the same flag the tap handler and
+        // integration.js branch on, so the badge can't disagree with the action.
+        var isContactOnly = !!lead.isContactOnly;
         var lookupFailed = !!lead.lookupFailed;
 
         var borderColor = hasScope ? '#34C759' : hasJob ? '#007AFF' : '#eee';
@@ -1714,7 +1747,7 @@
               // row in load mode (nothing to load, so onSelect resets then makes a
               // new job) — must use the locked/awaited path so a failed create
               // can't strand the user on a blank scope with the modal gone.
-              var createsJob = (mode === 'new_job') || lead.isContactOnly || (lead.id == null);
+              var createsJob = (mode === 'new_job') || !!lead.isContactOnly;
 
               if (createsJob) {
                 // AM-C: lock the whole list, show "Creating job…" on the tapped
@@ -1731,10 +1764,14 @@
                   statusEl.textContent = 'Creating job…';
                 }
                 Promise.resolve(onSelect ? onSelect(lead) : null).then(function() {
-                  _close();
+                  _locked = false;
+                  _close(true);
                 }).catch(function(err) {
                   _locked = false;
                   list.querySelectorAll('.sw-lead-item').forEach(function(c) {
+                    // lookupFailed rows stay dimmed + inert — they were never
+                    // selectable, so the reset must not make them look tappable.
+                    if (c.getAttribute('data-locked') === '1') return;
                     c.style.pointerEvents = '';
                     c.style.opacity = '';
                   });

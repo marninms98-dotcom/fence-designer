@@ -348,8 +348,28 @@ const searchLeadsBody = (function () {
 })();
 record(
   'searchLeads uses the fast lead_search backend action',
-  /action=lead_search/.test(searchLeadsBody) && !/action=search['&]/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
+  /action=lead_search/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
   'cloud.ghl.searchLeads points at lead_search, forwards an abort signal'
+);
+
+// Review round 3: a Pages build must not break when it ships ahead of the
+// ghl-proxy deploy that adds the lead_search action.
+record(
+  'searchLeads falls back to the legacy search action (review #10)',
+  /_isUnknownActionError\(res, data\)/.test(searchLeadsBody) &&
+    /action=search'/.test(searchLeadsBody) &&
+    /res\.status === 404/.test(cloud) &&
+    /unknown action/.test(cloud),
+  'an undeployed lead_search (404 / unknown-action 400) retries once against action=search'
+);
+
+// Review round 3: contact-only is derived once, at the data boundary, so the
+// card badge and the tap action can never disagree.
+record(
+  'searchLeads normalises isContactOnly for every consumer (review #11)',
+  /lead\.isContactOnly = \(lead\.id == null\) && !lead\.lookupFailed;/.test(searchLeadsBody) &&
+    /var isContactOnly = !!lead\.isContactOnly;/.test(cloud),
+  'the render path reads the same normalised flag the selection path branches on'
 );
 
 record(
@@ -408,9 +428,26 @@ record(
 // job-creation path so a failed create can't strand the user on a blank scope.
 record(
   'contact-only selection always uses the locked create path (review #1)',
-  /var createsJob = \(mode === 'new_job'\) \|\| lead\.isContactOnly \|\| \(lead\.id == null\);/.test(cloud) &&
+  /var createsJob = \(mode === 'new_job'\) \|\| !!lead\.isContactOnly;/.test(cloud) &&
     /if \(createsJob\) \{/.test(cloud),
   'load-mode contact-only rows are locked + awaited, not fire-and-forget'
+);
+
+// Review round 3: dismissing the modal mid-create would detach the node the
+// error banner mounts into, leaving the user no feedback and no retry.
+record(
+  'modal dismissal is ignored while a create is in flight (review #12)',
+  /function _close\(force\) \{\s*\n\s*if \(_locked && !force\) return;/.test(cloud) &&
+    /_close\(true\);/.test(cloud),
+  'backdrop/×/Escape all route through _close, which early-returns while _locked'
+);
+
+// Review round 3: lookupFailed rows are inert, so the failed-create reset must
+// not restore them to full opacity and make them look tappable.
+record(
+  'failed-create reset keeps lookupFailed rows dimmed (review #13)',
+  /if \(c\.getAttribute\('data-locked'\) === '1'\) return;\s*\n\s*c\.style\.pointerEvents = '';/.test(cloud),
+  'the error-path opacity reset skips data-locked cards'
 );
 
 // Review finding 3: the new job row must carry ghl_contact_id (not NULL).
@@ -447,6 +484,25 @@ record(
   'new-job path requires a known contactId (review #6)',
   /if \(!contactId\) throw new Error\(/.test(newJobHelper),
   'a contact-less row is rejected before any network call, so no blank GHL contact is created'
+);
+
+// Review round 3: the new job is editable and its URL drops the frozen
+// revision, so the load-time readonly flag must not survive and mute autosave.
+record(
+  'new-job path clears the load-time readonly flag (review #14)',
+  /_isReadonly = false;/.test(newJobHelper) &&
+    /classList\.remove\('readonly-mode'\)/.test(newJobHelper) &&
+    newJobHelper.indexOf('_isReadonly = false;') < newJobHelper.indexOf('_shouldAutoSave()'),
+  'a new job started from a frozen sent-job viewer still autosaves to the cloud'
+);
+
+// Review round 3: a created job must show its ref immediately.
+record(
+  'new-job path applies the created job number (review #15)',
+  /_lastJobNumber = job\.job_number \|\| null;/.test(newJobHelper) &&
+    /if \(_lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(newJobHelper) &&
+    /if \(!localDraftWins && _lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(integration),
+  'both the repeat-client and lead_search create branches populate + apply job_number'
 );
 
 record(

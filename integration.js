@@ -664,10 +664,19 @@
     _ghlContactId = newContactId || null;
     _jobId = job.id;
     _jobStatus = job.status || 'draft';
+    _lastJobNumber = job.job_number || null;
+
+    // This is a brand-new editable job and the URL below drops any frozen
+    // ?scope_revision_id / ?mode=readonly, so the load-time readonly flag must
+    // not leak in and silently disable autosave. The frozen scope has already
+    // been reset out of the form, so the M4 viewer lock is unaffected.
+    _isReadonly = false;
+    document.documentElement.classList.remove('readonly-mode');
 
     // Link anchor (ensures field sync), prefill client fields, wire the URL.
     _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'repeat_client_new_job');
     if (contact) _prefillContact(contact);
+    if (_lastJobNumber) _applyJobNumber(_lastJobNumber);
     if (_jobId) {
       var newUrl = window.location.pathname + '?jobId=' + _jobId;
       window.history.replaceState({}, '', newUrl);
@@ -2130,6 +2139,9 @@
             var contactForJob = contact || { name: lead.contactName, phone: lead.contactPhone, email: lead.contactEmail };
             var job = await cloud.ghl.createJobForOpportunity(lead.id, _toolType, contactForJob);
             _jobId = job.id;
+            _lastJobNumber = job.job_number || null;
+            _jobStatus = job.status || 'draft';
+            if (!localDraftWins && _lastJobNumber) _applyJobNumber(_lastJobNumber);
           }
 
           if (contact) _prefillContact(contact);
