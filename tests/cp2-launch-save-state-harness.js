@@ -359,8 +359,19 @@ record(
   /_isUnknownActionError\(res, data\)/.test(searchLeadsBody) &&
     /action=search'/.test(searchLeadsBody) &&
     /res\.status === 404/.test(cloud) &&
-    /unknown action/.test(cloud),
+    /unknown\|invalid\|unsupported/.test(cloud),
   'an undeployed lead_search (404 / unknown-action 400) retries once against action=search'
+);
+
+// Review round 4: a non-JSON error body (plain-text 404, HTML 502) must not
+// throw before the fallback is consulted.
+record(
+  'searchLeads parses error bodies defensively (review #13)',
+  /var data = await _safeJson\(res\);/.test(searchLeadsBody) &&
+    /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
+    /async function _safeJson\(res\)/.test(cloud) &&
+    /if \(!data\) return true;/.test(cloud),
+  'an unparseable error body still reaches _isUnknownActionError and triggers the legacy fallback'
 );
 
 // Review round 3: contact-only is derived once, at the data boundary, so the
@@ -381,7 +392,7 @@ record(
 
 record(
   'new-job call site creates the opportunity in the tool-type pipeline (AM-A)',
-  /createContactAndOpportunity\(\{ contactId: contactId \}, _toolType\)/.test(integration),
+  /createContactAndOpportunity\(\{\s*contactId: contactId,[\s\S]{0,400}?\}, _toolType\)/.test(integration),
   'toolType passed as 2nd arg so the new opp lands in the fencing pipeline'
 );
 
@@ -476,8 +487,26 @@ record(
 
 record(
   'new-job path reuses a cached opportunity on retry (review #5)',
-  /row\._createdOppId/.test(newJobHelper) && /if \(!newOppId\) \{/.test(newJobHelper),
+  /_pendingNewOpps\[contactId\]/.test(newJobHelper) && /if \(!newOppId\) \{/.test(newJobHelper),
   'a retry after a failed create_job reuses the opportunity instead of minting an orphan'
+);
+
+// Review round 4: the retry cache must outlive the modal re-render that a
+// re-search performs, and must not be reused once the job actually lands.
+record(
+  'new-job opportunity cache is module-scoped and keyed by contact (review #16)',
+  /var _pendingNewOpps = \{\};/.test(integration) &&
+    !/row\._createdOppId/.test(integration) &&
+    /delete _pendingNewOpps\[contactId\];/.test(newJobHelper),
+  'the orphan guard survives a re-search and is cleared once the job is created'
+);
+
+// Review round 4: the full contact is fetched before the create, so the
+// opportunity create must not send blank names/phones over the top of it.
+record(
+  'new-job path sends real contact fields to createContactAndOpportunity (review #17)',
+  /createContactAndOpportunity\(\{[\s\S]{0,400}?contact && contact\.name[\s\S]{0,400}?\}, _toolType\)/.test(newJobHelper),
+  'the already-fetched contact details are passed through rather than empty strings'
 );
 
 record(
@@ -494,6 +523,18 @@ record(
     /classList\.remove\('readonly-mode'\)/.test(newJobHelper) &&
     newJobHelper.indexOf('_isReadonly = false;') < newJobHelper.indexOf('_shouldAutoSave()'),
   'a new job started from a frozen sent-job viewer still autosaves to the cloud'
+);
+
+// Review round 4: clearing the readonly flag is not enough — the frozen
+// viewer's banner controls close over the OLD revision/job.
+record(
+  'new-job path tears down the frozen viewer chrome (review #14b)',
+  /_clearFrozenViewerChrome\(\);/.test(newJobHelper) &&
+    /function _clearFrozenViewerChrome\(\)/.test(integration) &&
+    /'sw-frozen-revision-banner', 'sw-frozen-error-banner'/.test(integration) &&
+    /banner\.dataset\.swPadTop = '36';/.test(integration) &&
+    /banner\.dataset\.swPadTop = '32';/.test(integration),
+  'the sealed-revision banner and its reserved body padding are removed for the new editable job'
 );
 
 // Review round 3: a created job must show its ref immediately.

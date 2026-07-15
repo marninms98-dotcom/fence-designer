@@ -133,13 +133,28 @@
     return h;
   }
 
+  // Parse a JSON body without letting a non-JSON error page (a plain-text 404
+  // from the platform when the function is missing, an HTML 502) throw before
+  // the caller can decide what the status actually means.
+  async function _safeJson(res) {
+    try {
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
   // True when the edge function rejected the action itself (rather than the
   // request payload) — i.e. this build is ahead of the deployed ghl-proxy.
   function _isUnknownActionError(res, data) {
-    if (res.status === 404) return true;
+    if (res.status === 404 || res.status === 501) return true;
     if (res.status !== 400) return false;
-    var msg = String((data && data.error) || '').toLowerCase();
-    return msg.indexOf('unknown action') !== -1 || msg.indexOf('invalid action') !== -1;
+    // A 400 with an unparseable body can't be ruled out as an unknown action;
+    // retrying the legacy action costs one request and keeps the build usable.
+    if (!data) return true;
+    var msg = String(data.error || '').toLowerCase();
+    return msg.indexOf('action') !== -1 &&
+      /unknown|invalid|unsupported|unrecogni[sz]ed|not supported|no such/.test(msg);
   }
 
   async function authorizedFetch(url, options) {
@@ -706,19 +721,19 @@
       var fetchOpts = opts.signal ? { signal: opts.signal } : undefined;
 
       var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=lead_search' + qs, fetchOpts);
-      var data = await res.json();
+      var data = await _safeJson(res);
       if (!res.ok) {
         if (_isUnknownActionError(res, data)) {
           console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action.');
           res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=search' + qs, fetchOpts);
-          data = await res.json();
+          data = await _safeJson(res);
         }
-        if (!res.ok) throw new Error((data && data.error) || 'Search failed');
+        if (!res.ok) throw new Error((data && data.error) || ('Search failed (HTTP ' + res.status + ')'));
       }
       // Contact-only is DERIVED here, at the data boundary, so the card render,
       // the tap handler and integration.js can never disagree about what a row
       // does. The backend flag is advisory only.
-      return (data.opportunities || []).map(function(lead) {
+      return ((data && data.opportunities) || []).map(function(lead) {
         lead.isContactOnly = (lead.id == null) && !lead.lookupFailed;
         return lead;
       });

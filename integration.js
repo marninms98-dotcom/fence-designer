@@ -47,6 +47,10 @@
   // Site video uploads NON-BLOCKING with bounded auto-retry: create-job never waits on it.
   var _VIDEO_MAX_RETRIES = 3;
   var _videoRetryCount = 0;
+  // Opportunities minted by a repeat-client new-job attempt whose job create then
+  // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
+  // the orphan instead of minting another; cleared once the job lands.
+  var _pendingNewOpps = {};
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
   var _isReadonly = (function() {
@@ -617,17 +621,26 @@
 
     // Create a NEW opportunity for this contact in the fencing pipeline (AM-A:
     // toolType is the 2nd arg). Backend skips dedup because contactId is set.
-    // Reuse an opportunity minted by an earlier failed attempt on this same row
-    // so retries can't accumulate orphans in the pipeline.
-    var newOppId = row._createdOppId || null;
-    var newContactId = row._createdContactId || contactId;
+    // Reuse an opportunity minted by an earlier failed attempt for this same
+    // contact so retries can't accumulate orphans in the pipeline. The cache is
+    // keyed by contactId in module scope, not on the row, so it survives the
+    // re-search / re-render that rebuilds the lead objects.
+    var pending = _pendingNewOpps[contactId] || null;
+    var newOppId = pending && pending.opportunityId;
+    var newContactId = (pending && pending.contactId) || contactId;
     if (!newOppId) {
-      var created = await cloud.ghl.createContactAndOpportunity({ contactId: contactId }, _toolType);
+      var created = await cloud.ghl.createContactAndOpportunity({
+        contactId: contactId,
+        name: (contact && contact.name) || row.contactName || '',
+        phone: (contact && contact.phone) || row.contactPhone || '',
+        email: (contact && contact.email) || row.contactEmail || '',
+        address: (contact && contact.address) || '',
+        suburb: (contact && contact.suburb) || ''
+      }, _toolType);
       newOppId = created && created.opportunityId;
       if (!newOppId) throw new Error('Could not create a new opportunity for this client');
       newContactId = (created && created.contactId) || contactId;
-      row._createdOppId = newOppId;
-      row._createdContactId = newContactId;
+      _pendingNewOpps[contactId] = { opportunityId: newOppId, contactId: newContactId };
     }
 
     // Create the job with contact details so site fields populate (AM-H).
@@ -643,6 +656,10 @@
     };
     var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob);
     if (!job || !job.id) throw new Error('Could not create a new job for this client');
+
+    // The opportunity is consumed — a later new job for this same contact must
+    // mint its own rather than reuse this one.
+    delete _pendingNewOpps[contactId];
 
     // Creates all landed — now it is safe to checkpoint, reset and re-point state.
     if (cloud) cloud.stopAutoSave();
@@ -672,6 +689,12 @@
     // been reset out of the form, so the M4 viewer lock is unaffected.
     _isReadonly = false;
     document.documentElement.classList.remove('readonly-mode');
+
+    // The frozen viewer's banner outlives its URL: its "Make a revision" button
+    // and revision switcher close over the OLD scope revision and job, so left
+    // mounted they would clone the previous client's sealed scope from what is
+    // now a different client's editable job.
+    _clearFrozenViewerChrome();
 
     // Link anchor (ensures field sync), prefill client fields, wire the URL.
     _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'repeat_client_new_job');
@@ -2710,6 +2733,7 @@
     controls.appendChild(switcher);
 
     banner.appendChild(controls);
+    banner.dataset.swPadTop = '36';
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 36) + 'px';
 
@@ -2729,8 +2753,26 @@
     ].join(';');
     var prefix = status ? ('HTTP ' + status + ' — ') : '';
     banner.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
+    banner.dataset.swPadTop = '32';
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 32) + 'px';
+  }
+
+  // Tear down every frozen-viewer chrome element and give back the body padding
+  // each one reserved. Pairs with _renderFrozenBanner / _renderFrozenError so a
+  // job that leaves the frozen viewer can never keep a stale banner (whose
+  // controls close over the OLD revision/job) pinned over an editable scope.
+  function _clearFrozenViewerChrome() {
+    ['sw-frozen-revision-banner', 'sw-frozen-error-banner'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var reserved = parseInt((el.dataset && el.dataset.swPadTop) || '0', 10);
+      if (el.parentNode) el.parentNode.removeChild(el);
+      if (reserved) {
+        var current = parseInt(document.body.style.paddingTop || '0', 10);
+        document.body.style.paddingTop = Math.max(0, current - reserved) + 'px';
+      }
+    });
   }
 
   // (M4 G-F2/G-F5) Clone the current frozen revision into an editable draft and
