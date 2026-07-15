@@ -199,6 +199,14 @@
     return out;
   }
 
+  // Matches what fetch itself rejects with, so callers can treat a give-up
+  // between round trips exactly like an aborted request.
+  function _abortError() {
+    var e = new Error('Aborted');
+    e.name = 'AbortError';
+    return e;
+  }
+
   async function authorizedFetch(url, options) {
     options = options || {};
     var headers = await authorizedHeaders(options.headers || {});
@@ -820,15 +828,19 @@
     },
 
     // Load a job by ID (via edge function, bypasses RLS)
-    async loadJob(jobId) {
+    async loadJob(jobId, opts) {
       console.log('[Cloud] loadJob:', jobId);
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=load_job&jobId=' + encodeURIComponent(jobId);
-      // Retry once on 503 (Supabase cold start / transient timeout)
-      var res = await authorizedFetch(url);
-      if (res.status === 503) {
+      var signal = (opts && opts.signal) || null;
+      // Retry once on 503 (Supabase cold start / transient timeout). An aborted
+      // caller skips the sleep and the retry: a bounded call must not outlive
+      // its budget by 1.5s plus a second round trip.
+      var res = await authorizedFetch(url, _signalOpts(opts));
+      if (res.status === 503 && !(signal && signal.aborted)) {
         console.warn('[Cloud] loadJob got 503, retrying...');
         await new Promise(function(r) { setTimeout(r, 1500); });
-        res = await authorizedFetch(url);
+        if (signal && signal.aborted) throw _abortError();
+        res = await authorizedFetch(url, _signalOpts(opts));
       }
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load job');

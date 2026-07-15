@@ -96,7 +96,7 @@ record(
 
 record(
   'loaded cloud jobs carry a server scope cursor for later save preconditions',
-  /loadJob\(jobId\)[\s\S]{0,900}current_scope_hash/.test(cloud) &&
+  /loadJob\(jobId(, opts)?\)[\s\S]{0,1200}current_scope_hash/.test(cloud) &&
     /current_scope_updated_at/.test(cloud) &&
     /function _rememberScopeCursor/.test(integration) &&
     /getScopeSaveCursor/.test(integration),

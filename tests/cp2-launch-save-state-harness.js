@@ -832,6 +832,41 @@ record(
   'a stale upload cannot report done, spend the retry budget, or orphan the new job retry timer'
 );
 
+// The lead-search modal locks itself while the create sequence runs, so every
+// await inside that sequence must honour its 45s abort — including the
+// best-effort adopt meta fetch, which is the one call that used to escape it.
+record(
+  'the adopted-job meta fetch stays inside the create timeout (review #32)',
+  /async function _fetchAdoptedJobMeta\(jobId, opts\)/.test(integration) &&
+    /cloud\.ghl\.loadJob\(jobId, opts\)/.test(integration) &&
+    /_fetchAdoptedJobMeta\(job\.id, netOpts\)/.test(integration) &&
+    /async loadJob\(jobId, opts\)/.test(cloud) &&
+    /authorizedFetch\(url, _signalOpts\(opts\)\)/.test(cloud) &&
+    /if \(res\.status === 503 && !\(signal && signal\.aborted\)\)/.test(cloud),
+  'loadJob takes the abort signal and skips the 503 sleep-retry once aborted, so the modal lock cannot outlive the bound'
+);
+
+// Resetting wipes the media state; a load path that does not put it back leaves
+// the scoper staring at an empty grid on a job that already has photos.
+record(
+  'inline contact select reloads the linked job media after the reset (review #32)',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.loadCloudMedia\(existingJob\.id\)/.test(inlineSelectContact) &&
+    /!localDraftWins/.test(inlineSelectContact) &&
+    /loadCloudMedia: function\(jobId\)/.test(integration),
+  'the inline load path calls _loadCloudMedia like every other load path, so cloud photos survive the wipe'
+);
+
+// The hand-rolled reset this change exists to delete must not linger as an
+// unreachable fallback: it is a copy without the media wipe.
+record(
+  'the inline hand-rolled reset copy is gone (review #32)',
+  inlineSelectContact.length > 0 &&
+    !/localStorage\.removeItem\('fenceJob'\)/.test(inlineSelectContact) &&
+    !/fenceQA\._verificationState = \{\}/.test(inlineSelectContact),
+  'only the shared helper resets this path — no second, media-leaking implementation survives'
+);
+
 console.log('CP2 Fence launch/save-state harness');
 for (const row of passes) {
   console.log(`PASS ${row.id}`);

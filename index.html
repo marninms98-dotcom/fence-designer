@@ -5144,20 +5144,7 @@
             // Reset through the shared integration helper, never a local copy:
             // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
             // so the previous client's media cannot upload into this target.
-            if (window._swIntegration && window._swIntegration.openFencingTargetSeparately) {
-              window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
-            } else {
-              this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_open_separately');
-              localStorage.removeItem('fenceJob');
-              this.job = null;
-              this.currentRunId = null;
-              this._resetSections();
-              this.init();
-              localStorage.removeItem('fenceQA_verification');
-              if (typeof fenceQA !== 'undefined') {
-                fenceQA._verificationState = {};
-              }
-            }
+            window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
             if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
             if (window._swIntegration) {
               window._swIntegration._connectJob(null, null, null);
@@ -5205,6 +5192,13 @@
             if (window._swIntegration) {
               if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
+              // The reset above wiped the media state, so reload this job's own
+              // photos/video like every other load path — otherwise the grid sits
+              // empty and QA re-demands capture on a job that already has them.
+              if (existingJob && existingJob.id && !localDraftWins && window._swIntegration.loadCloudMedia) {
+                try { await window._swIntegration.loadCloudMedia(existingJob.id); }
+                catch(e) { console.warn('[FenceSync] Media load failed:', e); }
+              }
             }
 
             this.save();

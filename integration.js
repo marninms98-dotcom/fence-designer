@@ -633,11 +633,14 @@
   // (timed-out create that committed). Deliberately projects id/job_number/status
   // and DROPS scope_json: an adopt must never be able to pull a scope into the
   // form, so the capability simply is not returned. Best-effort — a failed fetch
-  // just leaves the header numberless; the job itself is already ours.
-  async function _fetchAdoptedJobMeta(jobId) {
+  // just leaves the header numberless; the job itself is already ours. Takes the
+  // caller's abort opts so it stays inside the create sequence's timeout — the
+  // lead-search modal is locked while this runs and must never wait on it longer
+  // than the bound.
+  async function _fetchAdoptedJobMeta(jobId, opts) {
     if (!jobId || !cloud || !cloud.ghl || !cloud.ghl.loadJob) return null;
     try {
-      var full = await cloud.ghl.loadJob(jobId);
+      var full = await cloud.ghl.loadJob(jobId, opts);
       if (!full || !full.id) return null;
       return { id: full.id, job_number: full.job_number || null, status: full.status || null };
     } catch(e) {
@@ -762,7 +765,7 @@
       // scope back into the form, so the never-resurrect-an-old-job invariant
       // of this path holds.
       if (adopted && adopted.id) {
-        var meta = await _fetchAdoptedJobMeta(job.id);
+        var meta = await _fetchAdoptedJobMeta(job.id, netOpts);
         if (meta) job = meta;
       }
     } finally {
@@ -2446,6 +2449,13 @@
     // the orphan opportunity gets reused by a later, legitimately-new job.
     clearPendingNewOpp: function(contactId) {
       _clearPendingNewOpp(contactId);
+    },
+
+    // The reset wipes window.sitePhotos/siteVideo, so every path that links an
+    // existing job must reload its media or the scoper sees an empty grid on a
+    // job that already has photos. Returns a promise.
+    loadCloudMedia: function(jobId) {
+      return _loadCloudMedia(jobId);
     },
 
     getSyncState: function() {
