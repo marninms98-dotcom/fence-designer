@@ -1710,7 +1710,13 @@
               var lead = leads[idx];
               if (!lead || lead.lookupFailed) return;
 
-              if (mode === 'new_job') {
+              // Any selection that creates a job — new_job mode, OR a contact-only
+              // row in load mode (nothing to load, so onSelect resets then makes a
+              // new job) — must use the locked/awaited path so a failed create
+              // can't strand the user on a blank scope with the modal gone.
+              var createsJob = (mode === 'new_job') || lead.isContactOnly || (lead.id == null);
+
+              if (createsJob) {
                 // AM-C: lock the whole list, show "Creating job…" on the tapped
                 // card, and hold the modal open until onSelect settles.
                 _locked = true;

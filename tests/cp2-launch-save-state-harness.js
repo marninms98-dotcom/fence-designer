@@ -404,6 +404,22 @@ record(
   'contact-only rows (null id) are selectable because selection resolves leads[idx]'
 );
 
+// Review finding 1: contact-only selections (any mode) use the locked/awaited
+// job-creation path so a failed create can't strand the user on a blank scope.
+record(
+  'contact-only selection always uses the locked create path (review #1)',
+  /var createsJob = \(mode === 'new_job'\) \|\| lead\.isContactOnly \|\| \(lead\.id == null\);/.test(cloud) &&
+    /if \(createsJob\) \{/.test(cloud),
+  'load-mode contact-only rows are locked + awaited, not fire-and-forget'
+);
+
+// Review finding 3: the new job row must carry ghl_contact_id (not NULL).
+record(
+  'new-job create_job payload carries the contactId (review #3)',
+  /contactId: _ghlContactId \|\| contactId \|\| null,/.test(newJobHelper),
+  'contactForJob includes contactId so createJobForOpportunity forwards ghl_contact_id'
+);
+
 console.log('CP2 Fence launch/save-state harness');
 for (const row of passes) {
   console.log(`PASS ${row.id}`);

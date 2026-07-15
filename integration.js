@@ -630,7 +630,10 @@
     _ghlContactId = (created && created.contactId) || contactId || null;
 
     // Create the job with contact details so site fields populate (AM-H).
+    // Include contactId so the new job row gets ghl_contact_id set (not NULL);
+    // createJobForOpportunity forwards body.contactId when present.
     var contactForJob = {
+      contactId: _ghlContactId || contactId || null,
       name: (contact && contact.name) || row.contactName || '',
       phone: (contact && contact.phone) || row.contactPhone || '',
       email: (contact && contact.email) || row.contactEmail || '',
