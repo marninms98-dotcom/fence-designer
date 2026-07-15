@@ -684,12 +684,15 @@
       return data.job || null;
     },
 
-    // Search GHL leads with pipeline filter + Supabase cross-reference
-    async searchLeads(query, pipeline) {
-      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search';
+    // Search GHL leads with pipeline filter + Supabase cross-reference.
+    // Uses the fast lead_search action (contacts-first + parallel opp lookup);
+    // opts.signal lets the caller abort/timeout a stale in-flight request.
+    async searchLeads(query, pipeline, opts) {
+      opts = opts || {};
+      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=lead_search';
       if (pipeline) url += '&pipeline=' + encodeURIComponent(pipeline);
       if (query) url += '&q=' + encodeURIComponent(query);
-      var res = await authorizedFetch(url);
+      var res = await authorizedFetch(url, opts.signal ? { signal: opts.signal } : undefined);
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Search failed');
       return data.opportunities || [];
@@ -800,17 +803,21 @@
         firstName = parts[0] || '';
         lastName = parts.slice(1).join(' ') || '';
       }
+      var body = {
+        firstName: firstName,
+        lastName: lastName,
+        email: contact.email || '',
+        phone: contact.phone || '',
+        address: contact.address || '',
+        suburb: contact.suburb || '',
+        toolType: toolType
+      };
+      // Repeat-client path: caller already knows the contact — skip dedup/creation
+      // on the backend and just spin up a NEW opportunity for this contact.
+      if (contact.contactId) body.contactId = contact.contactId;
       var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
         method: 'POST',
-        body: JSON.stringify({
-          firstName: firstName,
-          lastName: lastName,
-          email: contact.email || '',
-          phone: contact.phone || '',
-          address: contact.address || '',
-          suburb: contact.suburb || '',
-          toolType: toolType
-        })
+        body: JSON.stringify(body)
       });
       var data = await res.json();
       console.log('[Cloud] createContactAndOpportunity result:', data);
@@ -1510,7 +1517,9 @@
     },
 
     // Lead search — self-contained centered modal (no header dependency)
-    showLeadSearch: function(toolType, onSelect, initialQuery) {
+    showLeadSearch: function(toolType, onSelect, initialQuery, opts) {
+      opts = opts || {};
+      var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
 
@@ -1541,7 +1550,8 @@
       // Header row: title + close button
       var header = document.createElement('div');
       header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid #eee;';
-      header.innerHTML = '<div style="font-weight:700;color:' + hex.dark + ';font-size:15px;">Load lead / contact</div>';
+      var headerTitle = (mode === 'new_job') ? 'New job for existing client/lead' : 'Load lead / contact';
+      header.innerHTML = '<div style="font-weight:700;color:' + hex.dark + ';font-size:15px;">' + headerTitle + '</div>';
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.textContent = '×';
@@ -1591,8 +1601,13 @@
       }
       document.addEventListener('keydown', _escHandler);
 
-      // Render a lead card
-      function _renderLeadCard(lead) {
+      function _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      // Render a lead card. `idx` is the array index — the ONLY selection key,
+      // because contact-only rows have id === null (AM-D).
+      function _renderLeadCard(lead, idx) {
         var phone = lead.contactPhone || '';
         var rawName = (lead.contactName || lead.name || '').trim();
         var phoneOnlyName = /^\+?\d[\d\s\-]+$/.test(rawName);
@@ -1600,64 +1615,153 @@
         var stage = lead.stageName || 'New';
         var hasJob = !!lead.supabaseJobId;
         var hasScope = !!lead.hasScope;
+        var isContactOnly = (lead.id == null) && !lead.lookupFailed;
+        var lookupFailed = !!lead.lookupFailed;
 
         var borderColor = hasScope ? '#34C759' : hasJob ? '#007AFF' : '#eee';
         var borderWidth = (hasScope || hasJob) ? '2px' : '1px';
+        // lookupFailed rows are dimmed + not clickable in any mode (AM-C).
+        var extraStyle = lookupFailed
+          ? 'opacity:0.5;cursor:not-allowed;'
+          : 'cursor:pointer;';
+        var hoverAttrs = lookupFailed
+          ? ''
+          : ' onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'"';
 
-        var html = '<div class="sw-lead-item" data-oppid="' + lead.id + '" style="padding:10px 12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background 0.15s;display:flex;justify-content:space-between;align-items:center;gap:8px;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">';
+        var html = '<div class="sw-lead-item" data-idx="' + idx + '"' + (lookupFailed ? ' data-locked="1"' : '') + ' style="padding:10px 12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:6px;transition:background 0.15s;display:flex;justify-content:space-between;align-items:center;gap:8px;' + extraStyle + '"' + hoverAttrs + '>';
         html += '<div style="flex:1;min-width:0;">';
-        html += '<div style="font-weight:600;color:' + hex.dark + ';font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + name + '</div>';
-        if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + phone + '</div>';
+        html += '<div style="font-weight:600;color:' + hex.dark + ';font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + _esc(name) + '</div>';
+        if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + _esc(phone) + '</div>';
+        // In new_job mode every selectable card explains what tapping does.
+        if (mode === 'new_job' && !lookupFailed) {
+          html += '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
+        }
         html += '</div>';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
-        if (hasScope) {
+        html += '<span class="sw-lead-status" style="display:none;"></span>';
+        if (lookupFailed) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;">Couldn\'t check — retry search</span>';
+        } else if (isContactOnly) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;">Contact</span>';
+        } else if (hasScope) {
           html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#34C75920;color:#34C759;font-weight:600;">Scope saved</span>';
         } else if (hasJob) {
           html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#007AFF20;color:#007AFF;font-weight:600;">Job linked</span>';
         }
-        html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '15;color:' + hex.orange + ';font-weight:500;">' + stage + '</span>';
+        if (!isContactOnly && !lookupFailed) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '15;color:' + hex.orange + ';font-weight:500;">' + _esc(stage) + '</span>';
+        }
         html += '</div>';
         html += '</div>';
         return html;
       }
 
+      // Per-modal request coordination (AM-F): one AbortController, monotonic seq.
+      // A newer search aborts the previous in-flight fetch and bumps the seq so a
+      // late/stale response is discarded. `_locked` is the new_job double-tap guard.
+      var _abortController = null;
+      var _seq = 0;
+      var _locked = false;
+
       // Load leads
       var _loadLeads = async function(query) {
         var list = document.getElementById('sw-lead-list');
         if (!list) return;
-        list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching...</p>';
+        if (_locked) return; // a job is being created; don't disturb the list
+
+        if (_abortController) { try { _abortController.abort(); } catch(e) {} }
+        var controller = new AbortController();
+        _abortController = controller;
+        var mySeq = ++_seq;
+        var timedOut = false;
+        var timer = setTimeout(function() { timedOut = true; try { controller.abort(); } catch(e) {} }, 30000);
+
+        list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching contacts…</p>';
 
         try {
-          var leads = await ghl.searchLeads(query || '', pipelineKey);
+          var leads = await ghl.searchLeads(query || '', pipelineKey, { signal: controller.signal });
+          clearTimeout(timer);
+          if (mySeq !== _seq) return; // superseded by a newer search — discard
 
           // Keep phone-only/no-name leads; field launch still needs a sync target.
           leads = leads || [];
 
           if (leads.length === 0) {
-            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">' + (query ? 'No leads matching "' + query + '"' : 'No leads in pipeline') + '</p>';
-          } else {
-            // Sort: leads with scope first, then by most recent
-            leads.sort(function(a, b) {
-              if (a.hasScope && !b.hasScope) return -1;
-              if (!a.hasScope && b.hasScope) return 1;
-              return 0; // GHL already returns most recent first
-            });
+            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">No matches — check spelling or try a phone number.</p>';
+            return;
+          }
 
-            list.innerHTML = leads.map(function(lead) { return _renderLeadCard(lead); }).join('');
+          // Client keeps only the hasScope-first stable sort; backend already
+          // orders opp rows by recency and appends contact-only rows (AM-E).
+          leads.sort(function(a, b) {
+            if (a.hasScope && !b.hasScope) return -1;
+            if (!a.hasScope && b.hasScope) return 1;
+            return 0;
+          });
 
-            // Click handlers
-            list.querySelectorAll('.sw-lead-item').forEach(function(el) {
-              el.onclick = function() {
-                var oppId = el.dataset.oppid;
-                var lead = leads.find(function(l) { return l.id === oppId; });
-                if (!lead) return;
+          list.innerHTML = leads.map(function(lead, i) { return _renderLeadCard(lead, i); }).join('');
+
+          // Click handlers — keyed by array index (AM-D).
+          list.querySelectorAll('.sw-lead-item').forEach(function(el) {
+            if (el.getAttribute('data-locked') === '1') return; // lookupFailed: not selectable
+            el.onclick = function() {
+              if (_locked) return;
+              var idx = parseInt(el.getAttribute('data-idx'), 10);
+              var lead = leads[idx];
+              if (!lead || lead.lookupFailed) return;
+
+              if (mode === 'new_job') {
+                // AM-C: lock the whole list, show "Creating job…" on the tapped
+                // card, and hold the modal open until onSelect settles.
+                _locked = true;
+                list.querySelectorAll('.sw-lead-item').forEach(function(c) {
+                  c.style.pointerEvents = 'none';
+                  if (c !== el) c.style.opacity = '0.5';
+                });
+                var statusEl = el.querySelector('.sw-lead-status');
+                if (statusEl) {
+                  statusEl.style.display = '';
+                  statusEl.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;';
+                  statusEl.textContent = 'Creating job…';
+                }
+                Promise.resolve(onSelect ? onSelect(lead) : null).then(function() {
+                  _close();
+                }).catch(function(err) {
+                  _locked = false;
+                  list.querySelectorAll('.sw-lead-item').forEach(function(c) {
+                    c.style.pointerEvents = '';
+                    c.style.opacity = '';
+                  });
+                  if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
+                  var msg = (err && err.message) ? err.message : 'Could not create the job';
+                  if (err && err.code === 'cancelled') return; // user backed out of the confirm
+                  var banner = document.getElementById('sw-lead-modal-error');
+                  if (!banner) {
+                    banner = document.createElement('p');
+                    banner.id = 'sw-lead-modal-error';
+                    banner.style.cssText = 'text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;';
+                    list.insertBefore(banner, list.firstChild);
+                  }
+                  banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                });
+              } else {
                 _close();
                 if (onSelect) onSelect(lead);
-              };
-            });
-          }
+              }
+            };
+          });
         } catch(e) {
-          list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + e.message + '</p>';
+          clearTimeout(timer);
+          if (mySeq !== _seq) return; // superseded — ignore
+          if (e && e.name === 'AbortError') {
+            // Our own cancellation of a superseded fetch is silent; only a real
+            // client-side timeout surfaces an error state.
+            if (timedOut) {
+              list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Search timed out. Retry, or refine your search.</p>';
+            }
+            return;
+          }
+          list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + _esc(e.message) + ' — Retry.</p>';
         }
       };
 

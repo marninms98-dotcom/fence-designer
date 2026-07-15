@@ -2237,6 +2237,7 @@
             '<button id="launchGhlLeadBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">1. Load GHL lead/contact</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Use when you have Wi-Fi/hotspot at the start. Links this iPad draft to the lead; fills blank client fields only.</span></button>' +
             '<button id="launchResumeDraftBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">2. Resume draft / previous scope</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Open existing local/cloud work without silently deleting the current iPad draft.</span></button>' +
             '<button id="launchNewLocalBtn" style="text-align:left;border:1px solid #F15A29;background:#FFF7ED;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#F15A29;font-size:16px;">3. Start new local draft</b><span style="display:block;color:#92400E;font-size:13px;margin-top:4px;">Works offline. You can scope now and link/sync before release.</span></button>' +
+            '<button id="launchNewJobBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">4. New job for existing client/lead</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Repeat customer? Find an existing client and start a brand-new job without touching their old one.</span></button>' +
             '<div style="font-size:12px;color:#6B7280;background:#F3F4F6;border-radius:10px;padding:10px 12px;">' + this._esc(savedLabel) + '</div>' +
           '</div>' +
           '<div style="padding:12px 22px;border-top:1px solid #E5E7EB;text-align:right;"><button id="launchCloseBtn" style="padding:10px 16px;border:1px solid #D1D5DB;background:#fff;border-radius:8px;cursor:pointer;">Close</button></div>' +
@@ -2247,6 +2248,7 @@
         document.getElementById('launchGhlLeadBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads(''); else this.showToast('Cloud login not ready', 'error'); };
         document.getElementById('launchResumeDraftBtn').onclick = () => { overlay.remove(); this.showResumeDraftModal(); };
         document.getElementById('launchNewLocalBtn').onclick = () => { overlay.remove(); this.startLocalDraft(); };
+        document.getElementById('launchNewJobBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads('', { mode: 'new_job' }); else this.showToast('Cloud login not ready', 'error'); };
       },
 
       startLocalDraft() {
@@ -5013,11 +5015,19 @@
       async _searchGHLContacts(query) {
         var cloud = window.SECUREWORKS_CLOUD;
         if (!cloud || !cloud.auth.isLoggedIn()) return;
+        // Fast path (AM-G): lead_search returns in seconds. Abort any stale
+        // in-flight request so out-of-order responses can't clobber the list.
+        if (this._clientNameAbort) { try { this._clientNameAbort.abort(); } catch(e) {} }
+        var controller = new AbortController();
+        this._clientNameAbort = controller;
         try {
-          var opps = await cloud.ghl.search(query);
-          this._clientNameResults = opps || [];
+          var rows = await cloud.ghl.searchLeads(query, 'fencing', { signal: controller.signal });
+          if (this._clientNameAbort !== controller) return; // superseded
+          // Rows that couldn't be checked are not shown here.
+          this._clientNameResults = (rows || []).filter(function(r) { return !r.lookupFailed; });
           this._renderClientNameDropdown();
         } catch(e) {
+          if (e && e.name === 'AbortError') return;
           console.warn('[GHL Search] Failed:', e);
         }
       },
@@ -5048,7 +5058,27 @@
       async selectGHLContact(idx) {
         const opp = this._clientNameResults[idx];
         if (!opp) return;
+        if (opp.lookupFailed) return; // couldn't check this contact — not selectable
         this.hideClientNameDropdown();
+
+        // Contact-only row (no opportunity in this pipeline) — there is nothing
+        // to load, so start a brand-new job via the shared helper (AM-G). Never
+        // call findJobByOpportunity with a null opp id.
+        if ((opp.isContactOnly || opp.id == null) && window._swIntegration && window._swIntegration.startNewJobForContact) {
+          this.showToast('Starting a new job for ' + (opp.contactName || opp.name || opp.contactPhone || 'this client') + '...', 'info');
+          try {
+            await window._swIntegration.startNewJobForContact(opp);
+            this.render();
+            this.updateSectionStatuses();
+            this._updateHeaderStatus();
+            if (typeof updateButtonStages === 'function') updateButtonStages();
+            this.showToast('New job started for ' + (opp.contactName || opp.name || 'client'), 'success');
+          } catch(e) {
+            if (e && e.code === 'cancelled') return;
+            this.showToast('Failed to start new job: ' + e.message, 'error');
+          }
+          return;
+        }
 
         // Trigger the full GHL load flow via integration
         if (window._swIntegration && window._swIntegration.loadPicker) {

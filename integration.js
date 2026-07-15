@@ -580,6 +580,81 @@
     }
   }
 
+  // Repeat-client / contact-only path: start a BRAND-NEW job for an existing
+  // contact without ever loading their old scope/job (C3, AM-A, AM-H).
+  // Returns a promise so the lead-search modal can lock while it runs (AM-C).
+  async function _startNewJobForContact(row) {
+    if (!row) throw new Error('No client selected');
+    var displayName = row.contactName || row.name || row.contactPhone || 'this client';
+
+    // AM-H: guard a meaningful local draft behind an explicit confirm, then
+    // checkpoint it on this iPad before we reset — mirrors startLocalDraft().
+    if (window.app && window.app._hasMeaningfulLocalDraft && window.app._hasMeaningfulLocalDraft()) {
+      var ok = window.confirm('Start a new job for ' + displayName + '? Your current work will be checkpointed on this iPad first.');
+      if (!ok) { var cancelErr = new Error('cancelled'); cancelErr.code = 'cancelled'; throw cancelErr; }
+    }
+
+    if (cloud) cloud.stopAutoSave();
+    _jobId = null;
+    _lastJobNumber = null;
+    _jobLoaded = false;
+
+    // Same checkpoint+reset sequence as opening a target separately — never
+    // loadJob/findJobByOpportunity here; the old job must stay untouched.
+    if (_toolType === 'fencing' && window.app) {
+      _openFencingTargetSeparately('repeat_client_new_job');
+    } else {
+      _resetPatioForm();
+    }
+
+    // Full contact fetch first (AM-H) so client + site fields aren't empty.
+    var contactId = row.contactId || null;
+    var contact = null;
+    if (contactId) {
+      try {
+        contact = await cloud.ghl.getContact(contactId);
+      } catch(e) {
+        console.warn('[Integration] Contact fetch failed, using row data:', e);
+        contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
+      }
+    } else {
+      contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
+    }
+
+    // Create a NEW opportunity for this contact in the FENCING pipeline (AM-A:
+    // toolType is the 2nd arg). Backend skips dedup because contactId is set.
+    var created = await cloud.ghl.createContactAndOpportunity({ contactId: contactId }, 'fencing');
+    var newOppId = created && created.opportunityId;
+    if (!newOppId) throw new Error('Could not create a new opportunity for this client');
+    _ghlOpportunityId = newOppId;
+    _ghlContactId = (created && created.contactId) || contactId || null;
+
+    // Create the job with contact details so site fields populate (AM-H).
+    var contactForJob = {
+      name: (contact && contact.name) || row.contactName || '',
+      phone: (contact && contact.phone) || row.contactPhone || '',
+      email: (contact && contact.email) || row.contactEmail || '',
+      address: (contact && contact.address) || '',
+      suburb: (contact && contact.suburb) || ''
+    };
+    var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob);
+    _jobId = job.id;
+    _jobStatus = job.status || 'draft';
+
+    // Link anchor (ensures field sync), prefill client fields, wire the URL.
+    _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'repeat_client_new_job');
+    if (contact) _prefillContact(contact);
+    if (_jobId) {
+      var newUrl = window.location.pathname + '?jobId=' + _jobId;
+      window.history.replaceState({}, '', newUrl);
+    }
+    updateUI();
+    if (_shouldAutoSave()) {
+      cloud.startAutoSave(_jobId, _getStateFn, 30000);
+    }
+    return { jobId: _jobId, opportunityId: _ghlOpportunityId };
+  }
+
   // Reset patio tool form to clean state before loading a new opportunity
   function _resetPatioForm() {
     // Clear all form inputs in the left panel
@@ -1909,8 +1984,11 @@
       });
     },
 
-    // Search GHL leads — opens dropdown below header search bar
-    searchLeads: function(query) {
+    // Search GHL leads — opens dropdown below header search bar.
+    // opts.mode: 'load' (default) | 'new_job' (repeat-client, always fresh job).
+    searchLeads: function(query, opts) {
+      opts = opts || {};
+      var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       if (!cloud || !cloud.auth.isLoggedIn()) {
         cloud.ui.showLoginModal();
         return;
@@ -1919,7 +1997,14 @@
       if (document.getElementById('sw-lead-search-dropdown')) return;
 
       cloud.ui.showLeadSearch(_toolType, async function(lead) {
-        console.log('[Integration] Lead selected:', lead.id, lead.contactName);
+        console.log('[Integration] Lead selected:', lead.id, lead.contactName, 'mode:', mode);
+        // new_job mode (any row) OR a contact-only row in load mode (nothing to
+        // load) → start a brand-new job for that contact. Returns the promise so
+        // the modal's in-flight lock can await it (AM-C). lookupFailed rows never
+        // reach here (the modal blocks them).
+        if (mode === 'new_job' || lead.isContactOnly || lead.id == null) {
+          return _startNewJobForContact(lead);
+        }
         try {
           var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
             jobId: lead.supabaseJobId || null,
@@ -2037,7 +2122,7 @@
           console.error('[Integration] Lead load error:', e);
           alert('Error loading lead: ' + e.message);
         }
-      }, query || '');
+      }, query || '', { mode: mode });
     },
 
     // Debounced version — called by oninput on header search bar
@@ -2162,6 +2247,12 @@
 
     resolveFencingTargetSwitch: function(source, target) {
       return _resolveFencingTargetSwitch(source, target);
+    },
+
+    // Repeat-client / contact-only helper, shared with the inline client-name
+    // autocomplete (index.html). Returns a promise. Never loads an old job.
+    startNewJobForContact: function(row) {
+      return _startNewJobForContact(row);
     },
 
     getSyncState: function() {

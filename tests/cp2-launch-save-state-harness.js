@@ -35,9 +35,19 @@ function extractMethod(source, signature) {
   return new Function('job', source.slice(bodyStart, bodyEnd));
 }
 record(
-  'launcher has the three approved entry points',
-  has(index, 'showLaunchModal()') && has(index, '1. Load GHL lead/contact') && has(index, '2. Resume draft / previous scope') && has(index, '3. Start new local draft'),
-  'launcher strings and showLaunchModal present'
+  'launcher has the four approved entry points',
+  has(index, 'showLaunchModal()') &&
+    has(index, '1. Load GHL lead/contact') &&
+    has(index, '2. Resume draft / previous scope') &&
+    has(index, '3. Start new local draft') &&
+    has(index, '4. New job for existing client/lead'),
+  'launcher strings and showLaunchModal present (incl. repeat-client new-job entry)'
+);
+
+record(
+  'new-job launcher entry opens lead search in new_job mode',
+  /launchNewJobBtn'\)\.onclick[\s\S]{0,160}searchLeads\('',\s*\{\s*mode:\s*'new_job'\s*\}\)/.test(index),
+  'option 4 calls _swIntegration.searchLeads with mode:new_job'
 );
 
 record(
@@ -328,6 +338,70 @@ record(
   'empty-scope Supabase load fills blank client fields only',
   /_prefillContact\(\{ name: job\.client_name/.test(integration) && /if \(!f\.value\) f\.value = job\.client_name/.test(integration),
   'loadFromSupabase empty-scope client data uses fill-empty helper / non-fencing fill-empty guard'
+);
+
+// ── Repeat-client new-job path (P2 fix) ──────────────────────────────────────
+const searchLeadsBody = (function () {
+  const start = cloud.indexOf('async searchLeads(');
+  const end = cloud.indexOf('\n    },', start);
+  return start >= 0 && end > start ? cloud.slice(start, end) : '';
+})();
+record(
+  'searchLeads uses the fast lead_search backend action',
+  /action=lead_search/.test(searchLeadsBody) && !/action=search['&]/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
+  'cloud.ghl.searchLeads points at lead_search, forwards an abort signal'
+);
+
+record(
+  'createContactAndOpportunity forwards contactId + toolType (AM-A)',
+  /if \(contact\.contactId\) body\.contactId = contact\.contactId;/.test(cloud) &&
+    /toolType: toolType/.test(cloud),
+  'repeat-client contactId is sent in the create_contact_and_opportunity body alongside toolType'
+);
+
+record(
+  'new-job call site creates the opportunity in the fencing pipeline (AM-A)',
+  /createContactAndOpportunity\(\{ contactId: contactId \}, 'fencing'\)/.test(integration),
+  'toolType passed as 2nd arg = fencing so the new opp lands in the fencing pipeline'
+);
+
+// _startNewJobForContact must NEVER resurrect an old job.
+const newJobHelper = (function () {
+  const start = integration.indexOf('async function _startNewJobForContact');
+  const end = integration.indexOf('\n  // Reset patio tool form', start);
+  return start >= 0 && end > start ? integration.slice(start, end) : '';
+})();
+record(
+  'new-job path never loads an existing job/scope',
+  newJobHelper.length > 0 &&
+    !/loadJob\(/.test(newJobHelper) &&
+    !/findJobByOpportunity\(/.test(newJobHelper),
+  'no loadJob/findJobByOpportunity inside _startNewJobForContact — the old job stays untouched'
+);
+
+record(
+  'new-job path confirms + checkpoints a meaningful local draft first (AM-H)',
+  /_hasMeaningfulLocalDraft\(\)/.test(newJobHelper) &&
+    /Start a new job for/.test(newJobHelper) &&
+    /_openFencingTargetSeparately\('repeat_client_new_job'\)/.test(newJobHelper),
+  'meaningful local draft is gated by a confirm and checkpointed before reset'
+);
+
+record(
+  'lead search modal aborts stale requests + guards double-taps (AM-C/AM-F)',
+  /new AbortController\(\)/.test(cloud) &&
+    /var _seq = 0;/.test(cloud) &&
+    /Creating job…/.test(cloud) &&
+    /No matches — check spelling or try a phone number\./.test(cloud),
+  'showLeadSearch has AbortController + seq guard + in-flight lock + refreshed copy'
+);
+
+record(
+  'lead cards are keyed by array index, not opp id (AM-D)',
+  /data-idx="' \+ idx \+ '"/.test(cloud) &&
+    /var lead = leads\[idx\];/.test(cloud) &&
+    !/data-oppid/.test(cloud),
+  'contact-only rows (null id) are selectable because selection resolves leads[idx]'
 );
 
 console.log('CP2 Fence launch/save-state harness');
