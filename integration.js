@@ -442,6 +442,9 @@
     if (video.cloudUrl) return;
     if (_bgUploads['__video__'] && !_bgUploads['__video__'].error) return;
     var jobId = _jobId;
+    // Read at upload START, not in the rejection callback: a reset that lands
+    // while this upload is in flight must be visible to the retry guard below.
+    var epoch = _mediaEpoch;
     var cloudRef = cloud;
     if (!jobId || !cloudRef || !cloudRef.supabaseUrl) return;
 
@@ -468,7 +471,6 @@
         var attempt = _videoRetryCount;
         console.log('[Integration] Retrying video upload (attempt ' + attempt + '/' + _VIDEO_MAX_RETRIES + ')');
         if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'uploading');
-        var epoch = _mediaEpoch;
         _videoRetryTimer = setTimeout(function() {
           _videoRetryTimer = null;
           if (video.cloudUrl) return;
@@ -689,6 +691,16 @@
       var pending = _pendingNewOpps[contactId] || null;
       var newOppId = pending && pending.opportunityId;
       var newContactId = (pending && pending.contactId) || contactId;
+      // The earlier attempt timed out; if the re-run search now shows THAT very
+      // opportunity already carrying a Supabase job, the attempt COMMITTED. Take
+      // the job it made rather than hanging a second one off the same
+      // opportunity, which would leave findJobByOpportunity ambiguous forever.
+      // Read straight off the fresh row — no lookup, so the "never load an
+      // existing job" invariant of this path holds. hasScope means the row is
+      // some OLDER job, not the empty one we just minted: never adopt that.
+      var adopted = (newOppId && row.id === newOppId && row.supabaseJobId && !row.hasScope)
+        ? { id: row.supabaseJobId }
+        : null;
       if (!newOppId) {
         var created = await cloud.ghl.createContactAndOpportunity({
           contactId: contactId,
@@ -715,7 +727,9 @@
         address: (contact && contact.address) || '',
         suburb: (contact && contact.suburb) || ''
       };
-      var job = await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob, netOpts).catch(_rethrow);
+      var job = (adopted && adopted.id)
+        ? adopted
+        : await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob, netOpts).catch(_rethrow);
       if (!job || !job.id) throw new Error('Could not create a new job for this client');
     } finally {
       clearTimeout(timer);

@@ -148,16 +148,19 @@
   // does not exist, so the hot path (400ms-debounced autocomplete) stops paying
   // for a doomed probe on every keystroke. A page reload re-probes.
   var _leadSearchUnavailable = false;
-  // Consecutive ambiguous misses. A CDN 404 mid-redeploy or an HTML 400 from a
-  // gateway looks identical to a missing action, so one is never enough to latch
-  // the session onto the legacy path (which cannot return contact-only rows).
+  // Consecutive ambiguous misses ON THE SAME QUERY. An HTML 400 from a gateway
+  // looks identical to a missing action, so one is never enough to latch the
+  // session onto the legacy path (which cannot return contact-only rows). Scoped
+  // to one query so unrelated failures across different searches can't add up.
   var _leadSearchMisses = 0;
+  var _leadSearchMissQuery = null;
   var _LEAD_SEARCH_MISS_LIMIT = 2;
 
   // The edge function rejected the ACTION itself (rather than the request
   // payload) — i.e. this build is ahead of the deployed ghl-proxy.
   // 'confirmed' is safe to latch on for the session; 'maybe' falls back for this
-  // call only, so a transient blip self-heals on the next keystroke.
+  // call only, so a transient blip self-heals on the next keystroke; 'soft'
+  // falls back too but never counts toward the latch.
   function _unknownActionSignal(res, data) {
     if (res.status === 501) return 'confirmed';
     // Only a status that plausibly means "this route does not exist" may confirm,
@@ -178,9 +181,13 @@
       /\baction\b[^.]{0,40}\b(?:is\s+)?(?:not supported|not recogni[sz]ed|not allowed|unknown|does not exist)/.test(msg)) {
       return 'confirmed';
     }
-    // A 404, or a 400 whose body won't parse, can't be ruled out as an unknown
-    // action — but can't be confirmed as one either.
-    if (res.status === 404) return 'maybe';
+    // A 404 can't be ruled out as an unknown action, but it is also what a
+    // backend may answer a zero-result search with. It falls back for this call
+    // only and NEVER counts toward the latch: a run of no-match searches must
+    // not strand the session on a path that cannot return contact-only rows.
+    if (res.status === 404) return 'soft';
+    // A 400 whose body won't parse is a gateway/HTML reply — a live action
+    // rejecting a payload would answer JSON — so it stays a countable miss.
     if (!data) return 'maybe';
     return false;
   }
@@ -761,6 +768,12 @@
 
       var res, data, fallBack = false;
       if (!_leadSearchUnavailable) {
+        // The streak only means anything within one query; a different search is
+        // a different question and starts its own count.
+        if (query !== _leadSearchMissQuery) {
+          _leadSearchMissQuery = query;
+          _leadSearchMisses = 0;
+        }
         res = await authorizedFetch(base + 'lead_search' + qs, fetchOpts);
         data = await _safeJson(res);
         if (res.ok) {
@@ -1689,6 +1702,13 @@
       function _close(force) {
         if (_locked && !force) { _flashCreatingStatus(); return; }
         document.removeEventListener('keydown', _escHandler);
+        // Tear down everything setup armed: a dismissed modal must not keep a
+        // fetch alive, nor let its timers fire into a detached list node.
+        if (_abortController) { try { _abortController.abort(); } catch(e) {} }
+        _abortController = null;
+        clearTimeout(_searchAbortTimer);
+        clearTimeout(_searchTimer);
+        clearTimeout(_flashTimer);
         var bd = document.getElementById('sw-lead-search-backdrop');
         if (bd) bd.remove();
         var md = document.getElementById('sw-lead-search-dropdown');
@@ -1768,6 +1788,8 @@
       // swallows flashes it, so the tap reads as "still working", not "dead UI".
       var _lockedStatusEl = null;
       var _flashTimer = null;
+      // Modal-scoped so _close can disarm the in-flight search's timeout.
+      var _searchAbortTimer = null;
       // Survives the list rebuild that _loadLeads performs, so a message about
       // the search that was just re-run can outlive the innerHTML it replaces.
       var _pendingRefreshMsg = '';
@@ -1801,7 +1823,8 @@
         _abortController = controller;
         var mySeq = ++_seq;
         var timedOut = false;
-        var timer = setTimeout(function() { timedOut = true; try { controller.abort(); } catch(e) {} }, 30000);
+        clearTimeout(_searchAbortTimer);
+        var timer = _searchAbortTimer = setTimeout(function() { timedOut = true; try { controller.abort(); } catch(e) {} }, 30000);
 
         list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching contacts…</p>';
 

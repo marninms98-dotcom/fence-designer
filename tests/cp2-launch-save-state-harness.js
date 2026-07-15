@@ -649,6 +649,45 @@ record(
   'only an intervening media reset invalidates the retry; a captured real id still has to match the current job'
 );
 
+// Captured inside the rejection callback the epoch reads AFTER any reset has
+// already bumped it, so the guard compares the new value with itself and waves
+// the retry through — uploading the previous client's walkthrough into the new
+// job. It has to be read synchronously at upload start, next to `var jobId`.
+record(
+  'the video-retry epoch is captured at upload start, not in the catch (review #25)',
+  (() => {
+    const fn = integration.match(/function _startBgVideoUpload\(video\) \{[\s\S]*?\n  \}\n/);
+    if (!fn) return false;
+    const body = fn[0];
+    const iJob = body.indexOf('var jobId = _jobId;');
+    const iEpoch = body.indexOf('var epoch = _mediaEpoch;');
+    const iCatch = body.indexOf('.catch(function(err)');
+    return iJob > -1 && iEpoch > iJob && iCatch > -1 && iEpoch < iCatch;
+  })(),
+  'epoch is read synchronously beside the jobId capture, before the upload promise is built'
+);
+
+// The orphan-opportunity cache exists so a retry reuses a timed-out attempt's
+// opportunity. But a create that timed out may have COMMITTED, in which case
+// reusing the opp and creating again hangs a SECOND job off it and leaves
+// findJobByOpportunity permanently ambiguous.
+record(
+  'a committed timed-out create is adopted, never duplicated (review #25)',
+  /row\.id === newOppId && row\.supabaseJobId && !row\.hasScope/.test(newJobHelper) &&
+    /adopted && adopted\.id/.test(newJobHelper) &&
+    /delete _pendingNewOpps\[contactId\];/.test(newJobHelper),
+  'the fresh row showing the pending opp already carrying a scope-less job adopts it instead of creating a second, and the cache clears on success in both modes'
+);
+
+// A dismissed modal that leaves its fetch and timers armed keeps writing into a
+// detached list node and burns a hotspot connection on work nobody will see.
+record(
+  'the lead-search modal tears down its own async machinery on close (review #25)',
+  /function _close\(force\) \{[\s\S]{0,400}?_abortController\.abort\(\)[\s\S]{0,200}?clearTimeout\(_searchAbortTimer\)[\s\S]{0,200}?clearTimeout\(_flashTimer\)/.test(cloud) &&
+    /var timer = _searchAbortTimer = setTimeout/.test(cloud),
+  '_close aborts the in-flight search and clears the 30s search timeout, the input debounce and the flash timer'
+);
+
 // A 500 or a payload-validation 400 must never latch the session onto the
 // legacy search action, which cannot return contact-only rows. But the backend
 // reports errors as {error:'...'} with no code field, so its real undeployed
@@ -666,7 +705,10 @@ const signalCases = [
   [400, { code: 'unknown_action' }, 'confirmed'],
   [404, { error: 'Unknown action: lead_search' }, 'confirmed'],
   [501, {}, 'confirmed'],
-  [404, null, 'maybe'],
+  // A 404 is also what a backend may answer a zero-result search with, so it
+  // falls back for this call but must never count toward the session latch.
+  [404, null, 'soft'],
+  [404, { opportunities: [] }, 'soft'],
   [400, null, 'maybe'],
   [400, { error: 'invalid action parameters' }, false],
   [400, { error: 'Missing required field: q' }, false],
@@ -678,6 +720,17 @@ record(
   signalCases.every(([status, data, want]) => unknownActionSignal({ status }, data) === want) &&
     /if \(signal === 'maybe'\) _leadSearchMisses\+\+; else _leadSearchMisses = 0;/.test(cloud),
   'a 400/404 rejecting the ACTION confirms, a 5xx or payload-validation 400 never does, an unparseable body falls back once, and the miss streak resets on any non-maybe outcome'
+);
+
+// A run of no-match searches must never strand the session on the legacy path,
+// which cannot return contact-only rows — the repeat-client feature would go
+// silently blind to every contact with no opportunity.
+record(
+  'a streak of zero-result 404s never latches the legacy fallback (review #25)',
+  signalCases.filter(([, , want]) => want === 'soft').length > 0 &&
+    unknownActionSignal({ status: 404 }, null) !== 'maybe' &&
+    /if \(query !== _leadSearchMissQuery\)/.test(cloud),
+  'a 404 is a soft fallback that breaks rather than builds the miss streak, and the streak is scoped to one query'
 );
 
 // _rethrow is shared by the modal and the autocomplete, so its message cannot
