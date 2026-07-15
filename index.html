@@ -2237,6 +2237,7 @@
             '<button id="launchGhlLeadBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">1. Load GHL lead/contact</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Use when you have Wi-Fi/hotspot at the start. Links this iPad draft to the lead; fills blank client fields only.</span></button>' +
             '<button id="launchResumeDraftBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">2. Resume draft / previous scope</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Open existing local/cloud work without silently deleting the current iPad draft.</span></button>' +
             '<button id="launchNewLocalBtn" style="text-align:left;border:1px solid #F15A29;background:#FFF7ED;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#F15A29;font-size:16px;">3. Start new local draft</b><span style="display:block;color:#92400E;font-size:13px;margin-top:4px;">Works offline. You can scope now and link/sync before release.</span></button>' +
+            '<button id="launchNewJobBtn" style="text-align:left;border:1px solid #D4DEE4;background:#fff;border-radius:12px;padding:16px;cursor:pointer;"><b style="display:block;color:#293C46;font-size:16px;">4. New job for existing client/lead</b><span style="display:block;color:#4C6A7C;font-size:13px;margin-top:4px;">Repeat customer? Find an existing client and start a brand-new job without touching their old one.</span></button>' +
             '<div style="font-size:12px;color:#6B7280;background:#F3F4F6;border-radius:10px;padding:10px 12px;">' + this._esc(savedLabel) + '</div>' +
           '</div>' +
           '<div style="padding:12px 22px;border-top:1px solid #E5E7EB;text-align:right;"><button id="launchCloseBtn" style="padding:10px 16px;border:1px solid #D1D5DB;background:#fff;border-radius:8px;cursor:pointer;">Close</button></div>' +
@@ -2247,6 +2248,7 @@
         document.getElementById('launchGhlLeadBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads(''); else this.showToast('Cloud login not ready', 'error'); };
         document.getElementById('launchResumeDraftBtn').onclick = () => { overlay.remove(); this.showResumeDraftModal(); };
         document.getElementById('launchNewLocalBtn').onclick = () => { overlay.remove(); this.startLocalDraft(); };
+        document.getElementById('launchNewJobBtn').onclick = () => { overlay.remove(); if (window._swIntegration) window._swIntegration.searchLeads('', { mode: 'new_job' }); else this.showToast('Cloud login not ready', 'error'); };
       },
 
       startLocalDraft() {
@@ -2263,6 +2265,9 @@
         this._siteInfoTab = 'client';
         this._resetSections();
         this.init();
+        if (window._swIntegration && window._swIntegration.resetToolMediaState) {
+          window._swIntegration.resetToolMediaState();
+        }
         this._ensureFieldSync('new_local');
         this.save();
         window.history.replaceState({}, '', window.location.pathname);
@@ -3567,6 +3572,9 @@
         this._siteInfoTab = 'client';
         this._resetSections();
         this.init();
+        if (window._swIntegration && window._swIntegration.resetToolMediaState) {
+          window._swIntegration.resetToolMediaState();
+        }
         window.history.replaceState({}, '', window.location.pathname);
         this._updateHeaderStatus();
         if (typeof updateButtonStages === 'function') updateButtonStages();
@@ -5000,6 +5008,7 @@
       _clientNameDebounce: null,
       _clientNameResults: [],
       _clientNameActiveIdx: -1,
+      _clientNameQuery: '',
 
       onClientNameInput(query) {
         clearTimeout(this._clientNameDebounce);
@@ -5013,11 +5022,20 @@
       async _searchGHLContacts(query) {
         var cloud = window.SECUREWORKS_CLOUD;
         if (!cloud || !cloud.auth.isLoggedIn()) return;
+        this._clientNameQuery = query;
+        // Fast path (AM-G): lead_search returns in seconds. Abort any stale
+        // in-flight request so out-of-order responses can't clobber the list.
+        if (this._clientNameAbort) { try { this._clientNameAbort.abort(); } catch(e) {} }
+        var controller = new AbortController();
+        this._clientNameAbort = controller;
         try {
-          var opps = await cloud.ghl.search(query);
-          this._clientNameResults = opps || [];
+          var rows = await cloud.ghl.searchLeads(query, 'fencing', { signal: controller.signal });
+          if (this._clientNameAbort !== controller) return; // superseded
+          // Rows that couldn't be checked are not shown here.
+          this._clientNameResults = (rows || []).filter(function(r) { return !r.lookupFailed; });
           this._renderClientNameDropdown();
         } catch(e) {
+          if (e && e.name === 'AbortError') return;
           console.warn('[GHL Search] Failed:', e);
         }
       },
@@ -5036,9 +5054,18 @@
           const phoneLeadLabel = opp.contactPhone ? ('Phone lead ' + opp.contactPhone) : 'Unnamed lead';
           const displayName = opp.contactName || opp.name || phoneLeadLabel;
           const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
-          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;">' +
-            '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
-            (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
+          // Tapping a contact-only row mints an opportunity + job rather than
+          // loading one, so it carries the same badge/caption as the lead modal.
+          const isContactOnly = opp.isContactOnly || opp.id == null;
+          const badge = isContactOnly
+            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;flex-shrink:0;">Contact</span>'
+            : '';
+          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
+              (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
+              (isContactOnly ? '<div style="font-size:11px;color:#F15A29;margin-top:2px;">Creates a new job for this client</div>' : '') +
+            '</div>' + badge +
           '</div>';
         }).join('');
         dd.classList.add('open');
@@ -5048,7 +5075,49 @@
       async selectGHLContact(idx) {
         const opp = this._clientNameResults[idx];
         if (!opp) return;
+        if (opp.lookupFailed) return; // couldn't check this contact — not selectable
         this.hideClientNameDropdown();
+
+        // Contact-only row (no opportunity in this pipeline) — there is nothing
+        // to load, so start a brand-new job via the shared helper (AM-G). Never
+        // call findJobByOpportunity with a null opp id.
+        if (opp.isContactOnly || opp.id == null) {
+          if (!window._swIntegration || !window._swIntegration.startNewJobForContact) {
+            this.showToast('Cannot start a new job for this client right now — reload the page and try again.', 'error');
+            return;
+          }
+          const clientLabel = opp.contactName || opp.name || opp.contactPhone || 'this client';
+          // The create ends in a form reset, and the draft confirm has already
+          // been answered — so the form must not stay editable underneath it,
+          // or anything typed in the next few seconds is silently wiped. The
+          // lead-search modal locks itself for the same reason.
+          this._showCreatingJobOverlay(clientLabel);
+          try {
+            await window._swIntegration.startNewJobForContact(opp);
+            this.render();
+            this.updateSectionStatuses();
+            this._updateHeaderStatus();
+            if (typeof updateButtonStages === 'function') updateButtonStages();
+            this.showToast('New job started for ' + (opp.contactName || opp.name || 'client'), 'success');
+          } catch(e) {
+            if (e && e.code === 'cancelled') return;
+            // A timed-out create may have committed server-side without us
+            // learning the opportunity id, so never invite a blind retry —
+            // re-run the search. Anything that landed comes back as a real opp
+            // row, which LOADS rather than minting a duplicate.
+            if (e && e.code === 'timeout') {
+              this.showToast('Timed out. Re-checking — if the job was created it will be listed, tap it to open.', 'error');
+              this._hideCreatingJobOverlay();
+              const q = this._clientNameQuery;
+              if (q) await this._searchGHLContacts(q);
+              return;
+            }
+            this.showToast('Failed to start new job: ' + e.message, 'error');
+          } finally {
+            this._hideCreatingJobOverlay();
+          }
+          return;
+        }
 
         // Trigger the full GHL load flow via integration
         if (window._swIntegration && window._swIntegration.loadPicker) {
@@ -5060,32 +5129,30 @@
 
           // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
           let switchChoice = 'open_separately';
-          if (window._swIntegration && window._swIntegration.resolveFencingTargetSwitch) {
+          if (window._swIntegration.resolveFencingTargetSwitch) {
             switchChoice = await window._swIntegration.resolveFencingTargetSwitch('inline_ghl_contact', {
               opportunityId: opp.id,
               label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
             });
           }
           if (switchChoice === 'cancel') return;
+          // Linking a real opportunity row settles any earlier failed new-job
+          // attempt for this contact, so its cached orphan opportunity must not
+          // survive to be reused by a later, legitimately-new job.
+          if (window._swIntegration.clearPendingNewOpp) {
+            window._swIntegration.clearPendingNewOpp(opp.contactId);
+          }
           const localDraftWins = switchChoice === 'keep_link';
           if (localDraftWins) {
             this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
             this.showToast('GHL lead linked — keeping local iPad edits', 'success');
           } else {
-            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_open_separately');
-            localStorage.removeItem('fenceJob');
-            this.job = null;
-            this.currentRunId = null;
-            this._resetSections();
-            this.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof fenceQA !== 'undefined') {
-              fenceQA._verificationState = {};
-            }
+            // Reset through the shared integration helper, never a local copy:
+            // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
+            // so the previous client's media cannot upload into this target.
+            window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
             if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-            if (window._swIntegration) {
-              window._swIntegration._connectJob(null, null, null);
-            }
+            window._swIntegration._connectJob(null, null, null);
           }
 
           try {
@@ -5129,6 +5196,13 @@
             if (window._swIntegration) {
               if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
+              // The reset above wiped the media state, so reload this job's own
+              // photos/video like every other load path — otherwise the grid sits
+              // empty and QA re-demands capture on a job that already has them.
+              if (existingJob && existingJob.id && !localDraftWins && window._swIntegration.loadCloudMedia) {
+                try { await window._swIntegration.loadCloudMedia(existingJob.id); }
+                catch(e) { console.warn('[FenceSync] Media load failed:', e); }
+              }
             }
 
             this.save();
@@ -5148,6 +5222,30 @@
         if (dd) { dd.classList.remove('open'); dd.innerHTML = ''; }
         this._clientNameResults = [];
         this._clientNameActiveIdx = -1;
+      },
+
+      _showCreatingJobOverlay(clientLabel) {
+        this._hideCreatingJobOverlay();
+        if (!document.getElementById('sw-spin-style')) {
+          const s = document.createElement('style');
+          s.id = 'sw-spin-style';
+          s.textContent = '@keyframes sw-spin{to{transform:rotate(360deg)}}';
+          document.head.appendChild(s);
+        }
+        const overlay = document.createElement('div');
+        overlay.id = 'swCreatingJobOverlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.72);z-index:10070;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;padding:28px 32px;text-align:center;max-width:360px;box-shadow:0 20px 70px rgba(0,0,0,0.35);">' +
+          '<div style="width:36px;height:36px;border:3px solid #F15A29;border-top-color:transparent;border-radius:50%;animation:sw-spin 0.8s linear infinite;margin:0 auto 16px;"></div>' +
+          '<div style="font-size:15px;font-weight:700;color:#293C46;">Creating job for ' + this._esc(clientLabel) + '…</div>' +
+          '<div style="font-size:12px;color:#4C6A7C;margin-top:6px;">This scope will reset once the new job is ready.</div>' +
+        '</div>';
+        document.body.appendChild(overlay);
+      },
+
+      _hideCreatingJobOverlay() {
+        const el = document.getElementById('swCreatingJobOverlay');
+        if (el) el.remove();
       },
 
       onClientNameKeydown(e) {

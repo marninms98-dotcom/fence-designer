@@ -54,8 +54,17 @@ function sourceWithoutComments(text) {
   const destructiveReset =
     /localStorage\.removeItem\(['"]fenceJob['"]\)[\s\S]{0,260}(?:this|window\.app)\.job\s*=\s*null/.test(sources.index) ||
     /localStorage\.removeItem\(['"]fenceJob['"]\)[\s\S]{0,260}window\.app\.job\s*=\s*null/.test(sources.integration);
+  // Anchor on the method definition, not the first textual mention of the name
+  // (which is the onmousedown= in the dropdown render): the guard belongs to the
+  // load path inside the method, so a window measured from the render call drifts
+  // off it whenever the branches above the guard grow. Bound the window by the
+  // next sibling definition rather than a char count, for the same reason: a
+  // fixed span slides off the guard as the method gains branches, while the
+  // sibling anchor never bleeds into a neighbouring method's body.
+  const selectStart = sources.index.indexOf('async selectGHLContact(');
+  const selectEnd = sources.index.indexOf('_showCreatingJobOverlay(clientLabel) {', selectStart);
   const hasGuard = /dirty|unsynced|pendingOps|localDraftId|baseScopeHash|reconcile/i.test(
-    sources.index.slice(Math.max(0, sources.index.indexOf('selectGHLContact') - 800), sources.index.indexOf('selectGHLContact') + 2600) +
+    sources.index.slice(Math.max(0, selectStart - 800), selectEnd === -1 ? selectStart + 2600 : selectEnd) +
     sources.integration.slice(Math.max(0, sources.integration.indexOf('loadPicker') - 800), sources.integration.indexOf('loadPicker') + 2600)
   );
   record(

@@ -224,12 +224,25 @@ async function testCursorAdvancesLegacyDuplicateQueue() {
   assert.strictEqual(JSON.parse(saveCalls[1].options.body).meta.baseScopeHash, 'h2', 'newer pending save receives returned cursor');
 }
 
-async function testOnlineUnauthenticatedSaveStaysQueued() {
-  const { cloud, localStorage } = makeVm({ online: true, session: null });
+async function testUnauthenticatedSaveFallsBackToSharedKey() {
+  // ba5d37e contract: a logged-in-but-session-evicted field user is never
+  // hard-blocked. With no session but a healthy (200) backend, saveScope now
+  // legitimately SUCCEEDS via the shared x-api-key fallback rather than queuing.
+  const { cloud, localStorage, fetchCalls } = makeVm({ online: true, session: null });
   const saved = await cloud.ghl.saveScope('job-1', { rev: 1 }, { baseScopeHash: 'h1' });
-  assert.strictEqual(saved.queued, true, 'unauthenticated saveScope stays local/pending');
-  assert.strictEqual(queueFrom(localStorage).length, 1);
-  assert.strictEqual(queueFrom(localStorage)[0].meta.baseScopeHash, 'h1');
+  assert.notStrictEqual(saved && saved.queued, true, 'save is not queued — the shared key carries it through');
+  assert.strictEqual(saved.id, 'job-1', 'saveScope returns the saved job');
+  assert.strictEqual(queueFrom(localStorage).length, 0, 'nothing left pending on the iPad');
+
+  const saveCalls = fetchCalls.filter((c) => String(c.url).includes('action=save_scope'));
+  assert.strictEqual(saveCalls.length, 1, 'exactly one save fetch went out');
+  const headers = saveCalls[0].options.headers || {};
+  assert.strictEqual(
+    headers['x-api-key'],
+    '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc',
+    'save fetch carried the shared x-api-key when no session was present'
+  );
+  assert(!('Authorization' in headers), 'no bearer Authorization header when the session is missing');
 }
 
 async function testExpiredJwtResponseStaysQueued() {
@@ -252,7 +265,7 @@ async function run() {
     ['scope conflict retains work', testConflictRetainsWorkAndEmitsConflict],
     ['concurrent flush is single-flight', testConcurrentFlushIsSingleFlight],
     ['returned cursor advances newer pending save', testCursorAdvancesLegacyDuplicateQueue],
-    ['unauthenticated online save stays queued', testOnlineUnauthenticatedSaveStaysQueued],
+    ['unauthenticated online save falls back to shared key', testUnauthenticatedSaveFallsBackToSharedKey],
     ['expired login response stays queued', testExpiredJwtResponseStaysQueued],
   ];
   for (const [name, fn] of tests) {

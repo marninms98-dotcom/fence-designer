@@ -35,9 +35,19 @@ function extractMethod(source, signature) {
   return new Function('job', source.slice(bodyStart, bodyEnd));
 }
 record(
-  'launcher has the three approved entry points',
-  has(index, 'showLaunchModal()') && has(index, '1. Load GHL lead/contact') && has(index, '2. Resume draft / previous scope') && has(index, '3. Start new local draft'),
-  'launcher strings and showLaunchModal present'
+  'launcher has the four approved entry points',
+  has(index, 'showLaunchModal()') &&
+    has(index, '1. Load GHL lead/contact') &&
+    has(index, '2. Resume draft / previous scope') &&
+    has(index, '3. Start new local draft') &&
+    has(index, '4. New job for existing client/lead'),
+  'launcher strings and showLaunchModal present (incl. repeat-client new-job entry)'
+);
+
+record(
+  'new-job launcher entry opens lead search in new_job mode',
+  /launchNewJobBtn'\)\.onclick[\s\S]{0,160}searchLeads\('',\s*\{\s*mode:\s*'new_job'\s*\}\)/.test(index),
+  'option 4 calls _swIntegration.searchLeads with mode:new_job'
 );
 
 record(
@@ -92,7 +102,7 @@ record(
 
 record(
   'load paths checkpoint local draft before reset',
-  /_resetFencingForCloudLoad/.test(integration) && /_checkpointLocalDraftBeforeLoad\(source/.test(integration) && /Local draft checkpointed before/.test(integration),
+  /_openFencingTargetSeparately/.test(integration) && /_checkpointLocalDraftBeforeLoad\(\(source \|\| 'cloud_load'\)/.test(integration) && /_keep_link'\)/.test(integration),
   'loadPicker/search/loadFromSupabase use local-wins checkpoint seam'
 );
 
@@ -328,6 +338,533 @@ record(
   'empty-scope Supabase load fills blank client fields only',
   /_prefillContact\(\{ name: job\.client_name/.test(integration) && /if \(!f\.value\) f\.value = job\.client_name/.test(integration),
   'loadFromSupabase empty-scope client data uses fill-empty helper / non-fencing fill-empty guard'
+);
+
+// ── Repeat-client new-job path (P2 fix) ──────────────────────────────────────
+const searchLeadsBody = (function () {
+  const start = cloud.indexOf('async searchLeads(');
+  const end = cloud.indexOf('\n    },', start);
+  return start >= 0 && end > start ? cloud.slice(start, end) : '';
+})();
+record(
+  'searchLeads uses the fast lead_search backend action',
+  /'lead_search'/.test(searchLeadsBody) && /opts\.signal/.test(searchLeadsBody),
+  'cloud.ghl.searchLeads points at lead_search, forwards an abort signal'
+);
+
+// Review round 3: a Pages build must not break when it ships ahead of the
+// ghl-proxy deploy that adds the lead_search action.
+record(
+  'searchLeads falls back to the legacy search action (review #10)',
+  /_unknownActionSignal\(res, data\)/.test(searchLeadsBody) &&
+    /'search' \+ qs/.test(searchLeadsBody) &&
+    /res\.status === 404/.test(cloud) &&
+    /unknown\|invalid\|unsupported/.test(cloud),
+  'an undeployed lead_search (404 / unknown-action 400) retries against action=search'
+);
+
+// Review round 5: the fallback is sticky for the session, so the 400ms-debounced
+// autocomplete stops paying for a doomed lead_search probe on every keystroke.
+record(
+  'searchLeads stops re-probing lead_search once it is known missing (review #19)',
+  /var _leadSearchUnavailable = false;/.test(cloud) &&
+    /if \(!_leadSearchUnavailable\) \{/.test(searchLeadsBody) &&
+    /_leadSearchUnavailable = true;/.test(searchLeadsBody),
+  'a module-scoped sticky flag keeps post-fallback calls at one request each'
+);
+
+// Review round 6: a transient 404/non-JSON blip must fall back for THAT call
+// only — latching the session onto legacy search silently drops contact-only
+// rows, which are exactly what the repeat-client path exists to find.
+record(
+  'searchLeads only latches the sticky flag on a confirmed signal (review #21)',
+  /return 'confirmed';/.test(cloud) &&
+    /return 'maybe';/.test(cloud) &&
+    /if \(signal === 'maybe'\) _leadSearchMisses\+\+;/.test(searchLeadsBody) &&
+    /signal === 'confirmed' \|\| _leadSearchMisses >= _LEAD_SEARCH_MISS_LIMIT/.test(searchLeadsBody) &&
+    /if \(res\.ok\) \{\s*\n\s*_leadSearchMisses = 0;/.test(searchLeadsBody),
+  'an ambiguous miss falls back once without latching, and a success resets the counter'
+);
+
+// Review round 4: a non-JSON error body (plain-text 404, HTML 502) must not
+// throw before the fallback is consulted.
+record(
+  'searchLeads parses error bodies defensively (review #13)',
+  /data = await _safeJson\(res\);/.test(searchLeadsBody) &&
+    /async function _safeJson\(res\)/.test(cloud) &&
+    /if \(!data\) return 'maybe';/.test(cloud),
+  'an unparseable error body still reaches _unknownActionSignal and triggers the legacy fallback (the signal table below proves the verdict)'
+);
+
+// Review round 3: contact-only is derived once, at the data boundary, so the
+// card badge and the tap action can never disagree.
+record(
+  'searchLeads normalises isContactOnly for every consumer (review #11)',
+  /lead\.isContactOnly = \(lead\.id == null\) && !lead\.lookupFailed;/.test(searchLeadsBody) &&
+    /var isContactOnly = !!lead\.isContactOnly;/.test(cloud),
+  'the render path reads the same normalised flag the selection path branches on'
+);
+
+record(
+  'createContactAndOpportunity forwards contactId + toolType (AM-A)',
+  /if \(contact\.contactId\) body\.contactId = contact\.contactId;/.test(cloud) &&
+    /toolType: toolType/.test(cloud),
+  'repeat-client contactId is sent in the create_contact_and_opportunity body alongside toolType'
+);
+
+record(
+  'new-job call site creates the opportunity in the tool-type pipeline (AM-A)',
+  /createContactAndOpportunity\(\{\s*contactId: contactId,[\s\S]{0,400}?\}, _toolType, netOpts\)/.test(integration),
+  'toolType passed as 2nd arg so the new opp lands in the fencing pipeline'
+);
+
+// _startNewJobForContact must NEVER resurrect an old job.
+const newJobHelper = (function () {
+  const start = integration.indexOf('async function _startNewJobForContact');
+  const end = integration.indexOf('\n  // Reset patio tool form', start);
+  return start >= 0 && end > start ? integration.slice(start, end) : '';
+})();
+record(
+  'new-job path never loads an existing job/scope',
+  newJobHelper.length > 0 &&
+    !/loadJob\(/.test(newJobHelper) &&
+    !/findJobByOpportunity\(/.test(newJobHelper) &&
+    !/scope_json/.test(newJobHelper),
+  'no loadJob/findJobByOpportunity/scope_json inside _startNewJobForContact — the old job stays untouched'
+);
+
+// The adopt branch needs the job_number of the job its own timed-out create
+// minted, so it reads through _fetchAdoptedJobMeta. That helper is the ONLY
+// read on this path and must project identity fields only: returning the raw
+// job would hand _startNewJobForContact a scope it could restore.
+const adoptedMetaHelper = (function () {
+  const start = integration.indexOf('async function _fetchAdoptedJobMeta');
+  const end = integration.indexOf('\n  async function _startNewJobForContact', start);
+  return start >= 0 && end > start ? integration.slice(start, end) : '';
+})();
+record(
+  'adopted-job meta fetch projects identity fields only, never scope',
+  adoptedMetaHelper.length > 0 &&
+    /return \{ id: full\.id, job_number: full\.job_number \|\| null, status: full\.status \|\| null \};/.test(adoptedMetaHelper) &&
+    !/scope_json/.test(adoptedMetaHelper),
+  '_fetchAdoptedJobMeta returns id/job_number/status and drops scope_json, so an adopt cannot resurrect a scope'
+);
+
+record(
+  'new-job path confirms + checkpoints a meaningful local draft first (AM-H)',
+  /_hasMeaningfulLocalDraft\(\)/.test(newJobHelper) &&
+    /Start a new job for/.test(newJobHelper) &&
+    /_openFencingTargetSeparately\('repeat_client_new_job'\)/.test(newJobHelper),
+  'meaningful local draft is gated by a confirm and checkpointed before reset'
+);
+
+record(
+  'lead search modal aborts stale requests + guards double-taps (AM-C/AM-F)',
+  /new AbortController\(\)/.test(cloud) &&
+    /var _seq = 0;/.test(cloud) &&
+    /Creating job…/.test(cloud) &&
+    /No matches — check spelling or try a phone number\./.test(cloud),
+  'showLeadSearch has AbortController + seq guard + in-flight lock + refreshed copy'
+);
+
+record(
+  'lead cards are keyed by array index, not opp id (AM-D)',
+  /data-idx="' \+ idx \+ '"/.test(cloud) &&
+    /var lead = leads\[idx\];/.test(cloud) &&
+    !/data-oppid/.test(cloud),
+  'contact-only rows (null id) are selectable because selection resolves leads[idx]'
+);
+
+// Review finding 1: contact-only selections (any mode) use the locked/awaited
+// job-creation path so a failed create can't strand the user on a blank scope.
+record(
+  'contact-only selection always uses the locked create path (review #1)',
+  /var createsJob = \(mode === 'new_job'\) \|\| !!lead\.isContactOnly;/.test(cloud) &&
+    /if \(createsJob\) \{/.test(cloud),
+  'load-mode contact-only rows are locked + awaited, not fire-and-forget'
+);
+
+// Review round 3: dismissing the modal mid-create would detach the node the
+// error banner mounts into, leaving the user no feedback and no retry.
+record(
+  'modal dismissal is ignored while a create is in flight (review #12)',
+  /function _close\(force\) \{\s*\n\s*if \(_locked && !force\) \{ _flashCreatingStatus\(\); return; \}/.test(cloud) &&
+    /_close\(true\);/.test(cloud),
+  'backdrop/×/Escape all route through _close, which early-returns while _locked'
+);
+
+// Review round 5: a swallowed dismissal must still acknowledge the tap.
+record(
+  'a dismissal swallowed by the lock flashes the create status (review #18)',
+  /function _flashCreatingStatus\(\) \{/.test(cloud) &&
+    /_lockedStatusEl = statusEl \|\| null;/.test(cloud),
+  'tapping ×/backdrop during a create flashes "Creating job…" instead of no-oping silently'
+);
+
+// Review round 5: nothing may leave the modal locked indefinitely — the create
+// sequence carries its own abort/timeout so the error banner + retry can render.
+record(
+  'the new-job create sequence is bounded by a timeout (review #18)',
+  /var _NEW_JOB_TIMEOUT_MS = \d+;/.test(integration) &&
+    /new AbortController\(\)/.test(newJobHelper) &&
+    /_NEW_JOB_TIMEOUT_MS\)/.test(newJobHelper) &&
+    /Timed out before we could confirm/.test(newJobHelper) &&
+    /clearTimeout\(timer\)/.test(newJobHelper),
+  'a stalled create aborts, unlocks the modal and surfaces a timeout error'
+);
+
+// Review round 6: an aborted create may have committed the opportunity without
+// returning its id, so the timeout path must re-check what exists rather than
+// invite a blind retry that mints a second orphan.
+record(
+  'a timed-out create refreshes the list instead of offering a retry (review #22)',
+  /toErr\.code = 'timeout';/.test(newJobHelper) &&
+    /err\.code === 'timeout'/.test(cloud) &&
+    /_pendingRefreshMsg = /.test(cloud) &&
+    /function _takeRefreshNotice\(\)/.test(cloud),
+  'the timeout error is tagged and re-runs the search so a committed job surfaces as a loadable row'
+);
+
+// The abort signal must actually reach the network layer, or the timeout only
+// masks a still-running request.
+record(
+  'the ghl create calls forward the caller abort signal (review #18)',
+  /async getContact\(contactId, opts\)/.test(cloud) &&
+    /async createContactAndOpportunity\(contact, toolType, opts\)/.test(cloud) &&
+    /async createJobForOpportunity\(opportunityId, toolType, contact, opts\)/.test(cloud) &&
+    /function _signalOpts\(opts, base\)/.test(cloud),
+  'getContact/createContactAndOpportunity/createJobForOpportunity thread opts.signal into authorizedFetch'
+);
+
+// Review round 3: lookupFailed rows are inert, so the failed-create reset must
+// not restore them to full opacity and make them look tappable.
+record(
+  'failed-create reset keeps lookupFailed rows dimmed (review #13)',
+  /if \(c\.getAttribute\('data-locked'\) === '1'\) return;\s*\n\s*c\.style\.pointerEvents = '';/.test(cloud),
+  'the error-path opacity reset skips data-locked cards'
+);
+
+// Review finding 3: the new job row must carry ghl_contact_id (not NULL).
+record(
+  'new-job create_job payload carries the contactId (review #3)',
+  /contactId: newContactId \|\| null,/.test(newJobHelper),
+  'contactForJob includes contactId so createJobForOpportunity forwards ghl_contact_id'
+);
+
+// Review round 2: every network create must complete BEFORE any state/form
+// mutation, so a failed create leaves the scoper's job + draft untouched.
+record(
+  'new-job path creates before it resets (review #4)',
+  newJobHelper.indexOf('createJobForOpportunity(') > 0 &&
+    newJobHelper.indexOf('createJobForOpportunity(') < newJobHelper.indexOf("_openFencingTargetSeparately('repeat_client_new_job')") &&
+    newJobHelper.indexOf('createContactAndOpportunity(') < newJobHelper.indexOf('cloud.stopAutoSave()') &&
+    newJobHelper.indexOf('_ghlOpportunityId = newOppId;') > newJobHelper.indexOf('createJobForOpportunity('),
+  'contact fetch + opportunity + job creates all precede the checkpoint/reset and state assignment'
+);
+
+record(
+  'new-job path clears the previous GHL ids on reset (review #4)',
+  /_ghlOpportunityId = null;/.test(newJobHelper) && /_ghlContactId = null;/.test(newJobHelper),
+  'stale opportunity/contact ids cannot survive into the new job'
+);
+
+record(
+  'new-job path reuses a cached opportunity on retry (review #5)',
+  /_pendingNewOpps\[contactId\]/.test(newJobHelper) && /if \(!newOppId\) \{/.test(newJobHelper),
+  'a retry after a failed create_job reuses the opportunity instead of minting an orphan'
+);
+
+// Review round 4: the retry cache must outlive the modal re-render that a
+// re-search performs, and must not be reused once the job actually lands.
+record(
+  'new-job opportunity cache is module-scoped and keyed by contact (review #16)',
+  /var _pendingNewOpps = \{\};/.test(integration) &&
+    !/row\._createdOppId/.test(integration) &&
+    /delete _pendingNewOpps\[contactId\];/.test(newJobHelper),
+  'the orphan guard survives a re-search and is cleared once the job is created'
+);
+
+// Review round 4: the full contact is fetched before the create, so the
+// opportunity create must not send blank names/phones over the top of it.
+record(
+  'new-job path sends real contact fields to createContactAndOpportunity (review #17)',
+  /createContactAndOpportunity\(\{[\s\S]{0,400}?contact && contact\.name[\s\S]{0,400}?\}, _toolType, netOpts\)/.test(newJobHelper),
+  'the already-fetched contact details are passed through rather than empty strings'
+);
+
+record(
+  'new-job path requires a known contactId (review #6)',
+  /if \(!contactId\) throw new Error\(/.test(newJobHelper),
+  'a contact-less row is rejected before any network call, so no blank GHL contact is created'
+);
+
+// Review round 3: the new job is editable and its URL drops the frozen
+// revision, so the load-time readonly flag must not survive and mute autosave.
+record(
+  'new-job path clears the load-time readonly flag (review #14)',
+  /_isReadonly = false;/.test(newJobHelper) &&
+    /classList\.remove\('readonly-mode'\)/.test(newJobHelper) &&
+    newJobHelper.indexOf('_isReadonly = false;') < newJobHelper.indexOf('_shouldAutoSave()'),
+  'a new job started from a frozen sent-job viewer still autosaves to the cloud'
+);
+
+// Review round 4: clearing the readonly flag is not enough — the frozen
+// viewer's banner controls close over the OLD revision/job.
+record(
+  'new-job path tears down the frozen viewer chrome (review #14b)',
+  /_clearFrozenViewerChrome\(\);/.test(newJobHelper) &&
+    /function _clearFrozenViewerChrome\(\)/.test(integration) &&
+    /'sw-frozen-revision-banner', 'sw-frozen-error-banner'/.test(integration) &&
+    /banner\.dataset\.swPadTop = '36';/.test(integration) &&
+    /banner\.dataset\.swPadTop = '32';/.test(integration),
+  'the sealed-revision banner and its reserved body padding are removed for the new editable job'
+);
+
+// Review round 3: a created job must show its ref immediately.
+record(
+  'new-job path applies the created job number (review #15)',
+  /_lastJobNumber = job\.job_number \|\| null;/.test(newJobHelper) &&
+    /if \(_lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(newJobHelper) &&
+    /if \(!localDraftWins && _lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(integration),
+  'both the repeat-client and lead_search create branches populate + apply job_number'
+);
+
+record(
+  'contact-only selection never falls through to the load path (review #7)',
+  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,240}startNewJobForContact\)\s*\{[\s\S]{0,200}return;/.test(index),
+  'selectGHLContact early-returns on contact-only rows even when the helper is missing'
+);
+
+// Review round 5: the autocomplete exposes the same job-minting action as the
+// lead modal, so it must carry the same warning affordances.
+record(
+  'the autocomplete labels contact-only rows like the lead modal (review #20)',
+  /const isContactOnly = opp\.isContactOnly \|\| opp\.id == null;/.test(index) &&
+    /isContactOnly[\s\S]{0,200}>Contact</.test(index) &&
+    /isContactOnly \? '<div[^']*>Creates a new job for this client/.test(index),
+  'a contact-only dropdown row shows the grey Contact badge + "Creates a new job" caption'
+);
+
+// A video-retry timer left armed across a reset re-reads _jobId when it fires,
+// so it would upload the previous client's walkthrough to the new job.
+record(
+  'the fencing reset cancels a pending video-retry timer (review #21)',
+  /_videoRetryTimer = setTimeout\(/.test(integration) &&
+    /if \(_videoRetryTimer\) \{ clearTimeout\(_videoRetryTimer\); _videoRetryTimer = null; \}[\s\S]{0,60}_videoRetryCount = 0;/.test(integration) &&
+    /_videoRetryCount = 0;\s*\n\s*_mediaEpoch\+\+;/.test(integration),
+  'the retry timer is tracked, and a reset clears it, the retry count and the media epoch'
+);
+
+// The retry must tell a job SWAP (reset — never upload) apart from the same
+// draft walking its local- id up to a real cloud id, which happens routinely
+// inside the 4s backoff and used to abandon the upload at the exact moment it
+// would have succeeded, pinning the checklist at "uploading" forever.
+record(
+  'a deferred video retry survives local-to-real promotion but not a reset (review #24)',
+  /var epoch = _mediaEpoch;/.test(integration) &&
+    /if \(_mediaEpoch !== epoch\) return;/.test(integration) &&
+    /if \(_isRealJobId\(jobId\) && _jobId !== jobId\) return;/.test(integration),
+  'only an intervening media reset invalidates the retry; a captured real id still has to match the current job'
+);
+
+// Captured inside the rejection callback the epoch reads AFTER any reset has
+// already bumped it, so the guard compares the new value with itself and waves
+// the retry through — uploading the previous client's walkthrough into the new
+// job. It has to be read synchronously at upload start, next to `var jobId`.
+record(
+  'the video-retry epoch is captured at upload start, not in the catch (review #25)',
+  (() => {
+    const fn = integration.match(/function _startBgVideoUpload\(video\) \{[\s\S]*?\n  \}\n/);
+    if (!fn) return false;
+    const body = fn[0];
+    const iJob = body.indexOf('var jobId = _jobId;');
+    const iEpoch = body.indexOf('var epoch = _mediaEpoch;');
+    const iCatch = body.indexOf('.catch(function(err)');
+    return iJob > -1 && iEpoch > iJob && iCatch > -1 && iEpoch < iCatch;
+  })(),
+  'epoch is read synchronously beside the jobId capture, before the upload promise is built'
+);
+
+// The orphan-opportunity cache exists so a retry reuses a timed-out attempt's
+// opportunity. But a create that timed out may have COMMITTED, in which case
+// reusing the opp and creating again hangs a SECOND job off it and leaves
+// findJobByOpportunity permanently ambiguous.
+record(
+  'a committed timed-out create is adopted, never duplicated (review #25)',
+  /row\.id === newOppId && row\.supabaseJobId && !row\.hasScope/.test(newJobHelper) &&
+    /adopted && adopted\.id/.test(newJobHelper) &&
+    /delete _pendingNewOpps\[contactId\];/.test(newJobHelper),
+  'the fresh row showing the pending opp already carrying a scope-less job adopts it instead of creating a second, and the cache clears on success in both modes'
+);
+
+// A dismissed modal that leaves its fetch and timers armed keeps writing into a
+// detached list node and burns a hotspot connection on work nobody will see.
+record(
+  'the lead-search modal tears down its own async machinery on close (review #25)',
+  /function _close\(force\) \{[\s\S]{0,400}?_abortController\.abort\(\)[\s\S]{0,200}?clearTimeout\(_searchAbortTimer\)[\s\S]{0,200}?clearTimeout\(_flashTimer\)/.test(cloud) &&
+    /var timer = _searchAbortTimer = setTimeout/.test(cloud),
+  '_close aborts the in-flight search and clears the 30s search timeout, the input debounce and the flash timer'
+);
+
+// A 500 or a payload-validation 400 must never latch the session onto the
+// legacy search action, which cannot return contact-only rows. But the backend
+// reports errors as {error:'...'} with no code field, so its real undeployed
+// reply — 400 "Unknown action: lead_search" — must still confirm, or the
+// deploy-order fallback is dead on the one response it exists for.
+const unknownActionSignal = (() => {
+  const src = cloud.match(/function _unknownActionSignal\(res, data\) \{[\s\S]*?\n  \}\n/);
+  if (!src) throw new Error('_unknownActionSignal not found');
+  return new Function(`${src[0]}; return _unknownActionSignal;`)();
+})();
+const signalCases = [
+  [400, { error: 'Unknown action: lead_search' }, 'confirmed'],
+  [400, { error: 'Unsupported action: lead_search' }, 'confirmed'],
+  [400, { error: 'Action lead_search is not supported' }, 'confirmed'],
+  [400, { code: 'unknown_action' }, 'confirmed'],
+  [404, { error: 'Unknown action: lead_search' }, 'confirmed'],
+  [501, {}, 'confirmed'],
+  // A 404 is also what a backend may answer a zero-result search with, so it
+  // falls back for this call but must never count toward the session latch.
+  [404, null, 'soft'],
+  [404, { opportunities: [] }, 'soft'],
+  [400, null, 'maybe'],
+  [400, { error: 'invalid action parameters' }, false],
+  [400, { error: 'Missing required field: q' }, false],
+  [500, { error: 'Unknown action: lead_search' }, false],
+  [502, { error: 'bad gateway' }, false],
+];
+record(
+  'the unknown-action signal confirms a rejected action but never a 5xx or bad payload (review #22/#24)',
+  signalCases.every(([status, data, want]) => unknownActionSignal({ status }, data) === want) &&
+    /if \(signal === 'maybe'\) _leadSearchMisses\+\+; else _leadSearchMisses = 0;/.test(cloud),
+  'a 400/404 rejecting the ACTION confirms, a 5xx or payload-validation 400 never does, an unparseable body falls back once, and the miss streak resets on any non-maybe outcome'
+);
+
+// A run of no-match searches must never strand the session on the legacy path,
+// which cannot return contact-only rows — the repeat-client feature would go
+// silently blind to every contact with no opportunity.
+record(
+  'a streak of zero-result 404s never latches the legacy fallback (review #25)',
+  signalCases.filter(([, , want]) => want === 'soft').length > 0 &&
+    unknownActionSignal({ status: 404 }, null) !== 'maybe' &&
+    /if \(query !== _leadSearchMissQuery\)/.test(cloud),
+  'a 404 is a soft fallback that breaks rather than builds the miss streak, and the streak is scoped to one query'
+);
+
+// _rethrow is shared by the modal and the autocomplete, so its message cannot
+// promise a list refresh that only one of them performs.
+record(
+  'the timeout error is surface-neutral and both callers recover (review #23)',
+  !/Timed out — refreshing the list/.test(integration) &&
+    /Timed out before we could confirm whether the job was created/.test(integration) &&
+    /if \(e && e\.code === 'timeout'\)[\s\S]{0,400}_searchGHLContacts\(q\)/.test(index),
+  'the autocomplete re-runs its own search on timeout rather than showing the modal-only text'
+);
+
+// Dead code that duplicates the live reset silently drifts from it.
+record(
+  'the unreachable cloud-load reset is gone (review #24)',
+  !/_resetFencingForCloudLoad/.test(integration),
+  'the fencing reset lives only in _openFencingTargetSeparately'
+);
+
+// The scope-save cursor is per-job module state. Left pointing at the previous
+// client it rides along on the new job's first saveScope, and since it only
+// refreshes on a successful save, a strict backend would reject it forever.
+record(
+  'the new-job path drops the previous job\'s scope-save cursor (review #25)',
+  /_ghlContactId = null;[\s\S]{0,400}_baseScopeHash = null;\s*\n\s*_baseScopeUpdatedAt = null;/.test(newJobHelper),
+  '_startNewJobForContact nulls _baseScopeHash/_baseScopeUpdatedAt with the rest of the per-job state'
+);
+
+// Loading a real opportunity row settles the earlier failed attempt, so its
+// cached opportunity must not be reused by a later new job for that contact.
+record(
+  'selecting an opportunity to load clears that contact\'s pending-opp cache (review #26)',
+  /function _clearPendingNewOpp\(contactId\) \{\s*\n\s*if \(contactId\) delete _pendingNewOpps\[contactId\];/.test(integration) &&
+    /_clearPendingNewOpp\(lead\.contactId\);/.test(integration) &&
+    /_clearPendingNewOpp\(opp\.contactId\);/.test(integration),
+  'both the lead-search load branch and the opportunity picker clear the cache before loading'
+);
+
+// The media reset carries the cross-client leak protection, so it cannot be
+// fencing-only: integration.js is the shared multi-tool file.
+record(
+  'the patio reset gets the same media teardown as fencing (review #27)',
+  /function _resetToolMediaState\(\)/.test(integration) &&
+    !/_resetFencingMediaState/.test(integration) &&
+    /function _resetPatioForm\(\) \{[\s\S]{0,1400}_resetToolMediaState\(\);/.test(integration),
+  '_resetPatioForm routes through the shared helper, so it clears _bgUploads, the retry timer and the media epoch too'
+);
+
+// The inline client-name autocomplete used to hand-roll its own copy of the
+// open-separately reset, which silently skipped the media wipe and leaked the
+// previous client's photos/video into the newly-linked job. There must be ONE
+// reset implementation, and every caller routes through it.
+const inlineSelectContact = (function () {
+  const start = index.indexOf('async selectGHLContact(idx)');
+  const end = index.indexOf('\n      hideClientNameDropdown()', start);
+  return start >= 0 && end > start ? index.slice(start, end) : '';
+})();
+record(
+  'inline contact select resets via the shared integration helper (not a local copy)',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.openFencingTargetSeparately\('inline_ghl_contact'\)/.test(inlineSelectContact) &&
+    /openFencingTargetSeparately: function\(source\)/.test(integration),
+  'the inline load path resets through _openFencingTargetSeparately, inheriting the media wipe'
+);
+
+record(
+  'inline contact select clears the pending new-opp cache on link',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.clearPendingNewOpp\(opp\.contactId\)/.test(inlineSelectContact) &&
+    /clearPendingNewOpp: function\(contactId\)/.test(integration),
+  'linking a real opp row settles the earlier attempt, so its orphan opp cannot be reused by a later new job'
+);
+
+// Both settle handlers, not just the retry timer, must respect the epoch: a
+// stale upload that lands after a reset owns none of the new job's state.
+record(
+  'video upload settle handlers are epoch-guarded (review #31)',
+  /var epoch = _mediaEpoch;/.test(integration) &&
+    /entry\.promise = _doUploadVideo\(video, jobId, cloudRef\)\.then\(function\(\) \{[\s\S]{0,400}?if \(_mediaEpoch !== epoch\) return;[\s\S]{0,120}?_videoRetryCount = 0;/.test(integration) &&
+    /\}\)\.catch\(function\(err\) \{[\s\S]{0,500}?if \(_mediaEpoch !== epoch\) return;[\s\S]{0,80}?if \(_videoRetryCount < _VIDEO_MAX_RETRIES\)/.test(integration),
+  'a stale upload cannot report done, spend the retry budget, or orphan the new job retry timer'
+);
+
+// The lead-search modal locks itself while the create sequence runs, so every
+// await inside that sequence must honour its 45s abort — including the
+// best-effort adopt meta fetch, which is the one call that used to escape it.
+record(
+  'the adopted-job meta fetch stays inside the create timeout (review #32)',
+  /async function _fetchAdoptedJobMeta\(jobId, opts\)/.test(integration) &&
+    /cloud\.ghl\.loadJob\(jobId, opts\)/.test(integration) &&
+    /_fetchAdoptedJobMeta\(job\.id, netOpts\)/.test(integration) &&
+    /async loadJob\(jobId, opts\)/.test(cloud) &&
+    /authorizedFetch\(url, _signalOpts\(opts\)\)/.test(cloud) &&
+    /if \(res\.status === 503 && !\(signal && signal\.aborted\)\)/.test(cloud),
+  'loadJob takes the abort signal and skips the 503 sleep-retry once aborted, so the modal lock cannot outlive the bound'
+);
+
+// Resetting wipes the media state; a load path that does not put it back leaves
+// the scoper staring at an empty grid on a job that already has photos.
+record(
+  'inline contact select reloads the linked job media after the reset (review #32)',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.loadCloudMedia\(existingJob\.id\)/.test(inlineSelectContact) &&
+    /!localDraftWins/.test(inlineSelectContact) &&
+    /loadCloudMedia: function\(jobId\)/.test(integration),
+  'the inline load path calls _loadCloudMedia like every other load path, so cloud photos survive the wipe'
+);
+
+// The hand-rolled reset this change exists to delete must not linger as an
+// unreachable fallback: it is a copy without the media wipe.
+record(
+  'the inline hand-rolled reset copy is gone (review #32)',
+  inlineSelectContact.length > 0 &&
+    !/localStorage\.removeItem\('fenceJob'\)/.test(inlineSelectContact) &&
+    !/fenceQA\._verificationState = \{\}/.test(inlineSelectContact),
+  'only the shared helper resets this path — no second, media-leaking implementation survives'
 );
 
 console.log('CP2 Fence launch/save-state harness');

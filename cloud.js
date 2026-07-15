@@ -133,6 +133,80 @@
     return h;
   }
 
+  // Parse a JSON body without letting a non-JSON error page (a plain-text 404
+  // from the platform when the function is missing, an HTML 502) throw before
+  // the caller can decide what the status actually means.
+  async function _safeJson(res) {
+    try {
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Sticky for the session once the deployed ghl-proxy has told us lead_search
+  // does not exist, so the hot path (400ms-debounced autocomplete) stops paying
+  // for a doomed probe on every keystroke. A page reload re-probes.
+  var _leadSearchUnavailable = false;
+  // Consecutive ambiguous misses ON THE SAME QUERY. An HTML 400 from a gateway
+  // looks identical to a missing action, so one is never enough to latch the
+  // session onto the legacy path (which cannot return contact-only rows). Scoped
+  // to one query so unrelated failures across different searches can't add up.
+  var _leadSearchMisses = 0;
+  var _leadSearchMissQuery = null;
+  var _LEAD_SEARCH_MISS_LIMIT = 2;
+
+  // The edge function rejected the ACTION itself (rather than the request
+  // payload) — i.e. this build is ahead of the deployed ghl-proxy.
+  // 'confirmed' is safe to latch on for the session; 'maybe' falls back for this
+  // call only, so a transient blip self-heals on the next keystroke; 'soft'
+  // falls back too but never counts toward the latch.
+  function _unknownActionSignal(res, data) {
+    if (res.status === 501) return 'confirmed';
+    // Only a status that plausibly means "this route does not exist" may confirm,
+    // so a 500 whose body happens to mention an action can never latch the
+    // session onto the legacy path.
+    if (res.status !== 400 && res.status !== 404) return false;
+    // An explicit machine-readable code is the one signal that means the ACTION
+    // was rejected rather than the payload.
+    var code = String((data && data.code) || '').toLowerCase();
+    if (/^(unknown|invalid|unsupported|unrecogni[sz]ed)_action$/.test(code)) return 'confirmed';
+    // This backend reports errors as {error: '...'} with no code field, so the
+    // canonical undeployed-action reply is a 400 "Unknown action: lead_search"
+    // and prose has to be able to confirm on a 400 too. Only phrasing that
+    // rejects the ACTION ITSELF counts — a live action rejecting its payload
+    // ("invalid action parameters") means the action EXISTS.
+    var msg = String((data && data.error) || '').toLowerCase();
+    if (/\b(unknown|invalid|unsupported|unrecogni[sz]ed|no such)\s+action\b(?!\s+(?:param|arg|payload|body|input|field))/.test(msg) ||
+      /\baction\b[^.]{0,40}\b(?:is\s+)?(?:not supported|not recogni[sz]ed|not allowed|unknown|does not exist)/.test(msg)) {
+      return 'confirmed';
+    }
+    // A 404 can't be ruled out as an unknown action, but it is also what a
+    // backend may answer a zero-result search with. It falls back for this call
+    // only and NEVER counts toward the latch: a run of no-match searches must
+    // not strand the session on a path that cannot return contact-only rows.
+    if (res.status === 404) return 'soft';
+    // A 400 whose body won't parse is a gateway/HTML reply — a live action
+    // rejecting a payload would answer JSON — so it stays a countable miss.
+    if (!data) return 'maybe';
+    return false;
+  }
+
+  // Merge a caller's abort signal into a fetch options object.
+  function _signalOpts(opts, base) {
+    var out = Object.assign({}, base || {});
+    if (opts && opts.signal) out.signal = opts.signal;
+    return out;
+  }
+
+  // Matches what fetch itself rejects with, so callers can treat a give-up
+  // between round trips exactly like an aborted request.
+  function _abortError() {
+    var e = new Error('Aborted');
+    e.name = 'AbortError';
+    return e;
+  }
+
   async function authorizedFetch(url, options) {
     options = options || {};
     var headers = await authorizedHeaders(options.headers || {});
@@ -642,9 +716,10 @@
       return data.opportunities || [];
     },
 
-    // Get full contact details from GHL
-    async getContact(contactId) {
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId));
+    // Get full contact details from GHL. opts.signal lets the caller bound how
+    // long the request can hang.
+    async getContact(contactId, opts) {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=contact&contactId=' + encodeURIComponent(contactId), _signalOpts(opts));
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to get contact');
       return data.contact;
@@ -684,15 +759,59 @@
       return data.job || null;
     },
 
-    // Search GHL leads with pipeline filter + Supabase cross-reference
-    async searchLeads(query, pipeline) {
-      var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=search';
-      if (pipeline) url += '&pipeline=' + encodeURIComponent(pipeline);
-      if (query) url += '&q=' + encodeURIComponent(query);
-      var res = await authorizedFetch(url);
-      var data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Search failed');
-      return data.opportunities || [];
+    // Search GHL leads with pipeline filter + Supabase cross-reference.
+    // Uses the fast lead_search action (contacts-first + parallel opp lookup);
+    // opts.signal lets the caller abort/timeout a stale in-flight request.
+    // If lead_search is not deployed yet this falls back to the legacy search
+    // action, so a Pages build can never outrun the edge function. The fallback
+    // only goes sticky once the backend has confirmed the action is missing;
+    // an ambiguous failure falls back for that call alone and re-probes next time.
+    async searchLeads(query, pipeline, opts) {
+      opts = opts || {};
+      var qs = '';
+      if (pipeline) qs += '&pipeline=' + encodeURIComponent(pipeline);
+      if (query) qs += '&q=' + encodeURIComponent(query);
+      var fetchOpts = opts.signal ? { signal: opts.signal } : undefined;
+      var base = SUPABASE_URL + '/functions/v1/ghl-proxy?action=';
+
+      var res, data, fallBack = false;
+      if (!_leadSearchUnavailable) {
+        // The streak only means anything within one query; a different search is
+        // a different question and starts its own count.
+        if (query !== _leadSearchMissQuery) {
+          _leadSearchMissQuery = query;
+          _leadSearchMisses = 0;
+        }
+        res = await authorizedFetch(base + 'lead_search' + qs, fetchOpts);
+        data = await _safeJson(res);
+        if (res.ok) {
+          _leadSearchMisses = 0;
+        } else {
+          var signal = _unknownActionSignal(res, data);
+          fallBack = !!signal;
+          // Anything that is not an ambiguous miss breaks the streak — the
+          // limit only latches on misses that were genuinely CONSECUTIVE.
+          if (signal === 'maybe') _leadSearchMisses++; else _leadSearchMisses = 0;
+          if (signal === 'confirmed' || _leadSearchMisses >= _LEAD_SEARCH_MISS_LIMIT) {
+            _leadSearchUnavailable = true;
+            console.warn('[Cloud] lead_search unavailable on the backend — falling back to the legacy search action for the rest of this session.');
+          } else if (signal) {
+            console.warn('[Cloud] lead_search failed (HTTP ' + res.status + ') — retrying this search on the legacy action.');
+          }
+        }
+      }
+      if ((_leadSearchUnavailable || fallBack) && (!res || !res.ok)) {
+        res = await authorizedFetch(base + 'search' + qs, fetchOpts);
+        data = await _safeJson(res);
+      }
+      if (!res.ok) throw new Error((data && data.error) || ('Search failed (HTTP ' + res.status + ')'));
+      // Contact-only is DERIVED here, at the data boundary, so the card render,
+      // the tap handler and integration.js can never disagree about what a row
+      // does. The backend flag is advisory only.
+      return ((data && data.opportunities) || []).map(function(lead) {
+        lead.isContactOnly = (lead.id == null) && !lead.lookupFailed;
+        return lead;
+      });
     },
 
     // Search Supabase jobs (via edge function, bypasses RLS)
@@ -709,15 +828,19 @@
     },
 
     // Load a job by ID (via edge function, bypasses RLS)
-    async loadJob(jobId) {
+    async loadJob(jobId, opts) {
       console.log('[Cloud] loadJob:', jobId);
       var url = SUPABASE_URL + '/functions/v1/ghl-proxy?action=load_job&jobId=' + encodeURIComponent(jobId);
-      // Retry once on 503 (Supabase cold start / transient timeout)
-      var res = await authorizedFetch(url);
-      if (res.status === 503) {
+      var signal = (opts && opts.signal) || null;
+      // Retry once on 503 (Supabase cold start / transient timeout). An aborted
+      // caller skips the sleep and the retry: a bounded call must not outlive
+      // its budget by 1.5s plus a second round trip.
+      var res = await authorizedFetch(url, _signalOpts(opts));
+      if (res.status === 503 && !(signal && signal.aborted)) {
         console.warn('[Cloud] loadJob got 503, retrying...');
         await new Promise(function(r) { setTimeout(r, 1500); });
-        res = await authorizedFetch(url);
+        if (signal && signal.aborted) throw _abortError();
+        res = await authorizedFetch(url, _signalOpts(opts));
       }
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load job');
@@ -791,7 +914,7 @@
     },
 
     // Auto-create GHL contact + opportunity for walk-up clients (dedup by email/phone)
-    async createContactAndOpportunity(contact, toolType) {
+    async createContactAndOpportunity(contact, toolType, opts) {
       console.log('[Cloud] createContactAndOpportunity:', toolType);
       var firstName = contact.firstName || '';
       var lastName = contact.lastName || '';
@@ -800,18 +923,22 @@
         firstName = parts[0] || '';
         lastName = parts.slice(1).join(' ') || '';
       }
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', {
+      var body = {
+        firstName: firstName,
+        lastName: lastName,
+        email: contact.email || '',
+        phone: contact.phone || '',
+        address: contact.address || '',
+        suburb: contact.suburb || '',
+        toolType: toolType
+      };
+      // Repeat-client path: caller already knows the contact — skip dedup/creation
+      // on the backend and just spin up a NEW opportunity for this contact.
+      if (contact.contactId) body.contactId = contact.contactId;
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', _signalOpts(opts, {
         method: 'POST',
-        body: JSON.stringify({
-          firstName: firstName,
-          lastName: lastName,
-          email: contact.email || '',
-          phone: contact.phone || '',
-          address: contact.address || '',
-          suburb: contact.suburb || '',
-          toolType: toolType
-        })
-      });
+        body: JSON.stringify(body)
+      }));
       var data = await res.json();
       console.log('[Cloud] createContactAndOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to create contact/opportunity');
@@ -819,7 +946,7 @@
     },
 
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
-    async createJobForOpportunity(opportunityId, toolType, contact) {
+    async createJobForOpportunity(opportunityId, toolType, contact, opts) {
       console.log('[Cloud] createJobForOpportunity:', opportunityId, toolType);
       var payload = {
         toolType: toolType,
@@ -831,10 +958,10 @@
       };
       if (opportunityId) payload.opportunityId = opportunityId;
       if (contact.contactId) payload.contactId = contact.contactId;
-      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', _signalOpts(opts, {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }));
       var data = await res.json();
       console.log('[Cloud] createJobForOpportunity result:', data);
       if (!res.ok) throw new Error(data.error || 'Failed to create job');
@@ -1510,7 +1637,9 @@
     },
 
     // Lead search — self-contained centered modal (no header dependency)
-    showLeadSearch: function(toolType, onSelect, initialQuery) {
+    showLeadSearch: function(toolType, onSelect, initialQuery, opts) {
+      opts = opts || {};
+      var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
 
@@ -1541,7 +1670,8 @@
       // Header row: title + close button
       var header = document.createElement('div');
       header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid #eee;';
-      header.innerHTML = '<div style="font-weight:700;color:' + hex.dark + ';font-size:15px;">Load lead / contact</div>';
+      var headerTitle = (mode === 'new_job') ? 'New job for existing client/lead' : 'Load lead / contact';
+      header.innerHTML = '<div style="font-weight:700;color:' + hex.dark + ';font-size:15px;">' + headerTitle + '</div>';
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.textContent = '×';
@@ -1577,8 +1707,20 @@
       // Autofocus the search input
       setTimeout(function() { try { searchInput.focus(); } catch(e) {} }, 0);
 
-      function _close() {
+      // `force` is for the internal post-create teardown only. A user-driven
+      // dismissal (backdrop / × / Escape) is IGNORED while a create is in
+      // flight (AM-C), so the modal is still mounted to show the error banner
+      // and offer a retry if it fails.
+      function _close(force) {
+        if (_locked && !force) { _flashCreatingStatus(); return; }
         document.removeEventListener('keydown', _escHandler);
+        // Tear down everything setup armed: a dismissed modal must not keep a
+        // fetch alive, nor let its timers fire into a detached list node.
+        if (_abortController) { try { _abortController.abort(); } catch(e) {} }
+        _abortController = null;
+        clearTimeout(_searchAbortTimer);
+        clearTimeout(_searchTimer);
+        clearTimeout(_flashTimer);
         var bd = document.getElementById('sw-lead-search-backdrop');
         if (bd) bd.remove();
         var md = document.getElementById('sw-lead-search-dropdown');
@@ -1591,8 +1733,13 @@
       }
       document.addEventListener('keydown', _escHandler);
 
-      // Render a lead card
-      function _renderLeadCard(lead) {
+      function _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      // Render a lead card. `idx` is the array index — the ONLY selection key,
+      // because contact-only rows have id === null (AM-D).
+      function _renderLeadCard(lead, idx) {
         var phone = lead.contactPhone || '';
         var rawName = (lead.contactName || lead.name || '').trim();
         var phoneOnlyName = /^\+?\d[\d\s\-]+$/.test(rawName);
@@ -1600,64 +1747,210 @@
         var stage = lead.stageName || 'New';
         var hasJob = !!lead.supabaseJobId;
         var hasScope = !!lead.hasScope;
+        // Normalised by ghl.searchLeads — the same flag the tap handler and
+        // integration.js branch on, so the badge can't disagree with the action.
+        var isContactOnly = !!lead.isContactOnly;
+        var lookupFailed = !!lead.lookupFailed;
 
         var borderColor = hasScope ? '#34C759' : hasJob ? '#007AFF' : '#eee';
         var borderWidth = (hasScope || hasJob) ? '2px' : '1px';
+        // lookupFailed rows are dimmed + not clickable in any mode (AM-C).
+        var extraStyle = lookupFailed
+          ? 'opacity:0.5;cursor:not-allowed;'
+          : 'cursor:pointer;';
+        var hoverAttrs = lookupFailed
+          ? ''
+          : ' onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'"';
 
-        var html = '<div class="sw-lead-item" data-oppid="' + lead.id + '" style="padding:10px 12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:6px;cursor:pointer;transition:background 0.15s;display:flex;justify-content:space-between;align-items:center;gap:8px;" onmouseover="this.style.background=\'#f8f8f8\'" onmouseout="this.style.background=\'#fff\'">';
+        var html = '<div class="sw-lead-item" data-idx="' + idx + '"' + (lookupFailed ? ' data-locked="1"' : '') + ' style="padding:10px 12px;border:' + borderWidth + ' solid ' + borderColor + ';border-radius:8px;margin-bottom:6px;transition:background 0.15s;display:flex;justify-content:space-between;align-items:center;gap:8px;' + extraStyle + '"' + hoverAttrs + '>';
         html += '<div style="flex:1;min-width:0;">';
-        html += '<div style="font-weight:600;color:' + hex.dark + ';font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + name + '</div>';
-        if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + phone + '</div>';
+        html += '<div style="font-weight:600;color:' + hex.dark + ';font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + _esc(name) + '</div>';
+        if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + _esc(phone) + '</div>';
+        // In new_job mode every selectable card explains what tapping does.
+        if (mode === 'new_job' && !lookupFailed) {
+          html += '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
+        }
         html += '</div>';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
-        if (hasScope) {
+        html += '<span class="sw-lead-status" style="display:none;"></span>';
+        if (lookupFailed) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;">Couldn\'t check — retry search</span>';
+        } else if (isContactOnly) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;">Contact</span>';
+        } else if (hasScope) {
           html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#34C75920;color:#34C759;font-weight:600;">Scope saved</span>';
         } else if (hasJob) {
           html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#007AFF20;color:#007AFF;font-weight:600;">Job linked</span>';
         }
-        html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '15;color:' + hex.orange + ';font-weight:500;">' + stage + '</span>';
+        if (!isContactOnly && !lookupFailed) {
+          html += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '15;color:' + hex.orange + ';font-weight:500;">' + _esc(stage) + '</span>';
+        }
         html += '</div>';
         html += '</div>';
         return html;
+      }
+
+      // Per-modal request coordination (AM-F): one AbortController, monotonic seq.
+      // A newer search aborts the previous in-flight fetch and bumps the seq so a
+      // late/stale response is discarded. `_locked` is the new_job double-tap guard.
+      var _abortController = null;
+      var _seq = 0;
+      var _locked = false;
+      // The "Creating job…" pill on the tapped card. A dismissal that the lock
+      // swallows flashes it, so the tap reads as "still working", not "dead UI".
+      var _lockedStatusEl = null;
+      var _flashTimer = null;
+      // Modal-scoped so _close can disarm the in-flight search's timeout.
+      var _searchAbortTimer = null;
+      // Survives the list rebuild that _loadLeads performs, so a message about
+      // the search that was just re-run can outlive the innerHTML it replaces.
+      var _pendingRefreshMsg = '';
+      function _takeRefreshNotice() {
+        if (!_pendingRefreshMsg) return '';
+        var html = '<p id="sw-lead-modal-error" style="text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;">' +
+          _esc(_pendingRefreshMsg) + '</p>';
+        _pendingRefreshMsg = '';
+        return html;
+      }
+      function _flashCreatingStatus() {
+        var el = _lockedStatusEl;
+        if (!el) return;
+        clearTimeout(_flashTimer);
+        el.style.transition = 'none';
+        el.style.opacity = '0.25';
+        _flashTimer = setTimeout(function() {
+          el.style.transition = 'opacity 0.25s';
+          el.style.opacity = '1';
+        }, 120);
       }
 
       // Load leads
       var _loadLeads = async function(query) {
         var list = document.getElementById('sw-lead-list');
         if (!list) return;
-        list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching...</p>';
+        if (_locked) return; // a job is being created; don't disturb the list
+
+        if (_abortController) { try { _abortController.abort(); } catch(e) {} }
+        var controller = new AbortController();
+        _abortController = controller;
+        var mySeq = ++_seq;
+        var timedOut = false;
+        clearTimeout(_searchAbortTimer);
+        var timer = _searchAbortTimer = setTimeout(function() { timedOut = true; try { controller.abort(); } catch(e) {} }, 30000);
+
+        list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">Searching contacts…</p>';
 
         try {
-          var leads = await ghl.searchLeads(query || '', pipelineKey);
+          var leads = await ghl.searchLeads(query || '', pipelineKey, { signal: controller.signal });
+          clearTimeout(timer);
+          if (mySeq !== _seq) return; // superseded by a newer search — discard
 
           // Keep phone-only/no-name leads; field launch still needs a sync target.
           leads = leads || [];
 
           if (leads.length === 0) {
-            list.innerHTML = '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">' + (query ? 'No leads matching "' + query + '"' : 'No leads in pipeline') + '</p>';
-          } else {
-            // Sort: leads with scope first, then by most recent
-            leads.sort(function(a, b) {
-              if (a.hasScope && !b.hasScope) return -1;
-              if (!a.hasScope && b.hasScope) return 1;
-              return 0; // GHL already returns most recent first
-            });
+            list.innerHTML = _takeRefreshNotice() +
+              '<p style="text-align:center;color:' + hex.mid + ';padding:30px 0;font-size:13px;">No matches — check spelling or try a phone number.</p>';
+            return;
+          }
 
-            list.innerHTML = leads.map(function(lead) { return _renderLeadCard(lead); }).join('');
+          // Client keeps only the hasScope-first stable sort; backend already
+          // orders opp rows by recency and appends contact-only rows (AM-E).
+          leads.sort(function(a, b) {
+            if (a.hasScope && !b.hasScope) return -1;
+            if (!a.hasScope && b.hasScope) return 1;
+            return 0;
+          });
 
-            // Click handlers
-            list.querySelectorAll('.sw-lead-item').forEach(function(el) {
-              el.onclick = function() {
-                var oppId = el.dataset.oppid;
-                var lead = leads.find(function(l) { return l.id === oppId; });
-                if (!lead) return;
+          list.innerHTML = _takeRefreshNotice() +
+            leads.map(function(lead, i) { return _renderLeadCard(lead, i); }).join('');
+
+          // Click handlers — keyed by array index (AM-D).
+          list.querySelectorAll('.sw-lead-item').forEach(function(el) {
+            if (el.getAttribute('data-locked') === '1') return; // lookupFailed: not selectable
+            el.onclick = function() {
+              if (_locked) return;
+              var idx = parseInt(el.getAttribute('data-idx'), 10);
+              var lead = leads[idx];
+              if (!lead || lead.lookupFailed) return;
+
+              // Any selection that creates a job — new_job mode, OR a contact-only
+              // row in load mode (nothing to load, so onSelect resets then makes a
+              // new job) — must use the locked/awaited path so a failed create
+              // can't strand the user on a blank scope with the modal gone.
+              var createsJob = (mode === 'new_job') || !!lead.isContactOnly;
+
+              if (createsJob) {
+                // AM-C: lock the whole list, show "Creating job…" on the tapped
+                // card, and hold the modal open until onSelect settles.
+                _locked = true;
+                list.querySelectorAll('.sw-lead-item').forEach(function(c) {
+                  c.style.pointerEvents = 'none';
+                  if (c !== el) c.style.opacity = '0.5';
+                });
+                var statusEl = el.querySelector('.sw-lead-status');
+                if (statusEl) {
+                  statusEl.style.display = '';
+                  statusEl.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:10px;background:' + hex.orange + '20;color:' + hex.orange + ';font-weight:600;';
+                  statusEl.textContent = 'Creating job…';
+                }
+                _lockedStatusEl = statusEl || null;
+                Promise.resolve(onSelect ? onSelect(lead) : null).then(function() {
+                  _locked = false;
+                  _lockedStatusEl = null;
+                  _close(true);
+                }).catch(function(err) {
+                  _locked = false;
+                  _lockedStatusEl = null;
+                  clearTimeout(_flashTimer);
+                  list.querySelectorAll('.sw-lead-item').forEach(function(c) {
+                    // lookupFailed rows stay dimmed + inert — they were never
+                    // selectable, so the reset must not make them look tappable.
+                    if (c.getAttribute('data-locked') === '1') return;
+                    c.style.pointerEvents = '';
+                    c.style.opacity = '';
+                  });
+                  if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
+                  var msg = (err && err.message) ? err.message : 'Could not create the job';
+                  if (err && err.code === 'cancelled') return; // user backed out of the confirm
+                  // A timed-out create may have committed server-side without us
+                  // learning the opportunity id, so never invite a blind retry:
+                  // re-run the search instead. Anything that landed comes back as
+                  // a real opp row, which LOADS rather than minting a duplicate.
+                  if (err && err.code === 'timeout') {
+                    _pendingRefreshMsg = 'Timed out. If the job was created it is listed below — tap it to open. Otherwise tap the client to try again.';
+                    _loadLeads(query || '');
+                    return;
+                  }
+                  var banner = document.getElementById('sw-lead-modal-error');
+                  if (!banner) {
+                    banner = document.createElement('p');
+                    banner.id = 'sw-lead-modal-error';
+                    banner.style.cssText = 'text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;';
+                    list.insertBefore(banner, list.firstChild);
+                  }
+                  banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                });
+              } else {
                 _close();
                 if (onSelect) onSelect(lead);
-              };
-            });
-          }
+              }
+            };
+          });
         } catch(e) {
-          list.innerHTML = '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + e.message + '</p>';
+          clearTimeout(timer);
+          if (mySeq !== _seq) return; // superseded — ignore
+          if (e && e.name === 'AbortError') {
+            // Our own cancellation of a superseded fetch is silent; only a real
+            // client-side timeout surfaces an error state.
+            if (timedOut) {
+              list.innerHTML = _takeRefreshNotice() +
+                '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Search timed out. Retry, or refine your search.</p>';
+            }
+            return;
+          }
+          list.innerHTML = _takeRefreshNotice() +
+            '<p style="text-align:center;color:#FF3B30;padding:30px 0;font-size:13px;">Error: ' + _esc(e.message) + ' — Retry.</p>';
         }
       };
 

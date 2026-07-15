@@ -47,6 +47,31 @@
   // Site video uploads NON-BLOCKING with bounded auto-retry: create-job never waits on it.
   var _VIDEO_MAX_RETRIES = 3;
   var _videoRetryCount = 0;
+  // Pending video-retry timer. It closes over the video object and re-reads
+  // _jobId when it fires, so a reset that leaves it armed would upload the
+  // previous client's walkthrough to the new job.
+  var _videoRetryTimer = null;
+  // Bumped by every fencing media reset. A deferred upload compares against it so
+  // it can tell a job SWAP (media wiped, must not upload) apart from the same
+  // draft being promoted from a local- id to its real cloud id.
+  var _mediaEpoch = 0;
+  // Opportunities minted by a repeat-client new-job attempt whose job create then
+  // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
+  // the orphan instead of minting another; cleared once the job lands.
+  var _pendingNewOpps = {};
+
+  // Selecting a real opportunity row for this contact settles the earlier failed
+  // attempt: either it committed after all (a timed-out create can land without
+  // its id ever reaching us) or the scoper has moved on. Either way the cached
+  // opportunity must not be reused by a later, legitimately-new job for the same
+  // contact — that would hang a second Supabase job off one opportunity and make
+  // findJobByOpportunity ambiguous.
+  function _clearPendingNewOpp(contactId) {
+    if (contactId) delete _pendingNewOpps[contactId];
+  }
+  // Ceiling on the repeat-client create sequence (contact fetch + opportunity +
+  // job) so the lead-search modal's in-flight lock can never outlive it.
+  var _NEW_JOB_TIMEOUT_MS = 45000;
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
   var _isReadonly = (function() {
@@ -113,22 +138,27 @@
     return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
   }
 
-  function _resetFencingForCloudLoad(source) {
-    // Dirty local draft checkpoint/reconcile seam: local iPad draft wins over incoming cloud state.
-    if (_checkpointLocalDraftBeforeLoad(source)) {
-      console.log('[FenceSync] Local draft checkpointed before ' + source + '; remote load will link/fill blanks only.');
-      return false;
-    }
-    localStorage.removeItem('fenceJob');
-    window.app.job = null;
-    window.app.currentRunId = null;
-    if (typeof window.app._resetSections === 'function') window.app._resetSections();
-    window.app.init();
-    localStorage.removeItem('fenceQA_verification');
-    if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
-    return true;
+  // window.sitePhotos / window.siteVideo are globals that app.init() does not
+  // touch, so without this a reset leaves the PREVIOUS job's media in the queue:
+  // load paths only mask it by calling _loadCloudMedia straight after, and the
+  // repeat-client path creates an empty job and loads nothing. The _bgUploads
+  // entries go with them — a surviving '__video__' entry makes _startBgVideoUpload
+  // skip the next job's video entirely, and stale keys skew _mediaUploadGate.
+  // Tool-agnostic: every reset path (fencing and patio) goes through it, so the
+  // cross-client leak protection cannot fall off one branch.
+  function _resetToolMediaState() {
+    if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
+    if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+    if (_videoRetryTimer) { clearTimeout(_videoRetryTimer); _videoRetryTimer = null; }
+    _videoRetryCount = 0;
+    _mediaEpoch++;
+    _bgUploads = {};
+    if (typeof window.renderPhotoGrid === 'function') window.renderPhotoGrid();
+    if (typeof window.updatePhotoCount === 'function') window.updatePhotoCount();
   }
 
+  // Dirty local draft checkpoint/reconcile seam: the local iPad draft wins over
+  // incoming cloud state, so it is checkpointed before the form is reset.
   function _openFencingTargetSeparately(source) {
     if (_toolType !== 'fencing' || !window.app) return true;
     _checkpointLocalDraftBeforeLoad((source || 'cloud_load') + '_open_separately');
@@ -137,6 +167,7 @@
     window.app.currentRunId = null;
     if (typeof window.app._resetSections === 'function') window.app._resetSections();
     window.app.init();
+    _resetToolMediaState();
     localStorage.removeItem('fenceQA_verification');
     if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
     return true;
@@ -411,6 +442,9 @@
     if (video.cloudUrl) return;
     if (_bgUploads['__video__'] && !_bgUploads['__video__'].error) return;
     var jobId = _jobId;
+    // Read at upload START, not in the rejection callback: a reset that lands
+    // while this upload is in flight must be visible to the retry guard below.
+    var epoch = _mediaEpoch;
     var cloudRef = cloud;
     if (!jobId || !cloudRef || !cloudRef.supabaseUrl) return;
 
@@ -422,14 +456,22 @@
     entry.promise = _doUploadVideo(video, jobId, cloudRef).then(function() {
       video._uploading = false;
       video._uploadError = null;
-      _videoRetryCount = 0;
       entry.done = true;
+      // A reset while this was in flight handed _videoRetryCount and the status
+      // channel to a DIFFERENT job's video; reporting this one's outcome there
+      // would show the new job's pending video as already uploaded.
+      if (_mediaEpoch !== epoch) return;
+      _videoRetryCount = 0;
       if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'done');
     }).catch(function(err) {
       video._uploading = false;
       entry.done = true;
       entry.error = err;
       console.warn('[Integration] Background video upload failed:', err);
+      // Same ownership rule as the success path: this failure must not spend the
+      // new job's retry budget, nor overwrite _videoRetryTimer and orphan the
+      // live retry handle that _resetToolMediaState needs in order to cancel it.
+      if (_mediaEpoch !== epoch) return;
       if (_videoRetryCount < _VIDEO_MAX_RETRIES) {
         // Auto-retry with backoff before surfacing a hard failure. Keep the visible
         // status as "uploading" so the scoper still sees the video is being handled.
@@ -437,8 +479,15 @@
         var attempt = _videoRetryCount;
         console.log('[Integration] Retrying video upload (attempt ' + attempt + '/' + _VIDEO_MAX_RETRIES + ')');
         if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'uploading');
-        setTimeout(function() {
+        _videoRetryTimer = setTimeout(function() {
+          _videoRetryTimer = null;
           if (video.cloudUrl) return;
+          // The job this video belongs to may have been swapped out from under
+          // the timer (repeat-client new job); never upload it to a new client.
+          // A local- id walking up to its real cloud id is the SAME draft, so
+          // only an intervening media reset invalidates the retry.
+          if (_mediaEpoch !== epoch) return;
+          if (_isRealJobId(jobId) && _jobId !== jobId) return;
           var cur = _bgUploads['__video__'];
           if (cur && !cur.error) return; // a healthy upload is already in flight — don't double-start
           delete _bgUploads['__video__'];
@@ -580,6 +629,209 @@
     }
   }
 
+  // Identity-only read of a job this session just minted but lost the id for
+  // (timed-out create that committed). Deliberately projects id/job_number/status
+  // and DROPS scope_json: an adopt must never be able to pull a scope into the
+  // form, so the capability simply is not returned. Best-effort — a failed fetch
+  // just leaves the header numberless; the job itself is already ours. Takes the
+  // caller's abort opts so it stays inside the create sequence's timeout — the
+  // lead-search modal is locked while this runs and must never wait on it longer
+  // than the bound.
+  async function _fetchAdoptedJobMeta(jobId, opts) {
+    if (!jobId || !cloud || !cloud.ghl || !cloud.ghl.loadJob) return null;
+    try {
+      var full = await cloud.ghl.loadJob(jobId, opts);
+      if (!full || !full.id) return null;
+      return { id: full.id, job_number: full.job_number || null, status: full.status || null };
+    } catch(e) {
+      console.warn('[Integration] Adopted job meta fetch failed; continuing without job number:', e);
+      return null;
+    }
+  }
+
+  // Repeat-client / contact-only path: start a BRAND-NEW job for an existing
+  // contact without ever loading their old scope/job (C3, AM-A, AM-H).
+  // Returns a promise so the lead-search modal can lock while it runs (AM-C).
+  async function _startNewJobForContact(row) {
+    if (!row) throw new Error('No client selected');
+    var displayName = row.contactName || row.name || row.contactPhone || 'this client';
+
+    // This path is premised on an already-known contact. Without a contactId the
+    // backend has nothing to dedup on and would mint a blank contact.
+    var contactId = row.contactId || null;
+    if (!contactId) throw new Error('This client has no GHL contact on file — search again or start a new local draft');
+
+    // AM-H: a meaningful local draft is checkpointed and cleared below, so get
+    // the explicit confirm BEFORE any network create — cancelling must not leave
+    // a stray opportunity behind.
+    var hadMeaningfulDraft = !!(window.app && window.app._hasMeaningfulLocalDraft && window.app._hasMeaningfulLocalDraft());
+    if (hadMeaningfulDraft) {
+      var ok = window.confirm('Start a new job for ' + displayName + '? Your current work will be checkpointed on this iPad first.');
+      if (!ok) { var cancelErr = new Error('cancelled'); cancelErr.code = 'cancelled'; throw cancelErr; }
+    }
+
+    // Every network create runs FIRST. Until they all succeed, _jobId /
+    // _ghlOpportunityId / _ghlContactId and the form stay exactly as they were,
+    // so a failure can neither strand the scoper on a blank scope nor leave the
+    // next save pointing at the previous client's opportunity.
+
+    // The lead-search modal makes itself undismissable while this runs (AM-C),
+    // so the whole create sequence is bounded — a stalled connection must fail
+    // loudly and hand the scoper back a retry rather than hang the modal until
+    // the browser's own multi-minute fetch timeout fires.
+    var abortCtl = new AbortController();
+    var timedOut = false;
+    var timer = setTimeout(function() {
+      timedOut = true;
+      try { abortCtl.abort(); } catch(e) {}
+    }, _NEW_JOB_TIMEOUT_MS);
+    var netOpts = { signal: abortCtl.signal };
+    var _rethrow = function(e) {
+      if (timedOut) {
+        // An abort can land AFTER the backend committed the opportunity, in which
+        // case we never got its id to cache — so the caller must re-check what
+        // actually exists rather than blindly minting another one on retry. The
+        // message stays surface-neutral: each caller phrases its own recovery.
+        var toErr = new Error('Timed out before we could confirm whether the job was created');
+        toErr.code = 'timeout';
+        throw toErr;
+      }
+      throw e;
+    };
+
+    try {
+      // Full contact fetch first (AM-H) so client + site fields aren't empty.
+      var contact = null;
+      try {
+        contact = await cloud.ghl.getContact(contactId, netOpts);
+      } catch(e) {
+        if (timedOut) _rethrow(e);
+        console.warn('[Integration] Contact fetch failed, using row data:', e);
+        contact = { name: row.contactName, email: row.contactEmail, phone: row.contactPhone };
+      }
+
+      // Create a NEW opportunity for this contact in the fencing pipeline (AM-A:
+      // toolType is the 2nd arg). Backend skips dedup because contactId is set.
+      // Reuse an opportunity minted by an earlier failed attempt for this same
+      // contact so retries can't accumulate orphans in the pipeline. The cache is
+      // keyed by contactId in module scope, not on the row, so it survives the
+      // re-search / re-render that rebuilds the lead objects.
+      var pending = _pendingNewOpps[contactId] || null;
+      var newOppId = pending && pending.opportunityId;
+      var newContactId = (pending && pending.contactId) || contactId;
+      // The earlier attempt timed out; if the re-run search now shows THAT very
+      // opportunity already carrying a Supabase job, the attempt COMMITTED. Take
+      // the job it made rather than hanging a second one off the same
+      // opportunity, which would leave findJobByOpportunity ambiguous forever.
+      // Read straight off the fresh row — no lookup, so the "never load an
+      // existing job" invariant of this path holds. hasScope means the row is
+      // some OLDER job, not the empty one we just minted: never adopt that.
+      var adopted = (newOppId && row.id === newOppId && row.supabaseJobId && !row.hasScope)
+        ? { id: row.supabaseJobId }
+        : null;
+      if (!newOppId) {
+        var created = await cloud.ghl.createContactAndOpportunity({
+          contactId: contactId,
+          name: (contact && contact.name) || row.contactName || '',
+          phone: (contact && contact.phone) || row.contactPhone || '',
+          email: (contact && contact.email) || row.contactEmail || '',
+          address: (contact && contact.address) || '',
+          suburb: (contact && contact.suburb) || ''
+        }, _toolType, netOpts).catch(_rethrow);
+        newOppId = created && created.opportunityId;
+        if (!newOppId) throw new Error('Could not create a new opportunity for this client');
+        newContactId = (created && created.contactId) || contactId;
+        _pendingNewOpps[contactId] = { opportunityId: newOppId, contactId: newContactId };
+      }
+
+      // Create the job with contact details so site fields populate (AM-H).
+      // Include contactId so the new job row gets ghl_contact_id set (not NULL);
+      // createJobForOpportunity forwards body.contactId when present.
+      var contactForJob = {
+        contactId: newContactId || null,
+        name: (contact && contact.name) || row.contactName || '',
+        phone: (contact && contact.phone) || row.contactPhone || '',
+        email: (contact && contact.email) || row.contactEmail || '',
+        address: (contact && contact.address) || '',
+        suburb: (contact && contact.suburb) || ''
+      };
+      var job = (adopted && adopted.id)
+        ? adopted
+        : await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob, netOpts).catch(_rethrow);
+      if (!job || !job.id) throw new Error('Could not create a new job for this client');
+      // The adopt row carries only an id, so job_number/status would read back
+      // empty and the header would sit numberless for the rest of the session.
+      // _fetchAdoptedJobMeta returns identity fields ONLY — it cannot carry a
+      // scope back into the form, so the never-resurrect-an-old-job invariant
+      // of this path holds.
+      if (adopted && adopted.id) {
+        var meta = await _fetchAdoptedJobMeta(job.id, netOpts);
+        if (meta) job = meta;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // The opportunity is consumed — a later new job for this same contact must
+    // mint its own rather than reuse this one.
+    delete _pendingNewOpps[contactId];
+
+    // Creates all landed — now it is safe to checkpoint, reset and re-point state.
+    if (cloud) cloud.stopAutoSave();
+    _jobId = null;
+    _lastJobNumber = null;
+    _jobLoaded = false;
+    _ghlOpportunityId = null;
+    _ghlContactId = null;
+    // The scope-save cursor belongs to the job we are leaving. Carried into a
+    // brand-new job (whose server-side scope hash is NULL) it would be attached
+    // to every saveScope by _attachScopeSaveCursor, and since it only refreshes
+    // on a SUCCESSFUL save, a strict backend would reject the new job forever.
+    _baseScopeHash = null;
+    _baseScopeUpdatedAt = null;
+
+    // Same checkpoint+reset sequence as opening a target separately — never
+    // loadJob/findJobByOpportunity here; the old job must stay untouched.
+    if (_toolType === 'fencing' && window.app) {
+      _openFencingTargetSeparately('repeat_client_new_job');
+    } else {
+      _resetPatioForm();
+    }
+
+    _ghlOpportunityId = newOppId;
+    _ghlContactId = newContactId || null;
+    _jobId = job.id;
+    _jobStatus = job.status || 'draft';
+    _lastJobNumber = job.job_number || null;
+
+    // This is a brand-new editable job and the URL below drops any frozen
+    // ?scope_revision_id / ?mode=readonly, so the load-time readonly flag must
+    // not leak in and silently disable autosave. The frozen scope has already
+    // been reset out of the form, so the M4 viewer lock is unaffected.
+    _isReadonly = false;
+    document.documentElement.classList.remove('readonly-mode');
+
+    // The frozen viewer's banner outlives its URL: its "Make a revision" button
+    // and revision switcher close over the OLD scope revision and job, so left
+    // mounted they would clone the previous client's sealed scope from what is
+    // now a different client's editable job.
+    _clearFrozenViewerChrome();
+
+    // Link anchor (ensures field sync), prefill client fields, wire the URL.
+    _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'repeat_client_new_job');
+    if (contact) _prefillContact(contact);
+    if (_lastJobNumber) _applyJobNumber(_lastJobNumber);
+    if (_jobId) {
+      var newUrl = window.location.pathname + '?jobId=' + _jobId;
+      window.history.replaceState({}, '', newUrl);
+    }
+    updateUI();
+    if (_shouldAutoSave()) {
+      cloud.startAutoSave(_jobId, _getStateFn, 30000);
+    }
+    return { jobId: _jobId, opportunityId: _ghlOpportunityId };
+  }
+
   // Reset patio tool form to clean state before loading a new opportunity
   function _resetPatioForm() {
     // Clear all form inputs in the left panel
@@ -601,8 +853,7 @@
     if (typeof window.siteDetails === 'object') {
       window.siteDetails = { existingSite: 'clear', demoScope: 'na', electrical: 'none', siteAccess: 'easy', groundSurface: 'grass', fasciaMaterial: 'timber', wallType: 'doublebrick', existingRoof: 'tiles' };
     }
-    if (typeof window.sitePhotos !== 'undefined') window.sitePhotos = [];
-    if (typeof window.siteVideo !== 'undefined') window.siteVideo = null;
+    _resetToolMediaState();
 
     // Reset arrays/objects
     if (typeof window.flashingProfiles !== 'undefined') window.flashingProfiles = [];
@@ -1782,6 +2033,7 @@
             label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
           });
           if (switchChoice === 'cancel') return;
+          _clearPendingNewOpp(opp.contactId);
           _ghlOpportunityId = opp.id;
           _ghlContactId = opp.contactId || null;
 
@@ -1909,8 +2161,11 @@
       });
     },
 
-    // Search GHL leads — opens dropdown below header search bar
-    searchLeads: function(query) {
+    // Search GHL leads — opens dropdown below header search bar.
+    // opts.mode: 'load' (default) | 'new_job' (repeat-client, always fresh job).
+    searchLeads: function(query, opts) {
+      opts = opts || {};
+      var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       if (!cloud || !cloud.auth.isLoggedIn()) {
         cloud.ui.showLoginModal();
         return;
@@ -1919,7 +2174,14 @@
       if (document.getElementById('sw-lead-search-dropdown')) return;
 
       cloud.ui.showLeadSearch(_toolType, async function(lead) {
-        console.log('[Integration] Lead selected:', lead.id, lead.contactName);
+        console.log('[Integration] Lead selected:', lead.id, lead.contactName, 'mode:', mode);
+        // new_job mode (any row) OR a contact-only row in load mode (nothing to
+        // load) → start a brand-new job for that contact. Returns the promise so
+        // the modal's in-flight lock can await it (AM-C). lookupFailed rows never
+        // reach here (the modal blocks them).
+        if (mode === 'new_job' || lead.isContactOnly || lead.id == null) {
+          return _startNewJobForContact(lead);
+        }
         try {
           var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
             jobId: lead.supabaseJobId || null,
@@ -1927,6 +2189,7 @@
             label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
           });
           if (switchChoice === 'cancel') return;
+          _clearPendingNewOpp(lead.contactId);
           _ghlOpportunityId = lead.id;
           _ghlContactId = lead.contactId || null;
 
@@ -2021,6 +2284,9 @@
             var contactForJob = contact || { name: lead.contactName, phone: lead.contactPhone, email: lead.contactEmail };
             var job = await cloud.ghl.createJobForOpportunity(lead.id, _toolType, contactForJob);
             _jobId = job.id;
+            _lastJobNumber = job.job_number || null;
+            _jobStatus = job.status || 'draft';
+            if (!localDraftWins && _lastJobNumber) _applyJobNumber(_lastJobNumber);
           }
 
           if (contact) _prefillContact(contact);
@@ -2037,7 +2303,7 @@
           console.error('[Integration] Lead load error:', e);
           alert('Error loading lead: ' + e.message);
         }
-      }, query || '');
+      }, query || '', { mode: mode });
     },
 
     // Debounced version — called by oninput on header search bar
@@ -2162,6 +2428,42 @@
 
     resolveFencingTargetSwitch: function(source, target) {
       return _resolveFencingTargetSwitch(source, target);
+    },
+
+    // Repeat-client / contact-only helper, shared with the inline client-name
+    // autocomplete (index.html). Returns a promise. Never loads an old job.
+    startNewJobForContact: function(row) {
+      return _startNewJobForContact(row);
+    },
+
+    // The checkpoint+reset sequence for opening a different target. Exposed so
+    // every caller — including the inline client-name autocomplete in
+    // index.html — resets through this one implementation and inherits the
+    // media wipe; a hand-rolled copy silently leaks the previous client's media.
+    openFencingTargetSeparately: function(source) {
+      return _openFencingTargetSeparately(source);
+    },
+
+    // The media wipe on its own, for reset paths that already own their
+    // checkpoint/reset sequence (startLocalDraft, resetJob) and only need the
+    // queue cleared. Same invariant as openFencingTargetSeparately: a reset that
+    // skips this leaks the previous client's photos into the next job.
+    resetToolMediaState: function() {
+      _resetToolMediaState();
+    },
+
+    // Selecting a real opportunity row settles any earlier failed new-job
+    // attempt for that contact. Every path that links a row must call this or
+    // the orphan opportunity gets reused by a later, legitimately-new job.
+    clearPendingNewOpp: function(contactId) {
+      _clearPendingNewOpp(contactId);
+    },
+
+    // The reset wipes window.sitePhotos/siteVideo, so every path that links an
+    // existing job must reload its media or the scoper sees an empty grid on a
+    // job that already has photos. Returns a promise.
+    loadCloudMedia: function(jobId) {
+      return _loadCloudMedia(jobId);
     },
 
     getSyncState: function() {
@@ -2583,6 +2885,7 @@
     controls.appendChild(switcher);
 
     banner.appendChild(controls);
+    banner.dataset.swPadTop = '36';
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 36) + 'px';
 
@@ -2602,8 +2905,26 @@
     ].join(';');
     var prefix = status ? ('HTTP ' + status + ' — ') : '';
     banner.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
+    banner.dataset.swPadTop = '32';
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 32) + 'px';
+  }
+
+  // Tear down every frozen-viewer chrome element and give back the body padding
+  // each one reserved. Pairs with _renderFrozenBanner / _renderFrozenError so a
+  // job that leaves the frozen viewer can never keep a stale banner (whose
+  // controls close over the OLD revision/job) pinned over an editable scope.
+  function _clearFrozenViewerChrome() {
+    ['sw-frozen-revision-banner', 'sw-frozen-error-banner'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var reserved = parseInt((el.dataset && el.dataset.swPadTop) || '0', 10);
+      if (el.parentNode) el.parentNode.removeChild(el);
+      if (reserved) {
+        var current = parseInt(document.body.style.paddingTop || '0', 10);
+        document.body.style.paddingTop = Math.max(0, current - reserved) + 'px';
+      }
+    });
   }
 
   // (M4 G-F2/G-F5) Clone the current frozen revision into an editable draft and
