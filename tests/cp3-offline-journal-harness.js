@@ -47,13 +47,13 @@ record(
 );
 
 record(
-  'cloud proxy calls use Supabase session bearer auth instead of browser api keys',
+  'cloud proxy calls prefer session bearer auth with a shared-key fallback (ba5d37e)',
   /async function authorizedHeaders/.test(cloud) &&
-    /Authorization': 'Bearer ' \+ token/.test(cloud) &&
-    /async function authorizedFetch/.test(cloud) &&
-    !/SW_API_KEY/.test(cloud) &&
-    !/x-api-key/.test(cloud),
-  'cloud.js exports a session-JWT request surface and no longer embeds or sends x-api-key for GHL proxy calls'
+    /h\['Authorization'\] = 'Bearer ' \+ token;/.test(cloud) &&
+    /refreshSession\(\)/.test(cloud) &&
+    /h\['x-api-key'\] = SW_API_KEY;/.test(cloud) &&
+    /async function authorizedFetch/.test(cloud),
+  'authorizedHeaders prefers the per-user JWT (with one refreshSession retry) and only falls back to the shared x-api-key when no session is available, so an evicted field session never hard-blocks sync (per ba5d37e)'
 );
 
 record(
