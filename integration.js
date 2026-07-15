@@ -456,14 +456,22 @@
     entry.promise = _doUploadVideo(video, jobId, cloudRef).then(function() {
       video._uploading = false;
       video._uploadError = null;
-      _videoRetryCount = 0;
       entry.done = true;
+      // A reset while this was in flight handed _videoRetryCount and the status
+      // channel to a DIFFERENT job's video; reporting this one's outcome there
+      // would show the new job's pending video as already uploaded.
+      if (_mediaEpoch !== epoch) return;
+      _videoRetryCount = 0;
       if (window._swUploadStatusChanged) window._swUploadStatusChanged('__video__', 'done');
     }).catch(function(err) {
       video._uploading = false;
       entry.done = true;
       entry.error = err;
       console.warn('[Integration] Background video upload failed:', err);
+      // Same ownership rule as the success path: this failure must not spend the
+      // new job's retry budget, nor overwrite _videoRetryTimer and orphan the
+      // live retry handle that _resetToolMediaState needs in order to cancel it.
+      if (_mediaEpoch !== epoch) return;
       if (_videoRetryCount < _VIDEO_MAX_RETRIES) {
         // Auto-retry with backoff before surfacing a hard failure. Keep the visible
         // status as "uploading" so the scoper still sees the video is being handled.
@@ -621,6 +629,23 @@
     }
   }
 
+  // Identity-only read of a job this session just minted but lost the id for
+  // (timed-out create that committed). Deliberately projects id/job_number/status
+  // and DROPS scope_json: an adopt must never be able to pull a scope into the
+  // form, so the capability simply is not returned. Best-effort — a failed fetch
+  // just leaves the header numberless; the job itself is already ours.
+  async function _fetchAdoptedJobMeta(jobId) {
+    if (!jobId || !cloud || !cloud.ghl || !cloud.ghl.loadJob) return null;
+    try {
+      var full = await cloud.ghl.loadJob(jobId);
+      if (!full || !full.id) return null;
+      return { id: full.id, job_number: full.job_number || null, status: full.status || null };
+    } catch(e) {
+      console.warn('[Integration] Adopted job meta fetch failed; continuing without job number:', e);
+      return null;
+    }
+  }
+
   // Repeat-client / contact-only path: start a BRAND-NEW job for an existing
   // contact without ever loading their old scope/job (C3, AM-A, AM-H).
   // Returns a promise so the lead-search modal can lock while it runs (AM-C).
@@ -731,6 +756,15 @@
         ? adopted
         : await cloud.ghl.createJobForOpportunity(newOppId, _toolType, contactForJob, netOpts).catch(_rethrow);
       if (!job || !job.id) throw new Error('Could not create a new job for this client');
+      // The adopt row carries only an id, so job_number/status would read back
+      // empty and the header would sit numberless for the rest of the session.
+      // _fetchAdoptedJobMeta returns identity fields ONLY — it cannot carry a
+      // scope back into the form, so the never-resurrect-an-old-job invariant
+      // of this path holds.
+      if (adopted && adopted.id) {
+        var meta = await _fetchAdoptedJobMeta(job.id);
+        if (meta) job = meta;
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -2397,6 +2431,21 @@
     // autocomplete (index.html). Returns a promise. Never loads an old job.
     startNewJobForContact: function(row) {
       return _startNewJobForContact(row);
+    },
+
+    // The checkpoint+reset sequence for opening a different target. Exposed so
+    // every caller — including the inline client-name autocomplete in
+    // index.html — resets through this one implementation and inherits the
+    // media wipe; a hand-rolled copy silently leaks the previous client's media.
+    openFencingTargetSeparately: function(source) {
+      return _openFencingTargetSeparately(source);
+    },
+
+    // Selecting a real opportunity row settles any earlier failed new-job
+    // attempt for that contact. Every path that links a row must call this or
+    // the orphan opportunity gets reused by a later, legitimately-new job.
+    clearPendingNewOpp: function(contactId) {
+      _clearPendingNewOpp(contactId);
     },
 
     getSyncState: function() {

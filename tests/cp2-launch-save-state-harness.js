@@ -428,8 +428,26 @@ record(
   'new-job path never loads an existing job/scope',
   newJobHelper.length > 0 &&
     !/loadJob\(/.test(newJobHelper) &&
-    !/findJobByOpportunity\(/.test(newJobHelper),
-  'no loadJob/findJobByOpportunity inside _startNewJobForContact — the old job stays untouched'
+    !/findJobByOpportunity\(/.test(newJobHelper) &&
+    !/scope_json/.test(newJobHelper),
+  'no loadJob/findJobByOpportunity/scope_json inside _startNewJobForContact — the old job stays untouched'
+);
+
+// The adopt branch needs the job_number of the job its own timed-out create
+// minted, so it reads through _fetchAdoptedJobMeta. That helper is the ONLY
+// read on this path and must project identity fields only: returning the raw
+// job would hand _startNewJobForContact a scope it could restore.
+const adoptedMetaHelper = (function () {
+  const start = integration.indexOf('async function _fetchAdoptedJobMeta');
+  const end = integration.indexOf('\n  async function _startNewJobForContact', start);
+  return start >= 0 && end > start ? integration.slice(start, end) : '';
+})();
+record(
+  'adopted-job meta fetch projects identity fields only, never scope',
+  adoptedMetaHelper.length > 0 &&
+    /return \{ id: full\.id, job_number: full\.job_number \|\| null, status: full\.status \|\| null \};/.test(adoptedMetaHelper) &&
+    !/scope_json/.test(adoptedMetaHelper),
+  '_fetchAdoptedJobMeta returns id/job_number/status and drops scope_json, so an adopt cannot resurrect a scope'
 );
 
 record(
@@ -777,6 +795,41 @@ record(
     !/_resetFencingMediaState/.test(integration) &&
     /function _resetPatioForm\(\) \{[\s\S]{0,1400}_resetToolMediaState\(\);/.test(integration),
   '_resetPatioForm routes through the shared helper, so it clears _bgUploads, the retry timer and the media epoch too'
+);
+
+// The inline client-name autocomplete used to hand-roll its own copy of the
+// open-separately reset, which silently skipped the media wipe and leaked the
+// previous client's photos/video into the newly-linked job. There must be ONE
+// reset implementation, and every caller routes through it.
+const inlineSelectContact = (function () {
+  const start = index.indexOf('async selectGHLContact(idx)');
+  const end = index.indexOf('\n      hideClientNameDropdown()', start);
+  return start >= 0 && end > start ? index.slice(start, end) : '';
+})();
+record(
+  'inline contact select resets via the shared integration helper (not a local copy)',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.openFencingTargetSeparately\('inline_ghl_contact'\)/.test(inlineSelectContact) &&
+    /openFencingTargetSeparately: function\(source\)/.test(integration),
+  'the inline load path resets through _openFencingTargetSeparately, inheriting the media wipe'
+);
+
+record(
+  'inline contact select clears the pending new-opp cache on link',
+  inlineSelectContact.length > 0 &&
+    /_swIntegration\.clearPendingNewOpp\(opp\.contactId\)/.test(inlineSelectContact) &&
+    /clearPendingNewOpp: function\(contactId\)/.test(integration),
+  'linking a real opp row settles the earlier attempt, so its orphan opp cannot be reused by a later new job'
+);
+
+// Both settle handlers, not just the retry timer, must respect the epoch: a
+// stale upload that lands after a reset owns none of the new job's state.
+record(
+  'video upload settle handlers are epoch-guarded (review #31)',
+  /var epoch = _mediaEpoch;/.test(integration) &&
+    /entry\.promise = _doUploadVideo\(video, jobId, cloudRef\)\.then\(function\(\) \{[\s\S]{0,400}?if \(_mediaEpoch !== epoch\) return;[\s\S]{0,120}?_videoRetryCount = 0;/.test(integration) &&
+    /\}\)\.catch\(function\(err\) \{[\s\S]{0,500}?if \(_mediaEpoch !== epoch\) return;[\s\S]{0,80}?if \(_videoRetryCount < _VIDEO_MAX_RETRIES\)/.test(integration),
+  'a stale upload cannot report done, spend the retry budget, or orphan the new job retry timer'
 );
 
 console.log('CP2 Fence launch/save-state harness');

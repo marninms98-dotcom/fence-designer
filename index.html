@@ -5130,20 +5130,33 @@
             });
           }
           if (switchChoice === 'cancel') return;
+          // Linking a real opportunity row settles any earlier failed new-job
+          // attempt for this contact, so its cached orphan opportunity must not
+          // survive to be reused by a later, legitimately-new job.
+          if (window._swIntegration && window._swIntegration.clearPendingNewOpp) {
+            window._swIntegration.clearPendingNewOpp(opp.contactId);
+          }
           const localDraftWins = switchChoice === 'keep_link';
           if (localDraftWins) {
             this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
             this.showToast('GHL lead linked — keeping local iPad edits', 'success');
           } else {
-            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_open_separately');
-            localStorage.removeItem('fenceJob');
-            this.job = null;
-            this.currentRunId = null;
-            this._resetSections();
-            this.init();
-            localStorage.removeItem('fenceQA_verification');
-            if (typeof fenceQA !== 'undefined') {
-              fenceQA._verificationState = {};
+            // Reset through the shared integration helper, never a local copy:
+            // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
+            // so the previous client's media cannot upload into this target.
+            if (window._swIntegration && window._swIntegration.openFencingTargetSeparately) {
+              window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
+            } else {
+              this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_open_separately');
+              localStorage.removeItem('fenceJob');
+              this.job = null;
+              this.currentRunId = null;
+              this._resetSections();
+              this.init();
+              localStorage.removeItem('fenceQA_verification');
+              if (typeof fenceQA !== 'undefined') {
+                fenceQA._verificationState = {};
+              }
             }
             if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
             if (window._swIntegration) {
