@@ -84,6 +84,9 @@
   var _offlineJobIdMap = {};
   var _listeners = {};
   var _autoSaveTimer = null;
+  var _autoSaveVisibilityHandler = null;
+  var _autoSaveInFlight = false;
+  var _lastSavedFingerprint = null;
   var _flushPromise = null;
 
   // ── Event System ──
@@ -1259,12 +1262,43 @@
   // AUTO-SAVE
   // ════════════════════════════════════════════════════════════
 
-  function startAutoSave(jobId, getStateFn, intervalMs) {
-    stopAutoSave();
-    intervalMs = intervalMs || 30000; // 30 seconds default
+  // Keys that are rewritten on every getState()/successful save and therefore
+  // change even when the operator has edited nothing:
+  //   savedAt        — stamped by getState()
+  //   generated_at   — stamped by buildPricingJson()
+  //   lastCloudCursorAt — stamped into job._fieldSync by _rememberScopeCursor()
+  //                       after each save, i.e. a save re-dirties its own state.
+  // They must not count as a change, or the dirty-check would never skip.
+  var _AUTOSAVE_VOLATILE_KEYS = { savedAt: 1, generated_at: 1, lastCloudCursorAt: 1 };
 
-    _autoSaveTimer = setInterval(async function() {
-      try {
+  // Cheap content fingerprint (length + FNV-1a) of what saveScope sends.
+  // Returns null if the payload can't be serialized, which is treated as dirty
+  // so an unfingerprintable state always saves.
+  function _scopeFingerprint(state, meta) {
+    var json;
+    try {
+      json = JSON.stringify({ s: state, m: meta }, function(k, v) {
+        return _AUTOSAVE_VOLATILE_KEYS[k] ? undefined : v;
+      });
+    } catch(e) { return null; }
+    if (!json) return null;
+    var h = 2166136261;
+    for (var i = 0; i < json.length; i++) {
+      h ^= json.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return json.length + ':' + (h >>> 0).toString(16);
+  }
+
+  async function _runAutoSave(jobId, getStateFn, opts) {
+    opts = opts || {};
+    if (_autoSaveInFlight) return;           // don't overlap a slow upload
+    // Paused while the tab is hidden — nobody is editing. The visibilitychange
+    // handler performs one final save on the way out so no work is lost.
+    if (opts.skipIfHidden && typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden') return;
+    _autoSaveInFlight = true;
+    try {
         var state = getStateFn();
         if (!state) return;
 
@@ -1302,6 +1336,13 @@
           meta.pricing_json = state._pricing_json;
         }
 
+        // Skip byte-identical re-uploads. Fingerprinted before the concurrency
+        // cursor is attached (baseScopeHash is a server token, not operator
+        // content). Only marked clean after the save actually lands, so a
+        // failed — or offline-queued — save retries on the next tick.
+        var fp = _scopeFingerprint(state, meta);
+        if (fp && fp === _lastSavedFingerprint) return;
+
         if (window._swIntegration && window._swIntegration.getScopeSaveCursor) {
           var cursor = window._swIntegration.getScopeSaveCursor();
           if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
@@ -1310,20 +1351,42 @@
         if (savedJob && savedJob.queued) {
           emit('autosave:queued', { jobId: jobId });
         } else {
+          _lastSavedFingerprint = fp;
           if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);
           emit('autosave:success', { jobId: jobId });
         }
-      } catch(e) {
-        console.warn('[Cloud] Auto-save failed:', e);
-        emit('autosave:error', { jobId: jobId, error: e });
-      }
+    } catch(e) {
+      console.warn('[Cloud] Auto-save failed:', e);
+      emit('autosave:error', { jobId: jobId, error: e });
+    } finally {
+      _autoSaveInFlight = false;
+    }
+  }
+
+  function startAutoSave(jobId, getStateFn, intervalMs) {
+    stopAutoSave();
+    intervalMs = intervalMs || 30000; // 30 seconds default
+    _lastSavedFingerprint = null; // new job/session — never skip the first save
+
+    _autoSaveTimer = setInterval(function() {
+      _runAutoSave(jobId, getStateFn, { skipIfHidden: true });
     }, intervalMs);
+
+    // One final save when the tab goes hidden, so pausing loses no work.
+    _autoSaveVisibilityHandler = function() {
+      if (document.visibilityState === 'hidden') _runAutoSave(jobId, getStateFn, {});
+    };
+    document.addEventListener('visibilitychange', _autoSaveVisibilityHandler);
   }
 
   function stopAutoSave() {
     if (_autoSaveTimer) {
       clearInterval(_autoSaveTimer);
       _autoSaveTimer = null;
+    }
+    if (_autoSaveVisibilityHandler) {
+      document.removeEventListener('visibilitychange', _autoSaveVisibilityHandler);
+      _autoSaveVisibilityHandler = null;
     }
   }
 
