@@ -235,7 +235,10 @@ async function testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry() {
   assert.strictEqual(errors[0].error.reason, 'scope_hash_conflict');
   assert.deepStrictEqual(errors[0].attemptedScope, state, 'autosave:error carries the exact target payload');
   assert.strictEqual(errors[0].retryStopped, true);
-  assert.strictEqual(scheduled.length, 0, 'unchanged conflict payload is not timer-retried');
+  assert.strictEqual(scheduled.length, 1, 'stopped conflict state only schedules a local edit probe');
+  await scheduled.shift().fn();
+  assert.strictEqual(fetchCalls.length, 1, 'unchanged conflict payload is not timer-retried');
+  assert.strictEqual(errors.length, 1, 'the local edit probe re-emits nothing while blocked');
   assert.strictEqual(remembered.length, 0);
 }
 
@@ -289,6 +292,33 @@ async function testUnownedCapableCursorIsQuarantinedBeforeFlush() {
   assert.strictEqual(events.length, 1);
   assert.strictEqual(events[0].error.reason, 'missing_scope_cursor');
   assert.strictEqual(typeof events[0].error.loadServerScope, 'function');
+}
+
+async function testOwnedCursorClearsQuarantineOnCoalesce() {
+  const { cloud, listeners, localStorage, fetchCalls } = makeVm({ online: false });
+  const state = (client) => ({
+    job: { ref: 'SWF-3', client, _fieldSync: { syncAnchorType: 'job', syncAnchorId: 'job-B' } },
+  });
+  await cloud.ghl.saveScope('job-B', state('Client B'), {
+    baseScopeHash: 'cursor-owned-by-A',
+    scopeCursorJobId: 'job-A',
+    scopeCursorReconcileV1: true,
+  });
+  assert.strictEqual(queueFrom(localStorage)[0].meta.cursorQuarantined, true);
+  await cloud.ghl.saveScope('job-B', state('Client B edited'), {
+    baseScopeHash: 'cursor-owned-by-B',
+    scopeCursorJobId: 'job-B',
+    scopeCursorReconcileV1: true,
+  });
+  const queue = queueFrom(localStorage);
+  assert.strictEqual(queue.length, 1, 'the two saves coalesce into one logical action');
+  assert.strictEqual(queue[0].meta.cursorQuarantined, undefined, 'a provably owned cursor clears the earlier quarantine');
+  assert.strictEqual(queue[0].meta.baseScopeHash, 'cursor-owned-by-B');
+  listeners.online();
+  await cloud.flushOfflineQueue();
+  const writes = fetchCalls.filter((c) => String(c.url).includes('action=save_scope'));
+  assert.strictEqual(writes.length, 1, 'the owned cursor flushes instead of stopping for reconcile');
+  assert.strictEqual(queueFrom(localStorage).length, 0);
 }
 
 async function testConcurrentFlushIsSingleFlight() {
@@ -397,6 +427,7 @@ async function run() {
     ['autosave conflict carries payload and stops unchanged retry', testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry],
     ['transport retries back off and stop at five attempts', testTransportBackoffStopsAtFiveAttempts],
     ['unowned capable cursor is quarantined before flush', testUnownedCapableCursorIsQuarantinedBeforeFlush],
+    ['owned cursor clears an earlier quarantine on coalesce', testOwnedCursorClearsQuarantineOnCoalesce],
     ['concurrent flush is single-flight', testConcurrentFlushIsSingleFlight],
     ['returned cursor advances newer pending save', testCursorAdvancesLegacyDuplicateQueue],
     ['unauthenticated online save falls back to shared key', testUnauthenticatedSaveFallsBackToSharedKey],

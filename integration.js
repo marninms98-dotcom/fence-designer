@@ -2273,6 +2273,7 @@
         if (_isScopeHashConflict(e)) {
           var recovered = await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
           if (recovered) return;
+          message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
         } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
         }

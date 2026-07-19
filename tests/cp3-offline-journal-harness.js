@@ -68,7 +68,8 @@ record(
   /function _sameLogicalSave/.test(cloud) &&
     /function _mergeSaveMeta/.test(cloud) &&
     /existing\.scopeJson = action\.scopeJson/.test(cloud) &&
-    /baseScopeHash = original\.baseScopeHash/.test(cloud) &&
+    /hashSource = \(original\.baseScopeHash/.test(cloud) &&
+    /baseScopeHash = hashSource\.baseScopeHash/.test(cloud) &&
     /coalescedIntoOpId/.test(cloud),
   'pending save_job actions for one logical job are merged to the latest scope with the first base cursor retained'
 );

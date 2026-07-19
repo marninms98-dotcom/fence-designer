@@ -271,16 +271,28 @@
     return a && b && a.type === 'save_job' && b.type === 'save_job' && String(a.jobId) === String(b.jobId);
   }
 
-  function _mergeSaveMeta(original, latest) {
+  function _mergeSaveMeta(original, latest, jobId) {
     original = Object.assign({}, original || {});
     latest = Object.assign({}, latest || {});
     delete original._flushAttempt;
     delete latest._flushAttempt;
-    var baseScopeHash = original.baseScopeHash || original.expectedScopeHash || original.scope_hash || latest.baseScopeHash || latest.expectedScopeHash || latest.scope_hash || null;
+    var hashSource = (original.baseScopeHash || original.expectedScopeHash || original.scope_hash) ? original : latest;
+    var baseScopeHash = hashSource.baseScopeHash || hashSource.expectedScopeHash || hashSource.scope_hash || null;
     var baseScopeUpdatedAt = original.baseScopeUpdatedAt || latest.baseScopeUpdatedAt || null;
     var merged = Object.assign({}, original, latest);
     if (baseScopeHash) merged.baseScopeHash = baseScopeHash;
     if (baseScopeUpdatedAt) merged.baseScopeUpdatedAt = baseScopeUpdatedAt;
+    if (hashSource.scopeCursorJobId) merged.scopeCursorJobId = hashSource.scopeCursorJobId;
+    // Quarantine belongs to the surviving cursor, not to the action it merged
+    // into: re-derive it so an owned cursor cannot inherit an earlier stripped
+    // cursor's flag and trip the flush guard.
+    delete merged.cursorQuarantined;
+    if (merged.scopeCursorReconcileV1 === true && baseScopeHash
+        && String(merged.scopeCursorJobId || '') !== String(jobId == null ? '' : jobId)) {
+      merged.cursorQuarantined = true;
+      delete merged.baseScopeHash;
+      delete merged.baseScopeUpdatedAt;
+    }
     delete merged._flushAttempt;
     return merged;
   }
@@ -295,7 +307,7 @@
         if (_sameLogicalSave(_offlineQueue[i], action)) {
           var existing = _offlineQueue[i];
           existing.scopeJson = action.scopeJson;
-          existing.meta = _mergeSaveMeta(existing.meta, action.meta);
+          existing.meta = _mergeSaveMeta(existing.meta, action.meta, existing.jobId || action.jobId);
           existing.updatedAt = new Date().toISOString();
           _offlineQueue[i] = existing;
           _saveOfflineQueue();
