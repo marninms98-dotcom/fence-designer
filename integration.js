@@ -203,7 +203,8 @@
   }
 
   function _verifiedFenceCheckpoint(source) {
-    if (_toolType !== 'fencing' || !window.app || !window.app.job || !window.app._hasMeaningfulLocalDraft || !window.app._hasMeaningfulLocalDraft()) return false;
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return false;
+    if (window.app._hasMeaningfulLocalDraft && !window.app._hasMeaningfulLocalDraft()) return true;
     var fs = window.app.job._fieldSync || {};
     var localDraftId = fs.localDraftId;
     if (!localDraftId) return false;
