@@ -13,3 +13,6 @@ scratch/
 drafts/
 
 .gstack/
+
+# Local QA screenshot captures
+tests/.evidence/

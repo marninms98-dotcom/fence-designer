@@ -40,6 +40,7 @@
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
   var _baseScopeHash = null; // Latest server scope hash this iPad loaded/saved against
   var _baseScopeUpdatedAt = null;
+  var _scopeCursorJobId = null; // Proven owner of the server-issued cursor above
   var _lastReleasePartialFailures = [];
   var _authChangeSubscribers = []; // Tools subscribe via integration.onAuthChange()
   // Background upload tracking: maps photo/video id -> { promise, done: bool, error: Error|null }
@@ -59,6 +60,8 @@
   // failed, keyed by GHL contactId. Survives the modal re-render so a retry reuses
   // the orphan instead of minting another; cleared once the job lands.
   var _pendingNewOpps = {};
+  var _scopeRecoveryPromise = null;
+  var _scopeRecoveryKey = null;
 
   // Selecting a real opportunity row for this contact settles the earlier failed
   // attempt: either it committed after all (a timed-out create can land without
@@ -98,7 +101,13 @@
     if (!job) return;
     var hash = job.current_scope_hash || job.currentScopeHash || null;
     var updatedAt = job.current_scope_updated_at || job.updated_at || null;
-    if (hash) _baseScopeHash = hash;
+    if (hash) {
+      // A hash and its proven owner are written as one unit. Without an owner
+      // the hash is unprovenanced, so it must not be retained at all.
+      var owner = job.id || job.job_id || (_isRealJobId(_jobId) ? _jobId : null) || null;
+      _baseScopeHash = owner ? hash : null;
+      _scopeCursorJobId = owner;
+    }
     if (updatedAt) _baseScopeUpdatedAt = updatedAt;
     if (_toolType === 'fencing' && window.app && window.app.job && (_baseScopeHash || _baseScopeUpdatedAt)) {
       var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
@@ -113,8 +122,15 @@
 
   function _attachScopeSaveCursor(meta) {
     meta = meta || {};
-    if (_toolType === 'fencing' && _isRealJobId(_jobId) && _baseScopeHash) {
-      meta.baseScopeHash = _baseScopeHash;
+    if (_toolType === 'fencing' && _isRealJobId(_jobId)) {
+      // Capability is fence-only and advisory. It permits capability-scoped
+      // strictness without changing any server CAS/ref/org guard.
+      meta.scopeCursorReconcileV1 = true;
+      if (_baseScopeHash && String(_scopeCursorJobId || '') === String(_jobId)) {
+        meta.baseScopeHash = _baseScopeHash;
+        meta.scopeCursorJobId = _scopeCursorJobId;
+        meta.scopeCursorProvenance = 'server_issued';
+      }
     }
     return meta;
   }
@@ -136,6 +152,249 @@
   function _checkpointLocalDraftBeforeLoad(source) {
     if (_toolType !== 'fencing' || !window.app || !window.app._checkpointLocalDraftBeforeLoad) return false;
     return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
+  }
+
+  function _scopeSaveReason(value) {
+    var error = value && value.error ? value.error : value;
+    return error && (error.reason || error.code || (error.details && (error.details.reason || error.details.code))) || null;
+  }
+
+  function _isRealFenceRef(ref) {
+    return /^SWF?-?\d+/i.test(String(ref || '').trim());
+  }
+
+  function _scopeIdentityMatchesTarget(scope, serverJob, error) {
+    if (!scope || !serverJob || !error) return false;
+    var targetId = String(error.targetJobId || error.jobId || '');
+    if (!targetId || targetId !== String(_jobId || '') || targetId !== String(serverJob.id || '')) return false;
+    if (error.serverJobId && String(error.serverJobId) !== targetId) return false;
+    var localJob = scope.job || {};
+    var localRef = localJob.ref || scope.job_ref || '';
+    var serverRef = serverJob.job_number || serverJob.jobNumber || '';
+    if (_isRealFenceRef(localRef) && _isRealFenceRef(serverRef)) {
+      return String(localRef).toUpperCase() === String(serverRef).toUpperCase();
+    }
+    var fs = localJob._fieldSync || scope._fieldSync || {};
+    return fs.syncAnchorType === 'job' && String(fs.syncAnchorId || '') === targetId;
+  }
+
+  // Empty means exactly an object with no own keys. null, an absent projection,
+  // malformed JSON and partial load responses are UNKNOWN, never "empty".
+  function _provenEmptyServerScope(serverJob) {
+    if (!serverJob || !Object.prototype.hasOwnProperty.call(serverJob, 'scope_json')) return false;
+    var scope = serverJob.scope_json;
+    return !!scope && Object.prototype.toString.call(scope) === '[object Object]' && Object.keys(scope).length === 0;
+  }
+
+  // Only a present, non-empty object scope is safe to hydrate into the form or
+  // to compare against. null, an absent projection and partial load responses
+  // are UNKNOWN, so divergence recovery must not offer "take server" for them.
+  function _usableServerScope(serverJob) {
+    if (!serverJob || !Object.prototype.hasOwnProperty.call(serverJob, 'scope_json')) return false;
+    var scope = serverJob.scope_json;
+    return !!scope && Object.prototype.toString.call(scope) === '[object Object]' && Object.keys(scope).length > 0;
+  }
+
+  function _sameScopePayload(a, b) {
+    if (!a || !b) return false;
+    try {
+      var stable = function(value) {
+        return JSON.stringify(value, function(key, item) { return key === 'savedAt' ? undefined : item; });
+      };
+      return stable(a) === stable(b);
+    } catch(e) { return false; }
+  }
+
+  function _verifiedFenceCheckpoint(source) {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return false;
+    if (window.app._hasMeaningfulLocalDraft && !window.app._hasMeaningfulLocalDraft()) return true;
+    var fs = window.app.job._fieldSync || {};
+    var localDraftId = fs.localDraftId;
+    if (!localDraftId) return false;
+    try {
+      var snapshot = { job: window.app.job, source: source, savedAt: new Date().toISOString() };
+      var raw = JSON.stringify(snapshot);
+      var key = 'fenceJob_checkpoint_' + localDraftId;
+      localStorage.setItem(key, raw);
+      return localStorage.getItem(key) === raw;
+    } catch(e) {
+      console.warn('[FenceSync] Verified recovery checkpoint failed:', e);
+      return false;
+    }
+  }
+
+  // Only states whose cause may clear on its own (transport/network) get a Retry
+  // button. Re-arming autosave on a latched conflict would just re-send the exact
+  // payload the server already rejected and loop the divergence modal.
+  var _RETRYABLE_RECOVERY_STATES = ['transport_exhausted', 'retry_exhausted', 'server_check_failed', 'recovery_failed'];
+
+  function _showScopeRecoveryState(kind, message) {
+    if (cloud && cloud.ui) cloud.ui.showSaveStatus('error', message);
+    var banner = document.getElementById('sw-scope-recovery-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'sw-scope-recovery-banner';
+      banner.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:10120;background:#7F1D1D;color:#fff;padding:12px 16px;border-radius:6px;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;justify-content:space-between';
+      banner.innerHTML = '<span id="sw-scope-recovery-text" style="flex:1"></span><button id="sw-scope-recovery-retry" style="flex:0 0 auto;padding:8px 14px;border:0;border-radius:4px;background:#fff;color:#7F1D1D;font-weight:700;font-size:13px">Retry sync</button>';
+      document.body.appendChild(banner);
+      document.getElementById('sw-scope-recovery-retry').onclick = function() {
+        _clearScopeRecoveryState();
+        if (cloud && cloud.resumeAutoSave) cloud.resumeAutoSave({ immediate: true });
+        if (cloud && cloud.ui) cloud.ui.showSaveStatus('saving', 'Retrying sync…');
+      };
+    }
+    banner.dataset.state = kind;
+    document.getElementById('sw-scope-recovery-text').textContent = message;
+    document.getElementById('sw-scope-recovery-retry').style.display =
+      _RETRYABLE_RECOVERY_STATES.indexOf(kind) === -1 ? 'none' : '';
+  }
+
+  function _clearScopeRecoveryState() {
+    var banner = document.getElementById('sw-scope-recovery-banner');
+    if (banner) banner.remove();
+  }
+
+  function _askScopeDivergenceOnce(key) {
+    if (_scopeRecoveryPromise && _scopeRecoveryKey === key) return _scopeRecoveryPromise;
+    _scopeRecoveryKey = key;
+    _scopeRecoveryPromise = new Promise(function(resolve) {
+      var old = document.getElementById('sw-scope-divergence-modal');
+      if (old) old.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'sw-scope-divergence-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,.76);z-index:10130;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif';
+      overlay.innerHTML = '<div style="background:#fff;max-width:520px;width:100%;border-radius:6px;overflow:hidden"><div style="background:#293C46;color:#fff;padding:18px 20px"><b style="font-size:18px">Two saved fence scopes differ</b><div style="font-size:12px;margin-top:5px;opacity:.8">Choose one version. Your iPad draft is retained until a choice completes.</div></div><div style="padding:18px;display:grid;gap:10px"><button id="swKeepIpad" style="padding:13px;border:1px solid #F15A29;background:#FFF7ED;color:#9A3412;font-weight:700">Keep iPad</button><button id="swTakeServer" style="padding:13px;border:1px solid #4C6A7C;background:#fff;color:#293C46;font-weight:700">Take server</button><button id="swCancelRecovery" style="padding:11px;border:0;background:#F5F5F5;color:#4B5563">Cancel</button></div></div>';
+      document.body.appendChild(overlay);
+      var finish = function(choice) {
+        if (overlay.parentNode) overlay.remove();
+        _scopeRecoveryPromise = null;
+        _scopeRecoveryKey = null;
+        resolve(choice);
+      };
+      document.getElementById('swKeepIpad').onclick = function() { finish('keep'); };
+      document.getElementById('swTakeServer').onclick = function() { finish('take'); };
+      document.getElementById('swCancelRecovery').onclick = function() { finish('cancel'); };
+    });
+    return _scopeRecoveryPromise;
+  }
+
+  async function _retryReconciledScopeOnce(error, attemptedScope, cursorJob, queuedScope) {
+    _rememberScopeCursor(cursorJob || { current_scope_hash: error.current_scope_hash });
+    var meta = _attachScopeSaveCursor({
+      _flushAttempt: true,
+      scopeCursorReconcileV1: true,
+      reconcileRequestId: error.requestId || null
+    });
+    var saved = await cloud.ghl.saveScope(_jobId, attemptedScope, meta);
+    if (!saved || saved.queued) throw new Error('Reconciled save was not confirmed by the server');
+    _rememberScopeCursor(saved);
+    if (cloud.discardQueuedScopePayload) {
+      cloud.discardQueuedScopePayload(_jobId, attemptedScope);
+      if (queuedScope && queuedScope !== attemptedScope) cloud.discardQueuedScopePayload(_jobId, queuedScope);
+    }
+    _clearScopeRecoveryState();
+    if (cloud.resumeAutoSave) cloud.resumeAutoSave({ immediate: false });
+    cloud.ui.showSaveStatus('saved');
+    return saved;
+  }
+
+  async function _handleScopeSaveError(event) {
+    event = event || {};
+    var error = event.error || event;
+    var reason = _scopeSaveReason(error);
+    var attemptedScope = event.attemptedScope || null;
+    if (['scope_hash_conflict', 'scope_ref_mismatch', 'missing_scope_cursor'].indexOf(reason) === -1) {
+      if (event.retryStopped) _showScopeRecoveryState('retry_exhausted', 'Cloud sync stopped after five attempts. Your iPad draft is retained. Edit or retry when connected.');
+      return false;
+    }
+    // The scope-cursor plumbing (and its checkpoint) is fencing-only, so a typed
+    // conflict on another tool has no working recovery branch here. Hand it back
+    // to the pre-existing error path instead of opening an unresolvable modal.
+    if (_toolType !== 'fencing') return false;
+
+    if (reason === 'scope_ref_mismatch') {
+      _showScopeRecoveryState('identity_recovery_required', 'Wrong job identity blocked this save. Your iPad draft is retained. Open the correct job or use identity recovery when available.');
+      return true;
+    }
+
+    if (!attemptedScope || String(error.targetJobId || error.jobId || '') !== String(_jobId || '')) {
+      _showScopeRecoveryState('identity_unproven', 'Sync stopped because this draft could not be proven to belong to the target job. Your iPad draft is retained.');
+      return true;
+    }
+
+    var serverJob;
+    try {
+      serverJob = error.loadServerScope ? await error.loadServerScope() : await cloud.ghl.loadJob(_jobId);
+    } catch(loadError) {
+      _showScopeRecoveryState('server_check_failed', 'Could not verify the server scope. Your iPad draft is retained; retry when connected.');
+      return true;
+    }
+    if (!_scopeIdentityMatchesTarget(attemptedScope, serverJob, error)) {
+      _showScopeRecoveryState('identity_unproven', 'Sync stopped because payload ownership could not be verified. Your iPad draft is retained.');
+      return true;
+    }
+    var cursor = serverJob.current_scope_hash || error.current_scope_hash || null;
+    if (!cursor) {
+      _showScopeRecoveryState('cursor_missing', 'The server did not issue a scope cursor. Your iPad draft is retained and no write was attempted.');
+      return true;
+    }
+
+    if (_provenEmptyServerScope(serverJob) || (reason === 'missing_scope_cursor' && _sameScopePayload(attemptedScope, serverJob.scope_json))) {
+      try {
+        await _retryReconciledScopeOnce(error, attemptedScope, serverJob);
+      } catch(retryError) {
+        console.warn('[FenceSync] Empty-scope recovery retry failed:', retryError);
+        _showScopeRecoveryState('retry_failed', 'Recovery retry failed. Your iPad draft is retained; no further automatic retry will run.');
+      }
+      return true;
+    }
+
+    if (!_usableServerScope(serverJob)) {
+      _showScopeRecoveryState('server_scope_unknown', 'The server did not return a readable scope to compare against. Your iPad draft is retained and nothing was overwritten.');
+      return true;
+    }
+
+    var recoveryKey = String(_jobId) + ':' + (event.fingerprint || error.requestId || cursor);
+    _showScopeRecoveryState('divergence', 'The iPad and server scopes differ. Choose which one to keep.');
+    var choice = await _askScopeDivergenceOnce(recoveryKey);
+    if (choice === 'cancel') {
+      _showScopeRecoveryState('cancelled', 'Recovery cancelled. Your iPad draft is retained and no remote write was made.');
+      return true;
+    }
+    if (choice === 'keep') {
+      var currentScope = _getStateFn();
+      if (!_scopeIdentityMatchesTarget(currentScope, serverJob, error)) {
+        _showScopeRecoveryState('identity_unproven', 'Keep iPad stopped because payload ownership changed. Your local draft is retained.');
+        return true;
+      }
+      if (!_verifiedFenceCheckpoint('scope_conflict_keep')) {
+        _showScopeRecoveryState('checkpoint_failed', 'Could not verify the local checkpoint. Nothing was written; your iPad draft remains open.');
+        return true;
+      }
+      try {
+        await _retryReconciledScopeOnce(error, currentScope, serverJob, attemptedScope);
+      } catch(keepError) {
+        _showScopeRecoveryState('keep_failed', 'Keep iPad failed. Your local draft is retained and automatic retries remain stopped.');
+      }
+      return true;
+    }
+
+    if (!_verifiedFenceCheckpoint('scope_conflict_take')) {
+      _showScopeRecoveryState('checkpoint_failed', 'Could not verify the local checkpoint. Nothing was overwritten; your iPad draft remains open.');
+      return true;
+    }
+    try {
+      var loaded = _loadStateFn(serverJob.scope_json);
+      if (loaded === false || !_getStateFn()) throw new Error('Server scope hydration could not be verified');
+      _rememberScopeCursor(serverJob);
+      _linkFencingAnchor(serverJob.id, serverJob.ghl_opportunity_id, serverJob.ghl_contact_id, 'conflict_take_server');
+      _clearScopeRecoveryState();
+      if (cloud.resumeAutoSave) cloud.resumeAutoSave({ immediate: false });
+      cloud.ui.showSaveStatus('saved', 'Server scope loaded');
+    } catch(hydrateError) {
+      _showScopeRecoveryState('hydrate_failed', 'Server scope could not be verified after load. Your iPad checkpoint is retained.');
+    }
+    return true;
   }
 
   // window.sitePhotos / window.siteVideo are globals that app.init() does not
@@ -789,6 +1048,7 @@
     // on a SUCCESSFUL save, a strict backend would reject the new job forever.
     _baseScopeHash = null;
     _baseScopeUpdatedAt = null;
+    _scopeCursorJobId = null;
 
     // Same checkpoint+reset sequence as opening a target separately — never
     // loadJob/findJobByOpportunity here; the old job must stay untouched.
@@ -1635,6 +1895,7 @@
         console.log('[Integration] Saving scope for job:', _jobId);
         var savedJob = await cloud.ghl.saveScope(_jobId, state, _attachScopeSaveCursor(meta));
         var scopeQueuedLocally = !!(savedJob && savedJob.queued);
+        var scopeQueuedByServerError = scopeQueuedLocally && savedJob.queuedReason === 'server_error';
         if (!scopeQueuedLocally) _rememberScopeCursor(savedJob);
         if (scopeQueuedLocally) {
           console.log('[Integration] Scope saved locally and queued for sync');
@@ -1745,8 +2006,10 @@
             if (updatedState) {
               var resavedJob = await cloud.ghl.saveScope(_jobId, updatedState, _attachScopeSaveCursor(meta));
               if (resavedJob && resavedJob.queued) {
-                console.warn('[Integration] Scope re-save with cloudUrls queued locally; pending sync');
-                if (window.showToast) window.showToast('Media state saved on iPad — pending sync', 'warning');
+                console.warn('[Integration] Scope re-save with cloudUrls queued locally; reason:', resavedJob.queuedReason || 'offline');
+                if (window.showToast) window.showToast(resavedJob.queuedReason === 'server_error'
+                  ? 'Server error saving media state. Saved on this iPad only.'
+                  : 'Media state saved on iPad — pending sync', 'warning');
               } else {
                 _rememberScopeCursor(resavedJob);
                 console.log('[Integration] Scope re-saved with cloudUrls');
@@ -1988,7 +2251,11 @@
           cloud.startAutoSave(_jobId, _getStateFn, 30000);
         }
 
-        if (scopeQueuedLocally) {
+        if (scopeQueuedByServerError) {
+          cloud.ui.showSaveStatus('offline', 'Server rejected the sync — saved on iPad only');
+          if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+          if (window.showToast) window.showToast('Server error saving to the cloud. Your work is on this iPad only — keep this device and retry.', 'warning');
+        } else if (scopeQueuedLocally) {
           cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
           if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
         } else if (_lastJobNumber) {
@@ -2008,6 +2275,8 @@
         if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
         var message = (e && e.message) || String(e);
         if (_isScopeHashConflict(e)) {
+          var recovered = await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
+          if (recovered) return;
           message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
         } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
@@ -2560,13 +2829,22 @@
     // Cursor shared with cloud.js autosave: every save carries the server scope hash
     // that this iPad loaded/saved against, so reconnects cannot overwrite newer cloud edits.
     getScopeSaveCursor: function() {
-      if (!_baseScopeHash && _toolType === 'fencing' && window.app && window.app.job && window.app.job._fieldSync) {
-        _baseScopeHash = window.app.job._fieldSync.baseScopeHash || window.app.job._fieldSync.currentScopeHash || null;
-        _baseScopeUpdatedAt = window.app.job._fieldSync.scopeUpdatedAt || null;
-      }
-      return { baseScopeHash: _baseScopeHash, baseScopeUpdatedAt: _baseScopeUpdatedAt };
+      // Persisted legacy hashes have no trustworthy owner. Do not resurrect one
+      // from _fieldSync: UNKNOWN rehydrates through missing_scope_cursor instead.
+      var owned = String(_scopeCursorJobId || '') === String(_jobId || '');
+      return {
+        baseScopeHash: owned ? _baseScopeHash : null,
+        baseScopeUpdatedAt: owned ? _baseScopeUpdatedAt : null,
+        scopeCursorJobId: owned ? _scopeCursorJobId : null,
+        scopeCursorProvenance: owned ? 'server_issued' : 'unknown',
+        scopeCursorReconcileV1: _toolType === 'fencing'
+      };
     },
     _rememberScopeCursor: _rememberScopeCursor,
+    // Public recovery seam used by the offline flush and deterministic browser
+    // harness. It accepts only typed save events and keeps all guard decisions
+    // inside this module.
+    handleScopeSaveError: _handleScopeSaveError,
 
     // Connect integration state from an external load path (e.g. inline name search).
     // Ensures _jobId, _ghlOpportunityId, _ghlContactId are set so saves work correctly.
@@ -2576,7 +2854,7 @@
       _ghlContactId = contactId || null;
       if (status) _jobStatus = status;
       if (jobId) {
-        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; }
+        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; _scopeCursorJobId = null; }
         _jobId = jobId;
         _jobLoaded = true;
         // Only update URL and start auto-save for real cloud jobs (not local-only)
@@ -2598,6 +2876,7 @@
         _jobId = null;
         _baseScopeHash = null;
         _baseScopeUpdatedAt = null;
+        _scopeCursorJobId = null;
         _jobLoaded = false;
         if (cloud) cloud.stopAutoSave();
         console.log('[Integration] _connectJob: fully cleared');
@@ -2659,12 +2938,21 @@
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
     });
-    cloud.on('autosave:queued', function() {
+    cloud.on('autosave:queued', function(event) {
+      if (event && event.queuedReason === 'server_error') {
+        cloud.ui.showSaveStatus('offline', 'Server rejected the sync — saved on iPad only');
+        if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+        return;
+      }
       cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
       if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
     });
-    cloud.on('autosave:error', function() {
+    cloud.on('autosave:error', function(event) {
       cloud.ui.showSaveStatus('error');
+      _handleScopeSaveError(event).catch(function(e) {
+        console.error('[FenceSync] Save recovery failed:', e);
+        _showScopeRecoveryState('recovery_failed', 'Sync recovery failed. Your iPad draft is retained and automatic retries are stopped.');
+      });
     });
 
     cloud.on('online', function() {

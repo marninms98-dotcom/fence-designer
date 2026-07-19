@@ -53,7 +53,7 @@ function makeSupabaseStub() {
 async function run() {
   const localStorage = makeStorage();
   let fetchCalls = 0;
-  let intervalFn = null;
+  let timerFn = null;
   const window = {
     location: { search: '', href: 'https://example.test/fence', pathname: '/fence' },
     addEventListener() {},
@@ -79,10 +79,10 @@ async function run() {
     localStorage,
     URLSearchParams,
     console,
-    setTimeout,
-    clearTimeout,
-    setInterval(fn) { intervalFn = fn; return 1; },
-    clearInterval() {},
+    setTimeout(fn) { timerFn = fn; return 1; },
+    clearTimeout() {},
+    setInterval,
+    clearInterval,
     fetch: async () => { fetchCalls += 1; throw new Error('network should not be called while offline'); },
     TextEncoder,
     Promise,
@@ -111,8 +111,10 @@ async function run() {
       address: '1 Field Rd',
     },
   }), 1);
-  assert(intervalFn, 'startAutoSave should register an interval callback');
-  await intervalFn();
+  assert(timerFn, 'startAutoSave should register a scheduled callback');
+  const firstTick = timerFn;
+  await firstTick();
+  cloud.stopAutoSave();
 
   assert.strictEqual(fetchCalls, 0, 'offline autosave must not call fetch');
   assert.strictEqual(queuedEvents, 1, 'offline autosave emits queued event');

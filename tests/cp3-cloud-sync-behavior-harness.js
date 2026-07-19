@@ -95,8 +95,8 @@ function makeVm(opts) {
     localStorage,
     URLSearchParams,
     console: opts.console || { log() {}, warn() {}, error() {} },
-    setTimeout,
-    clearTimeout,
+    setTimeout: opts.setTimeout || setTimeout,
+    clearTimeout: opts.clearTimeout || clearTimeout,
     setInterval,
     clearInterval,
     fetch: async (url, options) => {
@@ -109,7 +109,7 @@ function makeVm(opts) {
   };
 
   vm.runInNewContext(source, context, { filename: 'cloud.js' });
-  return { cloud: window.SECUREWORKS_CLOUD, listeners, localStorage, fetchCalls, sessionRef };
+  return { cloud: window.SECUREWORKS_CLOUD, window, listeners, localStorage, fetchCalls, sessionRef };
 }
 
 function queueFrom(storage) {
@@ -178,6 +178,177 @@ async function testConflictRetainsWorkAndEmitsConflict() {
   assert(events.some((e) => e.status === 'conflict' && e.code === 'scope_hash_conflict'), 'conflict event emitted');
 }
 
+async function testTypedScopeSaveErrorsPreserveRecoveryTruth() {
+  for (const reason of ['scope_hash_conflict', 'scope_ref_mismatch', 'missing_scope_cursor']) {
+    const { cloud } = makeVm({
+      fetch: async () => response(409, {
+        error: 'guard rejected save',
+        reason,
+        current_scope_hash: reason === 'scope_ref_mismatch' ? null : 'server-hash',
+        job_id: 'job-1',
+        request_id: 'request-123',
+      }),
+    });
+    let error;
+    try {
+      await cloud.ghl.saveScope('job-1', { job: { ref: 'SWF-1' } }, { baseScopeHash: 'stale' });
+    } catch (e) { error = e; }
+    assert(error, reason + ' must reject');
+    assert.strictEqual(error.name, 'ScopeSaveError');
+    assert.strictEqual(error.httpStatus, 409);
+    assert.strictEqual(error.reason, reason);
+    assert.strictEqual(error.current_scope_hash, reason === 'scope_ref_mismatch' ? null : 'server-hash');
+    assert.strictEqual(error.jobId, 'job-1');
+    assert.strictEqual(error.targetJobId, 'job-1');
+    assert.strictEqual(error.serverJobId, 'job-1');
+    assert.strictEqual(error.requestId, 'request-123');
+    assert.strictEqual(typeof error.loadServerScope, 'function', 'server scope remains behind the guarded load path');
+  }
+}
+
+async function testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry() {
+  const scheduled = [];
+  const fetchCalls = [];
+  const { cloud, window } = makeVm({
+    setTimeout(fn, delay) { scheduled.push({ fn, delay }); return scheduled.length; },
+    clearTimeout() {},
+    fetch: async (url, options) => {
+      fetchCalls.push(JSON.parse(options.body));
+      return response(409, { error: 'conflict', reason: 'scope_hash_conflict', current_scope_hash: 'server-hash', job_id: 'job-1' });
+    },
+  });
+  const state = { job: { client: 'Client B', phone: '0400000000', ref: 'SWF-1', _fieldSync: { syncAnchorType: 'job', syncAnchorId: 'job-1' } }, runs: [{ name: 'B payload' }] };
+  const errors = [];
+  cloud.on('autosave:error', (event) => errors.push(event));
+  const remembered = [];
+  window._swIntegration = {
+    getScopeSaveCursor: () => ({ baseScopeHash: 'wrong-A', scopeCursorReconcileV1: true }),
+    _rememberScopeCursor: (job) => remembered.push(job),
+  };
+  cloud.startAutoSave('job-1', () => state, 30000);
+  assert.strictEqual(scheduled[0].delay, 30000);
+  await scheduled.shift().fn();
+  assert.strictEqual(fetchCalls.length, 1, 'original refusal is the only automatic conflict attempt');
+  assert.strictEqual(fetchCalls[0].meta.baseScopeHash, 'wrong-A', 'failure starts with the poisoned cursor');
+  assert.strictEqual(fetchCalls[0].meta.scopeCursorReconcileV1, true, 'capable fence autosave advertises reconcile without weakening the guard');
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].error.reason, 'scope_hash_conflict');
+  assert.deepStrictEqual(errors[0].attemptedScope, state, 'autosave:error carries the exact target payload');
+  assert.strictEqual(errors[0].retryStopped, true);
+  assert.strictEqual(scheduled.length, 1, 'stopped conflict state only schedules a local edit probe');
+  await scheduled.shift().fn();
+  assert.strictEqual(fetchCalls.length, 1, 'unchanged conflict payload is not timer-retried');
+  assert.strictEqual(errors.length, 1, 'the local edit probe re-emits nothing while blocked');
+  assert.strictEqual(remembered.length, 0);
+}
+
+async function testJobSwapMidFlightDiscardsRetiredSaveResult() {
+  const scheduled = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const { cloud, window } = makeVm({
+    setTimeout(fn, delay) { scheduled.push({ fn, delay }); return scheduled.length; },
+    clearTimeout() {},
+    fetch: async () => {
+      await gate;
+      return response(200, { job: { id: 'job-1', current_scope_hash: 'hash-old' } });
+    },
+  });
+  const successes = [];
+  const remembered = [];
+  cloud.on('autosave:success', (event) => successes.push(event));
+  window._swIntegration = {
+    getScopeSaveCursor: () => ({}),
+    _rememberScopeCursor: (job) => remembered.push(job),
+  };
+  cloud.startAutoSave('job-1', () => ({ job: { client: 'Client A', phone: '0400000000' } }), 30000);
+  const inFlight = scheduled.shift().fn();
+  cloud.stopAutoSave();
+  release();
+  await inFlight;
+  assert.strictEqual(remembered.length, 0, 'a retired save never writes the old job cursor over the new job');
+  assert.strictEqual(successes.length, 0, 'a retired save never paints Saved on the job that replaced it');
+}
+
+async function testTransportBackoffStopsAtFiveAttempts() {
+  const scheduled = [];
+  const { cloud, localStorage } = makeVm({
+    setTimeout(fn, delay) { scheduled.push({ fn, delay }); return scheduled.length; },
+    clearTimeout() {},
+    fetch: async () => response(503, { error: 'gateway down', reason: 'transport_error' }),
+  });
+  const events = [];
+  let payload = 'unchanged';
+  cloud.on('autosave:error', (event) => events.push(event));
+  cloud.startAutoSave('job-1', () => ({ job: { client: 'Client', phone: '0400000000' }, payload }), 30000);
+  const observed = [];
+  for (let i = 0; i < 5; i++) {
+    const task = scheduled.shift();
+    observed.push(task.delay);
+    await task.fn();
+  }
+  assert.deepStrictEqual(observed, [30000, 30000, 120000, 300000, 300000], '30s, 2m, then 5m capped schedule');
+  assert.strictEqual(events.length, 5, 'one unchanged payload gets at most five automatic attempts');
+  assert.strictEqual(events[4].retryStopped, true);
+  assert.strictEqual(queueFrom(localStorage).length, 1, 'transport-failing payload remains in the existing local queue');
+  assert.strictEqual(scheduled.length, 1, 'stopped state only schedules a local edit probe');
+  payload = 'edited';
+  await scheduled.shift().fn();
+  assert.strictEqual(events.length, 6, 'an edit starts a fresh transport budget');
+  assert.strictEqual(events[5].transportAttempt, 1);
+  cloud.stopAutoSave();
+}
+
+async function testUnownedCapableCursorIsQuarantinedBeforeFlush() {
+  const events = [];
+  const { cloud, listeners, localStorage, fetchCalls } = makeVm({ online: false });
+  cloud.on('autosave:error', (event) => events.push(event));
+  await cloud.ghl.saveScope('job-B', {
+    job: { ref: 'SWF-2', client: 'Client B', _fieldSync: { syncAnchorType: 'job', syncAnchorId: 'job-B' } },
+  }, {
+    baseScopeHash: 'cursor-owned-by-A',
+    scopeCursorJobId: 'job-A',
+    scopeCursorReconcileV1: true,
+  });
+  let queue = queueFrom(localStorage);
+  assert.strictEqual(queue[0].meta.cursorQuarantined, true);
+  assert.strictEqual(queue[0].meta.baseScopeHash, undefined, 'unowned cursor bytes are not retained for replay');
+  listeners.online();
+  await cloud.flushOfflineQueue();
+  assert.strictEqual(fetchCalls.filter((c) => String(c.url).includes('action=save_scope')).length, 0, 'quarantined cursor/payload is not written before reconcile');
+  assert.strictEqual(queueFrom(localStorage).length, 1, 'quarantined local work remains ordered in the queue');
+  assert.strictEqual(events.length, 1);
+  assert.strictEqual(events[0].error.reason, 'missing_scope_cursor');
+  assert.strictEqual(typeof events[0].error.loadServerScope, 'function');
+}
+
+async function testOwnedCursorClearsQuarantineOnCoalesce() {
+  const { cloud, listeners, localStorage, fetchCalls } = makeVm({ online: false });
+  const state = (client) => ({
+    job: { ref: 'SWF-3', client, _fieldSync: { syncAnchorType: 'job', syncAnchorId: 'job-B' } },
+  });
+  await cloud.ghl.saveScope('job-B', state('Client B'), {
+    baseScopeHash: 'cursor-owned-by-A',
+    scopeCursorJobId: 'job-A',
+    scopeCursorReconcileV1: true,
+  });
+  assert.strictEqual(queueFrom(localStorage)[0].meta.cursorQuarantined, true);
+  await cloud.ghl.saveScope('job-B', state('Client B edited'), {
+    baseScopeHash: 'cursor-owned-by-B',
+    scopeCursorJobId: 'job-B',
+    scopeCursorReconcileV1: true,
+  });
+  const queue = queueFrom(localStorage);
+  assert.strictEqual(queue.length, 1, 'the two saves coalesce into one logical action');
+  assert.strictEqual(queue[0].meta.cursorQuarantined, undefined, 'a provably owned cursor clears the earlier quarantine');
+  assert.strictEqual(queue[0].meta.baseScopeHash, 'cursor-owned-by-B');
+  listeners.online();
+  await cloud.flushOfflineQueue();
+  const writes = fetchCalls.filter((c) => String(c.url).includes('action=save_scope'));
+  assert.strictEqual(writes.length, 1, 'the owned cursor flushes instead of stopping for reconcile');
+  assert.strictEqual(queueFrom(localStorage).length, 0);
+}
+
 async function testConcurrentFlushIsSingleFlight() {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -237,6 +408,8 @@ async function testUnauthenticatedSaveFallsBackToSharedKey() {
   const saveCalls = fetchCalls.filter((c) => String(c.url).includes('action=save_scope'));
   assert.strictEqual(saveCalls.length, 1, 'exactly one save fetch went out');
   const headers = saveCalls[0].options.headers || {};
+  const body = JSON.parse(saveCalls[0].options.body);
+  assert.strictEqual(body.meta.scopeCursorReconcileV1, undefined, 'a caller that did not advertise capability remains legacy');
   assert.strictEqual(
     headers['x-api-key'],
     '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc',
@@ -257,16 +430,38 @@ async function testExpiredJwtResponseStaysQueued() {
   assert.strictEqual(queueFrom(localStorage)[0].meta.baseScopeHash, 'h1');
 }
 
+async function testServerErrorQueueIsLabelledDistinctly() {
+  const { cloud, localStorage } = makeVm({
+    online: true,
+    fetch: async () => response(500, { error: 'edge function crashed' }),
+  });
+  const saved = await cloud.ghl.saveScope('job-1', { rev: 3 }, { baseScopeHash: 'h1' });
+  assert.strictEqual(saved.queued, true, 'a 5xx still keeps the work on the iPad');
+  assert.strictEqual(saved.queuedReason, 'server_error', 'a 5xx queue is not reported as a plain offline queue');
+  assert.strictEqual(queueFrom(localStorage).length, 1);
+
+  const offline = makeVm({ online: false });
+  const offlineSave = await offline.cloud.ghl.saveScope('job-1', { rev: 4 }, { baseScopeHash: 'h1' });
+  assert.strictEqual(offlineSave.queuedReason, 'offline', 'a genuine offline queue keeps the offline reason');
+}
+
 async function run() {
   const tests = [
     ['bearer headers without api key', testBearerHeaders],
     ['multiple offline edits coalesce to latest save on reconnect', testCoalescedLatestSaveFlushesOnce],
     ['transient network failure retains work', testTransientFlushFailureRetainsWorkAndEmitsFailure],
     ['scope conflict retains work', testConflictRetainsWorkAndEmitsConflict],
+    ['typed save errors preserve recovery truth', testTypedScopeSaveErrorsPreserveRecoveryTruth],
+    ['autosave conflict carries payload and stops unchanged retry', testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry],
+    ['transport retries back off and stop at five attempts', testTransportBackoffStopsAtFiveAttempts],
+    ['a job swap mid-flight discards the retired save result', testJobSwapMidFlightDiscardsRetiredSaveResult],
+    ['unowned capable cursor is quarantined before flush', testUnownedCapableCursorIsQuarantinedBeforeFlush],
+    ['owned cursor clears an earlier quarantine on coalesce', testOwnedCursorClearsQuarantineOnCoalesce],
     ['concurrent flush is single-flight', testConcurrentFlushIsSingleFlight],
     ['returned cursor advances newer pending save', testCursorAdvancesLegacyDuplicateQueue],
     ['unauthenticated online save falls back to shared key', testUnauthenticatedSaveFallsBackToSharedKey],
     ['expired login response stays queued', testExpiredJwtResponseStaysQueued],
+    ['server error queue is labelled distinctly', testServerErrorQueueIsLabelledDistinctly],
   ];
   for (const [name, fn] of tests) {
     await fn();
