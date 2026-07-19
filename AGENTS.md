@@ -65,6 +65,10 @@ Every scope write is compare-and-save: the client sends the server-issued cursor
 - **A mid-flight job swap retires the autosave context.** After `await saveScope`, `_runAutoSave` returns immediately if `ctx !== _autoSaveContext` (both success and catch paths) so a stale save cannot write the new job's cursor, status or blocked state. The queued-payload discard is the one thing that still runs, since it is scoped to `ctx.jobId` + payload — and it runs ONLY when the response was not itself queued, or a genuine queue entry would be dropped.
 - **Recovery must never write before the local draft is safe.** `_verifiedFenceCheckpoint` writes and reads back a `fenceJob_checkpoint_<localDraftId>` snapshot; it returns true (nothing to protect) when there is no meaningful local draft, false only on a real write failure — a false verdict aborts the branch with nothing written.
 
+## Guarded fencing entry funnel (2026-07)
+
+Every supported fencing launch/load door must invoke `integration.js` `_enterJob(intent, target)` through `window._swIntegration.enterJob`; coverage is in `tests/entry-funnel-runtime-harness.js`. GHL is context only: the browser may load a uniquely resolved Supabase job, but unresolved, duplicate, contact-only, or deliberate-repeat contexts stop with `server_mint_required` until the later serialized server mint command exists. Cross-job linking passes `_scrubCrossJobIdentity` before `app._linkCloudAnchor` can save, clearing old refs, cursors, revision anchors and pending ownership metadata. Do not restore direct browser mint fallbacks or add a load door around this owner.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

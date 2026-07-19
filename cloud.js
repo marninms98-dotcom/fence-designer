@@ -2158,7 +2158,11 @@
                     banner.style.cssText = 'text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;';
                     list.insertBefore(banner, list.firstChild);
                   }
-                  banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                  if (err && ['server_mint_required', 'ambiguous_identity', 'ambiguous_local_checkpoints', 'identity_lookup_failed'].indexOf(err.code) !== -1) {
+                    banner.textContent = 'Stopped safely: ' + msg;
+                  } else {
+                    banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                  }
                 });
               } else {
                 _close();

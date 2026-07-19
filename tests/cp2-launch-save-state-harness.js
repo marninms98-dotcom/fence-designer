@@ -163,14 +163,22 @@ try {
       syncAnchorType: 'job',
       syncAnchorId: 'cloud-old',
       ghlContactId: 'contact-old',
-      syncState: 'linked_job_local_dirty'
+      syncState: 'linked_job_local_dirty',
+      baseScopeHash: 'cursor-old',
+      currentScopeHash: 'cursor-old',
+      scopeCursorJobId: 'cloud-old',
+      syncAnchorRevisionId: 'revision-old',
+      pendingOps: [{ jobId: 'cloud-old' }]
     }
   });
   record(
     'local checkpoint resume scrubs stale cloud identity',
     resumed.ref === '' && resumed._fieldSync.syncAnchorType === 'local_only' &&
       resumed._fieldSync.syncAnchorId === null && resumed._fieldSync.ghlContactId === null &&
-      resumed._fieldSync.requiresLinkBeforeRelease === true && resumed._fieldSync.syncState === 'local_dirty',
+      resumed._fieldSync.requiresLinkBeforeRelease === true && resumed._fieldSync.syncState === 'local_dirty' &&
+      resumed._fieldSync.baseScopeHash === undefined && resumed._fieldSync.currentScopeHash === undefined &&
+      resumed._fieldSync.scopeCursorJobId === undefined && resumed._fieldSync.syncAnchorRevisionId === undefined &&
+      Array.isArray(resumed._fieldSync.pendingOps) && resumed._fieldSync.pendingOps.length === 0,
     'executed the production _scrubLocalResumeJob method against a checkpoint carrying stale job/GHL anchors'
   );
 } catch (e) {
@@ -620,13 +628,16 @@ record(
   'the sealed-revision banner and its reserved body padding are removed for the new editable job'
 );
 
-// Review round 3: a created job must show its ref immediately.
+// Review round 3: a safely created job must show its ref immediately. The
+// guarded-entry unit now stops browser minting before this legacy helper, so the
+// lead-search branch must refuse a changed/null mapping rather than create.
 record(
   'new-job path applies the created job number (review #15)',
   /_lastJobNumber = job\.job_number \|\| null;/.test(newJobHelper) &&
     /if \(_lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(newJobHelper) &&
-    /if \(!localDraftWins && _lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(integration),
-  'both the repeat-client and lead_search create branches populate + apply job_number'
+    /identity_changed_during_entry/.test(integration) &&
+    /server_mint_required/.test(integration),
+  'legacy helper still applies a returned number; guarded lead entry stops unsafe browser minting'
 );
 
 record(
