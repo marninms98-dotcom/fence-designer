@@ -351,7 +351,7 @@
     return removed;
   }
 
-  function _queueScopeSave(jobId, scopeJson, meta) {
+  function _queueScopeSave(jobId, scopeJson, meta, queuedReason) {
     meta = Object.assign({}, meta || {});
     delete meta._flushAttempt;
     delete meta._autoSaveAttempt;
@@ -366,11 +366,12 @@
     }
     try { localStorage.setItem('sw_job_' + jobId, JSON.stringify(scopeJson)); } catch(e) {}
     _enqueue({ type: 'save_job', jobId: jobId, scopeJson: scopeJson, meta: meta });
-    emit('job:saved_local', { jobId: jobId, queued: true });
+    emit('job:saved_local', { jobId: jobId, queued: true, queuedReason: queuedReason || 'offline' });
     return {
       id: jobId,
       local: true,
       queued: true,
+      queuedReason: queuedReason || 'offline',
       current_scope_hash: meta.baseScopeHash || meta.expectedScopeHash || meta.scope_hash || null,
       current_scope_updated_at: meta.baseScopeUpdatedAt || null
     };
@@ -1011,7 +1012,7 @@
         }
         var transportRetryable = res.status === 408 || res.status === 429 || res.status >= 500;
         if (transportRetryable && !meta._flushAttempt) {
-          var queuedTransportSave = _queueScopeSave(jobId, scopeJson, requestMeta);
+          var queuedTransportSave = _queueScopeSave(jobId, scopeJson, requestMeta, 'server_error');
           if (!meta._autoSaveAttempt) return queuedTransportSave;
           err.localQueued = true;
         }
@@ -1459,7 +1460,7 @@
       ctx.transportAttempts = 0;
       ctx.blockedReason = null;
       if (savedJob && savedJob.queued) {
-        emit('autosave:queued', { jobId: ctx.jobId, fingerprint: fingerprint });
+        emit('autosave:queued', { jobId: ctx.jobId, fingerprint: fingerprint, queuedReason: savedJob.queuedReason || 'offline' });
       } else {
         _discardQueuedScopePayload(ctx.jobId, state);
         if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);

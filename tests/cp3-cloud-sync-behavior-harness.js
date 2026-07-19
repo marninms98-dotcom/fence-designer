@@ -372,6 +372,21 @@ async function testExpiredJwtResponseStaysQueued() {
   assert.strictEqual(queueFrom(localStorage)[0].meta.baseScopeHash, 'h1');
 }
 
+async function testServerErrorQueueIsLabelledDistinctly() {
+  const { cloud, localStorage } = makeVm({
+    online: true,
+    fetch: async () => response(500, { error: 'edge function crashed' }),
+  });
+  const saved = await cloud.ghl.saveScope('job-1', { rev: 3 }, { baseScopeHash: 'h1' });
+  assert.strictEqual(saved.queued, true, 'a 5xx still keeps the work on the iPad');
+  assert.strictEqual(saved.queuedReason, 'server_error', 'a 5xx queue is not reported as a plain offline queue');
+  assert.strictEqual(queueFrom(localStorage).length, 1);
+
+  const offline = makeVm({ online: false });
+  const offlineSave = await offline.cloud.ghl.saveScope('job-1', { rev: 4 }, { baseScopeHash: 'h1' });
+  assert.strictEqual(offlineSave.queuedReason, 'offline', 'a genuine offline queue keeps the offline reason');
+}
+
 async function run() {
   const tests = [
     ['bearer headers without api key', testBearerHeaders],
@@ -386,6 +401,7 @@ async function run() {
     ['returned cursor advances newer pending save', testCursorAdvancesLegacyDuplicateQueue],
     ['unauthenticated online save falls back to shared key', testUnauthenticatedSaveFallsBackToSharedKey],
     ['expired login response stays queued', testExpiredJwtResponseStaysQueued],
+    ['server error queue is labelled distinctly', testServerErrorQueueIsLabelledDistinctly],
   ];
   for (const [name, fn] of tests) {
     await fn();

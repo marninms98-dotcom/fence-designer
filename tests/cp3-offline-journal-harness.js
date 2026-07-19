@@ -163,7 +163,7 @@ record(
 
 record(
   'post-upload re-save does not swallow scope hash conflicts',
-  /Scope re-save with cloudUrls queued locally; pending sync/.test(integration) &&
+  /Scope re-save with cloudUrls queued locally; reason:/.test(integration) &&
     /catch\(e\) \{[\s\S]{0,80}if \(_isScopeHashConflict\(e\)\) throw e/.test(integration),
   'cloudUrl persistence re-save can be non-blocking for ordinary failures, but stale scope conflicts block final success'
 );

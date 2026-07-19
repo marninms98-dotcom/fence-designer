@@ -1874,6 +1874,7 @@
         console.log('[Integration] Saving scope for job:', _jobId);
         var savedJob = await cloud.ghl.saveScope(_jobId, state, _attachScopeSaveCursor(meta));
         var scopeQueuedLocally = !!(savedJob && savedJob.queued);
+        var scopeQueuedByServerError = scopeQueuedLocally && savedJob.queuedReason === 'server_error';
         if (!scopeQueuedLocally) _rememberScopeCursor(savedJob);
         if (scopeQueuedLocally) {
           console.log('[Integration] Scope saved locally and queued for sync');
@@ -1984,8 +1985,10 @@
             if (updatedState) {
               var resavedJob = await cloud.ghl.saveScope(_jobId, updatedState, _attachScopeSaveCursor(meta));
               if (resavedJob && resavedJob.queued) {
-                console.warn('[Integration] Scope re-save with cloudUrls queued locally; pending sync');
-                if (window.showToast) window.showToast('Media state saved on iPad — pending sync', 'warning');
+                console.warn('[Integration] Scope re-save with cloudUrls queued locally; reason:', resavedJob.queuedReason || 'offline');
+                if (window.showToast) window.showToast(resavedJob.queuedReason === 'server_error'
+                  ? 'Server error saving media state. Saved on this iPad only.'
+                  : 'Media state saved on iPad — pending sync', 'warning');
               } else {
                 _rememberScopeCursor(resavedJob);
                 console.log('[Integration] Scope re-saved with cloudUrls');
@@ -2227,7 +2230,11 @@
           cloud.startAutoSave(_jobId, _getStateFn, 30000);
         }
 
-        if (scopeQueuedLocally) {
+        if (scopeQueuedByServerError) {
+          cloud.ui.showSaveStatus('offline', 'Server rejected the sync — saved on iPad only');
+          if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+          if (window.showToast) window.showToast('Server error saving to the cloud. Your work is on this iPad only — keep this device and retry.', 'warning');
+        } else if (scopeQueuedLocally) {
           cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
           if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
         } else if (_lastJobNumber) {
@@ -2908,7 +2915,12 @@
     cloud.on('autosave:success', function() {
       cloud.ui.showSaveStatus('saved');
     });
-    cloud.on('autosave:queued', function() {
+    cloud.on('autosave:queued', function(event) {
+      if (event && event.queuedReason === 'server_error') {
+        cloud.ui.showSaveStatus('offline', 'Server rejected the sync — saved on iPad only');
+        if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
+        return;
+      }
       cloud.ui.showSaveStatus('offline', 'Saved on iPad — pending sync');
       if (window.updateSyncStatus) window.updateSyncStatus('local', new Date().toISOString());
     });
