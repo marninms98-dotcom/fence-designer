@@ -183,6 +183,15 @@
     return !!scope && Object.prototype.toString.call(scope) === '[object Object]' && Object.keys(scope).length === 0;
   }
 
+  // Only a present, non-empty object scope is safe to hydrate into the form or
+  // to compare against. null, an absent projection and partial load responses
+  // are UNKNOWN, so divergence recovery must not offer "take server" for them.
+  function _usableServerScope(serverJob) {
+    if (!serverJob || !Object.prototype.hasOwnProperty.call(serverJob, 'scope_json')) return false;
+    var scope = serverJob.scope_json;
+    return !!scope && Object.prototype.toString.call(scope) === '[object Object]' && Object.keys(scope).length > 0;
+  }
+
   function _sameScopePayload(a, b) {
     if (!a || !b) return false;
     try {
@@ -316,6 +325,11 @@
         console.warn('[FenceSync] Empty-scope recovery retry failed:', retryError);
         _showScopeRecoveryState('retry_failed', 'Recovery retry failed. Your iPad draft is retained; no further automatic retry will run.');
       }
+      return true;
+    }
+
+    if (!_usableServerScope(serverJob)) {
+      _showScopeRecoveryState('server_scope_unknown', 'The server did not return a readable scope to compare against. Your iPad draft is retained and nothing was overwritten.');
       return true;
     }
 
