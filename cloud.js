@@ -84,6 +84,7 @@
   var _offlineJobIdMap = {};
   var _listeners = {};
   var _autoSaveTimer = null;
+  var _autoSaveContext = null;
   var _flushPromise = null;
 
   // ── Event System ──
@@ -218,6 +219,9 @@
     _online = true;
     emit('online');
     _flushQueue();
+    // A confirmed browser connectivity transition starts a fresh transport
+    // budget. Conflict/ref stops remain owned by the integration reconciler.
+    if (_autoSaveContext && _autoSaveContext.transportAttempts) resumeAutoSave({ immediate: true });
   });
 
   window.addEventListener('offline', function() {
@@ -327,9 +331,39 @@
     return _upsertQueuedAction(action, null);
   }
 
+  function _discardQueuedScopePayload(jobId, scopeJson) {
+    var wanted;
+    var wantedFingerprint;
+    try {
+      wanted = JSON.stringify(scopeJson);
+      wantedFingerprint = _autoSaveFingerprint(jobId, scopeJson);
+    } catch(e) { return false; }
+    var removed = false;
+    _offlineQueue = _offlineQueue.filter(function(action) {
+      if (removed || !action || action.type !== 'save_job' || String(action.jobId) !== String(jobId)) return true;
+      try {
+        if (JSON.stringify(action.scopeJson) !== wanted && _autoSaveFingerprint(jobId, action.scopeJson) !== wantedFingerprint) return true;
+      } catch(e) { return true; }
+      removed = true;
+      return false;
+    });
+    if (removed) _saveOfflineQueue();
+    return removed;
+  }
+
   function _queueScopeSave(jobId, scopeJson, meta) {
     meta = Object.assign({}, meta || {});
     delete meta._flushAttempt;
+    delete meta._autoSaveAttempt;
+    if (meta.scopeCursorReconcileV1 === true && meta.baseScopeHash && String(meta.scopeCursorJobId || '') !== String(jobId)) {
+      // A capable client may retain the payload, but an unowned legacy hash is
+      // UNKNOWN and must never be replayed as a cursor for this target.
+      delete meta.baseScopeHash;
+      delete meta.expectedScopeHash;
+      delete meta.scope_hash;
+      meta.cursorQuarantined = true;
+      meta.scopeCursorProvenance = 'unknown';
+    }
     try { localStorage.setItem('sw_job_' + jobId, JSON.stringify(scopeJson)); } catch(e) {}
     _enqueue({ type: 'save_job', jobId: jobId, scopeJson: scopeJson, meta: meta });
     emit('job:saved_local', { jobId: jobId, queued: true });
@@ -354,13 +388,21 @@
     if (!job) return null;
     var hash = job.current_scope_hash || job.currentScopeHash || null;
     var updatedAt = job.current_scope_updated_at || job.updated_at || null;
-    return hash || updatedAt ? { baseScopeHash: hash, baseScopeUpdatedAt: updatedAt } : null;
+    return hash || updatedAt ? {
+      baseScopeHash: hash,
+      baseScopeUpdatedAt: updatedAt,
+      scopeCursorJobId: job.id || job.job_id || null,
+      scopeCursorProvenance: 'server_issued'
+    } : null;
   }
 
   function _applyScopeCursor(meta, cursor) {
     meta = Object.assign({}, meta || {});
     if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
     if (cursor && cursor.baseScopeUpdatedAt) meta.baseScopeUpdatedAt = cursor.baseScopeUpdatedAt;
+    if (cursor && cursor.scopeCursorJobId) meta.scopeCursorJobId = cursor.scopeCursorJobId;
+    if (cursor && cursor.scopeCursorProvenance) meta.scopeCursorProvenance = cursor.scopeCursorProvenance;
+    if (cursor && cursor.baseScopeHash) delete meta.cursorQuarantined;
     delete meta._flushAttempt;
     return meta;
   }
@@ -424,6 +466,19 @@
             var cursorKey = String(jobId);
             var meta = Object.assign({}, action.meta || {}, { _flushAttempt: true });
             if (scopeCursors[cursorKey]) meta = Object.assign(_applyScopeCursor(meta, scopeCursors[cursorKey]), { _flushAttempt: true });
+            if (meta.cursorQuarantined && !scopeCursors[cursorKey]) {
+              var unknownCursorError = new Error('Queued cursor ownership is unknown; rehydrate before write');
+              unknownCursorError.name = 'ScopeSaveError';
+              unknownCursorError.httpStatus = 409;
+              unknownCursorError.status = 409;
+              unknownCursorError.reason = 'missing_scope_cursor';
+              unknownCursorError.code = 'missing_scope_cursor';
+              unknownCursorError.jobId = jobId;
+              unknownCursorError.targetJobId = jobId;
+              unknownCursorError.requestId = action.opId;
+              unknownCursorError.loadServerScope = function(opts) { return ghl.loadJob(this.targetJobId, opts); };
+              throw unknownCursorError;
+            }
             var savedJob = await ghl.saveScope(jobId, action.scopeJson, meta);
             var cursor = _scopeCursorFromJob(savedJob);
             if (cursor) scopeCursors[cursorKey] = cursor;
@@ -447,6 +502,16 @@
           _recordOfflineJournal(action, conflict ? 'conflict' : 'failed', { message: e && e.message || String(e), code: e && e.code || null });
           _retainUnresolvedAction(action);
           _emitFlush(conflict ? 'conflict' : 'failure', action, { message: e && e.message || String(e), code: e && e.code || null });
+          if (conflict && action.type === 'save_job') {
+            emit('autosave:error', {
+              jobId: action.jobId,
+              error: e,
+              attemptedScope: action.scopeJson,
+              fingerprint: _autoSaveFingerprint(action.jobId, action.scopeJson),
+              fromOfflineQueue: true,
+              retryStopped: true
+            });
+          }
         }
       }
     })();
@@ -885,6 +950,9 @@
 
       var requestMeta = Object.assign({}, meta);
       delete requestMeta._flushAttempt;
+      delete requestMeta._autoSaveAttempt;
+      var clientRequestId = requestMeta.requestId || _newOpId('scope-save');
+      requestMeta.requestId = clientRequestId;
       var res;
       try {
         res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=save_scope', {
@@ -892,21 +960,60 @@
           body: JSON.stringify({ jobId: jobId, scopeJson: scopeJson, meta: requestMeta })
         });
       } catch(e) {
-        if (meta._flushAttempt) throw e;
+        if (meta._flushAttempt) {
+          e.httpStatus = e.httpStatus || 0;
+          e.reason = e.reason || 'transport_error';
+          e.code = e.code || e.reason;
+          e.jobId = e.jobId || jobId;
+          e.targetJobId = e.targetJobId || jobId;
+          e.requestId = e.requestId || clientRequestId;
+          throw e;
+        }
         console.warn('[Cloud] saveScope network failure; queued local scope save:', e);
-        return _queueScopeSave(jobId, scopeJson, requestMeta);
+        var queuedNetworkSave = _queueScopeSave(jobId, scopeJson, requestMeta);
+        if (meta._autoSaveAttempt) {
+          e.httpStatus = e.httpStatus || 0;
+          e.reason = e.reason || 'transport_error';
+          e.code = e.code || e.reason;
+          e.jobId = e.jobId || jobId;
+          e.targetJobId = e.targetJobId || jobId;
+          e.requestId = e.requestId || clientRequestId;
+          e.localQueued = true;
+          throw e;
+        }
+        return queuedNetworkSave;
       }
-      var data = await res.json();
+      var data = await _safeJson(res) || {};
       console.log('[Cloud] saveScope result:', data);
       if (!res.ok) {
-        var err = new Error(data.error || 'Failed to save scope');
-        err.code = data.code || null;
+        var reason = data.reason || data.code || (res.status === 401 ? 'auth_error' : (res.status >= 500 ? 'transport_error' : 'save_rejected'));
+        var err = new Error(data.error || data.message || 'Failed to save scope');
+        err.name = 'ScopeSaveError';
+        err.httpStatus = res.status;
+        err.status = res.status;
+        err.reason = reason;
+        err.code = reason;
+        err.current_scope_hash = data.current_scope_hash || data.currentScopeHash || null;
+        err.currentScopeHash = err.current_scope_hash;
+        err.jobId = jobId;
+        err.targetJobId = jobId;
+        err.serverJobId = data.job_id || data.jobId || null;
+        err.requestId = data.request_id || data.requestId || (res.headers && res.headers.get && (res.headers.get('x-request-id') || res.headers.get('x-supabase-request-id'))) || clientRequestId;
         err.details = data;
+        // Scope bytes are deliberately not trusted from an error body. Recovery
+        // reuses the guarded load path and verifies the returned job identity.
+        err.loadServerScope = function(opts) { return ghl.loadJob(jobId, opts); };
         var authRetryable = res.status === 401 ||
-          ['missing_auth', 'invalid_user_jwt', 'user_jwt_required'].indexOf(err.code) !== -1;
+          ['missing_auth', 'invalid_user_jwt', 'user_jwt_required', 'auth_error'].indexOf(err.code) !== -1;
         if (authRetryable && !meta._flushAttempt) {
           console.warn('[Cloud] saveScope login expired; queued local scope save:', err);
           return _queueScopeSave(jobId, scopeJson, requestMeta);
+        }
+        var transportRetryable = res.status === 408 || res.status === 429 || res.status >= 500;
+        if (transportRetryable && !meta._flushAttempt) {
+          var queuedTransportSave = _queueScopeSave(jobId, scopeJson, requestMeta);
+          if (!meta._autoSaveAttempt) return queuedTransportSave;
+          err.localQueued = true;
         }
         throw err;
       }
@@ -1259,72 +1366,173 @@
   // AUTO-SAVE
   // ════════════════════════════════════════════════════════════
 
+  function _autoSaveFingerprint(jobId, state) {
+    try {
+      // getFencingState stamps savedAt on every read. It is transport metadata,
+      // not an edit, so it must not manufacture a fresh retry budget.
+      return String(jobId) + ':' + JSON.stringify(state, function(key, value) {
+        return key === 'savedAt' ? undefined : value;
+      });
+    } catch(e) { return String(jobId) + ':unserializable'; }
+  }
+
+  function _isTypedScopeConflict(e) {
+    var reason = e && (e.reason || e.code);
+    return ['scope_hash_conflict', 'missing_scope_cursor', 'scope_ref_mismatch'].indexOf(reason) !== -1;
+  }
+
+  function _isTransportSaveFailure(e) {
+    var status = Number(e && (e.httpStatus || e.status) || 0);
+    var reason = e && (e.reason || e.code);
+    return reason === 'transport_error' || status === 0 || status === 408 || status === 429 || status >= 500;
+  }
+
+  function _scheduleAutoSave(delayMs) {
+    if (!_autoSaveContext) return;
+    if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = setTimeout(_runAutoSave, delayMs);
+  }
+
+  async function _runAutoSave() {
+    var ctx = _autoSaveContext;
+    if (!ctx || ctx.running) return;
+    ctx.running = true;
+    var state = null;
+    var fingerprint = null;
+    try {
+      state = ctx.getStateFn();
+      if (!state) return;
+      fingerprint = _autoSaveFingerprint(ctx.jobId, state);
+      if (fingerprint !== ctx.fingerprint) {
+        ctx.fingerprint = fingerprint;
+        if (ctx.blockedReason === 'transport_exhausted' || !ctx.blockedReason) {
+          ctx.transportAttempts = 0;
+          ctx.blockedFingerprint = null;
+          ctx.blockedReason = null;
+        } else {
+          // Conflict/ref decisions remain stopped across edits until their
+          // explicit recovery path resolves. An edit must not become a bypass.
+          ctx.blockedFingerprint = fingerprint;
+        }
+      }
+      if (ctx.blockedFingerprint === fingerprint) return;
+
+      // Build meta so auto-save keeps jobs table fields current
+      var meta = {};
+      if (state.customer || state.client) {
+        var c = state.customer || {};
+        var cl = state.client || {};
+        meta.client_name = c.name || cl.name || '';
+        meta.client_phone = c.phone || cl.phone || '';
+        meta.client_email = c.email || cl.email || '';
+        meta.site_address = c.address || cl.address || '';
+        meta.site_suburb = cl.suburb || '';
+      } else if (state.job) {
+        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+        meta.client_phone = state.job.phone || '';
+        meta.client_email = state.job.email || '';
+        meta.site_address = state.job.address || '';
+        meta.site_suburb = state.job.suburb || '';
+      }
+
+      var hasMeaningfulContact = !!(
+        (meta.client_name && meta.client_name.trim()) ||
+        (meta.client_phone && meta.client_phone.trim()) ||
+        (meta.client_email && meta.client_email.trim()) ||
+        (meta.site_address && meta.site_address.trim()) ||
+        (meta.site_suburb && meta.site_suburb.trim())
+      );
+      if (!hasMeaningfulContact) return;
+
+      if (state.job && state.job._pricing_json) meta.pricing_json = state.job._pricing_json;
+      else if (state._pricing_json) meta.pricing_json = state._pricing_json;
+
+      meta._autoSaveAttempt = true;
+      if (window._swIntegration && window._swIntegration.getScopeSaveCursor) {
+        var cursor = window._swIntegration.getScopeSaveCursor();
+        if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
+        if (cursor && cursor.scopeCursorJobId) meta.scopeCursorJobId = cursor.scopeCursorJobId;
+        if (cursor && cursor.scopeCursorProvenance) meta.scopeCursorProvenance = cursor.scopeCursorProvenance;
+        if (cursor && cursor.scopeCursorReconcileV1 === true) meta.scopeCursorReconcileV1 = true;
+      }
+      var savedJob = await ghl.saveScope(ctx.jobId, state, meta);
+      ctx.transportAttempts = 0;
+      ctx.blockedReason = null;
+      if (savedJob && savedJob.queued) {
+        emit('autosave:queued', { jobId: ctx.jobId, fingerprint: fingerprint });
+      } else {
+        _discardQueuedScopePayload(ctx.jobId, state);
+        if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);
+        emit('autosave:success', { jobId: ctx.jobId, fingerprint: fingerprint });
+      }
+    } catch(e) {
+      console.warn('[Cloud] Auto-save failed:', e);
+      var conflict = _isTypedScopeConflict(e);
+      var transport = !conflict && _isTransportSaveFailure(e);
+      if (conflict || !transport) {
+        ctx.blockedFingerprint = fingerprint;
+        ctx.blockedReason = conflict ? (e.reason || e.code || 'scope_conflict') : 'save_rejected';
+      }
+      if (transport) {
+        ctx.transportAttempts += 1;
+        if (ctx.transportAttempts >= 5) {
+          ctx.blockedFingerprint = fingerprint;
+          ctx.blockedReason = 'transport_exhausted';
+        }
+      }
+      emit('autosave:error', {
+        jobId: ctx.jobId,
+        error: e,
+        attemptedScope: state,
+        fingerprint: fingerprint,
+        transportAttempt: ctx.transportAttempts,
+        retryStopped: ctx.blockedFingerprint === fingerprint
+      });
+    } finally {
+      if (!ctx || ctx !== _autoSaveContext) return;
+      ctx.running = false;
+      if (ctx.blockedFingerprint && ctx.blockedFingerprint === ctx.fingerprint) {
+        // A stopped transport payload is polled locally for edits only. No
+        // request is made until the fingerprint changes and starts a new budget.
+        if (ctx.blockedReason === 'transport_exhausted') _scheduleAutoSave(ctx.intervalMs);
+        return;
+      }
+      var retryDelays = [30000, 120000, 300000, 300000, 300000];
+      var delay = ctx.transportAttempts ? retryDelays[Math.min(ctx.transportAttempts - 1, retryDelays.length - 1)] : ctx.intervalMs;
+      _scheduleAutoSave(delay);
+    }
+  }
+
   function startAutoSave(jobId, getStateFn, intervalMs) {
     stopAutoSave();
-    intervalMs = intervalMs || 30000; // 30 seconds default
+    _autoSaveContext = {
+      jobId: jobId,
+      getStateFn: getStateFn,
+      intervalMs: intervalMs || 30000,
+      fingerprint: null,
+      blockedFingerprint: null,
+      blockedReason: null,
+      transportAttempts: 0,
+      running: false
+    };
+    _scheduleAutoSave(_autoSaveContext.intervalMs);
+  }
 
-    _autoSaveTimer = setInterval(async function() {
-      try {
-        var state = getStateFn();
-        if (!state) return;
-
-        // Build meta so auto-save keeps jobs table fields current
-        var meta = {};
-        if (state.customer || state.client) {
-          var c = state.customer || {};
-          var cl = state.client || {};
-          meta.client_name = c.name || cl.name || '';
-          meta.client_phone = c.phone || cl.phone || '';
-          meta.client_email = c.email || cl.email || '';
-          meta.site_address = c.address || cl.address || '';
-          meta.site_suburb = cl.suburb || '';
-        } else if (state.job) {
-          meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
-          meta.client_phone = state.job.phone || '';
-          meta.client_email = state.job.email || '';
-          meta.site_address = state.job.address || '';
-          meta.site_suburb = state.job.suburb || '';
-        }
-
-        // Prevent empty ghost saves, but keep phone/address-only field leads.
-        var hasMeaningfulContact = !!(
-          (meta.client_name && meta.client_name.trim()) ||
-          (meta.client_phone && meta.client_phone.trim()) ||
-          (meta.client_email && meta.client_email.trim()) ||
-          (meta.site_address && meta.site_address.trim()) ||
-          (meta.site_suburb && meta.site_suburb.trim())
-        );
-        if (!hasMeaningfulContact) return;
-
-        if (state.job && state.job._pricing_json) {
-          meta.pricing_json = state.job._pricing_json;
-        } else if (state._pricing_json) {
-          meta.pricing_json = state._pricing_json;
-        }
-
-        if (window._swIntegration && window._swIntegration.getScopeSaveCursor) {
-          var cursor = window._swIntegration.getScopeSaveCursor();
-          if (cursor && cursor.baseScopeHash) meta.baseScopeHash = cursor.baseScopeHash;
-        }
-        var savedJob = await ghl.saveScope(jobId, state, meta);
-        if (savedJob && savedJob.queued) {
-          emit('autosave:queued', { jobId: jobId });
-        } else {
-          if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);
-          emit('autosave:success', { jobId: jobId });
-        }
-      } catch(e) {
-        console.warn('[Cloud] Auto-save failed:', e);
-        emit('autosave:error', { jobId: jobId, error: e });
-      }
-    }, intervalMs);
+  function resumeAutoSave(opts) {
+    if (!_autoSaveContext) return;
+    opts = opts || {};
+    _autoSaveContext.blockedFingerprint = null;
+    _autoSaveContext.blockedReason = null;
+    if (opts.resetBudget !== false) _autoSaveContext.transportAttempts = 0;
+    _scheduleAutoSave(opts.immediate ? 0 : _autoSaveContext.intervalMs);
   }
 
   function stopAutoSave() {
     if (_autoSaveTimer) {
-      clearInterval(_autoSaveTimer);
+      clearTimeout(_autoSaveTimer);
       _autoSaveTimer = null;
     }
+    _autoSaveContext = null;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -2091,10 +2299,12 @@
 
     // Auto-save helpers
     startAutoSave: startAutoSave,
+    resumeAutoSave: resumeAutoSave,
     stopAutoSave: stopAutoSave,
     authorizedHeaders: authorizedHeaders,
     authorizedFetch: authorizedFetch,
     flushOfflineQueue: _flushQueue,
+    discardQueuedScopePayload: _discardQueuedScopePayload,
 
     // Event system
     on: on,

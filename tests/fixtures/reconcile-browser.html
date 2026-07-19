@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fence Reconcile Harness</title>
+<body>
+  <div id="result">ready</div>
+  <script>
+    window.SUPABASE_URL = location.origin;
+    window.SUPABASE_ANON_KEY = 'test-anon';
+    window.supabase = {
+      createClient: function() {
+        return {
+          auth: {
+            getSession: async function() { return { data: { session: { access_token: 'test-jwt', user: { id: 'test-user' } } } }; },
+            refreshSession: async function() { return { data: { session: { access_token: 'test-jwt', user: { id: 'test-user' } } } }; },
+            onAuthStateChange: function() {}
+          },
+          from: function() { return { select: function(){return this;}, eq: function(){return this;}, single: async function(){return {data:{org_id:'test-org'},error:null};}, insert: async function(){return {error:null};} }; }
+        };
+      }
+    };
+    window.fenceQA = { _verificationState: {} };
+    window.sitePhotos = [];
+    window.app = {
+      currentRunId: 'run-1',
+      job: null,
+      _hasMeaningfulLocalDraft: function() { return true; },
+      _ensureFieldSync: function() { return this.job && this.job._fieldSync; },
+      _checkpointLocalDraftBeforeLoad: function() { this.save(); return true; },
+      _linkCloudAnchor: function(anchor) {
+        this.job._fieldSync.syncAnchorType = 'job';
+        this.job._fieldSync.syncAnchorId = anchor.jobId;
+        this.save();
+      },
+      save: function() { localStorage.setItem('fenceJob', JSON.stringify(this.job)); },
+      renderAll: function() {},
+      buildPricingJson: function() { return {}; }
+    };
+    window.__setDraft = function(ref, marker) {
+      window.app.job = {
+        ref: ref,
+        client: 'Harness Client',
+        phone: '0400000000',
+        runs: [{ id: 'run-1', name: marker, length: 1, panels: [] }],
+        gates: [],
+        _fieldSync: { localDraftId: 'draft-' + marker, syncAnchorType: 'job', syncAnchorId: 'job-1', lastLocalEditAt: '2026-07-20T00:00:00Z' }
+      };
+      window.app.save();
+    };
+    window.__waitForIntegration = async function() {
+      for (var i = 0; i < 100; i++) {
+        if (window._swIntegration && window.SECUREWORKS_CLOUD && window._swIntegration.handleScopeSaveError && window._swIntegration.isCloudReady()) return true;
+        await new Promise(function(resolve) { setTimeout(resolve, 20); });
+      }
+      throw new Error('integration did not initialise');
+    };
+    window.__beginConflict = async function(marker, ref, cursorMode) {
+      await window.__waitForIntegration();
+      window.__setDraft(ref || 'SWF-1', marker);
+      window._swIntegration._connectJob('job-1', 'opp-1', 'contact-1', 'draft');
+      if (cursorMode !== 'missing') window._swIntegration._rememberScopeCursor({ current_scope_hash: 'stale-device-cursor' });
+      var scope = { tool: 'fencing', version: '1.0', job: window.app.job, verification: null };
+      var error = null;
+      try {
+        await window.SECUREWORKS_CLOUD.ghl.saveScope('job-1', scope, cursorMode === 'missing' ? {} : { baseScopeHash: 'stale-device-cursor' });
+      } catch (e) { error = e; }
+      if (!error) throw new Error('expected guarded rejection');
+      var promise = window._swIntegration.handleScopeSaveError({ error: error, attemptedScope: scope, fingerprint: 'job-1:' + marker });
+      return { promise: promise, error: { status: error.httpStatus, reason: error.reason, hash: error.current_scope_hash, jobId: error.jobId, requestId: error.requestId } };
+    };
+  </script>
+  <script src="/cloud.js"></script>
+  <script src="/integration.js"></script>
+</body>

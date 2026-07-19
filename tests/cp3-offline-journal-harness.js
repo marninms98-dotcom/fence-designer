@@ -41,7 +41,7 @@ record(
 record(
   'GHL saveScope queues local scope saves when offline or fetch fails',
   /async saveScope\(jobId, scopeJson, meta\)[\s\S]{0,260}if \(!_online\)[\s\S]{0,120}_queueScopeSave/.test(cloud) &&
-    /catch\(e\)[\s\S]{0,240}saveScope network failure; queued local scope save[\s\S]{0,160}_queueScopeSave/.test(cloud) &&
+    /catch\(e\)[\s\S]{0,700}saveScope network failure; queued local scope save[\s\S]{0,160}_queueScopeSave/.test(cloud) &&
     /delete requestMeta\._flushAttempt/.test(cloud),
   'field saves do not wait until the end to discover there is no sync target; they are queued with clean meta'
 );
@@ -114,12 +114,14 @@ record(
 
 record(
   'scope hash conflicts are typed and cannot show success',
-  /err\.code = data\.code/.test(cloud) &&
-    /err\.details = data/.test(cloud) &&
-    /function _isScopeHashConflict/.test(integration) &&
+  /err\.httpStatus = res\.status/.test(cloud) &&
+    /err\.reason = reason/.test(cloud) &&
+    /err\.current_scope_hash/.test(cloud) &&
+    /err\.loadServerScope/.test(cloud) &&
+    /function _handleScopeSaveError/.test(integration) &&
     /scope_hash_conflict/.test(integration) &&
-    /Your iPad draft stayed local/.test(integration),
-  '409 scope_hash_conflict becomes an explicit sync-conflict message, not a green save'
+    /Your iPad draft is retained/.test(integration),
+  '409 scope_hash_conflict carries typed recovery data and never becomes a green save'
 );
 
 record(

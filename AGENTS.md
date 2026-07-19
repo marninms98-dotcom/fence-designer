@@ -51,3 +51,10 @@ The launch modal (`index.html` ~2237) offers four options: (1) Load GHL lead/con
 - **`_mediaEpoch` is how a deferred video upload tells a job SWAP from a promotion.** `_startBgVideoUpload` captures the epoch at upload START (not in the rejection callback); the success path, the failure path and the retry timer all bail if `_mediaEpoch !== epoch`, so a reset mid-flight can't spend the new job's retry budget, report the old video's outcome on the new job's status channel, or upload the previous client's walkthrough. A `local-` id walking up to its real cloud id is the SAME draft, so only an intervening media reset invalidates a retry.
 - **Frozen-viewer chrome must be torn down when a job leaves the viewer.** `_clearFrozenViewerChrome()` removes both banners and gives back the body padding each reserved (tracked on `banner.dataset.swPadTop`). The banner's "Make a revision" button and revision switcher close over the OLD revision/job, so left mounted on the repeat-client's new editable job they would clone the previous client's sealed scope. `_startNewJobForContact` also clears `_isReadonly` + the `readonly-mode` class, since its URL drops any `?scope_revision_id`/`?mode=readonly`.
 - **Send/freeze does NOT hard-require a complete checklist.** The QA wizard (`runScopeChecks` in `index.html`) blocks outputs only on RED items; photos are RED only at **zero** (≥1 is fine), and <5 photos / unfinished video are AMBER (acknowledge-only). So a scope can freeze with an incomplete checklist. `validateForScopeComplete` (~13206, its "≥1 site photo" rule at ~13225) is dead code — no call site. Consider a harder pre-freeze gate as a follow-up.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
