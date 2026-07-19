@@ -149,8 +149,12 @@ async function run() {
     console.log('PASS empty-server recovery failure retains local work and stops after its one retry');
 
     [office, ipad] = await pair('unknown');
-    await begin(cdp, ipad, 'unknown-server-ipad'); await clickChoice(cdp, ipad, 'swCancelRecovery'); await finish(cdp, ipad);
+    // An unreadable/absent server scope must stop WITHOUT offering a choice:
+    // "take server" is not a safe option when there is nothing to compare against.
+    await begin(cdp, ipad, 'unknown-server-ipad'); await finish(cdp, ipad);
     s = await state(baseUrl); assert.strictEqual(s.saves.length, 1); assert.strictEqual(s.job.scope_json, null);
+    assert.strictEqual(await evalIn(cdp, ipad.session, `document.getElementById('sw-scope-recovery-banner').dataset.state`), 'server_scope_unknown');
+    assert.strictEqual(await evalIn(cdp, ipad.session, `!!document.getElementById('swTakeServer')`), false);
     console.log('PASS absent server scope is not misclassified as proven empty');
 
     [office, ipad] = await pair('empty');
