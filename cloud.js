@@ -1471,7 +1471,7 @@
       var savedJob = await ghl.saveScope(ctx.jobId, state, meta);
       // Scoped to this job and payload, so it is safe (and required) even after
       // a swap: the server accepted it, and a replay would 409 on a spent cursor.
-      if (savedJob && !savedJob.queued) _discardQueuedScopePayload(ctx.jobId, state);
+      if (!(savedJob && savedJob.queued)) _discardQueuedScopePayload(ctx.jobId, state);
       // A job swap mid-flight retires this context. Its cursor and status belong
       // to the job we left, so nothing below may touch the new job's state.
       if (ctx !== _autoSaveContext) return;
