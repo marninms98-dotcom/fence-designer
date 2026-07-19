@@ -220,17 +220,27 @@
     }
   }
 
+  var _NO_RETRY_RECOVERY_STATES = ['divergence', 'identity_recovery_required'];
+
   function _showScopeRecoveryState(kind, message) {
     if (cloud && cloud.ui) cloud.ui.showSaveStatus('error', message);
     var banner = document.getElementById('sw-scope-recovery-banner');
     if (!banner) {
       banner = document.createElement('div');
       banner.id = 'sw-scope-recovery-banner';
-      banner.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:10120;background:#7F1D1D;color:#fff;padding:12px 16px;border-radius:6px;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+      banner.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:10120;background:#7F1D1D;color:#fff;padding:12px 16px;border-radius:6px;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;justify-content:space-between';
+      banner.innerHTML = '<span id="sw-scope-recovery-text" style="flex:1"></span><button id="sw-scope-recovery-retry" style="flex:0 0 auto;padding:8px 14px;border:0;border-radius:4px;background:#fff;color:#7F1D1D;font-weight:700;font-size:13px">Retry sync</button>';
       document.body.appendChild(banner);
+      document.getElementById('sw-scope-recovery-retry').onclick = function() {
+        _clearScopeRecoveryState();
+        if (cloud && cloud.resumeAutoSave) cloud.resumeAutoSave({ immediate: true });
+        if (cloud && cloud.ui) cloud.ui.showSaveStatus('saving', 'Retrying sync…');
+      };
     }
     banner.dataset.state = kind;
-    banner.textContent = message;
+    document.getElementById('sw-scope-recovery-text').textContent = message;
+    document.getElementById('sw-scope-recovery-retry').style.display =
+      _NO_RETRY_RECOVERY_STATES.indexOf(kind) === -1 ? '' : 'none';
   }
 
   function _clearScopeRecoveryState() {
@@ -287,6 +297,10 @@
     var error = event.error || event;
     var reason = _scopeSaveReason(error);
     var attemptedScope = event.attemptedScope || null;
+    // The scope-cursor plumbing (and its checkpoint) is fencing-only, so a typed
+    // conflict on another tool has no working recovery branch here. Hand it back
+    // to the pre-existing error path instead of opening an unresolvable modal.
+    if (_toolType !== 'fencing') return false;
     if (['scope_hash_conflict', 'scope_ref_mismatch', 'missing_scope_cursor'].indexOf(reason) === -1) {
       if (event.retryStopped) _showScopeRecoveryState('retry_exhausted', 'Cloud sync stopped after five attempts. Your iPad draft is retained. Edit or retry when connected.');
       return false;

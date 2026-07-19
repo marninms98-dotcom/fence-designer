@@ -1493,9 +1493,11 @@
       if (!ctx || ctx !== _autoSaveContext) return;
       ctx.running = false;
       if (ctx.blockedFingerprint && ctx.blockedFingerprint === ctx.fingerprint) {
-        // A stopped transport payload is polled locally for edits only. No
-        // request is made until the fingerprint changes and starts a new budget.
-        if (ctx.blockedReason === 'transport_exhausted') _scheduleAutoSave(ctx.intervalMs);
+        // A stopped payload is polled locally for edits only. No request is made
+        // while the fingerprint stays blocked, so the loop must not die: killing
+        // the timer would strand the transport budget reset and leave the session
+        // with no autosave at all until a full re-arm.
+        _scheduleAutoSave(ctx.intervalMs);
         return;
       }
       var retryDelays = [30000, 120000, 300000, 300000, 300000];
