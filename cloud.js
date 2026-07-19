@@ -1469,6 +1469,9 @@
         if (cursor && cursor.scopeCursorReconcileV1 === true) meta.scopeCursorReconcileV1 = true;
       }
       var savedJob = await ghl.saveScope(ctx.jobId, state, meta);
+      // Scoped to this job and payload, so it is safe (and required) even after
+      // a swap: the server accepted it, and a replay would 409 on a spent cursor.
+      if (savedJob && !savedJob.queued) _discardQueuedScopePayload(ctx.jobId, state);
       // A job swap mid-flight retires this context. Its cursor and status belong
       // to the job we left, so nothing below may touch the new job's state.
       if (ctx !== _autoSaveContext) return;
@@ -1477,7 +1480,6 @@
       if (savedJob && savedJob.queued) {
         emit('autosave:queued', { jobId: ctx.jobId, fingerprint: fingerprint, queuedReason: savedJob.queuedReason || 'offline' });
       } else {
-        _discardQueuedScopePayload(ctx.jobId, state);
         if (window._swIntegration && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(savedJob);
         emit('autosave:success', { jobId: ctx.jobId, fingerprint: fingerprint });
       }

@@ -104,7 +104,7 @@
     if (hash) {
       // A hash and its proven owner are written as one unit. Without an owner
       // the hash is unprovenanced, so it must not be retained at all.
-      var owner = job.id || job.job_id || _jobId || null;
+      var owner = job.id || job.job_id || (_isRealJobId(_jobId) ? _jobId : null) || null;
       _baseScopeHash = owner ? hash : null;
       _scopeCursorJobId = owner;
     }
