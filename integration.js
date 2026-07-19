@@ -220,7 +220,10 @@
     }
   }
 
-  var _NO_RETRY_RECOVERY_STATES = ['divergence', 'identity_recovery_required'];
+  // Only states whose cause may clear on its own (transport/network) get a Retry
+  // button. Re-arming autosave on a latched conflict would just re-send the exact
+  // payload the server already rejected and loop the divergence modal.
+  var _RETRYABLE_RECOVERY_STATES = ['transport_exhausted', 'retry_exhausted', 'server_check_failed', 'recovery_failed'];
 
   function _showScopeRecoveryState(kind, message) {
     if (cloud && cloud.ui) cloud.ui.showSaveStatus('error', message);
@@ -240,7 +243,7 @@
     banner.dataset.state = kind;
     document.getElementById('sw-scope-recovery-text').textContent = message;
     document.getElementById('sw-scope-recovery-retry').style.display =
-      _NO_RETRY_RECOVERY_STATES.indexOf(kind) === -1 ? '' : 'none';
+      _RETRYABLE_RECOVERY_STATES.indexOf(kind) === -1 ? 'none' : '';
   }
 
   function _clearScopeRecoveryState() {
@@ -297,14 +300,14 @@
     var error = event.error || event;
     var reason = _scopeSaveReason(error);
     var attemptedScope = event.attemptedScope || null;
-    // The scope-cursor plumbing (and its checkpoint) is fencing-only, so a typed
-    // conflict on another tool has no working recovery branch here. Hand it back
-    // to the pre-existing error path instead of opening an unresolvable modal.
-    if (_toolType !== 'fencing') return false;
     if (['scope_hash_conflict', 'scope_ref_mismatch', 'missing_scope_cursor'].indexOf(reason) === -1) {
       if (event.retryStopped) _showScopeRecoveryState('retry_exhausted', 'Cloud sync stopped after five attempts. Your iPad draft is retained. Edit or retry when connected.');
       return false;
     }
+    // The scope-cursor plumbing (and its checkpoint) is fencing-only, so a typed
+    // conflict on another tool has no working recovery branch here. Hand it back
+    // to the pre-existing error path instead of opening an unresolvable modal.
+    if (_toolType !== 'fencing') return false;
 
     if (reason === 'scope_ref_mismatch') {
       _showScopeRecoveryState('identity_recovery_required', 'Wrong job identity blocked this save. Your iPad draft is retained. Open the correct job or use identity recovery when available.');
@@ -2268,8 +2271,8 @@
         if (window.updateSyncStatus) window.updateSyncStatus('failed', new Date().toISOString());
         var message = (e && e.message) || String(e);
         if (_isScopeHashConflict(e)) {
-          await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
-          return;
+          var recovered = await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
+          if (recovered) return;
         } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
         }
