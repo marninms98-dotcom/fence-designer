@@ -1469,6 +1469,9 @@
         if (cursor && cursor.scopeCursorReconcileV1 === true) meta.scopeCursorReconcileV1 = true;
       }
       var savedJob = await ghl.saveScope(ctx.jobId, state, meta);
+      // A job swap mid-flight retires this context. Its cursor and status belong
+      // to the job we left, so nothing below may touch the new job's state.
+      if (ctx !== _autoSaveContext) return;
       ctx.transportAttempts = 0;
       ctx.blockedReason = null;
       if (savedJob && savedJob.queued) {
@@ -1480,6 +1483,7 @@
       }
     } catch(e) {
       console.warn('[Cloud] Auto-save failed:', e);
+      if (ctx !== _autoSaveContext) return;
       var conflict = _isTypedScopeConflict(e);
       var transport = !conflict && _isTransportSaveFailure(e);
       if (conflict || !transport) {

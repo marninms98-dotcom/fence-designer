@@ -102,8 +102,11 @@
     var hash = job.current_scope_hash || job.currentScopeHash || null;
     var updatedAt = job.current_scope_updated_at || job.updated_at || null;
     if (hash) {
-      _baseScopeHash = hash;
-      _scopeCursorJobId = job.id || job.job_id || _scopeCursorJobId;
+      // A hash and its proven owner are written as one unit. Without an owner
+      // the hash is unprovenanced, so it must not be retained at all.
+      var owner = job.id || job.job_id || _jobId || null;
+      _baseScopeHash = owner ? hash : null;
+      _scopeCursorJobId = owner;
     }
     if (updatedAt) _baseScopeUpdatedAt = updatedAt;
     if (_toolType === 'fencing' && window.app && window.app.job && (_baseScopeHash || _baseScopeUpdatedAt)) {
@@ -1045,6 +1048,7 @@
     // on a SUCCESSFUL save, a strict backend would reject the new job forever.
     _baseScopeHash = null;
     _baseScopeUpdatedAt = null;
+    _scopeCursorJobId = null;
 
     // Same checkpoint+reset sequence as opening a target separately — never
     // loadJob/findJobByOpportunity here; the old job must stay untouched.
@@ -2850,7 +2854,7 @@
       _ghlContactId = contactId || null;
       if (status) _jobStatus = status;
       if (jobId) {
-        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; }
+        if (String(jobId).indexOf('local-') === 0) { _baseScopeHash = null; _baseScopeUpdatedAt = null; _scopeCursorJobId = null; }
         _jobId = jobId;
         _jobLoaded = true;
         // Only update URL and start auto-save for real cloud jobs (not local-only)
@@ -2872,6 +2876,7 @@
         _jobId = null;
         _baseScopeHash = null;
         _baseScopeUpdatedAt = null;
+        _scopeCursorJobId = null;
         _jobLoaded = false;
         if (cloud) cloud.stopAutoSave();
         console.log('[Integration] _connectJob: fully cleared');

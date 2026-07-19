@@ -242,6 +242,34 @@ async function testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry() {
   assert.strictEqual(remembered.length, 0);
 }
 
+async function testJobSwapMidFlightDiscardsRetiredSaveResult() {
+  const scheduled = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const { cloud, window } = makeVm({
+    setTimeout(fn, delay) { scheduled.push({ fn, delay }); return scheduled.length; },
+    clearTimeout() {},
+    fetch: async () => {
+      await gate;
+      return response(200, { job: { id: 'job-1', current_scope_hash: 'hash-old' } });
+    },
+  });
+  const successes = [];
+  const remembered = [];
+  cloud.on('autosave:success', (event) => successes.push(event));
+  window._swIntegration = {
+    getScopeSaveCursor: () => ({}),
+    _rememberScopeCursor: (job) => remembered.push(job),
+  };
+  cloud.startAutoSave('job-1', () => ({ job: { client: 'Client A', phone: '0400000000' } }), 30000);
+  const inFlight = scheduled.shift().fn();
+  cloud.stopAutoSave();
+  release();
+  await inFlight;
+  assert.strictEqual(remembered.length, 0, 'a retired save never writes the old job cursor over the new job');
+  assert.strictEqual(successes.length, 0, 'a retired save never paints Saved on the job that replaced it');
+}
+
 async function testTransportBackoffStopsAtFiveAttempts() {
   const scheduled = [];
   const { cloud, localStorage } = makeVm({
@@ -426,6 +454,7 @@ async function run() {
     ['typed save errors preserve recovery truth', testTypedScopeSaveErrorsPreserveRecoveryTruth],
     ['autosave conflict carries payload and stops unchanged retry', testAutosaveConflictCarriesPayloadAndStopsUnchangedRetry],
     ['transport retries back off and stop at five attempts', testTransportBackoffStopsAtFiveAttempts],
+    ['a job swap mid-flight discards the retired save result', testJobSwapMidFlightDiscardsRetiredSaveResult],
     ['unowned capable cursor is quarantined before flush', testUnownedCapableCursorIsQuarantinedBeforeFlush],
     ['owned cursor clears an earlier quarantine on coalesce', testOwnedCursorClearsQuarantineOnCoalesce],
     ['concurrent flush is single-flight', testConcurrentFlushIsSingleFlight],
