@@ -642,18 +642,21 @@ record(
 
 record(
   'contact-only selection never falls through to the load path (review #7)',
-  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,240}startNewJobForContact\)\s*\{[\s\S]{0,200}return;/.test(index),
-  'selectGHLContact early-returns on contact-only rows even when the helper is missing'
+  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,300}Stopped safely[\s\S]{0,120}return;/.test(index) &&
+    !/startNewJobForContact/.test(index),
+  'selectGHLContact stops contact-only rows safely instead of opening a browser create'
 );
 
 // Review round 5: the autocomplete exposes the same job-minting action as the
 // lead modal, so it must carry the same warning affordances.
 record(
-  'the autocomplete labels contact-only rows like the lead modal (review #20)',
+  'the autocomplete retires contact-only rows like the lead modal (review #20)',
   /const isContactOnly = opp\.isContactOnly \|\| opp\.id == null;/.test(index) &&
-    /isContactOnly[\s\S]{0,200}>Contact</.test(index) &&
-    /isContactOnly \? '<div[^']*>Creates a new job for this client/.test(index),
-  'a contact-only dropdown row shows the grey Contact badge + "Creates a new job" caption'
+    /isContactOnly[\s\S]{0,200}>Not available here</.test(index) &&
+    /const inert = isContactOnly \|\| opp\.lookupFailed;/.test(index) &&
+    /inert \? '' : ' onmousedown="app\.selectGHLContact\(' \+ i \+ '\)"'/.test(index) &&
+    !/Creates a new job for this client/.test(index),
+  'a contact-only dropdown row is inert and captioned "Not available here" with no tap handler'
 );
 
 // A video-retry timer left armed across a reset re-reads _jobId when it fires,
@@ -765,11 +768,10 @@ record(
 // _rethrow is shared by the modal and the autocomplete, so its message cannot
 // promise a list refresh that only one of them performs.
 record(
-  'the timeout error is surface-neutral and both callers recover (review #23)',
+  'the timeout error is surface-neutral for the surviving caller (review #23)',
   !/Timed out — refreshing the list/.test(integration) &&
-    /Timed out before we could confirm whether the job was created/.test(integration) &&
-    /if \(e && e\.code === 'timeout'\)[\s\S]{0,400}_searchGHLContacts\(q\)/.test(index),
-  'the autocomplete re-runs its own search on timeout rather than showing the modal-only text'
+    /Timed out before we could confirm whether the job was created/.test(integration),
+  'the parked create helper keeps caller-neutral timeout copy; the autocomplete no longer creates at all'
 );
 
 // Dead code that duplicates the live reset silently drifts from it.
