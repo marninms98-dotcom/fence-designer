@@ -1871,6 +1871,11 @@
       var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
+      // Browser-side fence job creation is stopped by the guarded entry funnel
+      // until the server mint command lands, so for fencing every new_job
+      // selection rejects with `server_mint_required`. Don't promise a create
+      // this door cannot perform — stay in step with the inline autocomplete.
+      var mintStopped = (mode === 'new_job') && (toolType === 'fencing');
 
       // Remove any existing modal
       var existing = document.getElementById('sw-lead-search-dropdown');
@@ -1997,7 +2002,9 @@
         if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + _esc(phone) + '</div>';
         // In new_job mode every selectable card explains what tapping does.
         if (mode === 'new_job' && !lookupFailed) {
-          html += '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
+          html += mintStopped
+            ? '<div class="sw-lead-subtitle" style="font-size:11px;color:#8E8E93;margin-top:2px;">A new job cannot be started here yet.</div>'
+            : '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
         }
         html += '</div>';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
