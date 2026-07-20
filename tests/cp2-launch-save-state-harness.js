@@ -219,9 +219,9 @@ const inlineWireBlock = index.slice(inlineWireStart, inlineWireEnd > inlineWireS
 record(
   'inline GHL keep-link anchors app before connecting integration',
   inlineWireStart >= 0 && inlineWireEnd > inlineWireStart &&
-    inlineWireBlock.indexOf('this._linkCloudAnchor(') >= 0 &&
-    inlineWireBlock.indexOf('this._linkCloudAnchor(') < inlineWireBlock.indexOf('window._swIntegration._connectJob('),
-  'inline contact linking writes field-sync metadata before _connectJob can arm autosave'
+    inlineWireBlock.indexOf('window._swIntegration.linkFencingAnchor(') >= 0 &&
+    inlineWireBlock.indexOf('window._swIntegration.linkFencingAnchor(') < inlineWireBlock.indexOf('window._swIntegration._connectJob('),
+  'inline contact linking writes scrubbed field-sync metadata before _connectJob can arm autosave'
 );
 
 record(

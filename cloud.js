@@ -2132,6 +2132,15 @@
                   _locked = false;
                   _lockedStatusEl = null;
                   clearTimeout(_flashTimer);
+                  // A safe stop is deterministic: re-tapping this row produces
+                  // the identical stop. Retire the row instead of re-arming it.
+                  var _safeStop = !!(err && ['server_mint_required', 'ambiguous_identity',
+                    'ambiguous_local_checkpoints', 'identity_lookup_failed'].indexOf(err.code) !== -1);
+                  if (_safeStop) {
+                    el.setAttribute('data-locked', '1');
+                    el.style.pointerEvents = 'none';
+                    el.style.opacity = '0.5';
+                  }
                   list.querySelectorAll('.sw-lead-item').forEach(function(c) {
                     // lookupFailed rows stay dimmed + inert — they were never
                     // selectable, so the reset must not make them look tappable.
@@ -2139,7 +2148,16 @@
                     c.style.pointerEvents = '';
                     c.style.opacity = '';
                   });
-                  if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
+                  if (statusEl) {
+                    if (_safeStop) {
+                      statusEl.style.display = '';
+                      statusEl.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;';
+                      statusEl.textContent = 'Not available here';
+                    } else {
+                      statusEl.style.display = 'none';
+                      statusEl.textContent = '';
+                    }
+                  }
                   var msg = (err && err.message) ? err.message : 'Could not create the job';
                   if (err && err.code === 'cancelled') return; // user backed out of the confirm
                   // A timed-out create may have committed server-side without us
@@ -2158,8 +2176,8 @@
                     banner.style.cssText = 'text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;';
                     list.insertBefore(banner, list.firstChild);
                   }
-                  if (err && ['server_mint_required', 'ambiguous_identity', 'ambiguous_local_checkpoints', 'identity_lookup_failed'].indexOf(err.code) !== -1) {
-                    banner.textContent = 'Stopped safely: ' + msg;
+                  if (_safeStop) {
+                    banner.textContent = 'Stopped safely: ' + msg + ' This client cannot be started here yet — retrying will stop the same way.';
                   } else {
                     banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
                   }

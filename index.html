@@ -2051,7 +2051,7 @@
           syncState: 'local_dirty',
           requiresLinkBeforeRelease: true,
           pendingOps: [],
-          identityVersion: 1,
+          identityVersion: (Number(previous.identityVersion) || 0) + 1,
           updatedAt: now,
           lastLocalEditAt: previous.lastLocalEditAt || now
         };
@@ -2119,27 +2119,34 @@
         }
         const currentId = this.job && this.job._fieldSync && this.job._fieldSync.localDraftId;
         const nextId = item.job && item.job._fieldSync && item.job._fieldSync.localDraftId;
-        if (window._swIntegration && window._swIntegration.enterJob) {
-          await window._swIntegration.enterJob('resume_local', {
-            localDraftId: item.id,
-            source: 'resume_local_checkpoint'
-          });
-          if (currentId && currentId !== nextId && window._swIntegration.resolveFencingTargetSwitch) {
-            const choice = await window._swIntegration.resolveFencingTargetSwitch('resume_local_checkpoint', {
+        try {
+          if (window._swIntegration && window._swIntegration.enterJob) {
+            await window._swIntegration.enterJob('resume_local', {
               localDraftId: item.id,
-              label: 'the selected local checkpoint'
+              source: 'resume_local_checkpoint'
             });
-            // For a local checkpoint, “keep this draft” means stay on the
-            // current draft. Only the explicit switch choice hydrates another.
-            if (choice === 'cancel' || choice === 'keep_link') return;
+            if (currentId && currentId !== nextId && window._swIntegration.resolveFencingTargetSwitch) {
+              const choice = await window._swIntegration.resolveFencingTargetSwitch('resume_local_checkpoint', {
+                localDraftId: item.id,
+                label: 'the selected local checkpoint'
+              });
+              // For a local checkpoint, “keep this draft” means stay on the
+              // current draft. Only the explicit switch choice hydrates another.
+              if (choice === 'cancel' || choice === 'keep_link') return;
+            }
           }
-        }
-        if (this.job && this._hasMeaningfulLocalDraft() && currentId !== nextId) {
-          if (window._swIntegration && window._swIntegration.openFencingTargetSeparately) {
-            window._swIntegration.openFencingTargetSeparately('resume_local_checkpoint');
-          } else {
-            this._checkpointLocalDraftBeforeLoad('resume_local_checkpoint');
+          if (this.job && this._hasMeaningfulLocalDraft() && currentId !== nextId) {
+            // Throws when the current draft cannot be verifiably checkpointed.
+            // That is a safe stop: nothing below has run, so the open scope stays.
+            if (window._swIntegration && window._swIntegration.openFencingTargetSeparately) {
+              window._swIntegration.openFencingTargetSeparately('resume_local_checkpoint');
+            } else {
+              this._checkpointLocalDraftBeforeLoad('resume_local_checkpoint');
+            }
           }
+        } catch(e) {
+          this.showToast(e.message, 'error');
+          return;
         }
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
@@ -2278,9 +2285,13 @@
       startLocalDraft() {
         // This guarded permit is deliberately zero-network: option 3 remains
         // usable offline and only coordinates local identity/checkpoint state.
-        if (window._swIntegration && window._swIntegration.enterJob) {
-          window._swIntegration.enterJob('new_local', { localDraftId: this._newLocalDraftId(), source: 'launcher_option_3' });
-        }
+        // No localDraftId is recorded here — the draft does not exist yet, and
+        // the real id is stamped onto the audit below once _ensureFieldSync
+        // mints it. Never audit an id that was never created.
+        const _permit = window._swIntegration && window._swIntegration.enterJob
+          ? window._swIntegration.enterJob('new_local', { source: 'launcher_option_3' })
+          : null;
+        if (_permit && _permit.catch) _permit.catch(e => console.warn('[FenceEntry] new_local permit failed:', e));
         if (this.job && this._hasMeaningfulLocalDraft()) {
           const ok = confirm('Start a new local draft? Your current work will be checkpointed on this iPad first.');
           if (!ok) return false;
@@ -2298,6 +2309,12 @@
           window._swIntegration.resetToolMediaState();
         }
         this._ensureFieldSync('new_local');
+        if (window._swIntegration && window._swIntegration.noteEntryTarget) {
+          window._swIntegration.noteEntryTarget('new_local', {
+            localDraftId: this.job && this.job._fieldSync && this.job._fieldSync.localDraftId,
+            source: 'launcher_option_3'
+          });
+        }
         this.save();
         window.history.replaceState({}, '', window.location.pathname);
         this._updateHeaderStatus();
@@ -5141,7 +5158,12 @@
               if (q) await this._searchGHLContacts(q);
               return;
             }
-            this.showToast('Failed to start new job: ' + e.message, 'error');
+            // A guarded stop changed nothing; say so rather than reporting a failure.
+            if (e && ['server_mint_required', 'ambiguous_identity', 'ambiguous_local_checkpoints', 'identity_lookup_failed', 'checkpoint_failed'].indexOf(e.code) !== -1) {
+              this.showToast('Stopped safely: ' + e.message, 'error');
+            } else {
+              this.showToast('Failed to start new job: ' + e.message, 'error');
+            }
           } finally {
             this._hideCreatingJobOverlay();
           }
@@ -5162,6 +5184,35 @@
 
           this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
 
+          // Everything that can fail or change the answer is resolved BEFORE the
+          // form/media reset below. A re-verify that comes back missing or
+          // errored must stop with the scope still on screen, not after it has
+          // already been wiped.
+          var contact = null;
+          var existingJob = null;
+          try {
+            if (opp.contactId) {
+              try {
+                contact = await cloud.ghl.getContact(opp.contactId);
+              } catch(e) {
+                contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+              }
+            } else {
+              contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+            }
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
+            } catch(e) {
+              throw new Error('Could not re-verify this opportunity mapping. Nothing was linked or created, and your current scope is untouched.');
+            }
+            if (!existingJob || !existingJob.id) {
+              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+            }
+          } catch(e) {
+            this.showToast(e.message, 'error');
+            return;
+          }
+
           // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
           let switchChoice = 'open_separately';
           if (window._swIntegration.resolveFencingTargetSwitch) {
@@ -5178,44 +5229,28 @@
             window._swIntegration.clearPendingNewOpp(opp.contactId);
           }
           const localDraftWins = switchChoice === 'keep_link';
-          if (localDraftWins) {
-            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
-            this.showToast('GHL lead linked — keeping local iPad edits', 'success');
-          } else {
-            // Reset through the shared integration helper, never a local copy:
-            // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
-            // so the previous client's media cannot upload into this target.
-            window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
-            if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-            window._swIntegration._connectJob(null, null, null);
+          try {
+            if (localDraftWins) {
+              this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
+              this.showToast('GHL lead linked — keeping local iPad edits', 'success');
+            } else {
+              // Reset through the shared integration helper, never a local copy:
+              // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
+              // so the previous client's media cannot upload into this target.
+              // It THROWS when the local checkpoint cannot be verified, which is a
+              // safe stop: nothing has been reset yet at that point.
+              window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
+              if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+              window._swIntegration._connectJob(null, null, null);
+            }
+          } catch(e) {
+            this.showToast(e.message, 'error');
+            return;
           }
 
           try {
-            // Fetch full contact from GHL
-            var contact = null;
-            if (opp.contactId) {
-              try {
-                contact = await cloud.ghl.getContact(opp.contactId);
-              } catch(e) {
-                contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
-              }
-            } else {
-              contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
-            }
-
             // Prefill contact into blank fields only; local iPad edits win.
             if (contact) this._fillEmptyFromContact(contact);
-
-            // Check for existing cloud job linked to this opportunity
-            var existingJob = null;
-            try {
-              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
-            } catch(e) {
-              throw new Error('Could not re-verify this opportunity mapping. Nothing was linked or created.');
-            }
-            if (!existingJob || !existingJob.id) {
-              throw new Error('The resolved fence job changed during entry. Search again; nothing was created.');
-            }
 
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0 && !localDraftWins) {
               // Load cloud scope data only when there is no dirty local iPad draft.
@@ -5229,12 +5264,23 @@
               console.log('[FenceSync] Existing cloud scope found; local draft wins and cloud data will not overwrite field edits.');
             }
 
+            // Remember the server cursor BEFORE linking, so the scrub boundary
+            // can re-attach the one cursor that provably belongs to this target.
+            if (window._swIntegration && existingJob && window._swIntegration._rememberScopeCursor) {
+              window._swIntegration._rememberScopeCursor(existingJob);
+            }
+
             // Write the app anchor before connecting integration; _connectJob can arm autosave immediately.
-            this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
+            // Always via linkFencingAnchor, never app._linkCloudAnchor directly:
+            // that is the only path that scrubs the previous job's cursor, ref,
+            // revision anchor and keep_link metadata before save can arm.
+            if (!window._swIntegration || !window._swIntegration.linkFencingAnchor) {
+              throw new Error('Cannot link this lead safely right now — reload the page and try again.');
+            }
+            window._swIntegration.linkFencingAnchor(existingJob ? existingJob.id : null, opp.id, opp.contactId || null, 'ghl_contact');
 
             // Wire up the integration layer so cloud save, auto-save, and sync dot all work.
             if (window._swIntegration) {
-              if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
               // The reset above wiped the media state, so reload this job's own
               // photos/video like every other load path — otherwise the grid sits

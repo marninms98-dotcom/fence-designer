@@ -38,10 +38,14 @@ function sourceContract() {
 
   assert(/server_mint_required/.test(integrationSource));
   assert(!/else \{\s*\/\/ Create a new Supabase job linked/.test(integrationSource));
-  assert(/identityVersion = 1/.test(integrationSource));
   assert(/\['baseScopeHash', 'currentScopeHash'/.test(integrationSource));
-  assert(/window\.app\.job\.ref = jobId && _lastJobNumber \? _lastJobNumber : ''/.test(integrationSource));
   assert(/draft_already_exists/.test(integrationSource));
+  // The inline autocomplete must link through the scrub boundary, never by
+  // calling app._linkCloudAnchor itself.
+  const inlineSelect = indexSource.slice(indexSource.indexOf('async selectGHLContact(idx)'));
+  const inlineBody = inlineSelect.slice(0, inlineSelect.indexOf('\n      hideClientNameDropdown() {'));
+  assert(/_swIntegration\.linkFencingAnchor\(/.test(inlineBody), 'inline autocomplete links via the guarded anchor');
+  assert(!/this\._linkCloudAnchor\(/.test(inlineBody), 'inline autocomplete never bypasses the scrub boundary');
   assert(/_jobStatus = 'frozen'/.test(integrationSource));
   assert(/_shouldAutoSave\(\)[\s\S]{0,120}_isReadonly/.test(integrationSource) || /if \(_isReadonly\) return false/.test(integrationSource));
 
@@ -53,16 +57,25 @@ function sourceContract() {
     currentScopeHash: 'cursor-a', scopeCursorJobId: 'job-a',
     syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingOps: [{ jobId: 'job-a' }]
   } } } };
-  const runScrub = new Function('window', `
-    var _toolType = 'fencing', _lastJobNumber = 'SWF-200';
+  const runScrub = new Function('window', 'jobNumber', 'nextJobId', `
+    var _toolType = 'fencing', _lastJobNumber = jobNumber;
     var _baseScopeHash = 'cursor-a', _baseScopeUpdatedAt = 'old', _scopeCursorJobId = 'job-a';
     function _isRealFenceRef(ref) { return /^SWF?-?\\d+/i.test(String(ref || '').trim()); }
     function _entryError(code, message) { var e = new Error(message); e.code = code; return e; }
     ${scrubSource}
-    _scrubCrossJobIdentity('job-b', 'opp-b', 'contact-b', 'fixture');
-    return { hash: _baseScopeHash, owner: _scopeCursorJobId, job: window.app.job };
+    var thrown = null;
+    try { _scrubCrossJobIdentity(nextJobId, 'opp-b', 'contact-b', 'fixture'); }
+    catch (e) { thrown = e; }
+    return { hash: _baseScopeHash, owner: _scopeCursorJobId, job: window.app.job, thrown: thrown };
   `);
-  const scrubbed = runScrub(window);
+  const freshWindow = () => ({ app: { job: { ref: 'SWF-100', _fieldSync: {
+    syncAnchorType: 'job', syncAnchorId: 'job-a', identityVersion: 3, baseScopeHash: 'cursor-a',
+    currentScopeHash: 'cursor-a', scopeCursorJobId: 'job-a',
+    syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingOps: [{ jobId: 'job-a' }]
+  } } } });
+
+  const scrubbed = runScrub(window, 'SWF-200', 'job-b');
+  assert.strictEqual(scrubbed.thrown, null);
   assert.strictEqual(scrubbed.hash, null);
   assert.strictEqual(scrubbed.owner, null);
   assert.strictEqual(scrubbed.job.ref, 'SWF-200');
@@ -71,6 +84,30 @@ function sourceContract() {
   for (const stale of ['baseScopeHash', 'currentScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id']) {
     assert(!(stale in scrubbed.job._fieldSync), `${stale} removed at identity boundary`);
   }
+
+  // identityVersion must distinguish successive rebinds, not sit at a constant.
+  const versioned = runScrub(freshWindow(), 'SWF-200', 'job-b');
+  assert.strictEqual(versioned.job._fieldSync.identityVersion, 4, 'identityVersion increments per rebind');
+
+  // An unknown target job number must not silently blank a real on-screen ref.
+  const refKept = runScrub(freshWindow(), null, 'job-b');
+  assert.strictEqual(refKept.thrown, null, 'unknown job number is not a rebind failure');
+  assert.strictEqual(refKept.job.ref, 'SWF-100', 'a real ref survives an unfetched job number');
+
+  // A rejected rebind must leave _fieldSync exactly as it was found.
+  const rejected = freshWindow();
+  const before = JSON.parse(JSON.stringify(rejected.app.job));
+  Object.defineProperty(rejected.app.job._fieldSync, 'syncAnchorId', {
+    get() { return 'job-a'; }, set() {}, configurable: true, enumerable: true
+  });
+  const failed = runScrub(rejected, 'SWF-200', 'job-b');
+  assert(failed.thrown && failed.thrown.code === 'identity_rebind_failed', 'unverifiable rebind stops');
+  assert.strictEqual(failed.job.ref, before.ref, 'ref restored after a rejected rebind');
+  for (const stale of ['baseScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id']) {
+    assert.strictEqual(failed.job._fieldSync[stale], before._fieldSync[stale], `${stale} restored after a rejected rebind`);
+  }
+  assert.strictEqual(failed.hash, 'cursor-a', 'module cursor restored after a rejected rebind');
+  assert.strictEqual(failed.owner, 'job-a', 'module cursor owner restored after a rejected rebind');
 }
 
 function makeRuntime() {
