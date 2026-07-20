@@ -36,7 +36,8 @@ function sourceContract() {
     assert(pattern.test(source), `${label} must invoke the guarded owner`);
   }
 
-  assert(/server_mint_required/.test(integrationSource));
+  assert(/mintFenceJob/.test(integrationSource), 'guarded owner delegates unresolved identity to server mint');
+  assert(/action=mint_fence_job/.test(fs.readFileSync('cloud.js', 'utf8')), 'cloud transport uses the server-owned mint action');
   assert(!/else \{\s*\/\/ Create a new Supabase job linked/.test(integrationSource));
   assert(/\['baseScopeHash', 'currentScopeHash'/.test(integrationSource));
   assert(/draft_already_exists/.test(integrationSource));
@@ -55,7 +56,8 @@ function sourceContract() {
   const window = { app: { job: { ref: 'SWF-100', _fieldSync: {
     syncAnchorType: 'job', syncAnchorId: 'job-a', baseScopeHash: 'cursor-a',
     currentScopeHash: 'cursor-a', scopeCursorJobId: 'job-a',
-    syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingOps: [{ jobId: 'job-a' }]
+    syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingMintRequestId: 'mint-a',
+    pendingMintFingerprint: 'fingerprint-a', completedMintCanonical: { jobId: 'job-a' }, pendingOps: [{ jobId: 'job-a' }]
   } } } };
   const runScrub = new Function('window', 'jobNumber', 'nextJobId', `
     var _toolType = 'fencing', _lastJobNumber = jobNumber;
@@ -71,7 +73,8 @@ function sourceContract() {
   const freshWindow = () => ({ app: { job: { ref: 'SWF-100', _fieldSync: {
     syncAnchorType: 'job', syncAnchorId: 'job-a', identityVersion: 3, baseScopeHash: 'cursor-a',
     currentScopeHash: 'cursor-a', scopeCursorJobId: 'job-a',
-    syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingOps: [{ jobId: 'job-a' }]
+    syncAnchorRevisionId: 'rev-a', keep_link_job_id: 'job-a', pendingMintRequestId: 'mint-a',
+    pendingMintFingerprint: 'fingerprint-a', completedMintCanonical: { jobId: 'job-a' }, pendingOps: [{ jobId: 'job-a' }]
   } } } });
 
   const scrubbed = runScrub(window, 'SWF-200', 'job-b');
@@ -81,7 +84,7 @@ function sourceContract() {
   assert.strictEqual(scrubbed.job.ref, 'SWF-200');
   assert.strictEqual(scrubbed.job._fieldSync.syncAnchorId, 'job-b');
   assert.deepStrictEqual(scrubbed.job._fieldSync.pendingOps, []);
-  for (const stale of ['baseScopeHash', 'currentScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id']) {
+  for (const stale of ['baseScopeHash', 'currentScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id', 'pendingMintRequestId', 'pendingMintFingerprint', 'completedMintCanonical']) {
     assert(!(stale in scrubbed.job._fieldSync), `${stale} removed at identity boundary`);
   }
 
@@ -103,8 +106,8 @@ function sourceContract() {
   const failed = runScrub(rejected, 'SWF-200', 'job-b');
   assert(failed.thrown && failed.thrown.code === 'identity_rebind_failed', 'unverifiable rebind stops');
   assert.strictEqual(failed.job.ref, before.ref, 'ref restored after a rejected rebind');
-  for (const stale of ['baseScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id']) {
-    assert.strictEqual(failed.job._fieldSync[stale], before._fieldSync[stale], `${stale} restored after a rejected rebind`);
+  for (const stale of ['baseScopeHash', 'scopeCursorJobId', 'syncAnchorRevisionId', 'keep_link_job_id', 'pendingMintRequestId', 'pendingMintFingerprint', 'completedMintCanonical']) {
+    assert.deepStrictEqual(failed.job._fieldSync[stale], before._fieldSync[stale], `${stale} restored after a rejected rebind`);
   }
   assert.strictEqual(failed.hash, 'cursor-a', 'module cursor restored after a rejected rebind');
   assert.strictEqual(failed.owner, 'job-a', 'module cursor owner restored after a rejected rebind');
@@ -113,6 +116,7 @@ function sourceContract() {
 function makeRuntime() {
   let readyCallback = null;
   let networkLookups = 0;
+  const mintCalls = [];
   const cloud = {
     auth: { isLoggedIn: () => false },
     on: () => {},
@@ -122,6 +126,21 @@ function makeRuntime() {
         if (id === 'opp-existing') return { id: 'job-existing' };
         if (id === 'opp-duplicate') return [{ id: 'job-a' }, { id: 'job-b' }];
         return null;
+      },
+      mintFenceJob: async (input) => {
+        mintCalls.push(JSON.parse(JSON.stringify(input)));
+        if (input.contactId === 'contact-flaky' && mintCalls.filter((call) => call.contactId === 'contact-flaky').length === 1) {
+          const error = new Error('lost response'); error.code = 'mint_transport_error'; throw error;
+        }
+        const repeat = input.intent === 'DELIBERATE_REPEAT';
+        return {
+          success: true, requestId: input.requestId,
+          jobId: repeat ? 'job-repeat' : 'job-minted', jobNumber: repeat ? 'SWF-202' : 'SWF-201',
+          contactId: input.contactId || 'contact-created',
+          opportunityId: repeat ? 'opp-repeat' : (input.opportunityId || 'opp-created'),
+          mapping: { outcome: 'created', canonicalOutcome: 'created' },
+          revision: { scopeVersion: 1, scopeHash: null, updatedAt: '2026-07-21T00:00:00Z', requiresLoad: false }
+        };
       }
     }
   };
@@ -135,13 +154,17 @@ function makeRuntime() {
     querySelector() { return null; }, querySelectorAll() { return []; },
     createElement() { return { style: {}, dataset: {}, appendChild() {}, remove() {}, classList: { add() {}, remove() {} } }; }
   };
+  let savedFenceJob = null;
   const app = {
     job: { _fieldSync: { localDraftId: 'local-current' } },
     _hasMeaningfulLocalDraft: () => false,
-    _listLocalDraftCheckpoints: () => []
+    _listLocalDraftCheckpoints: () => [],
+    save() { savedFenceJob = JSON.parse(JSON.stringify(this.job)); }
   };
+  let uuidSeq = 0;
   const window = {
     document, app, SECUREWORKS_CLOUD: cloud,
+    crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, '0')}` },
     location: { search: '', pathname: '/index.html', href: 'http://fixture/index.html' },
     history: { replaceState() {} },
     addEventListener() {},
@@ -149,18 +172,22 @@ function makeRuntime() {
   };
   const context = vm.createContext({
     window, document, console, URL, URLSearchParams, AbortController,
-    localStorage: { length: 0, getItem: () => null, setItem() {}, removeItem() {}, key: () => null },
-    setTimeout: (fn) => { fn(); return 1; }, clearTimeout() {}, setInterval() {}, clearInterval() {},
+    localStorage: {
+      length: 0,
+      getItem: (key) => key === 'fenceJob' && savedFenceJob ? JSON.stringify(savedFenceJob) : null,
+      setItem() {}, removeItem() {}, key: () => null
+    },
+    setTimeout: (fn, ms) => { if ((ms || 0) < 45000) fn(); return 1; }, clearTimeout() {}, setInterval() {}, clearInterval() {},
     Event: function Event() {}, fetch: async () => { throw new Error('unexpected fetch'); }
   });
   vm.runInContext(integrationSource, context, { filename: 'integration.js' });
   assert(readyCallback, 'integration init callback registered');
   readyCallback();
-  return { integration: window._swIntegration, app, getLookups: () => networkLookups };
+  return { integration: window._swIntegration, app, getLookups: () => networkLookups, getMints: () => mintCalls };
 }
 
 async function runtimeContract() {
-  const { integration, app, getLookups } = makeRuntime();
+  const { integration, app, getLookups, getMints } = makeRuntime();
 
   const before = getLookups();
   await integration.enterJob('new_local', { localDraftId: 'local-new', source: 'option3' });
@@ -179,14 +206,29 @@ async function runtimeContract() {
     integration.enterJob('ghl_context', { row: { id: 'opp-duplicate', contactId: 'contact-1' } }),
     (error) => error.code === 'ambiguous_identity'
   );
-  await assert.rejects(
-    integration.enterJob('ghl_context', { row: { id: null, contactId: 'contact-only' }, requestNew: true }),
-    (error) => error.code === 'server_mint_required' && /later server mint command/.test(error.message)
-  );
-  await assert.rejects(
-    integration.enterJob('ghl_context', { row: { id: 'opp-existing', contactId: 'contact-1' }, requestNew: true }),
-    (error) => error.code === 'server_mint_required'
-  );
+  const flakyTarget = { row: { id: null, contactId: 'contact-flaky', contactName: 'Flaky Contact' } };
+  await assert.rejects(integration.enterJob('ghl_context', flakyTarget), (error) => error.code === 'mint_transport_error');
+  const firstFlakyId = getMints()[0].requestId;
+  const flakyRetry = await integration.enterJob('ghl_context', flakyTarget);
+  assert.strictEqual(flakyRetry.target.jobId, 'job-minted');
+  assert.strictEqual(getMints()[1].requestId, firstFlakyId, 'lost response reuses the persisted request UUID');
+
+  const contactOnly = await integration.enterJob('ghl_context', {
+    row: { id: null, contactId: 'contact-only', contactName: 'Contact Only' }
+  });
+  assert.strictEqual(contactOnly.target.jobId, 'job-minted');
+  assert.strictEqual(getMints()[2].intent, 'RESOLVED_NO_JOB');
+  assert.match(getMints()[2].requestId, /^[0-9a-f-]{36}$/i, 'client persists a UUID before mint');
+
+  const repeat = await integration.enterJob('ghl_context', {
+    row: { id: 'opp-existing', contactId: 'contact-1', contactName: 'Repeat Client' },
+    requestNew: true,
+    repeatReason: 'Second property boundary'
+  });
+  assert.strictEqual(repeat.target.jobId, 'job-repeat');
+  assert.strictEqual(getMints()[3].intent, 'DELIBERATE_REPEAT');
+  assert.strictEqual(getMints()[3].opportunityId, null, 'repeat work never reuses the completed source opportunity');
+  assert.deepStrictEqual(getMints()[3].expectedExistingJobIds, ['job-existing']);
 
   app._listLocalDraftCheckpoints = () => [
     { id: 'one', job: { email: 'same@example.com' } },
@@ -207,7 +249,8 @@ async function runtimeContract() {
   sourceContract();
   await runtimeContract();
   console.log('PASS all supported fence entry doors invoke one guarded owner');
-  console.log('PASS option 3 is zero-network; ambiguous/raw GHL mappings stop without mint');
+  console.log('PASS option 3 is zero-network; ambiguous/raw mappings stop before mint');
+  console.log('PASS unresolved contexts use server mint and lost responses replay one request UUID');
   console.log('PASS direct/editable/frozen/amendment intents are runtime-audited');
   console.log('PASS stale ref/cursor scrub and immutable amendment contracts are wired');
 })().catch((error) => { console.error(error); process.exit(1); });
