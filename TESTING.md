@@ -35,7 +35,7 @@ The lab is ready only when all of these are true:
 - Backend secrets contain the test organisation plus the general `TESTTESTTEST` pipeline/stage IDs above. A test request must fail rather than fall back to production when any required ID is absent.
 - The seeded Supabase Auth user belongs to the dedicated test organisation.
 - The general GHL test pipeline has no workflows, automations, SMS, email, assignment, or calendar actions attached. Any location-wide workflow is audited to exclude `TEST-ZZZ-` contacts.
-- The Captain-approved team sink email and phone are configured.
+- The Captain-approved sinks are configured: `marninms98@gmail.com` and `0404777984` (`+61404777984` in E.164 form).
 - `node scripts/fence-test-lab.js --reset` and then `--check` both pass.
 
 Do not treat the committed scaffold as proof that external provisioning is complete.
@@ -85,8 +85,8 @@ Required values:
 - `GHL_TEST_NEW_LEAD_STAGE_ID`: general pipeline's New Lead stage ID
 - `FENCE_TEST_USER_EMAIL`: seeded TEST-ZZZ Auth user
 - `FENCE_TEST_USER_PASSWORD`: secret test-user password
-- `FENCE_TEST_SINK_EMAIL`: Captain-approved team-owned sink
-- `FENCE_TEST_SINK_PHONE`: Captain-approved team-owned sink in E.164 format
+- `FENCE_TEST_SINK_EMAIL=marninms98@gmail.com`: Captain-owned sink
+- `FENCE_TEST_SINK_PHONE=+61404777984`: Captain-owned `0404777984` sink in E.164 format
 - `FENCE_TEST_SINKS_APPROVED=YES-CAPTAIN-APPROVED`: explicit sink-ownership attestation
 
 Optional:
