@@ -51,6 +51,11 @@
   var metaKey = document.querySelector('meta[name="supabase-anon-key"]');
   var SUPABASE_URL = window.SUPABASE_URL || (metaUrl && metaUrl.content) || '';
   var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || (metaKey && metaKey.content) || '';
+  // The lab marker is deliberately exact: ordinary truthy query values must not
+  // redirect a field session. Playwright may instead set the boolean global in
+  // an init script, but it must do so before cloud.js loads.
+  var _testModeFlag = new URLSearchParams(window.location.search).get('testMode');
+  var TEST_MODE = window.SECUREWORKS_TEST_MODE === true || _testModeFlag === 'TEST-ZZZ';
   // Shared key fallback: field work must never hard-block when a per-user session is absent.
   var SW_API_KEY = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
 
@@ -74,6 +79,14 @@
 
   // ── Init Supabase Client ──
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  if (TEST_MODE && document.body) {
+    var testMarker = document.createElement('div');
+    testMarker.id = 'sw-test-mode-marker';
+    testMarker.textContent = 'TEST-ZZZ LAB · NO CLIENT COMMS';
+    testMarker.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:2147483647;padding:7px 10px;border:2px solid #7f1d1d;border-radius:5px;background:#fef2f2;color:#7f1d1d;font:700 11px/1.2 system-ui;letter-spacing:.06em;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+    document.body.appendChild(testMarker);
+  }
 
   // ── State ──
   var _user = null;
@@ -208,10 +221,26 @@
     return e;
   }
 
+  function _testModeUrl(url) {
+    var value = String(url || '');
+    if (!TEST_MODE || value.indexOf('/functions/v1/ghl-proxy') === -1 || /[?&]testMode=/.test(value)) return url;
+    return value + (value.indexOf('?') === -1 ? '?' : '&') + 'testMode=true';
+  }
+
+  function _testModeBlocksOutbound(url) {
+    if (!TEST_MODE) return false;
+    return /\/functions\/v1\/(send-quote|send-outlook-email|send-po-email)(?:[/?]|$)/.test(String(url || ''));
+  }
+
   async function authorizedFetch(url, options) {
     options = options || {};
+    if (_testModeBlocksOutbound(url)) {
+      var blocked = new Error('Outbound communications are disabled in TEST-ZZZ mode.');
+      blocked.code = 'test_mode_comms_blocked';
+      throw blocked;
+    }
     var headers = await authorizedHeaders(options.headers || {});
-    return fetch(url, Object.assign({}, options, { headers: headers }));
+    return fetch(_testModeUrl(url), Object.assign({}, options, { headers: headers }));
   }
 
   // ── Online/Offline Detection ──
@@ -2333,6 +2362,8 @@
 
     // State
     isOnline: function() { return _online; },
+    testMode: TEST_MODE,
+    testModeLabel: TEST_MODE ? 'TEST-ZZZ' : null,
     getOfflineState: function() { return { queue: _offlineQueue.slice(), jobIdMap: Object.assign({}, _offlineJobIdMap || {}) }; },
 
     // Direct Supabase access (escape hatch)

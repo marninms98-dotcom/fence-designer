@@ -16,3 +16,8 @@ drafts/
 
 # Local QA screenshot captures
 tests/.evidence/
+
+# Fence TEST-ZZZ lab credentials and generated fixture IDs
+.env.test-lab
+tests/test-lab/.env
+.fence-test-lab-state.json

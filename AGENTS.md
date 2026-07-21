@@ -65,6 +65,10 @@ Every scope write is compare-and-save: the client sends the server-issued cursor
 - **A mid-flight job swap retires the autosave context.** After `await saveScope`, `_runAutoSave` returns immediately if `ctx !== _autoSaveContext` (both success and catch paths) so a stale save cannot write the new job's cursor, status or blocked state. The queued-payload discard is the one thing that still runs, since it is scoped to `ctx.jobId` + payload — and it runs ONLY when the response was not itself queued, or a genuine queue entry would be dropped.
 - **Recovery must never write before the local draft is safe.** `_verifiedFenceCheckpoint` writes and reads back a `fenceJob_checkpoint_<localDraftId>` snapshot; it returns true (nothing to protect) when there is no meaningful local draft, false only on a real write failure — a false verdict aborts the branch with nothing written.
 
+## TEST-ZZZ write lab
+
+Write-path integration tests must use the dedicated test organisation and GHL pipeline. The configuration, reset/check command, Playwright contract, communications guards, and Captain-per-use production-canary rule are authoritative in `TESTING.md`. Never infer that external provisioning is live from the repo scaffold alone.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

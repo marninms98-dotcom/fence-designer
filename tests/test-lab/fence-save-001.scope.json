@@ -1,0 +1,60 @@
+{
+  "tool": "fencing",
+  "version": "1.0",
+  "job": {
+    "scopeType": "fence-and-gate",
+    "ref": "TEST-ZZZ-FENCE-SAVE-001",
+    "client": "TEST-ZZZ-FENCE-SAVE-001 LAB",
+    "clientFirstName": "TEST-ZZZ-FENCE-SAVE-001",
+    "clientLastName": "LAB",
+    "scoper": "TEST-ZZZ AGENT",
+    "address": "1 Test Lab Way",
+    "suburb": "Perth",
+    "siteNotes": "TEST-ZZZ deterministic save-path fixture. Never contact as a client.",
+    "phone": "__FENCE_TEST_SINK_PHONE__",
+    "email": "__FENCE_TEST_SINK_EMAIL__",
+    "neighboursRequired": false,
+    "neighbours": [],
+    "supplier": "",
+    "profile": "",
+    "colour": "",
+    "pricePerMetre": 125,
+    "runs": [],
+    "gatesRequired": false,
+    "gates": [],
+    "date": "2026-07-21",
+    "removal": {
+      "removalRequired": false,
+      "existingFenceLength": 0,
+      "existingFenceType": "",
+      "disposal": "company",
+      "vegetation": false,
+      "gateOnExisting": false,
+      "access": "easy",
+      "notes": "",
+      "removalExtras": []
+    },
+    "installation": {
+      "coreDrill": false,
+      "coreDrillHoles": 0,
+      "fenceLocation": [],
+      "supplierSource": ""
+    },
+    "quote": {
+      "urgency": "standard",
+      "deliveryFee": 200,
+      "groundFinish": "none",
+      "customLineItems": [{}, {}, {}],
+      "addons": {}
+    },
+    "checklist": {
+      "photosTaken": 0,
+      "photos": [],
+      "videoWalkthrough": false,
+      "finalNotes": ""
+    }
+  },
+  "scopeMedia": null,
+  "verification": null,
+  "savedAt": "2026-07-21T00:00:00.000Z"
+}
