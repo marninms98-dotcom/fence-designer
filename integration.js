@@ -62,6 +62,12 @@
   var _pendingNewOpps = {};
   var _scopeRecoveryPromise = null;
   var _scopeRecoveryKey = null;
+  // Every supported fencing launch/load door must obtain a short-lived permit
+  // from _enterJob before it may resolve or change identity. The permit is kept
+  // private to this IIFE; raw create/load helpers cannot manufacture one.
+  var _entrySequence = 0;
+  var _activeEntryPermit = null;
+  var _entryAudit = [];
 
   // Selecting a real opportunity row for this contact settles the earlier failed
   // attempt: either it committed after all (a timed-out create can land without
@@ -151,7 +157,11 @@
 
   function _checkpointLocalDraftBeforeLoad(source) {
     if (_toolType !== 'fencing' || !window.app || !window.app._checkpointLocalDraftBeforeLoad) return false;
-    return !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
+    var checkpointed = !!window.app._checkpointLocalDraftBeforeLoad(source || 'cloud_load');
+    if (_hasDirtyFencingDraft() && (!checkpointed || !_verifiedFenceCheckpoint(source || 'cloud_load'))) {
+      throw _entryError('checkpoint_failed', 'Could not verify the local checkpoint. The current fence scope was kept open and the target was not switched.');
+    }
+    return checkpointed;
   }
 
   function _scopeSaveReason(value) {
@@ -446,7 +456,188 @@
     target = target || {};
     if (target.jobId) return 'job:' + target.jobId;
     if (target.opportunityId) return 'opp:' + target.opportunityId;
+    if (target.localDraftId) return 'local:' + target.localDraftId;
+    if (target.scopeRevisionId) return 'revision:' + target.scopeRevisionId;
     return '';
+  }
+
+  function _restoreCurrentFenceUrl() {
+    var currentId = _isRealJobId(_jobId) ? _jobId : null;
+    if (!currentId && window.app && window.app.job && window.app.job._fieldSync) {
+      var fs = window.app.job._fieldSync;
+      if (fs.syncAnchorType === 'job' && _isRealJobId(fs.syncAnchorId)) currentId = fs.syncAnchorId;
+    }
+    var url = window.location.pathname + (currentId ? '?jobId=' + encodeURIComponent(currentId) : '');
+    window.history.replaceState({}, '', url);
+  }
+
+  function _entryError(code, message, details) {
+    var error = new Error(message);
+    error.code = code;
+    error.reason = code;
+    error.details = details || null;
+    return error;
+  }
+
+  function _recordEntry(intent, target, state) {
+    _entryAudit.push({
+      sequence: ++_entrySequence,
+      intent: intent,
+      targetKey: _targetKey(target),
+      state: state,
+      at: new Date().toISOString()
+    });
+    if (_entryAudit.length > 40) _entryAudit.shift();
+  }
+
+  function _localCheckpointMatches(row) {
+    if (_toolType !== 'fencing' || !window.app || !window.app._listLocalDraftCheckpoints) return [];
+    var contactId = String(row && row.contactId || '');
+    var email = String(row && (row.contactEmail || row.email) || '').trim().toLowerCase();
+    var phone = String(row && (row.contactPhone || row.phone) || '').replace(/\D/g, '');
+    return window.app._listLocalDraftCheckpoints().filter(function(item) {
+      var job = item.job || {};
+      var fs = job._fieldSync || {};
+      if (contactId && String(fs.ghlContactId || '') === contactId) return true;
+      if (email && String(job.email || '').trim().toLowerCase() === email) return true;
+      return phone && String(job.phone || '').replace(/\D/g, '') === phone;
+    });
+  }
+
+  // The guarded fencing entry owner. It deliberately performs identity
+  // resolution before granting a permit to a door. Existing GHL APIs cannot
+  // atomically prove contact/type uniqueness before minting, so unresolved or
+  // ambiguous rows stop here with the exact later server requirement rather
+  // than falling through to the legacy browser mint sequence.
+  async function _enterJob(intent, target) {
+    target = target || {};
+    var allowed = ['new_local', 'resume_local', 'ghl_context', 'existing_job', 'editable_scope', 'frozen_revision', 'amendment'];
+    if (allowed.indexOf(intent) === -1) throw _entryError('unsupported_entry_intent', 'Unsupported fence entry intent: ' + intent);
+    _recordEntry(intent, target, 'requested');
+
+    if (_toolType !== 'fencing') {
+      var nonFencePermit = { id: ++_entrySequence, intent: intent, target: target };
+      _activeEntryPermit = nonFencePermit;
+      return nonFencePermit;
+    }
+
+    if (intent === 'ghl_context') {
+      var row = target.row || {};
+      if (row.lookupFailed || row.mappingAmbiguous || row.ambiguous || row.duplicateMapping) {
+        _recordEntry(intent, target, 'ambiguous_stopped');
+        throw _entryError('ambiguous_identity', 'This GHL mapping could not be resolved safely. Choose a specific existing job; no new job was created.');
+      }
+
+      var localMatches = _localCheckpointMatches(row);
+      if (localMatches.length > 1) {
+        _recordEntry(intent, target, 'ambiguous_checkpoints_stopped');
+        throw _entryError('ambiguous_local_checkpoints', 'More than one local checkpoint matches this client. Resume a specific checkpoint before linking; no new job was created.', { count: localMatches.length });
+      }
+      target.localCheckpoint = localMatches[0] || null;
+
+      var resolvedJob = null;
+      if (row.supabaseJobId) {
+        resolvedJob = { id: row.supabaseJobId };
+      } else if (row._supabaseJobId) {
+        resolvedJob = { id: row._supabaseJobId };
+      } else if (row.id) {
+        try {
+          resolvedJob = await cloud.ghl.findJobByOpportunity(row.id, _toolType);
+        } catch (lookupError) {
+          _recordEntry(intent, target, 'mapping_lookup_failed');
+          throw _entryError('identity_lookup_failed', 'Could not verify Supabase scope history for this opportunity. Retry the search; no new job was created.');
+        }
+      }
+      if (Array.isArray(resolvedJob) || (resolvedJob && resolvedJob.ambiguous)) {
+        _recordEntry(intent, target, 'duplicate_jobs_stopped');
+        throw _entryError('ambiguous_identity', 'Multiple Supabase jobs map to this GHL context. Choose a specific job; no new job was created.');
+      }
+      if (!resolvedJob || !resolvedJob.id) {
+        _recordEntry(intent, target, 'server_mint_required');
+        throw _entryError(
+          'server_mint_required',
+          'No safely resolved fence job exists for this GHL context. A later server mint command must atomically search scope history, serialize contact/type deduplication, and return one idempotent job. Nothing was created.'
+        );
+      }
+      row.supabaseJobId = resolvedJob.id;
+      row._supabaseJobId = resolvedJob.id;
+      target.jobId = resolvedJob.id;
+      if (target.requestNew) {
+        _recordEntry(intent, target, 'server_repeat_mint_required');
+        throw _entryError(
+          'server_mint_required',
+          'A new fence job for this client requires the later server mint command to serialize contact/type deduplication and return an idempotent child. The existing job was left unchanged.'
+        );
+      }
+    }
+
+    var permit = { id: ++_entrySequence, intent: intent, target: target };
+    _activeEntryPermit = permit;
+    _recordEntry(intent, target, 'permitted');
+    return permit;
+  }
+
+  function _requireEntryPermit(permit, intents) {
+    if (!permit || permit !== _activeEntryPermit || intents.indexOf(permit.intent) === -1) {
+      throw _entryError('entry_funnel_required', 'This job action must start through the guarded fence entry funnel.');
+    }
+    return permit;
+  }
+
+  function _scrubCrossJobIdentity(jobId, opportunityId, contactId, launchMode) {
+    if (_toolType !== 'fencing' || !window.app || !window.app.job) return;
+    var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
+    var oldKey = fs.syncAnchorType && fs.syncAnchorId ? fs.syncAnchorType + ':' + fs.syncAnchorId : '';
+    var nextKey = jobId ? 'job:' + jobId : (opportunityId ? 'ghl_opportunity:' + opportunityId : 'local_only:');
+    if (oldKey && oldKey === nextKey) return;
+
+    // A rejected rebind must leave NOTHING half-written: the pre-scrub _fieldSync
+    // and ref are restored verbatim before the failure is thrown.
+    var priorFieldSync = {};
+    Object.keys(fs).forEach(function(key) { priorFieldSync[key] = fs[key]; });
+    var priorRef = window.app.job.ref;
+    var priorBaseScopeHash = _baseScopeHash;
+    var priorBaseScopeUpdatedAt = _baseScopeUpdatedAt;
+    var priorScopeCursorJobId = _scopeCursorJobId;
+    var priorIdentityVersion = Number(fs.identityVersion) || 0;
+
+    ['baseScopeHash', 'currentScopeHash', 'scopeUpdatedAt', 'lastCloudCursorAt', 'scopeCursorJobId',
+      'scopeCursorProvenance', 'syncAnchorRevisionId', 'keep_link_job_id'].forEach(function(key) { delete fs[key]; });
+    // Pending operations describe the identity being left. They remain in that
+    // job's checkpoint/offline journal and must never be replayed as ownership
+    // evidence for the target.
+    fs.pendingOps = [];
+    fs.syncAnchorType = jobId ? 'job' : (opportunityId ? 'ghl_opportunity' : 'local_only');
+    fs.syncAnchorId = jobId || opportunityId || null;
+    fs.ghlContactId = contactId || null;
+    fs.identityVersion = priorIdentityVersion + 1;
+    fs.identityReboundAt = new Date().toISOString();
+    fs.launchMode = launchMode || 'guarded_entry';
+    fs.requiresLinkBeforeRelease = !(jobId || opportunityId);
+    fs.syncState = jobId ? 'linked_job_local_dirty' : (opportunityId ? 'linked_ghl_local_dirty' : 'local_dirty');
+    // Only a known job number may claim the ref. When the target's number has
+    // not been fetched yet, an existing real ref is left intact rather than
+    // silently blanked on screen.
+    if (jobId && _lastJobNumber) window.app.job.ref = _lastJobNumber;
+    else if (!jobId || !_isRealFenceRef(priorRef)) window.app.job.ref = '';
+
+    if (!jobId || String(_scopeCursorJobId || '') !== String(jobId)) {
+      _baseScopeHash = null;
+      _baseScopeUpdatedAt = null;
+      _scopeCursorJobId = null;
+    }
+    // Read-back is the boundary: save must never arm until these values agree.
+    if (String(fs.syncAnchorId || '') !== String(jobId || opportunityId || '') ||
+        (_lastJobNumber && _isRealFenceRef(window.app.job.ref) &&
+          String(window.app.job.ref).toUpperCase() !== String(_lastJobNumber).toUpperCase())) {
+      Object.keys(fs).forEach(function(key) { delete fs[key]; });
+      Object.keys(priorFieldSync).forEach(function(key) { fs[key] = priorFieldSync[key]; });
+      window.app.job.ref = priorRef;
+      _baseScopeHash = priorBaseScopeHash;
+      _baseScopeUpdatedAt = priorBaseScopeUpdatedAt;
+      _scopeCursorJobId = priorScopeCursorJobId;
+      throw _entryError('identity_rebind_failed', 'Could not verify the new fence identity. The target was not armed for saving.');
+    }
   }
 
   function _resolveFencingTargetSwitch(source, target) {
@@ -494,7 +685,21 @@
 
   function _linkFencingAnchor(jobId, opportunityId, contactId, launchMode) {
     if (_toolType === 'fencing' && window.app && window.app._linkCloudAnchor) {
+      // keep_link and every other cross-job transition pass the same scrub/read-
+      // back boundary before app.save() inside _linkCloudAnchor can run.
+      _scrubCrossJobIdentity(jobId, opportunityId, contactId, launchMode);
       window.app._linkCloudAnchor({ jobId: jobId || null, opportunityId: opportunityId || null, contactId: contactId || null, launchMode: launchMode || 'cloud_load' });
+      // Re-attach only a cursor proven to belong to the target. A stale cursor
+      // was cleared above and cannot be resurrected from persisted _fieldSync.
+      if (_baseScopeHash && String(_scopeCursorJobId || '') === String(jobId || '')) {
+        var fs = window.app.job && window.app.job._fieldSync;
+        if (fs) {
+          fs.baseScopeHash = _baseScopeHash;
+          fs.currentScopeHash = _baseScopeHash;
+          fs.scopeCursorJobId = _scopeCursorJobId;
+          fs.scopeCursorProvenance = 'server_issued';
+        }
+      }
     }
   }
 
@@ -908,10 +1113,21 @@
     }
   }
 
-  // Repeat-client / contact-only path: start a BRAND-NEW job for an existing
-  // contact without ever loading their old scope/job (C3, AM-A, AM-H).
-  // Returns a promise so the lead-search modal can lock while it runs (AM-C).
-  async function _startNewJobForContact(row) {
+  // PARKED for fencing (2026-07). This is the browser-side repeat-client /
+  // contact-only create sequence (C3, AM-A, AM-H). The guarded entry funnel now
+  // stops every fencing repeat-client request with `server_mint_required`, so
+  // for fencing this body is unreachable and is retained only until the
+  // serialized idempotent server mint command lands and this path is rewritten
+  // to call it. Non-fencing tools still use it unchanged. Do not re-open a
+  // fencing door onto it.
+  async function _startNewJobForContact(row, permit) {
+    _requireEntryPermit(permit, ['ghl_context']);
+    if (_toolType === 'fencing') {
+      throw _entryError(
+        'server_mint_required',
+        'Creating a new fence job for an existing client is not available in the browser. The later server mint command must serialize contact/type deduplication and return one idempotent job. Nothing was created.'
+      );
+    }
     if (!row) throw new Error('No client selected');
     var displayName = row.contactName || row.name || row.contactPhone || 'this client';
 
@@ -1852,6 +2068,17 @@
         cloud.ui.showSaveStatus('saving');
 
         if (!_jobId || (_jobId && _jobId.indexOf('local-') === 0)) {
+          if (_toolType === 'fencing') {
+            // Local scoping remains available, but identity creation is a
+            // destructive transition. The existing two browser calls cannot
+            // atomically search historical NULL mappings or serialize contact /
+            // type deduplication, so this unit stops instead of minting around
+            // the guarded entry owner.
+            throw _entryError(
+              'server_mint_required',
+              'This local fence draft is safe on the iPad but cannot be promoted yet. The later server mint command must resolve scope history and return one idempotent job before cloud save.'
+            );
+          }
           // Use DOM fields first, then prompt as last resort
           if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || {}).value || '';
 
@@ -2296,6 +2523,7 @@
       cloud.ui.showGHLPicker(_toolType, async function(opp) {
         console.log('[Integration] GHL opportunity selected:', opp.id, opp.contactName);
         try {
+          await _enterJob('ghl_context', { row: opp, source: 'loadPicker' });
           var switchChoice = await _resolveFencingTargetSwitch('loadPicker', {
             jobId: opp._supabaseJobId || null,
             opportunityId: opp.id,
@@ -2401,12 +2629,10 @@
               console.log('[FenceSync] Existing target found; local draft wins and remote job number/media stay out of the field draft.');
             }
           } else {
-            // Create a new Supabase job linked to this GHL opportunity (via edge function)
-            var contactForJob = contact || { name: opp.contactName, phone: opp.contactPhone, email: opp.contactEmail };
-            console.log('[Integration] Creating job for:', contactForJob.name || opp.name);
-            var job = await cloud.ghl.createJobForOpportunity(opp.id, _toolType, contactForJob);
-            _jobId = job.id;
-            console.log('[Integration] Job created:', _jobId);
+            // The guarded preflight resolved an existing Supabase job before
+            // this door was allowed to proceed. A changed/null second lookup is
+            // ambiguous, never permission for the browser to mint around it.
+            throw _entryError('identity_changed_during_entry', 'The opportunity-to-job mapping changed while opening it. Nothing was created. Your previous work was checkpointed on this iPad — reopen it from "Resume draft", or search again.');
           }
 
           // Pre-fill contact fields in the tool
@@ -2444,12 +2670,25 @@
 
       cloud.ui.showLeadSearch(_toolType, async function(lead) {
         console.log('[Integration] Lead selected:', lead.id, lead.contactName, 'mode:', mode);
+        var entryPermit;
+        try {
+          entryPermit = await _enterJob('ghl_context', { row: lead, source: 'lead_search', requestNew: mode === 'new_job' || lead.isContactOnly || lead.id == null });
+        } catch(entryError) {
+          console.warn('[FenceEntry] Lead entry stopped:', entryError);
+          // Create-mode selection is awaited by the modal; reject so it unlocks
+          // in place and renders the safe-stop reason instead of closing as if
+          // a job had been created. Load mode owns its ordinary toast path.
+          if (mode === 'new_job' || lead.isContactOnly || lead.id == null) throw entryError;
+          if (window.app && window.app.showToast) window.app.showToast(entryError.message, 'error');
+          else alert(entryError.message);
+          return;
+        }
         // new_job mode (any row) OR a contact-only row in load mode (nothing to
         // load) → start a brand-new job for that contact. Returns the promise so
         // the modal's in-flight lock can await it (AM-C). lookupFailed rows never
         // reach here (the modal blocks them).
         if (mode === 'new_job' || lead.isContactOnly || lead.id == null) {
-          return _startNewJobForContact(lead);
+          return _startNewJobForContact(lead, entryPermit);
         }
         try {
           var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
@@ -2550,12 +2789,7 @@
               console.log('[FenceSync] Existing lead target found; local draft wins and remote job number/media stay out of the field draft.');
             }
           } else if (lead.id) {
-            var contactForJob = contact || { name: lead.contactName, phone: lead.contactPhone, email: lead.contactEmail };
-            var job = await cloud.ghl.createJobForOpportunity(lead.id, _toolType, contactForJob);
-            _jobId = job.id;
-            _lastJobNumber = job.job_number || null;
-            _jobStatus = job.status || 'draft';
-            if (!localDraftWins && _lastJobNumber) _applyJobNumber(_lastJobNumber);
+            throw _entryError('identity_changed_during_entry', 'The opportunity-to-job mapping changed while opening it. Nothing was created. Your previous work was checkpointed on this iPad — reopen it from "Resume draft", or search again.');
           }
 
           if (contact) _prefillContact(contact);
@@ -2595,6 +2829,7 @@
         try {
           // ── Local-only new scope (no cloud job yet) ──
           if (jobId && jobId.indexOf('local-') === 0) {
+            await _enterJob('resume_local', { localDraftId: jobId, source: 'load_from_supabase' });
             if (cloud) cloud.stopAutoSave();
             _jobId = jobId;
             _lastJobNumber = null;
@@ -2610,6 +2845,7 @@
           }
 
           // ── Local-wins checkpoint before loading previous cloud job ──
+          await _enterJob('editable_scope', { jobId: jobId, source: 'load_from_supabase' });
           var switchChoice = await _resolveFencingTargetSwitch('load_from_supabase', {
             jobId: jobId,
             opportunityId: null,
@@ -2701,8 +2937,32 @@
 
     // Repeat-client / contact-only helper, shared with the inline client-name
     // autocomplete (index.html). Returns a promise. Never loads an old job.
-    startNewJobForContact: function(row) {
-      return _startNewJobForContact(row);
+    startNewJobForContact: async function(row) {
+      var permit = await _enterJob('ghl_context', { row: row, source: 'inline_contact_new_job', requestNew: true });
+      return _startNewJobForContact(row, permit);
+    },
+
+    // Single guarded entry owner used by launcher/local callbacks in index.html
+    // and by every cloud/direct/frozen door in this module.
+    enterJob: function(intent, target) {
+      return _enterJob(intent, target);
+    },
+
+    // Audit-only: records the identity a permitted door actually produced (e.g.
+    // the local draft id minted after the permit was granted). Grants nothing.
+    noteEntryTarget: function(intent, target) {
+      _recordEntry(intent, target || {}, 'created');
+    },
+
+    // The ONLY sanctioned way for a door outside this module to link a cloud
+    // anchor. It runs _scrubCrossJobIdentity first, so app._linkCloudAnchor can
+    // never be armed for saving with another job's cursor/ref still attached.
+    linkFencingAnchor: function(jobId, opportunityId, contactId, launchMode) {
+      return _linkFencingAnchor(jobId, opportunityId, contactId, launchMode);
+    },
+
+    getEntryAudit: function() {
+      return _entryAudit.slice();
     },
 
     // The checkpoint+reset sequence for opening a different target. Exposed so
@@ -2924,7 +3184,7 @@
 
     cloud.on('auth:login', function() {
       updateUI();
-      _autoLoadJob();
+      _autoLoadJob().catch(_reportEntryStop);
     });
 
     cloud.on('auth:logout', function() {
@@ -2970,7 +3230,7 @@
 
     // If already logged in, load job immediately (auth:login won't fire)
     if (cloud.auth.isLoggedIn()) {
-      _autoLoadJob();
+      _autoLoadJob().catch(_reportEntryStop);
     }
   }
 
@@ -2980,15 +3240,46 @@
   // Branches (Scope-Memory-Saving step 8 Option B):
   //   * ?scope_revision_id=<uuid> → frozen-revision viewer mode.
   //   * Otherwise: existing live-job auto-load path.
+  // The guarded entry owner and the checkpoint verifier both THROW to stop
+  // safely. _autoLoadJob is fired without await from two auth hooks, so those
+  // stops must be surfaced here rather than becoming silent unhandled
+  // rejections that leave the scoper staring at an un-loaded job.
+  function _reportEntryStop(error) {
+    _jobLoaded = false;
+    console.warn('[FenceEntry] Auto-load stopped:', error);
+    var msg = (error && error.message) || 'Could not open this job safely. Nothing was changed.';
+    if (window.app && window.app.showToast) window.app.showToast(msg, 'error');
+    updateUI();
+  }
+
   async function _autoLoadJob() {
     if (_jobLoaded) return;
     var urlParams = new URLSearchParams(window.location.search);
     var scopeRevId = urlParams.get('scope_revision_id');
     if (scopeRevId) {
+      await _enterJob('frozen_revision', { scopeRevisionId: scopeRevId, jobId: getJobIdFromURL(), source: 'direct_revision_url' });
+      if (_toolType === 'fencing' && window.app && window.app._hasMeaningfulLocalDraft && window.app._hasMeaningfulLocalDraft()) {
+        var frozenChoice = await _resolveFencingTargetSwitch('frozen_revision_url', {
+          jobId: getJobIdFromURL(), scopeRevisionId: scopeRevId, label: 'the sealed read-only revision'
+        });
+        // A frozen parent cannot accept keep_link. Keep/cancel means retain the
+        // current editable scope and remove the viewer URL/readonly flag; switch
+        // checkpoints then opens the sealed parent read-only.
+        if (frozenChoice === 'cancel' || frozenChoice === 'keep_link') {
+          _isReadonly = false;
+          _jobLoaded = false;
+          document.documentElement.classList.remove('readonly-mode');
+          _restoreCurrentFenceUrl();
+          updateUI();
+          return;
+        }
+        _openFencingTargetSeparately('frozen_revision_url');
+      }
       return _autoLoadFrozenRevision(scopeRevId);
     }
     var urlJobId = getJobIdFromURL();
     if (!urlJobId) return;
+    await _enterJob('existing_job', { jobId: urlJobId, source: 'direct_job_url' });
     _jobLoaded = true;
 
     var localDraftWins = false;
@@ -3003,6 +3294,7 @@
       });
       if (switchChoice === 'cancel') {
         _jobLoaded = false;
+        _restoreCurrentFenceUrl();
         console.log('[FenceSync] URL auto-load cancelled before setting job anchor:', urlJobId);
         return;
       }
@@ -3218,6 +3510,7 @@
   // (M4 G-F2/G-F5) Clone the current frozen revision into an editable draft and
   // reopen the tool in edit mode. Warns first if the client already accepted.
   async function _makeRevision(scopeRevId, jobId) {
+    await _enterJob('amendment', { scopeRevisionId: scopeRevId, jobId: jobId, source: 'frozen_banner' });
     var accepted = false;
     try { accepted = await _quoteAccepted(jobId); } catch (_e) {
       window.alert('Could not verify whether the client has accepted this quote. Revision editing is blocked until quote status can be checked.');

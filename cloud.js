@@ -1871,6 +1871,11 @@
       var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
+      // Browser-side fence job creation is stopped by the guarded entry funnel
+      // until the server mint command lands, so for fencing every new_job
+      // selection rejects with `server_mint_required`. Don't promise a create
+      // this door cannot perform — stay in step with the inline autocomplete.
+      var mintStopped = (mode === 'new_job') && (toolType === 'fencing');
 
       // Remove any existing modal
       var existing = document.getElementById('sw-lead-search-dropdown');
@@ -1997,7 +2002,9 @@
         if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + _esc(phone) + '</div>';
         // In new_job mode every selectable card explains what tapping does.
         if (mode === 'new_job' && !lookupFailed) {
-          html += '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
+          html += mintStopped
+            ? '<div class="sw-lead-subtitle" style="font-size:11px;color:#8E8E93;margin-top:2px;">A new job cannot be started here yet.</div>'
+            : '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
         }
         html += '</div>';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
@@ -2132,6 +2139,15 @@
                   _locked = false;
                   _lockedStatusEl = null;
                   clearTimeout(_flashTimer);
+                  // A safe stop is deterministic: re-tapping this row produces
+                  // the identical stop. Retire the row instead of re-arming it.
+                  var _safeStop = !!(err && ['server_mint_required', 'ambiguous_identity',
+                    'ambiguous_local_checkpoints', 'identity_lookup_failed'].indexOf(err.code) !== -1);
+                  if (_safeStop) {
+                    el.setAttribute('data-locked', '1');
+                    el.style.pointerEvents = 'none';
+                    el.style.opacity = '0.5';
+                  }
                   list.querySelectorAll('.sw-lead-item').forEach(function(c) {
                     // lookupFailed rows stay dimmed + inert — they were never
                     // selectable, so the reset must not make them look tappable.
@@ -2139,7 +2155,16 @@
                     c.style.pointerEvents = '';
                     c.style.opacity = '';
                   });
-                  if (statusEl) { statusEl.style.display = 'none'; statusEl.textContent = ''; }
+                  if (statusEl) {
+                    if (_safeStop) {
+                      statusEl.style.display = '';
+                      statusEl.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;';
+                      statusEl.textContent = 'Not available here';
+                    } else {
+                      statusEl.style.display = 'none';
+                      statusEl.textContent = '';
+                    }
+                  }
                   var msg = (err && err.message) ? err.message : 'Could not create the job';
                   if (err && err.code === 'cancelled') return; // user backed out of the confirm
                   // A timed-out create may have committed server-side without us
@@ -2158,7 +2183,11 @@
                     banner.style.cssText = 'text-align:center;color:#FF3B30;padding:8px 0;font-size:12px;margin:0 0 6px;';
                     list.insertBefore(banner, list.firstChild);
                   }
-                  banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                  if (_safeStop) {
+                    banner.textContent = 'Stopped safely: ' + msg + ' This client cannot be started here yet — retrying will stop the same way.';
+                  } else {
+                    banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
+                  }
                 });
               } else {
                 _close();

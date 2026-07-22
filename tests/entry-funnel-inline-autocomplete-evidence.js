@@ -2,21 +2,15 @@
 'use strict';
 
 /**
- * Repeat-client / fast-lead-search browser evidence harness.
+ * Inline client-name autocomplete guarded-entry browser evidence harness.
  *
- * Drives the REAL production page (index.html + cloud.js + integration.js,
- * unmodified) in headless Chrome. Only two boundaries are stubbed, both
- * injected before any page script runs:
- *   1. window.supabase — a signed-in session, so the field user is logged in.
- *   2. fetch to the ghl-proxy edge function — fixture leads/contact/create
- *      responses, so nothing leaves the machine.
+ * Same stub boundaries as cp2-repeat-client-browser-evidence.js (signed-in
+ * window.supabase + fixture ghl-proxy fetch); drives the REAL page.
  *
- * It exercises the field flow Khairo hit:
- *   Launch → "4. New job for existing client/lead" → fast lead_search →
- *   pick a repeat client that already has a scoped job → guarded stop until the
- *   serialized server mint command exists (no browser-side duplicate).
- *
- * Screenshots are written to SCREENSHOT_DIR (default: ./tests/.evidence).
+ * Covers the SECOND entry door: the inline client-name autocomplete. A
+ * contact-only row must render INERT ("Not available here") and a keyboard
+ * selection must safe-stop without minting anything, now that browser-side
+ * fence job creation is retired.
  */
 
 const fs = require('fs');
@@ -38,7 +32,7 @@ const chromeCandidates = [
 ].filter(Boolean);
 const chrome = chromeCandidates.find((candidate) => fs.existsSync(candidate));
 if (!chrome) {
-  console.log('Repeat-client browser evidence SKIP: system Chrome/Chromium not found');
+  console.log('Inline autocomplete browser evidence SKIP: system Chrome/Chromium not found');
   process.exit(0);
 }
 
@@ -279,90 +273,68 @@ async function run() {
     await waitFor(() => evalIn("!!(window.SECUREWORKS_CLOUD.auth.isLoggedIn())"), 10000, 'signed-in session');
     await new Promise((r) => setTimeout(r, 400));
 
-    // ── 1. Launcher shows the repeat-client entry point ──
-    await evalIn("Array.prototype.find.call(document.querySelectorAll('button'), function(b){return b.textContent.trim()==='Launch';}).click()");
-    await waitFor(() => evalIn("!!document.getElementById('launchNewJobBtn')"), 5000, 'launch modal');
-    const launcherText = await evalIn("document.getElementById('fieldLaunchModal').innerText");
-    const shot1 = await shot('01-launcher-option-4.png');
-    record('launcher offers "4. New job for existing client/lead"',
-      /4\. New job for existing client\/lead/.test(launcherText), shot1);
+    // ── 1. Open the scope form and type into the inline client-name field ──
+    await evalIn("(function(){var b=Array.prototype.find.call(document.querySelectorAll('button'),function(x){return x.textContent.trim()==='Launch';}); if(b) b.click();})()");
+    await waitFor(() => evalIn("!!document.getElementById('launchNewLocalBtn')"), 5000, 'launch modal');
+    await evalIn("document.getElementById('launchNewLocalBtn').click()");
+    await new Promise((r) => setTimeout(r, 600));
+    // NOTE: the shipped page has no #clientNameDropdown element and nothing
+    // calls onClientNameInput — the inline autocomplete is currently unmounted
+    // dead code (true on the base commit too, so this is pre-existing, not a
+    // regression from this change). To get a real rendered surface we mount the
+    // container the production render function targets, next to the client-name
+    // field, and then drive the UNMODIFIED production code path.
+    await evalIn(`(function(){
+      var anchor = document.getElementById('addressDropdown');
+      var host = document.createElement('div');
+      host.style.cssText = 'position:relative;margin:12px;max-width:520px;';
+      host.innerHTML = '<div style="font:600 13px -apple-system,sans-serif;color:#293C46;margin-bottom:6px;">Client name</div>' +
+        '<input value="" placeholder="Start typing a client name…" style="width:100%;padding:10px 12px;border:1px solid #D4DEE4;border-radius:8px;font-size:15px;">' +
+        '<div class="address-dropdown" id="clientNameDropdown" style="position:static;margin-top:6px;"></div>';
+      (anchor ? anchor.parentNode.parentNode : document.body).prepend(host);
+      host.scrollIntoView({ block: 'center' });
+    })()`);
 
-    // ── 2. Option 4 opens lead search; searching copy is visible ──
-    await evalIn("document.getElementById('launchNewJobBtn').click()");
-    await waitFor(() => evalIn("!!document.getElementById('sw-lead-search-dropdown')"), 5000, 'lead search modal');
-    const searchingCopy = await evalIn("(document.getElementById('sw-lead-list')||{}).innerText||''");
-    const shot2 = await shot('02-searching-contacts.png');
-    record('lead search shows the "Searching contacts…" state',
-      /Searching contacts/.test(searchingCopy), shot2);
-
-    // ── 3. Results render, keyed by index, with new_job subtitles ──
-    await waitFor(() => evalIn("document.querySelectorAll('.sw-lead-item').length === 3"), 8000, 'lead rows');
-    const listText = await evalIn("document.getElementById('sw-lead-list').innerText");
-    const shot3 = await shot('03-lead-results-new-job-mode.png');
-    const calls = await evalIn("JSON.stringify(window.__swCalls)");
-    record('fast lead_search action answers the modal (legacy search untouched)',
-      /"action":"lead_search"/.test(calls) && !/"action":"search"/.test(calls),
-      'calls=' + calls);
-    // Fencing new_job selection stops with server_mint_required, so the card
-    // must NOT promise a create it cannot perform (matches the inline door).
-    record('new_job cards explain the action; contact-only + lookupFailed rows are badged',
-      /A new job cannot be started here yet/.test(listText) &&
-      !/Creates a new job for this client/.test(listText) && /Contact/.test(listText) &&
-      /Couldn't check/.test(listText), shot3);
-    const lockedRows = await evalIn("document.querySelectorAll('.sw-lead-item[data-locked=\"1\"]').length");
-    record('lookupFailed row is not selectable', lockedRows === 1, 'data-locked rows=' + lockedRows);
-
-    // ── 4. Typing a name re-searches through the fast path ──
-    await evalIn("(function(){var i=document.querySelector('#sw-lead-search-dropdown input');i.value='Dave';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
-    await waitFor(() => evalIn("document.querySelectorAll('.sw-lead-item').length === 1"), 8000, 'filtered row');
-    const shot4 = await shot('04-typed-search-dave.png');
-    record('typing filters through lead_search and returns the repeat client',
-      /Dave Nguyen/.test(await evalIn("document.getElementById('sw-lead-list').innerText")), shot4);
-
-    // ── 5. Repeat-client mint stops safely until the server command exists ──
     await evalIn("window.__swCalls = []");
-    await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
-    await waitFor(() => evalIn("!!document.getElementById('sw-lead-modal-error')"), 5000, 'guarded mint refusal');
-    const refusal = await evalIn("document.getElementById('sw-lead-modal-error').innerText");
-    const shot5 = await shot('05-server-mint-required.png');
-    const createCalls = JSON.parse(await evalIn("JSON.stringify(window.__swCalls)"));
-    record('repeat-client selection stops with the exact later server requirement',
-      /server mint command/.test(refusal) && /idempotent child/.test(refusal), shot5 + ' | ' + refusal);
-    record('guarded repeat-client entry performs no opportunity, job, scope or load write',
-      !createCalls.some((c) => ['create_contact_and_opportunity', 'create_job', 'save_scope', 'load_job'].includes(c.action)),
-      'actions=' + createCalls.map((c) => c.action).join(','));
-    record('the existing job and current form identity remain untouched',
-      (await evalIn("window._swIntegration.getSyncState().jobId")) == null,
-      'jobId=' + await evalIn("window._swIntegration.getSyncState().jobId"));
+    // Empty query returns all fixture rows; the inline path filters lookupFailed
+    // rows out itself, so the real client sees the opp row + the contact-only row.
+    await evalIn("window.app._searchGHLContacts('')", true);
+    await waitFor(() => evalIn("document.querySelectorAll('#clientNameDropdown .address-dropdown-item').length >= 2"), 8000, 'inline dropdown rows');
+    const ddText = await evalIn("document.getElementById('clientNameDropdown').innerText");
+    const shotA = await shot('inline-01-contact-only-inert.png');
+    record('inline autocomplete badges the contact-only row "Not available here" and drops the create promise',
+      /Not available here/.test(ddText) &&
+      /No job exists for this client yet — cannot be started here\./.test(ddText) &&
+      !/Creates a new job for this client/.test(ddText), shotA + ' | ' + JSON.stringify(ddText));
 
-    // ── 6. No-match copy ──
-    await evalIn("Array.prototype.find.call(document.querySelectorAll('button'), function(b){return b.textContent.trim()==='Launch';}).click()");
-    await waitFor(() => evalIn("!!document.getElementById('launchNewJobBtn')"), 5000, 'launch modal reopen');
-    await evalIn("document.getElementById('launchNewJobBtn').click()");
-    await waitFor(() => evalIn("!!document.querySelector('#sw-lead-search-dropdown input')"), 5000, 'lead search reopen');
-    await evalIn("(function(){var i=document.querySelector('#sw-lead-search-dropdown input');i.value='zzzz';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
-    await waitFor(() => evalIn("/No matches/.test((document.getElementById('sw-lead-list')||{}).innerText||'')"), 8000, 'no-match copy');
-    const shot7 = await shot('07-no-matches-copy.png');
-    record('empty result shows the refreshed no-match copy',
-      /No matches — check spelling or try a phone number\./.test(await evalIn("document.getElementById('sw-lead-list').innerText")), shot7);
+    // ── 2. The contact-only and lookupFailed rows carry no tap handler ──
+    const rowState = JSON.parse(await evalIn("JSON.stringify(Array.prototype.map.call(document.querySelectorAll('#clientNameDropdown .address-dropdown-item'),function(el){return {idx:el.getAttribute('data-idx'),text:el.innerText.split('\\n')[0],hasHandler:!!el.getAttribute('onmousedown'),pointerEvents:getComputedStyle(el).pointerEvents,opacity:getComputedStyle(el).opacity};}))"));
+    record('the real opp row stays tappable while the contact-only row is inert (no handler, pointer-events:none)',
+      rowState.length === 2 &&
+      rowState[0].hasHandler && rowState[0].pointerEvents !== 'none' &&
+      !rowState[1].hasHandler && rowState[1].pointerEvents === 'none',
+      JSON.stringify(rowState));
 
-    // ── 7. AM-H: a scoper mid-draft is asked before anything is created ──
-    await evalIn("(function(){window.app.job.clientFirstName='Half-scoped Jones';window.app.job.phone='0400111222';window.app._ensureFieldSync('evidence_run');window.app.save();window.__swConfirms=[];window.confirm=function(m){window.__swConfirms.push(m);return false;};window.__swCalls=[];})()");
-    await evalIn("(function(){var i=document.querySelector('#sw-lead-search-dropdown input');i.value='Dave';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
-    await waitFor(() => evalIn("document.querySelectorAll('.sw-lead-item').length === 1"), 8000, 'row for confirm test');
-    await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
-    await new Promise((r) => setTimeout(r, 800));
-    const confirmState = JSON.parse(await evalIn("JSON.stringify({prompts: window.__swConfirms, calls: window.__swCalls.map(function(c){return c.action;}), name: window.app.job.clientFirstName, modalOpen: !!document.getElementById('sw-lead-search-dropdown')})"));
-    const shot8 = await shot('08-cancelled-create-keeps-draft.png');
-    // The re-search that re-rendered the row is expected; nothing that mints an
-    // opportunity or a job may run before the scoper says yes.
-    const writeCalls = confirmState.calls.filter((a) => a !== 'lead_search');
-    record('a meaningful draft remains untouched when guarded server mint is unavailable',
-      confirmState.prompts.length === 0 && writeCalls.length === 0 &&
-      confirmState.name === 'Half-scoped Jones' && confirmState.modalOpen,
-      shot8 + ' | prompts=' + JSON.stringify(confirmState.prompts) + ', post-tap calls=' + JSON.stringify(confirmState.calls) + ', draftName=' + confirmState.name);
+    // ── 3. Reaching a contact-only row by keyboard safe-stops, creates nothing ──
+    await evalIn("window.__swCalls = []");
+    const jobIdBefore = await evalIn("String(window._swIntegration.getSyncState().jobId)");
+    await evalIn("window.app.selectGHLContact(1)", true);
+    await waitFor(() => evalIn("/Stopped safely/.test(document.getElementById('toastContainer').innerText||'')"), 5000, 'safe-stop toast');
+    const toast = await evalIn("document.getElementById('toastContainer').innerText");
+    // Let the toast finish its fade-in so the screenshot is legible.
+    await new Promise((r) => setTimeout(r, 500));
+    const shotB = await shot('inline-02-safe-stop-toast.png');
+    const postCalls = JSON.parse(await evalIn("JSON.stringify(window.__swCalls.map(function(c){return c.action;}))"));
+    const jobIdAfter = await evalIn("String(window._swIntegration.getSyncState().jobId)");
+    record('keyboard-reached contact-only row safe-stops with an honest "nothing was created" message',
+      /no fence job exists for this client yet, and one cannot be started here\. Nothing was created\./.test(toast),
+      shotB + ' | ' + JSON.stringify(toast.trim()));
+    record('the inline safe-stop performs no opportunity/job/scope write and leaves identity untouched',
+      !postCalls.some((a) => ['create_contact_and_opportunity', 'create_job', 'save_scope', 'link'].includes(a)) &&
+      jobIdAfter === jobIdBefore,
+      'actions=' + JSON.stringify(postCalls) + ' jobId ' + jobIdBefore + ' → ' + jobIdAfter);
 
-    console.log('Repeat-client / fast-lead-search browser evidence');
+    console.log('Inline client-name autocomplete guarded-entry browser evidence');
     for (const row of results) {
       console.log((row.ok ? 'PASS ' : 'FAIL ') + row.id);
       console.log('  evidence: ' + row.evidence);
@@ -372,7 +344,7 @@ async function run() {
     console.log('Screenshots: ' + shotDir);
     return failed.length === 0 ? 0 : 1;
   } catch (error) {
-    console.error('Repeat-client browser evidence FAIL');
+    console.error('Inline autocomplete browser evidence FAIL');
     console.error(error.stack || error.message || String(error));
     for (const row of results) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.id);
     return 1;

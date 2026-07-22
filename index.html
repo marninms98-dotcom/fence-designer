@@ -2050,9 +2050,14 @@
           ghlContactId: null,
           syncState: 'local_dirty',
           requiresLinkBeforeRelease: true,
+          pendingOps: [],
+          identityVersion: (Number(previous.identityVersion) || 0) + 1,
           updatedAt: now,
           lastLocalEditAt: previous.lastLocalEditAt || now
         };
+        ['baseScopeHash', 'currentScopeHash', 'scopeUpdatedAt', 'lastCloudCursorAt',
+          'scopeCursorJobId', 'scopeCursorProvenance', 'syncAnchorRevisionId', 'keep_link_job_id']
+          .forEach(key => delete resumedJob._fieldSync[key]);
         if (resumedJob.ref && String(resumedJob.ref).indexOf('SW') === 0) resumedJob.ref = '';
         return resumedJob;
       },
@@ -2106,16 +2111,42 @@
         return items;
       },
 
-      _openLocalDraftCheckpoint(key) {
+      async _openLocalDraftCheckpoint(key) {
         const item = this._listLocalDraftCheckpoints().find(d => d.key === key);
         if (!item) {
           this.showToast('Local draft checkpoint not found', 'error');
           return;
         }
-        if (this.job && this._hasMeaningfulLocalDraft()) {
-          const currentId = this.job._fieldSync && this.job._fieldSync.localDraftId;
-          const nextId = item.job && item.job._fieldSync && item.job._fieldSync.localDraftId;
-          if (currentId !== nextId) this._checkpointLocalDraftBeforeLoad('resume_local_checkpoint');
+        const currentId = this.job && this.job._fieldSync && this.job._fieldSync.localDraftId;
+        const nextId = item.job && item.job._fieldSync && item.job._fieldSync.localDraftId;
+        try {
+          if (window._swIntegration && window._swIntegration.enterJob) {
+            await window._swIntegration.enterJob('resume_local', {
+              localDraftId: item.id,
+              source: 'resume_local_checkpoint'
+            });
+            if (currentId && currentId !== nextId && window._swIntegration.resolveFencingTargetSwitch) {
+              const choice = await window._swIntegration.resolveFencingTargetSwitch('resume_local_checkpoint', {
+                localDraftId: item.id,
+                label: 'the selected local checkpoint'
+              });
+              // For a local checkpoint, “keep this draft” means stay on the
+              // current draft. Only the explicit switch choice hydrates another.
+              if (choice === 'cancel' || choice === 'keep_link') return;
+            }
+          }
+          if (this.job && this._hasMeaningfulLocalDraft() && currentId !== nextId) {
+            // Throws when the current draft cannot be verifiably checkpointed.
+            // That is a safe stop: nothing below has run, so the open scope stays.
+            if (window._swIntegration && window._swIntegration.openFencingTargetSeparately) {
+              window._swIntegration.openFencingTargetSeparately('resume_local_checkpoint');
+            } else {
+              this._checkpointLocalDraftBeforeLoad('resume_local_checkpoint');
+            }
+          }
+        } catch(e) {
+          this.showToast(e.message, 'error');
+          return;
         }
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
@@ -2252,6 +2283,17 @@
       },
 
       startLocalDraft() {
+        const _permit = window._swIntegration && window._swIntegration.enterJob
+          ? window._swIntegration.enterJob('new_local', { source: 'launcher_option_3' })
+          : null;
+        // Deliberately zero-network AND deliberately unstoppable: option 3 must
+        // stay usable offline, so 'new_local' has no fencing stop branch in
+        // _enterJob and this door only records the entry for audit — hence the
+        // un-awaited permit. Adding a stop here means awaiting and blocking.
+        // No localDraftId is recorded here — the draft does not exist yet, and
+        // the real id is stamped onto the audit below once _ensureFieldSync
+        // mints it. Never audit an id that was never created.
+        if (_permit && _permit.catch) _permit.catch(e => console.warn('[FenceEntry] new_local permit failed:', e));
         if (this.job && this._hasMeaningfulLocalDraft()) {
           const ok = confirm('Start a new local draft? Your current work will be checkpointed on this iPad first.');
           if (!ok) return false;
@@ -2269,6 +2311,12 @@
           window._swIntegration.resetToolMediaState();
         }
         this._ensureFieldSync('new_local');
+        if (window._swIntegration && window._swIntegration.noteEntryTarget) {
+          window._swIntegration.noteEntryTarget('new_local', {
+            localDraftId: this.job && this.job._fieldSync && this.job._fieldSync.localDraftId,
+            source: 'launcher_option_3'
+          });
+        }
         this.save();
         window.history.replaceState({}, '', window.location.pathname);
         this._updateHeaderStatus();
@@ -5054,17 +5102,23 @@
           const phoneLeadLabel = opp.contactPhone ? ('Phone lead ' + opp.contactPhone) : 'Unnamed lead';
           const displayName = opp.contactName || opp.name || phoneLeadLabel;
           const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
-          // Tapping a contact-only row mints an opportunity + job rather than
-          // loading one, so it carries the same badge/caption as the lead modal.
+          // A contact-only row has no opportunity to load, and browser-side
+          // fence job creation is stopped by the guarded entry funnel until the
+          // server mint command lands. Render it inert with the same wording the
+          // lead-search modal uses instead of promising a create that cannot run.
           const isContactOnly = opp.isContactOnly || opp.id == null;
+          const inert = isContactOnly || opp.lookupFailed;
           const badge = isContactOnly
-            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;flex-shrink:0;">Contact</span>'
+            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;flex-shrink:0;">Not available here</span>'
             : '';
-          return '<div class="address-dropdown-item" data-idx="' + i + '" onmousedown="app.selectGHLContact(' + i + ')" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+          return '<div class="address-dropdown-item" data-idx="' + i + '"' +
+            (inert ? '' : ' onmousedown="app.selectGHLContact(' + i + ')"') +
+            ' style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;' +
+            (inert ? 'pointer-events:none;opacity:0.5;' : '') + '">' +
             '<div style="flex:1;min-width:0;">' +
               '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
               (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
-              (isContactOnly ? '<div style="font-size:11px;color:#F15A29;margin-top:2px;">Creates a new job for this client</div>' : '') +
+              (isContactOnly ? '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">No job exists for this client yet — cannot be started here.</div>' : '') +
             '</div>' + badge +
           '</div>';
         }).join('');
@@ -5079,43 +5133,13 @@
         this.hideClientNameDropdown();
 
         // Contact-only row (no opportunity in this pipeline) — there is nothing
-        // to load, so start a brand-new job via the shared helper (AM-G). Never
-        // call findJobByOpportunity with a null opp id.
+        // to load, and browser-side fence job creation is stopped by the guarded
+        // entry funnel until the serialized idempotent server mint command
+        // lands. Stop here rather than opening a create overlay that can only
+        // end in `server_mint_required`. Never call findJobByOpportunity with a
+        // null opp id.
         if (opp.isContactOnly || opp.id == null) {
-          if (!window._swIntegration || !window._swIntegration.startNewJobForContact) {
-            this.showToast('Cannot start a new job for this client right now — reload the page and try again.', 'error');
-            return;
-          }
-          const clientLabel = opp.contactName || opp.name || opp.contactPhone || 'this client';
-          // The create ends in a form reset, and the draft confirm has already
-          // been answered — so the form must not stay editable underneath it,
-          // or anything typed in the next few seconds is silently wiped. The
-          // lead-search modal locks itself for the same reason.
-          this._showCreatingJobOverlay(clientLabel);
-          try {
-            await window._swIntegration.startNewJobForContact(opp);
-            this.render();
-            this.updateSectionStatuses();
-            this._updateHeaderStatus();
-            if (typeof updateButtonStages === 'function') updateButtonStages();
-            this.showToast('New job started for ' + (opp.contactName || opp.name || 'client'), 'success');
-          } catch(e) {
-            if (e && e.code === 'cancelled') return;
-            // A timed-out create may have committed server-side without us
-            // learning the opportunity id, so never invite a blind retry —
-            // re-run the search. Anything that landed comes back as a real opp
-            // row, which LOADS rather than minting a duplicate.
-            if (e && e.code === 'timeout') {
-              this.showToast('Timed out. Re-checking — if the job was created it will be listed, tap it to open.', 'error');
-              this._hideCreatingJobOverlay();
-              const q = this._clientNameQuery;
-              if (q) await this._searchGHLContacts(q);
-              return;
-            }
-            this.showToast('Failed to start new job: ' + e.message, 'error');
-          } finally {
-            this._hideCreatingJobOverlay();
-          }
+          this.showToast('Stopped safely: no fence job exists for this client yet, and one cannot be started here. Nothing was created.', 'error');
           return;
         }
 
@@ -5123,9 +5147,44 @@
         if (window._swIntegration && window._swIntegration.loadPicker) {
           // Simulate the opportunity selection flow from integration.js
           var cloud = window.SECUREWORKS_CLOUD;
+          try {
+            await window._swIntegration.enterJob('ghl_context', { row: opp, source: 'inline_ghl_contact' });
+          } catch(entryError) {
+            this.showToast(entryError.message, 'error');
+            return;
+          }
           if (!cloud) return;
 
           this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
+
+          // Everything that can fail or change the answer is resolved BEFORE the
+          // form/media reset below. A re-verify that comes back missing or
+          // errored must stop with the scope still on screen, not after it has
+          // already been wiped.
+          var contact = null;
+          var existingJob = null;
+          try {
+            if (opp.contactId) {
+              try {
+                contact = await cloud.ghl.getContact(opp.contactId);
+              } catch(e) {
+                contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+              }
+            } else {
+              contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
+            }
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
+            } catch(e) {
+              throw new Error('Could not re-verify this opportunity mapping. Nothing was linked or created, and your current scope is untouched.');
+            }
+            if (!existingJob || !existingJob.id) {
+              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+            }
+          } catch(e) {
+            this.showToast(e.message, 'error');
+            return;
+          }
 
           // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
           let switchChoice = 'open_separately';
@@ -5143,39 +5202,28 @@
             window._swIntegration.clearPendingNewOpp(opp.contactId);
           }
           const localDraftWins = switchChoice === 'keep_link';
-          if (localDraftWins) {
-            this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
-            this.showToast('GHL lead linked — keeping local iPad edits', 'success');
-          } else {
-            // Reset through the shared integration helper, never a local copy:
-            // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
-            // so the previous client's media cannot upload into this target.
-            window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
-            if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-            window._swIntegration._connectJob(null, null, null);
+          try {
+            if (localDraftWins) {
+              this._checkpointLocalDraftBeforeLoad('inline_ghl_contact_keep_link');
+              this.showToast('GHL lead linked — keeping local iPad edits', 'success');
+            } else {
+              // Reset through the shared integration helper, never a local copy:
+              // it also wipes window.sitePhotos/siteVideo and the _bgUploads queue,
+              // so the previous client's media cannot upload into this target.
+              // It THROWS when the local checkpoint cannot be verified, which is a
+              // safe stop: nothing has been reset yet at that point.
+              window._swIntegration.openFencingTargetSeparately('inline_ghl_contact');
+              if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+              window._swIntegration._connectJob(null, null, null);
+            }
+          } catch(e) {
+            this.showToast(e.message, 'error');
+            return;
           }
 
           try {
-            // Fetch full contact from GHL
-            var contact = null;
-            if (opp.contactId) {
-              try {
-                contact = await cloud.ghl.getContact(opp.contactId);
-              } catch(e) {
-                contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
-              }
-            } else {
-              contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
-            }
-
             // Prefill contact into blank fields only; local iPad edits win.
             if (contact) this._fillEmptyFromContact(contact);
-
-            // Check for existing cloud job linked to this opportunity
-            var existingJob = null;
-            try {
-              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
-            } catch(e) { /* no existing job */ }
 
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0 && !localDraftWins) {
               // Load cloud scope data only when there is no dirty local iPad draft.
@@ -5189,12 +5237,23 @@
               console.log('[FenceSync] Existing cloud scope found; local draft wins and cloud data will not overwrite field edits.');
             }
 
+            // Remember the server cursor BEFORE linking, so the scrub boundary
+            // can re-attach the one cursor that provably belongs to this target.
+            if (window._swIntegration && existingJob && window._swIntegration._rememberScopeCursor) {
+              window._swIntegration._rememberScopeCursor(existingJob);
+            }
+
             // Write the app anchor before connecting integration; _connectJob can arm autosave immediately.
-            this._linkCloudAnchor({ jobId: existingJob ? existingJob.id : null, opportunityId: opp.id, contactId: opp.contactId || null, launchMode: 'ghl_contact' });
+            // Always via linkFencingAnchor, never app._linkCloudAnchor directly:
+            // that is the only path that scrubs the previous job's cursor, ref,
+            // revision anchor and keep_link metadata before save can arm.
+            if (!window._swIntegration || !window._swIntegration.linkFencingAnchor) {
+              throw new Error('Cannot link this lead safely right now — reload the page and try again.');
+            }
+            window._swIntegration.linkFencingAnchor(existingJob ? existingJob.id : null, opp.id, opp.contactId || null, 'ghl_contact');
 
             // Wire up the integration layer so cloud save, auto-save, and sync dot all work.
             if (window._swIntegration) {
-              if (existingJob && window._swIntegration._rememberScopeCursor) window._swIntegration._rememberScopeCursor(existingJob);
               window._swIntegration._connectJob(existingJob ? existingJob.id : null, opp.id, opp.contactId || null);
               // The reset above wiped the media state, so reload this job's own
               // photos/video like every other load path — otherwise the grid sits
