@@ -16,3 +16,7 @@ drafts/
 
 # Local QA screenshot captures
 tests/.evidence/
+test-results/
+
+# Local Node dependencies (Playwright reuses system Chrome)
+node_modules/

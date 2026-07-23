@@ -38,7 +38,7 @@
         search: _noopPromise, getContact: _noopPromise, loadJob: _noopPromise,
         saveScope: _noopPromise, findJobByOpportunity: _noopPromise, listMedia: _noopPromise,
         searchJobs: _noopPromise, linkScope: _noopPromise, createJobForOpportunity: _noopPromise,
-        createContactAndOpportunity: _noopPromise, uploadPhoto: _noopPromise,
+        createContactAndOpportunity: _noopPromise, mintFenceJob: _noopPromise, uploadPhoto: _noopPromise,
       },
       ui: { showGHLPicker: _noop, showJobPicker: _noop, showLoginModal: _noop, showSaveStatus: _noop },
       supabase: null,
@@ -1065,6 +1065,45 @@
       return data;
     },
 
+    // Server-owned fencing identity mint. The request UUID is generated and
+    // persisted by the guarded entry owner before this transport is called.
+    // This command accepts identity/contact fields only: never scope or pricing.
+    async mintFenceJob(input, opts) {
+      if (!_user || !_userProfile || !_orgId) {
+        var authError = new Error('Sign in before creating a cloud fence job');
+        authError.code = 'user_jwt_required';
+        authError.httpStatus = 401;
+        throw authError;
+      }
+      var body = Object.assign({}, input, { organisationId: _orgId });
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=mint_fence_job', _signalOpts(opts, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      }));
+      var data = await _safeJson(res) || {};
+      if (!res.ok) {
+        var err = new Error(data.error || data.message || 'Could not resolve the fence job identity');
+        err.name = 'FenceMintError';
+        err.code = data.code || data.reason || (res.status >= 500 ? 'mint_transport_error' : 'mint_rejected');
+        err.reason = err.code;
+        err.httpStatus = res.status;
+        err.status = res.status;
+        err.requestId = data.requestId || data.request_id || body.requestId;
+        err.details = data.details || data;
+        throw err;
+      }
+      if (!data.jobId || !data.jobNumber || !data.contactId || !data.opportunityId ||
+          String(data.requestId || '') !== String(body.requestId || '')) {
+        var contractError = new Error('Fence mint returned an incomplete or mismatched canonical identity');
+        contractError.code = 'mint_contract_invalid';
+        contractError.httpStatus = 502;
+        contractError.requestId = body.requestId;
+        contractError.details = data;
+        throw contractError;
+      }
+      return data;
+    },
+
     // Create a Supabase job linked to a GHL opportunity (via edge function to bypass RLS)
     async createJobForOpportunity(opportunityId, toolType, contact, opts) {
       console.log('[Cloud] createJobForOpportunity:', opportunityId, toolType);
@@ -1871,11 +1910,9 @@
       var mode = (opts.mode === 'new_job') ? 'new_job' : 'load';
       var hex = (window.SW_BRAND?.HEX) || { orange: '#F15A29', dark: '#293C46', mid: '#4C6A7C' };
       var pipelineKey = (toolType === 'fencing') ? 'fencing' : 'patio';
-      // Browser-side fence job creation is stopped by the guarded entry funnel
-      // until the server mint command lands, so for fencing every new_job
-      // selection rejects with `server_mint_required`. Don't promise a create
-      // this door cannot perform — stay in step with the inline autocomplete.
-      var mintStopped = (mode === 'new_job') && (toolType === 'fencing');
+      // Fencing create selections route through the guarded owner and its
+      // authenticated, idempotent server mint command. The modal only owns the
+      // in-flight lock; it never calls legacy browser create primitives.
 
       // Remove any existing modal
       var existing = document.getElementById('sw-lead-search-dropdown');
@@ -2002,9 +2039,7 @@
         if (phone) html += '<div style="font-size:11px;color:#999;margin-top:1px;">' + _esc(phone) + '</div>';
         // In new_job mode every selectable card explains what tapping does.
         if (mode === 'new_job' && !lookupFailed) {
-          html += mintStopped
-            ? '<div class="sw-lead-subtitle" style="font-size:11px;color:#8E8E93;margin-top:2px;">A new job cannot be started here yet.</div>'
-            : '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
+          html += '<div class="sw-lead-subtitle" style="font-size:11px;color:' + hex.orange + ';margin-top:2px;">Creates a new job for this client</div>';
         }
         html += '</div>';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">';
@@ -2141,8 +2176,9 @@
                   clearTimeout(_flashTimer);
                   // A safe stop is deterministic: re-tapping this row produces
                   // the identical stop. Retire the row instead of re-arming it.
-                  var _safeStop = !!(err && ['server_mint_required', 'ambiguous_identity',
-                    'ambiguous_local_checkpoints', 'identity_lookup_failed'].indexOf(err.code) !== -1);
+                  var _safeStop = !!(err && ['ambiguous_identity', 'ambiguous_local_checkpoints',
+                    'identity_lookup_failed', 'pending_mint_identity_conflict', 'mint_request_uuid_unavailable']
+                    .indexOf(err.code) !== -1);
                   if (_safeStop) {
                     el.setAttribute('data-locked', '1');
                     el.style.pointerEvents = 'none';
@@ -2184,7 +2220,7 @@
                     list.insertBefore(banner, list.firstChild);
                   }
                   if (_safeStop) {
-                    banner.textContent = 'Stopped safely: ' + msg + ' This client cannot be started here yet — retrying will stop the same way.';
+                    banner.textContent = 'Stopped safely: ' + msg + ' Resolve this identity issue before trying again.';
                   } else {
                     banner.textContent = 'Error: ' + msg + ' — tap the client to retry.';
                   }
