@@ -628,35 +628,32 @@ record(
   'the sealed-revision banner and its reserved body padding are removed for the new editable job'
 );
 
-// Review round 3: a safely created job must show its ref immediately. The
-// guarded-entry unit now stops browser minting before this legacy helper, so the
-// lead-search branch must refuse a changed/null mapping rather than create.
+// Review round 3: the canonical server result must arm the returned ref
+// immediately, without restoring either legacy browser create primitive.
 record(
-  'new-job path applies the created job number (review #15)',
-  /_lastJobNumber = job\.job_number \|\| null;/.test(newJobHelper) &&
-    /if \(_lastJobNumber\) _applyJobNumber\(_lastJobNumber\);/.test(newJobHelper) &&
-    /identity_changed_during_entry/.test(integration) &&
-    /server_mint_required/.test(integration),
-  'legacy helper still applies a returned number; guarded lead entry stops unsafe browser minting'
+  'server-minted job applies the canonical job number (review #15)',
+  /_lastJobNumber = result\.jobNumber;/.test(integration) &&
+    /_applyJobNumber\(_lastJobNumber\);/.test(integration) &&
+    /mintFenceJob/.test(integration) &&
+    /action=mint_fence_job/.test(cloud),
+  'the guarded owner applies the canonical server number and never invents one in the browser'
 );
 
 record(
-  'contact-only selection never falls through to the load path (review #7)',
-  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,300}Stopped safely[\s\S]{0,120}return;/.test(index) &&
-    !/startNewJobForContact/.test(index),
-  'selectGHLContact stops contact-only rows safely instead of opening a browser create'
+  'contact-only selection routes to server mint, never the load path (review #7)',
+  /if \(opp\.isContactOnly \|\| opp\.id == null\) \{[\s\S]{0,1000}startNewJobForContact\(opp\)[\s\S]{0,350}return;/.test(index),
+  'selectGHLContact sends contact-only rows through the guarded server-mint owner'
 );
 
 // Review round 5: the autocomplete exposes the same job-minting action as the
 // lead modal, so it must carry the same warning affordances.
 record(
-  'the autocomplete retires contact-only rows like the lead modal (review #20)',
+  'the autocomplete exposes contact-only rows through the guarded mint owner (review #20)',
   /const isContactOnly = opp\.isContactOnly \|\| opp\.id == null;/.test(index) &&
-    /isContactOnly[\s\S]{0,200}>Not available here</.test(index) &&
-    /const inert = isContactOnly \|\| opp\.lookupFailed;/.test(index) &&
-    /inert \? '' : ' onmousedown="app\.selectGHLContact\(' \+ i \+ '\)"'/.test(index) &&
-    !/Creates a new job for this client/.test(index),
-  'a contact-only dropdown row is inert and captioned "Not available here" with no tap handler'
+    /isContactOnly[\s\S]{0,220}>New fence job</.test(index) &&
+    /const inert = !!opp\.lookupFailed;/.test(index) &&
+    /inert \? '' : ' onmousedown="app\.selectGHLContact\(' \+ i \+ '\)"'/.test(index),
+  'contact-only rows are selectable now, while lookup failures stay inert'
 );
 
 // A video-retry timer left armed across a reset re-reads _jobId when it fires,

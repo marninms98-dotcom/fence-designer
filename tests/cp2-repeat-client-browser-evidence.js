@@ -13,8 +13,8 @@
  *
  * It exercises the field flow Khairo hit:
  *   Launch → "4. New job for existing client/lead" → fast lead_search →
- *   pick a repeat client that already has a scoped job → guarded stop until the
- *   serialized server mint command exists (no browser-side duplicate).
+ *   pick a repeat client that already has a scoped job → serialized server mint
+ *   returns one canonical additional job (no browser-side duplicate).
  *
  * Screenshots are written to SCREENSHOT_DIR (default: ./tests/.evidence).
  */
@@ -152,8 +152,15 @@ const bootstrap = `
       return reply({ contact: { id: 'contact-dave', name: 'Dave Nguyen', phone: '0412 884 201',
         email: 'dave@example.com', address: '18 Marlow Way', suburb: 'Canning Vale' } }, 150);
     }
+    if (action === 'mint_fence_job') {
+      return reply({ success: true, requestId: body.requestId, jobId: 'job-2299', jobNumber: 'SWF-2299',
+        contactId: body.contactId || 'contact-dave', opportunityId: 'opp-new-dave-2',
+        mapping: { outcome: 'created', canonicalOutcome: 'created' },
+        revision: { scopeVersion: 1, scopeHash: null, updatedAt: '2026-07-21T02:15:00Z', requiresLoad: false }
+      }, 250);
+    }
     if (action === 'create_contact_and_opportunity') {
-      return reply({ opportunityId: 'opp-new-dave-2', contactId: 'contact-dave' }, 250);
+      return reply({ opportunityId: 'legacy-should-not-run', contactId: 'contact-dave' }, 250);
     }
     if (action === 'create_job') {
       return reply({ job: { id: 'job-2299', job_number: 'SW-2299', status: 'draft',
@@ -303,11 +310,8 @@ async function run() {
     record('fast lead_search action answers the modal (legacy search untouched)',
       /"action":"lead_search"/.test(calls) && !/"action":"search"/.test(calls),
       'calls=' + calls);
-    // Fencing new_job selection stops with server_mint_required, so the card
-    // must NOT promise a create it cannot perform (matches the inline door).
     record('new_job cards explain the action; contact-only + lookupFailed rows are badged',
-      /A new job cannot be started here yet/.test(listText) &&
-      !/Creates a new job for this client/.test(listText) && /Contact/.test(listText) &&
+      /Creates a new job for this client/.test(listText) && /Contact/.test(listText) &&
       /Couldn't check/.test(listText), shot3);
     const lockedRows = await evalIn("document.querySelectorAll('.sw-lead-item[data-locked=\"1\"]').length");
     record('lookupFailed row is not selectable', lockedRows === 1, 'data-locked rows=' + lockedRows);
@@ -319,20 +323,32 @@ async function run() {
     record('typing filters through lead_search and returns the repeat client',
       /Dave Nguyen/.test(await evalIn("document.getElementById('sw-lead-list').innerText")), shot4);
 
-    // ── 5. Repeat-client mint stops safely until the server command exists ──
-    await evalIn("window.__swCalls = []");
+    // ── 5. Repeat-client mint uses the serialized server command ──
+    await evalIn("window.__swCalls = []; window.prompt = function(){ throw new Error('window.prompt must not be used on iPad'); }");
     await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
-    await waitFor(() => evalIn("!!document.getElementById('sw-lead-modal-error')"), 5000, 'guarded mint refusal');
-    const refusal = await evalIn("document.getElementById('sw-lead-modal-error').innerText");
+    // iPad-safe in-app reason collection replaces window.prompt. The confirm
+    // button stays disabled until at least three characters are entered.
+    await waitFor(() => evalIn("!!document.getElementById('fenceRepeatReasonInput')"), 5000, 'in-app repeat-reason modal');
+    const reasonDisabledAtStart = await evalIn("document.getElementById('fenceRepeatReasonConfirm').disabled === true");
+    record('repeat-reason modal replaces window.prompt and gates on a real reason',
+      reasonDisabledAtStart, 'confirm disabled before input=' + reasonDisabledAtStart);
+    await evalIn("(function(){var i=document.getElementById('fenceRepeatReasonInput');i.value='Second property boundary';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await waitFor(() => evalIn("document.getElementById('fenceRepeatReasonConfirm').disabled === false"), 3000, 'reason enables confirm');
+    await evalIn("document.getElementById('fenceRepeatReasonConfirm').click()");
+    await waitFor(() => evalIn("window._swIntegration.getSyncState().jobId === 'job-2299'"), 8000, 'canonical server mint');
     const shot5 = await shot('05-server-mint-required.png');
     const createCalls = JSON.parse(await evalIn("JSON.stringify(window.__swCalls)"));
-    record('repeat-client selection stops with the exact later server requirement',
-      /server mint command/.test(refusal) && /idempotent child/.test(refusal), shot5 + ' | ' + refusal);
-    record('guarded repeat-client entry performs no opportunity, job, scope or load write',
-      !createCalls.some((c) => ['create_contact_and_opportunity', 'create_job', 'save_scope', 'load_job'].includes(c.action)),
+    const mintCall = createCalls.find((c) => c.action === 'mint_fence_job');
+    record('repeat-client selection uses one persisted request UUID and deliberate-repeat evidence',
+      !!mintCall && mintCall.body.intent === 'DELIBERATE_REPEAT' &&
+      mintCall.body.repeatReason === 'Second property boundary' &&
+      JSON.stringify(mintCall.body.expectedExistingJobIds) === JSON.stringify(['job-2261']) &&
+      /^[0-9a-f-]{36}$/i.test(mintCall.body.requestId), shot5);
+    record('guarded repeat-client entry never calls legacy browser create primitives',
+      !createCalls.some((c) => ['create_contact_and_opportunity', 'create_job'].includes(c.action)),
       'actions=' + createCalls.map((c) => c.action).join(','));
-    record('the existing job and current form identity remain untouched',
-      (await evalIn("window._swIntegration.getSyncState().jobId")) == null,
+    record('the canonical server identity becomes the editable job',
+      (await evalIn("window._swIntegration.getSyncState().jobId")) === 'job-2299',
       'jobId=' + await evalIn("window._swIntegration.getSyncState().jobId"));
 
     // ── 6. No-match copy ──
@@ -347,20 +363,23 @@ async function run() {
       /No matches — check spelling or try a phone number\./.test(await evalIn("document.getElementById('sw-lead-list').innerText")), shot7);
 
     // ── 7. AM-H: a scoper mid-draft is asked before anything is created ──
-    await evalIn("(function(){window.app.job.clientFirstName='Half-scoped Jones';window.app.job.phone='0400111222';window.app._ensureFieldSync('evidence_run');window.app.save();window.__swConfirms=[];window.confirm=function(m){window.__swConfirms.push(m);return false;};window.__swCalls=[];})()");
+    await evalIn("(function(){window.app.job.clientFirstName='Half-scoped Jones';window.app.job.phone='0400111222';window.app._ensureFieldSync('evidence_run');window.app.save();window.__swCalls=[];})()");
     await evalIn("(function(){var i=document.querySelector('#sw-lead-search-dropdown input');i.value='Dave';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
     await waitFor(() => evalIn("document.querySelectorAll('.sw-lead-item').length === 1"), 8000, 'row for confirm test');
     await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
-    await new Promise((r) => setTimeout(r, 800));
-    const confirmState = JSON.parse(await evalIn("JSON.stringify({prompts: window.__swConfirms, calls: window.__swCalls.map(function(c){return c.action;}), name: window.app.job.clientFirstName, modalOpen: !!document.getElementById('sw-lead-search-dropdown')})"));
+    // Deliberate-repeat asks for a reason in-app before anything is created;
+    // cancelling it must stop with nothing minted.
+    await waitFor(() => evalIn("!!document.getElementById('fenceRepeatReasonCancel')"), 5000, 'in-app repeat-reason prompt');
+    await evalIn("document.getElementById('fenceRepeatReasonCancel').click()");
+    await new Promise((r) => setTimeout(r, 300));
+    const confirmState = JSON.parse(await evalIn("JSON.stringify({calls: window.__swCalls.map(function(c){return c.action;}), name: window.app.job.clientFirstName, modalOpen: !!document.getElementById('sw-lead-search-dropdown')})"));
     const shot8 = await shot('08-cancelled-create-keeps-draft.png');
     // The re-search that re-rendered the row is expected; nothing that mints an
     // opportunity or a job may run before the scoper says yes.
     const writeCalls = confirmState.calls.filter((a) => a !== 'lead_search');
-    record('a meaningful draft remains untouched when guarded server mint is unavailable',
-      confirmState.prompts.length === 0 && writeCalls.length === 0 &&
-      confirmState.name === 'Half-scoped Jones' && confirmState.modalOpen,
-      shot8 + ' | prompts=' + JSON.stringify(confirmState.prompts) + ', post-tap calls=' + JSON.stringify(confirmState.calls) + ', draftName=' + confirmState.name);
+    record('a meaningful draft can cancel before the server mint is requested',
+      writeCalls.length === 0 && confirmState.name === 'Half-scoped Jones' && confirmState.modalOpen,
+      shot8 + ' | post-tap calls=' + JSON.stringify(confirmState.calls) + ', draftName=' + confirmState.name);
 
     console.log('Repeat-client / fast-lead-search browser evidence');
     for (const row of results) {

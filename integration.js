@@ -504,11 +504,158 @@
     });
   }
 
-  // The guarded fencing entry owner. It deliberately performs identity
-  // resolution before granting a permit to a door. Existing GHL APIs cannot
-  // atomically prove contact/type uniqueness before minting, so unresolved or
-  // ambiguous rows stop here with the exact later server requirement rather
-  // than falling through to the legacy browser mint sequence.
+  function _newFenceMintRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    throw _entryError('mint_request_uuid_unavailable', 'This browser cannot create the required idempotency key. The local draft was kept and nothing was created.');
+  }
+
+  function _fenceMintInput(target, row, intent, resolvedJob) {
+    var displayName = String(row.contactName || row.name || '').trim();
+    var pieces = displayName.split(/\s+/);
+    var expected = [];
+    if (resolvedJob && resolvedJob.id) expected.push(String(resolvedJob.id));
+    (row.existingJobIds || row.expectedExistingJobIds || []).forEach(function(id) {
+      if (id && expected.indexOf(String(id)) === -1) expected.push(String(id));
+    });
+    expected.sort();
+    var repeatReason = target.repeatReason || null;
+    if (intent === 'DELIBERATE_REPEAT' && String(repeatReason || '').trim().length < 3) {
+      throw _entryError('repeat_reason_required', 'Starting another fencing job requires a short reason. Nothing was created.');
+    }
+    return {
+      intent: intent,
+      contactId: row.contactId || null,
+      // A deliberate repeat needs a fresh opportunity. Supplying the completed
+      // source opportunity is defined by the server contract as canonical
+      // re-entry and must return the old job, never mint new work.
+      opportunityId: intent === 'DELIBERATE_REPEAT' ? null : (row.id || row.opportunityId || null),
+      firstName: row.firstName || row.contactFirstName || pieces[0] || '',
+      lastName: row.lastName || row.contactLastName || pieces.slice(1).join(' ') || '',
+      email: row.contactEmail || row.email || '',
+      phone: row.contactPhone || row.phone || '',
+      address: row.address || row.siteAddress || row.contactAddress || '',
+      suburb: row.suburb || row.siteSuburb || '',
+      expectedExistingJobIds: expected,
+      repeatReason: repeatReason ? String(repeatReason).trim() : null
+    };
+  }
+
+  function _mintFingerprint(input) {
+    return JSON.stringify({
+      intent: input.intent, contactId: input.contactId || null,
+      opportunityId: input.opportunityId || null,
+      email: String(input.email || '').trim().toLowerCase(),
+      phone: String(input.phone || '').replace(/\D/g, ''),
+      expectedExistingJobIds: input.expectedExistingJobIds || [],
+      repeatReason: input.repeatReason || null
+    });
+  }
+
+  async function _mintFenceCanonical(target, row, intent, resolvedJob) {
+    if (!cloud || !cloud.ghl || typeof cloud.ghl.mintFenceJob !== 'function') {
+      throw _entryError('server_mint_unavailable', 'The server-owned fence job command is unavailable. The local draft was kept.');
+    }
+    if (!window.app || !window.app.job) {
+      throw _entryError('local_identity_unavailable', 'The local fence identity could not be persisted. Nothing was created.');
+    }
+    var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
+    if (intent === 'DELIBERATE_REPEAT' && String(target.repeatReason || '').trim().length < 3) {
+      var collectedReason = await _collectRepeatReason(row);
+      if (collectedReason == null) throw _entryError('cancelled', 'The current fence draft was kept. Nothing was created.');
+      target.repeatReason = collectedReason;
+    }
+    var input = _fenceMintInput(target, row, intent, resolvedJob);
+    var fingerprint = _mintFingerprint(input);
+    if (fs.pendingMintRequestId && fs.pendingMintFingerprint && fs.pendingMintFingerprint !== fingerprint) {
+      throw _entryError('pending_mint_identity_conflict', 'A different fence job request is still unresolved on this iPad. Reopen or reconcile it before starting another.');
+    }
+    input.requestId = fs.pendingMintRequestId || _newFenceMintRequestId();
+
+    if (_hasDirtyFencingDraft()) {
+      _checkpointLocalDraftBeforeLoad('server_mint_preflight');
+      if (target.source !== 'local_save_promotion') {
+        var switchChoice = await _resolveFencingTargetSwitch('server_mint', {
+          opportunityId: row.id || row.opportunityId || null,
+          label: row.contactName || row.name || 'the new fence job'
+        });
+        if (switchChoice === 'cancel') throw _entryError('cancelled', 'The current fence draft was kept. Nothing was created.');
+        target.switchChoice = switchChoice;
+      }
+    } else {
+      target.switchChoice = 'open_separately';
+    }
+
+    fs.pendingMintRequestId = input.requestId;
+    fs.pendingMintFingerprint = fingerprint;
+    fs.pendingMintIntent = intent;
+    fs.pendingMintStartedAt = fs.pendingMintStartedAt || new Date().toISOString();
+    // Persist after the operator's switch choice but before the first network
+    // call. A lost response or reload replays this UUID; cancelling leaves no
+    // phantom request behind.
+    if (typeof window.app.save === 'function') window.app.save();
+    var persistedRequestId = null;
+    try {
+      var persistedDraft = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+      persistedRequestId = persistedDraft && persistedDraft._fieldSync && persistedDraft._fieldSync.pendingMintRequestId;
+    } catch(_persistReadError) {}
+    if (String((window.app.job._fieldSync || {}).pendingMintRequestId || '') !== String(input.requestId) ||
+        String(persistedRequestId || '') !== String(input.requestId)) {
+      throw _entryError('mint_request_checkpoint_failed', 'Could not verify the fence job request on this iPad. Nothing was created.');
+    }
+
+    var mintAbort = new AbortController();
+    var mintTimedOut = false;
+    var mintTimer = setTimeout(function() {
+      mintTimedOut = true;
+      try { mintAbort.abort(); } catch(_abortError) {}
+    }, _NEW_JOB_TIMEOUT_MS);
+    var result;
+    try {
+      result = await cloud.ghl.mintFenceJob(input, { signal: mintAbort.signal });
+    } catch(mintError) {
+      if (mintTimedOut) {
+        var timeoutError = _entryError('timeout', 'Timed out before the server result was confirmed. Search again; retrying this client will reuse the same request and cannot create a duplicate.');
+        timeoutError.requestId = input.requestId;
+        throw timeoutError;
+      }
+      throw mintError;
+    } finally {
+      clearTimeout(mintTimer);
+    }
+    fs.completedMintCanonical = {
+      requestId: result.requestId,
+      jobId: result.jobId,
+      jobNumber: result.jobNumber,
+      contactId: result.contactId,
+      opportunityId: result.opportunityId,
+      mappingOutcome: result.mapping && result.mapping.outcome || null,
+      savedAt: new Date().toISOString()
+    };
+    if (typeof window.app.save === 'function') window.app.save();
+    var persistedCanonical = null;
+    try {
+      var canonicalDraft = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+      persistedCanonical = canonicalDraft && canonicalDraft._fieldSync && canonicalDraft._fieldSync.completedMintCanonical;
+    } catch(_canonicalReadError) {}
+    if (!persistedCanonical || String(persistedCanonical.requestId || '') !== String(result.requestId || '') ||
+        String(persistedCanonical.jobId || '') !== String(result.jobId || '')) {
+      throw _entryError('mint_canonical_checkpoint_failed', 'The server resolved the job but this iPad could not verify the result locally. Retry uses the same request and cannot create a duplicate.');
+    }
+    delete fs.pendingMintRequestId;
+    delete fs.pendingMintFingerprint;
+    delete fs.pendingMintIntent;
+    delete fs.pendingMintStartedAt;
+    if (typeof window.app.save === 'function') window.app.save();
+    target.mintResult = result;
+    target.jobId = result.jobId;
+    row.supabaseJobId = result.jobId;
+    row._supabaseJobId = result.jobId;
+    return result;
+  }
+
+  // The guarded fencing entry owner. It resolves GHL/Supabase/local history
+  // first, then delegates every unresolved identity to the authenticated,
+  // serialized server mint command. Browser create primitives stay unreachable.
   async function _enterJob(intent, target) {
     target = target || {};
     var allowed = ['new_local', 'resume_local', 'ghl_context', 'existing_job', 'editable_scope', 'frozen_revision', 'amendment'];
@@ -553,21 +700,16 @@
         throw _entryError('ambiguous_identity', 'Multiple Supabase jobs map to this GHL context. Choose a specific job; no new job was created.');
       }
       if (!resolvedJob || !resolvedJob.id) {
-        _recordEntry(intent, target, 'server_mint_required');
-        throw _entryError(
-          'server_mint_required',
-          'No safely resolved fence job exists for this GHL context. A later server mint command must atomically search scope history, serialize contact/type deduplication, and return one idempotent job. Nothing was created.'
-        );
-      }
-      row.supabaseJobId = resolvedJob.id;
-      row._supabaseJobId = resolvedJob.id;
-      target.jobId = resolvedJob.id;
-      if (target.requestNew) {
-        _recordEntry(intent, target, 'server_repeat_mint_required');
-        throw _entryError(
-          'server_mint_required',
-          'A new fence job for this client requires the later server mint command to serialize contact/type deduplication and return an idempotent child. The existing job was left unchanged.'
-        );
+        _recordEntry(intent, target, 'server_mint_requested');
+        await _mintFenceCanonical(target, row, 'RESOLVED_NO_JOB', null);
+      } else if (target.requestNew) {
+        _recordEntry(intent, target, 'server_repeat_mint_requested');
+        await _mintFenceCanonical(target, row, 'DELIBERATE_REPEAT', resolvedJob);
+      } else {
+        row.supabaseJobId = resolvedJob.id;
+        row._supabaseJobId = resolvedJob.id;
+        target.jobId = resolvedJob.id;
+        target.resolvedJob = resolvedJob;
       }
     }
 
@@ -602,7 +744,9 @@
     var priorIdentityVersion = Number(fs.identityVersion) || 0;
 
     ['baseScopeHash', 'currentScopeHash', 'scopeUpdatedAt', 'lastCloudCursorAt', 'scopeCursorJobId',
-      'scopeCursorProvenance', 'syncAnchorRevisionId', 'keep_link_job_id'].forEach(function(key) { delete fs[key]; });
+      'scopeCursorProvenance', 'syncAnchorRevisionId', 'keep_link_job_id', 'pendingMintRequestId',
+      'pendingMintFingerprint', 'pendingMintIntent', 'pendingMintStartedAt', 'completedMintCanonical']
+      .forEach(function(key) { delete fs[key]; });
     // Pending operations describe the identity being left. They remain in that
     // job's checkpoint/offline journal and must never be replayed as ownership
     // evidence for the target.
@@ -638,6 +782,51 @@
       _scopeCursorJobId = priorScopeCursorJobId;
       throw _entryError('identity_rebind_failed', 'Could not verify the new fence identity. The target was not armed for saving.');
     }
+  }
+
+  function _collectRepeatReason(row) {
+    var label = (row && (row.contactName || row.name)) || 'this client';
+    if (typeof document === 'undefined' || !document.body) return Promise.resolve(null);
+    var safeLabel = String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return new Promise(function(resolve) {
+      var existing = document.getElementById('fenceRepeatReasonModal');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'fenceRepeatReasonModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.74);z-index:10075;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+      overlay.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
+        '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:19px;font-weight:800;">Another fencing job</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Why does ' + safeLabel + ' need a second fencing job?</div></div>' +
+        '<div style="padding:18px 22px;display:grid;gap:12px;">' +
+          '<textarea id="fenceRepeatReasonInput" rows="3" placeholder="e.g. second property boundary" style="width:100%;box-sizing:border-box;border:1px solid #D4DEE4;border-radius:10px;padding:12px;font-size:15px;resize:vertical;"></textarea>' +
+          '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+            '<button id="fenceRepeatReasonCancel" style="border:1px solid #D1D5DB;background:#fff;border-radius:10px;padding:12px 16px;cursor:pointer;font-size:14px;color:#374151;">Cancel</button>' +
+            '<button id="fenceRepeatReasonConfirm" disabled style="border:1px solid #F15A29;background:#F15A29;border-radius:10px;padding:12px 16px;cursor:not-allowed;font-size:14px;color:#fff;font-weight:700;opacity:0.5;">Start job</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(overlay);
+      var input = document.getElementById('fenceRepeatReasonInput');
+      var confirmBtn = document.getElementById('fenceRepeatReasonConfirm');
+      var done = function(value) {
+        var el = document.getElementById('fenceRepeatReasonModal');
+        if (el) el.remove();
+        resolve(value);
+      };
+      var sync = function() {
+        var ok = String(input.value || '').trim().length >= 3;
+        confirmBtn.disabled = !ok;
+        confirmBtn.style.opacity = ok ? '1' : '0.5';
+        confirmBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+      };
+      input.addEventListener('input', sync);
+      confirmBtn.onclick = function() {
+        var v = String(input.value || '').trim();
+        if (v.length < 3) return;
+        done(v);
+      };
+      document.getElementById('fenceRepeatReasonCancel').onclick = function() { done(null); };
+      setTimeout(function() { try { input.focus(); } catch(_) {} }, 0);
+    });
   }
 
   function _resolveFencingTargetSwitch(source, target) {
@@ -1113,21 +1302,63 @@
     }
   }
 
-  // PARKED for fencing (2026-07). This is the browser-side repeat-client /
-  // contact-only create sequence (C3, AM-A, AM-H). The guarded entry funnel now
-  // stops every fencing repeat-client request with `server_mint_required`, so
-  // for fencing this body is unreachable and is retained only until the
-  // serialized idempotent server mint command lands and this path is rewritten
-  // to call it. Non-fencing tools still use it unchanged. Do not re-open a
-  // fencing door onto it.
+  async function _applyFenceMintCanonical(row, permit, launchMode) {
+    _requireEntryPermit(permit, ['ghl_context']);
+    var result = permit.target && permit.target.mintResult;
+    if (!result || !result.jobId) throw _entryError('mint_contract_invalid', 'The server did not return a canonical fence job. The current draft was kept.');
+    var requiresLoad = !!(result.revision && result.revision.requiresLoad);
+    var keepLocal = permit.target.source === 'local_save_promotion' || permit.target.switchChoice === 'keep_link';
+
+    // A reused job may now contain real scope. Unless the operator EXPLICITLY
+    // chose keep-current (keep_link), route through the normal direct-link owner
+    // so frozen jobs redirect read-only and editable scope is hydrated, never
+    // blanked. local_save_promotion is an implicit source flag, not an explicit
+    // keep choice, so it must not silently overwrite an existing non-empty scope.
+    if (requiresLoad && permit.target.switchChoice !== 'keep_link') {
+      _checkpointLocalDraftBeforeLoad('server_mint_reused_job');
+      window.location.href = window.location.pathname + '?jobId=' + encodeURIComponent(result.jobId);
+      return { jobId: result.jobId, opportunityId: result.opportunityId, requiresLoad: true };
+    }
+
+    if (cloud) cloud.stopAutoSave();
+    if (!keepLocal) _openFencingTargetSeparately('server_mint_new_job');
+    _jobId = result.jobId;
+    _ghlOpportunityId = result.opportunityId;
+    _ghlContactId = result.contactId;
+    _lastJobNumber = result.jobNumber;
+    _jobStatus = 'draft';
+    _isReadonly = false;
+    document.documentElement.classList.remove('readonly-mode');
+    _clearFrozenViewerChrome();
+
+    var revision = result.revision || {};
+    if (revision.scopeHash) {
+      _baseScopeHash = revision.scopeHash;
+      _baseScopeUpdatedAt = revision.updatedAt || null;
+      _scopeCursorJobId = result.jobId;
+    } else {
+      _baseScopeHash = null;
+      _baseScopeUpdatedAt = null;
+      _scopeCursorJobId = null;
+    }
+    _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, launchMode || 'server_mint');
+    _prefillContact({
+      name: row.contactName || row.name || '', email: row.contactEmail || row.email || '',
+      phone: row.contactPhone || row.phone || '', address: row.address || row.siteAddress || '',
+      suburb: row.suburb || row.siteSuburb || ''
+    });
+    _applyJobNumber(_lastJobNumber);
+    window.history.replaceState({}, '', window.location.pathname + '?jobId=' + encodeURIComponent(_jobId));
+    updateUI();
+    if (_shouldAutoSave()) cloud.startAutoSave(_jobId, _getStateFn, 30000);
+    return { jobId: _jobId, opportunityId: _ghlOpportunityId, requiresLoad: requiresLoad };
+  }
+
+  // Fencing uses the server-owned mint result already obtained by _enterJob.
+  // The legacy two-browser-call body remains unchanged for non-fencing tools.
   async function _startNewJobForContact(row, permit) {
     _requireEntryPermit(permit, ['ghl_context']);
-    if (_toolType === 'fencing') {
-      throw _entryError(
-        'server_mint_required',
-        'Creating a new fence job for an existing client is not available in the browser. The later server mint command must serialize contact/type deduplication and return one idempotent job. Nothing was created.'
-      );
-    }
+    if (_toolType === 'fencing') return _applyFenceMintCanonical(row, permit, 'server_mint_contact');
     if (!row) throw new Error('No client selected');
     var displayName = row.contactName || row.name || row.contactPhone || 'this client';
 
@@ -2069,16 +2300,50 @@
 
         if (!_jobId || (_jobId && _jobId.indexOf('local-') === 0)) {
           if (_toolType === 'fencing') {
-            // Local scoping remains available, but identity creation is a
-            // destructive transition. The existing two browser calls cannot
-            // atomically search historical NULL mappings or serialize contact /
-            // type deduplication, so this unit stops instead of minting around
-            // the guarded entry owner.
-            throw _entryError(
-              'server_mint_required',
-              'This local fence draft is safe on the iPad but cannot be promoted yet. The later server mint command must resolve scope history and return one idempotent job before cloud save.'
-            );
-          }
+            _checkpointLocalDraftBeforeLoad('local_save_promotion');
+            var localName = String(meta.client_name || '').trim().split(/\s+/);
+            var promotionRow = {
+              id: _ghlOpportunityId || null,
+              contactId: _ghlContactId || null,
+              contactName: meta.client_name || '',
+              firstName: state.job && state.job.clientFirstName || localName[0] || '',
+              lastName: state.job && state.job.clientLastName || localName.slice(1).join(' ') || '',
+              contactPhone: meta.client_phone || '',
+              contactEmail: meta.client_email || '',
+              address: meta.site_address || '',
+              suburb: meta.site_suburb || ''
+            };
+            var promotionPermit = await _enterJob('ghl_context', {
+              row: promotionRow,
+              source: 'local_save_promotion',
+              requestNew: false
+            });
+            if (!promotionPermit.target.mintResult && promotionPermit.target.resolvedJob) {
+              var resolved = promotionPermit.target.resolvedJob;
+              promotionPermit.target.mintResult = {
+                requestId: null,
+                jobId: resolved.id,
+                jobNumber: resolved.job_number || '',
+                contactId: resolved.ghl_contact_id || _ghlContactId,
+                opportunityId: resolved.ghl_opportunity_id || _ghlOpportunityId,
+                mapping: { outcome: 'existing_job_reused' },
+                revision: {
+                  scopeHash: resolved.current_scope_hash || null,
+                  updatedAt: resolved.current_scope_updated_at || resolved.updated_at || null,
+                  requiresLoad: true
+                }
+              };
+            }
+            var promotionOutcome = await _applyFenceMintCanonical(promotionRow, promotionPermit, 'local_save_promotion');
+            // The opportunity already maps to an existing cloud scope: the draft
+            // was checkpointed and the direct-link owner (triggered by the
+            // redirect) will hydrate/reconcile it. Bail before any write so the
+            // existing scope is never overwritten by this promotion.
+            if (promotionOutcome && promotionOutcome.requiresLoad) return;
+            // Re-read after the identity scrub/rebind so the first cloud write
+            // cannot carry the local draft's old ref or ownership metadata.
+            state = _getStateFn();
+          } else {
           // Use DOM fields first, then prompt as last resort
           if (!meta.client_name) meta.client_name = (document.getElementById('customerName') || {}).value || '';
 
@@ -2116,6 +2381,7 @@
 
           var newUrl = window.location.pathname + '?jobId=' + _jobId;
           window.history.replaceState({}, '', newUrl);
+          }
         }
 
         // Save via edge function (bypasses RLS)
@@ -2523,12 +2789,15 @@
       cloud.ui.showGHLPicker(_toolType, async function(opp) {
         console.log('[Integration] GHL opportunity selected:', opp.id, opp.contactName);
         try {
-          await _enterJob('ghl_context', { row: opp, source: 'loadPicker' });
-          var switchChoice = await _resolveFencingTargetSwitch('loadPicker', {
-            jobId: opp._supabaseJobId || null,
-            opportunityId: opp.id,
-            label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
-          });
+          var pickerPermit = await _enterJob('ghl_context', { row: opp, source: 'loadPicker' });
+          // Reuse the mint preflight's decision when it already asked, so a dirty
+          // draft is never prompted for the same target switch twice.
+          var switchChoice = (pickerPermit && pickerPermit.target && pickerPermit.target.switchChoice) ||
+            await _resolveFencingTargetSwitch('loadPicker', {
+              jobId: opp._supabaseJobId || opp.supabaseJobId || null,
+              opportunityId: opp.id,
+              label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
+            });
           if (switchChoice === 'cancel') return;
           _clearPendingNewOpp(opp.contactId);
           _ghlOpportunityId = opp.id;
@@ -2601,15 +2870,31 @@
             }
           }
 
-          // Check if a Supabase job already exists for this opportunity + tool type
-          // Passing _toolType prevents cross-division overwrite (patio vs fencing)
+          // The guarded preflight (_enterJob) already resolved or minted the
+          // canonical Supabase job id and stamped it on the row/permit. Consume
+          // it directly — a second findJobByOpportunity here is replication
+          // sensitive and could miss a freshly minted job, orphaning it.
+          var resolvedJobId = opp.supabaseJobId || opp._supabaseJobId ||
+            (pickerPermit && pickerPermit.target && pickerPermit.target.jobId) || null;
           var existingJob = null;
-          try {
-            existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
-            console.log('[Integration] Existing job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
-            _rememberScopeCursor(existingJob);
-          } catch(e) {
-            console.warn('[Integration] findJobByOpportunity failed:', e);
+          if (resolvedJobId) {
+            try {
+              existingJob = await cloud.ghl.loadJob(resolvedJobId);
+              console.log('[Integration] Canonical job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
+              _rememberScopeCursor(existingJob);
+            } catch(e) {
+              console.warn('[Integration] loadJob failed:', e);
+            }
+          } else if (_toolType !== 'fencing') {
+            // Non-fencing tools skip the guarded resolve/mint preflight, so
+            // _enterJob never stamps a canonical id. Retain the established
+            // tool-agnostic load-existing-job lookup for them.
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
+              _rememberScopeCursor(existingJob);
+            } catch(e) {
+              console.warn('[Integration] findJobByOpportunity failed:', e);
+            }
           }
 
           if (existingJob) {
@@ -2672,7 +2957,7 @@
         console.log('[Integration] Lead selected:', lead.id, lead.contactName, 'mode:', mode);
         var entryPermit;
         try {
-          entryPermit = await _enterJob('ghl_context', { row: lead, source: 'lead_search', requestNew: mode === 'new_job' || lead.isContactOnly || lead.id == null });
+          entryPermit = await _enterJob('ghl_context', { row: lead, source: 'lead_search', requestNew: mode === 'new_job' });
         } catch(entryError) {
           console.warn('[FenceEntry] Lead entry stopped:', entryError);
           // Create-mode selection is awaited by the modal; reject so it unlocks
@@ -2691,11 +2976,14 @@
           return _startNewJobForContact(lead, entryPermit);
         }
         try {
-          var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
-            jobId: lead.supabaseJobId || null,
-            opportunityId: lead.id,
-            label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
-          });
+          // Reuse the mint preflight's decision when it already asked, so a dirty
+          // draft is never prompted for the same target switch twice.
+          var switchChoice = (entryPermit && entryPermit.target && entryPermit.target.switchChoice) ||
+            await _resolveFencingTargetSwitch('lead_search', {
+              jobId: lead.supabaseJobId || null,
+              opportunityId: lead.id,
+              label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
+            });
           if (switchChoice === 'cancel') return;
           _clearPendingNewOpp(lead.contactId);
           _ghlOpportunityId = lead.id;

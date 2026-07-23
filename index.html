@@ -1778,7 +1778,17 @@
     // Async: fetch live pricing from scope_tool_defaults via cloud.js (non-blocking)
     // Falls back to hardcoded JS defaults if offline or cloud.js not loaded
     (function loadDbFencePrices() {
-      if (!window.SECUREWORKS_CLOUD || !window.SECUREWORKS_CLOUD.pricing) { setFencePriceSource(null); return; }
+      // This inline app script runs before cloud.js at the bottom of the page.
+      // Wait for the window load once instead of permanently declaring fallback
+      // before the live pricing client has had a chance to initialise.
+      if (!window.SECUREWORKS_CLOUD || !window.SECUREWORKS_CLOUD.pricing) {
+        if (document.readyState === 'loading') {
+          window.addEventListener('load', loadDbFencePrices, { once: true });
+          return;
+        }
+        setFencePriceSource(null);
+        return;
+      }
       SECUREWORKS_CLOUD.pricing.getDefaults('fence-designer').then(function(result) {
         if (!result) { setFencePriceSource(null); return; }
         var d = result.defaults;
@@ -1852,7 +1862,9 @@
         el.style.background = '#D1FAE5';
         el.style.color = '#065F46';
       } else {
-        el.textContent = '⚠ OFFLINE — built-in fallback prices';
+        el.textContent = navigator.onLine
+          ? '⚠ Live price table unavailable — fallback prices'
+          : '⚠ OFFLINE — built-in fallback prices';
         el.style.background = '#FEF3CD';
         el.style.color = '#92400E';
       }
@@ -5102,14 +5114,13 @@
           const phoneLeadLabel = opp.contactPhone ? ('Phone lead ' + opp.contactPhone) : 'Unnamed lead';
           const displayName = opp.contactName || opp.name || phoneLeadLabel;
           const subtitle = [opp.contactPhone, opp.contactEmail, opp.stageName].filter(Boolean).join(' · ');
-          // A contact-only row has no opportunity to load, and browser-side
-          // fence job creation is stopped by the guarded entry funnel until the
-          // server mint command lands. Render it inert with the same wording the
-          // lead-search modal uses instead of promising a create that cannot run.
+          // Contact-only rows are valid create entries now that the guarded
+          // owner delegates identity minting to the serialized server command.
+          // Only lookup failures remain inert.
           const isContactOnly = opp.isContactOnly || opp.id == null;
-          const inert = isContactOnly || opp.lookupFailed;
+          const inert = !!opp.lookupFailed;
           const badge = isContactOnly
-            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#8E8E9320;color:#8E8E93;font-weight:600;flex-shrink:0;">Not available here</span>'
+            ? '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#F15A2920;color:#F15A29;font-weight:600;flex-shrink:0;">New fence job</span>'
             : '';
           return '<div class="address-dropdown-item" data-idx="' + i + '"' +
             (inert ? '' : ' onmousedown="app.selectGHLContact(' + i + ')"') +
@@ -5118,7 +5129,7 @@
             '<div style="flex:1;min-width:0;">' +
               '<div style="font-weight:600;color:#293C46;">' + this._esc(displayName) + '</div>' +
               (subtitle ? '<div style="font-size:12px;color:#4C6A7C;margin-top:2px;">' + this._esc(subtitle) + '</div>' : '') +
-              (isContactOnly ? '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">No job exists for this client yet — cannot be started here.</div>' : '') +
+              (isContactOnly ? '<div style="font-size:11px;color:#F15A29;margin-top:2px;">No fence job yet — starts one safely.</div>' : '') +
             '</div>' + badge +
           '</div>';
         }).join('');
@@ -5132,14 +5143,21 @@
         if (opp.lookupFailed) return; // couldn't check this contact — not selectable
         this.hideClientNameDropdown();
 
-        // Contact-only row (no opportunity in this pipeline) — there is nothing
-        // to load, and browser-side fence job creation is stopped by the guarded
-        // entry funnel until the serialized idempotent server mint command
-        // lands. Stop here rather than opening a create overlay that can only
-        // end in `server_mint_required`. Never call findJobByOpportunity with a
-        // null opp id.
+        // Contact-only rows have nothing to load. Route them through the same
+        // guarded owner as the launcher; it resolves history, persists one mint
+        // request UUID, and calls the serialized server command. Never call the
+        // legacy browser create pair or findJobByOpportunity with a null id.
         if (opp.isContactOnly || opp.id == null) {
-          this.showToast('Stopped safely: no fence job exists for this client yet, and one cannot be started here. Nothing was created.', 'error');
+          if (!window._swIntegration || !window._swIntegration.startNewJobForContact) return;
+          this._showCreatingJobOverlay(opp.contactName || opp.name || opp.contactPhone || 'client');
+          try {
+            await window._swIntegration.startNewJobForContact(opp);
+            this.showToast('Fence job ready', 'success');
+          } catch(entryError) {
+            this.showToast(entryError.message || 'Could not start the fence job', 'error');
+          } finally {
+            this._hideCreatingJobOverlay();
+          }
           return;
         }
 
@@ -5147,8 +5165,9 @@
         if (window._swIntegration && window._swIntegration.loadPicker) {
           // Simulate the opportunity selection flow from integration.js
           var cloud = window.SECUREWORKS_CLOUD;
+          var entryPermit;
           try {
-            await window._swIntegration.enterJob('ghl_context', { row: opp, source: 'inline_ghl_contact' });
+            entryPermit = await window._swIntegration.enterJob('ghl_context', { row: opp, source: 'inline_ghl_contact' });
           } catch(entryError) {
             this.showToast(entryError.message, 'error');
             return;
@@ -5157,10 +5176,18 @@
 
           this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
 
+          // enterJob is the guarded owner: it has already resolved OR minted the
+          // canonical Supabase job for this opportunity and stamped its id onto
+          // opp.supabaseJobId. Consume that id directly. Re-resolving via
+          // findJobByOpportunity could miss a just-minted job on replication lag
+          // and strand the freshly created job.
+          var resolvedJobId = opp.supabaseJobId || opp._supabaseJobId ||
+            (entryPermit && entryPermit.target && entryPermit.target.jobId) || null;
+
           // Everything that can fail or change the answer is resolved BEFORE the
-          // form/media reset below. A re-verify that comes back missing or
-          // errored must stop with the scope still on screen, not after it has
-          // already been wiped.
+          // form/media reset below. A load that comes back missing or errored
+          // must stop with the scope still on screen, not after it has already
+          // been wiped.
           var contact = null;
           var existingJob = null;
           try {
@@ -5173,27 +5200,35 @@
             } else {
               contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
             }
+            if (!resolvedJobId) {
+              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+            }
             try {
-              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
+              existingJob = await cloud.ghl.loadJob(resolvedJobId);
             } catch(e) {
-              throw new Error('Could not re-verify this opportunity mapping. Nothing was linked or created, and your current scope is untouched.');
+              throw new Error('Could not load the resolved fence job. Nothing was changed, and your current scope is untouched.');
             }
             if (!existingJob || !existingJob.id) {
-              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+              throw new Error('The resolved fence job could not be loaded. Search again; your current scope is untouched.');
             }
           } catch(e) {
             this.showToast(e.message, 'error');
             return;
           }
 
-          // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
-          let switchChoice = 'open_separately';
-          if (window._swIntegration.resolveFencingTargetSwitch) {
+          // Dirty target-switch guard: do not auto-link a local draft to a
+          // different GHL/Supabase target. When enterJob's mint preflight already
+          // asked (permit.target.switchChoice is set), reuse that single decision
+          // rather than prompting the operator a second time for the same draft.
+          let switchChoice = (entryPermit && entryPermit.target && entryPermit.target.switchChoice) || null;
+          if (!switchChoice && window._swIntegration.resolveFencingTargetSwitch) {
             switchChoice = await window._swIntegration.resolveFencingTargetSwitch('inline_ghl_contact', {
+              jobId: resolvedJobId,
               opportunityId: opp.id,
               label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
             });
           }
+          if (!switchChoice) switchChoice = 'open_separately';
           if (switchChoice === 'cancel') return;
           // Linking a real opportunity row settles any earlier failed new-job
           // attempt for this contact, so its cached orphan opportunity must not
