@@ -2885,6 +2885,16 @@
             } catch(e) {
               console.warn('[Integration] loadJob failed:', e);
             }
+          } else if (_toolType !== 'fencing') {
+            // Non-fencing tools skip the guarded resolve/mint preflight, so
+            // _enterJob never stamps a canonical id. Retain the established
+            // tool-agnostic load-existing-job lookup for them.
+            try {
+              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
+              _rememberScopeCursor(existingJob);
+            } catch(e) {
+              console.warn('[Integration] findJobByOpportunity failed:', e);
+            }
           }
 
           if (existingJob) {

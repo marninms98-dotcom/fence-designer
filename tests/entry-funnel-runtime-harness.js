@@ -60,8 +60,15 @@ function sourceContract() {
     'loadPicker consumes the resolved/minted job id');
   assert(/cloud\.ghl\.loadJob\(resolvedJobId\)/.test(loadPickerBody),
     'loadPicker loads the resolved id directly');
-  assert(!/findJobByOpportunity\(opp\.id/.test(loadPickerBody),
-    'loadPicker never re-resolves by opportunity after the guarded preflight');
+  // Fencing must NEVER re-resolve after the guarded preflight (replication race
+  // would orphan a freshly minted job). The only permitted findJobByOpportunity
+  // is the non-fencing load-existing-job fallback, since _enterJob does not
+  // resolve/mint for non-fencing tools and would otherwise throw on a real job.
+  assert(/else if \(_toolType !== 'fencing'\)[\s\S]{0,300}findJobByOpportunity\(opp\.id/.test(loadPickerBody),
+    'loadPicker re-resolves by opportunity only inside the non-fencing guard');
+  const preFallback = loadPickerBody.slice(0, loadPickerBody.search(/else if \(_toolType !== 'fencing'\)/));
+  assert(!/findJobByOpportunity\(opp\.id/.test(preFallback),
+    'loadPicker never re-resolves by opportunity on the fencing path');
 
   // A local_save_promotion into an EXISTING scoped job must not clobber it:
   // requiresLoad routes through the redirect (unless the operator explicitly
