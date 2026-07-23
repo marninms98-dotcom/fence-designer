@@ -324,8 +324,17 @@ async function run() {
       /Dave Nguyen/.test(await evalIn("document.getElementById('sw-lead-list').innerText")), shot4);
 
     // ── 5. Repeat-client mint uses the serialized server command ──
-    await evalIn("window.__swCalls = []; window.prompt = function(){ return 'Second property boundary'; }");
+    await evalIn("window.__swCalls = []; window.prompt = function(){ throw new Error('window.prompt must not be used on iPad'); }");
     await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
+    // iPad-safe in-app reason collection replaces window.prompt. The confirm
+    // button stays disabled until at least three characters are entered.
+    await waitFor(() => evalIn("!!document.getElementById('fenceRepeatReasonInput')"), 5000, 'in-app repeat-reason modal');
+    const reasonDisabledAtStart = await evalIn("document.getElementById('fenceRepeatReasonConfirm').disabled === true");
+    record('repeat-reason modal replaces window.prompt and gates on a real reason',
+      reasonDisabledAtStart, 'confirm disabled before input=' + reasonDisabledAtStart);
+    await evalIn("(function(){var i=document.getElementById('fenceRepeatReasonInput');i.value='Second property boundary';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await waitFor(() => evalIn("document.getElementById('fenceRepeatReasonConfirm').disabled === false"), 3000, 'reason enables confirm');
+    await evalIn("document.getElementById('fenceRepeatReasonConfirm').click()");
     await waitFor(() => evalIn("window._swIntegration.getSyncState().jobId === 'job-2299'"), 8000, 'canonical server mint');
     const shot5 = await shot('05-server-mint-required.png');
     const createCalls = JSON.parse(await evalIn("JSON.stringify(window.__swCalls)"));
@@ -358,8 +367,10 @@ async function run() {
     await evalIn("(function(){var i=document.querySelector('#sw-lead-search-dropdown input');i.value='Dave';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
     await waitFor(() => evalIn("document.querySelectorAll('.sw-lead-item').length === 1"), 8000, 'row for confirm test');
     await evalIn("document.querySelector('.sw-lead-item[data-idx=\"0\"]').click()");
-    await waitFor(() => evalIn("!!document.getElementById('targetCancelBtn')"), 5000, 'dirty-draft switch choice');
-    await evalIn("document.getElementById('targetCancelBtn').click()");
+    // Deliberate-repeat asks for a reason in-app before anything is created;
+    // cancelling it must stop with nothing minted.
+    await waitFor(() => evalIn("!!document.getElementById('fenceRepeatReasonCancel')"), 5000, 'in-app repeat-reason prompt');
+    await evalIn("document.getElementById('fenceRepeatReasonCancel').click()");
     await new Promise((r) => setTimeout(r, 300));
     const confirmState = JSON.parse(await evalIn("JSON.stringify({calls: window.__swCalls.map(function(c){return c.action;}), name: window.app.job.clientFirstName, modalOpen: !!document.getElementById('sw-lead-search-dropdown')})"));
     const shot8 = await shot('08-cancelled-create-keeps-draft.png');

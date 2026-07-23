@@ -80,11 +80,23 @@ function installFixtureBrowser(pricingAvailable = true) {
       id: 'user-khairo', email: 'khairo@secureworksgroup.app', name: 'Khairo',
       role: 'estimator', org_id: '10000000-0000-4000-8000-000000000001',
     } });
-    if (action === 'lead_search') return reply({ opportunities: [{
-      id: null, contactId: 'contact-test-zzz', contactName: 'TEST-ZZZ Khairo Lead',
-      contactPhone: '0404777984', contactEmail: 'test-zzz@example.com',
-      address: '1 Test Lab Way', suburb: 'Perth',
-    }] });
+    if (action === 'lead_search') {
+      const q = decodeURIComponent((url.match(/[?&]q=([^&]*)/) || [])[1] || '').toLowerCase();
+      // A repeat client that already carries a Supabase job: selecting it in
+      // new_job mode is a DELIBERATE_REPEAT and must collect a reason in-app.
+      if (q.includes('repeat')) return reply({ opportunities: [{
+        id: 'opp-repeat-zzz', contactId: 'contact-repeat-zzz', contactName: 'TEST-ZZZ Repeat Client',
+        contactPhone: '0404777985', contactEmail: 'repeat-zzz@example.com',
+        address: '2 Test Lab Way', suburb: 'Perth', stageName: 'Quote Sent',
+        supabaseJobId: '20000000-0000-4000-8000-000000000009', hasScope: true,
+      }] });
+      return reply({ opportunities: [{
+        id: null, contactId: 'contact-test-zzz', contactName: 'TEST-ZZZ Khairo Lead',
+        contactPhone: '0404777984', contactEmail: 'test-zzz@example.com',
+        address: '1 Test Lab Way', suburb: 'Perth',
+      }] });
+    }
+    if (action === 'find_job') return reply({ job: null });
     if (action === 'mint_fence_job') return reply({
       success: true, requestId: body.requestId,
       jobId: '20000000-0000-4000-8000-000000000002', jobNumber: 'SWF-TEST-2301',
@@ -159,6 +171,41 @@ test('GHL lead load resolves through the server mint owner', async ({ page }) =>
     .toBe('20000000-0000-4000-8000-000000000002');
   const calls = await page.evaluate(() => window.__swCalls);
   expect(calls.filter((call) => call.action === 'mint_fence_job')).toHaveLength(1);
+  expect(calls.some((call) => ['create_contact_and_opportunity', 'create_job'].includes(call.action))).toBeFalsy();
+});
+
+test('repeat-client mint collects its reason in-app, never via window.prompt', async ({ page }) => {
+  // Prove the reason is never gathered via a blocking window.prompt: make it
+  // throw. This init script runs before the page scripts on the first load.
+  await page.addInitScript(() => {
+    window.prompt = () => { throw new Error('window.prompt must not be used on iPad'); };
+  });
+  await openFixture(page);
+
+  await clickLaunch(page);
+  await page.locator('#launchNewJobBtn').click();
+  await expect(page.locator('#sw-lead-search-dropdown')).toBeVisible();
+  await page.locator('#sw-lead-search-dropdown input').fill('Repeat');
+  // Wait for the re-search to land the repeat row specifically; the stale
+  // contact-only row also has count 1, so gate on its text, not the count.
+  const repeatRow = page.locator('.sw-lead-item', { hasText: 'Repeat Client' });
+  await expect(repeatRow).toBeVisible();
+  await repeatRow.click();
+
+  const reasonInput = page.locator('#fenceRepeatReasonInput');
+  await expect(reasonInput).toBeVisible();
+  await expect(page.locator('#fenceRepeatReasonConfirm')).toBeDisabled();
+  await reasonInput.fill('Second boundary fence');
+  await expect(page.locator('#fenceRepeatReasonConfirm')).toBeEnabled();
+  await page.locator('#fenceRepeatReasonConfirm').click();
+
+  await expect.poll(() => page.evaluate(() => window._swIntegration.getSyncState().jobId))
+    .toBe('20000000-0000-4000-8000-000000000002');
+  const calls = await page.evaluate(() => window.__swCalls);
+  const mint = calls.find((call) => call.action === 'mint_fence_job');
+  expect(mint).toBeTruthy();
+  expect(mint.body.intent).toBe('DELIBERATE_REPEAT');
+  expect(mint.body.repeatReason).toBe('Second boundary fence');
   expect(calls.some((call) => ['create_contact_and_opportunity', 'create_job'].includes(call.action))).toBeFalsy();
 });
 

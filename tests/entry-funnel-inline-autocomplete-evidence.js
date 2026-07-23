@@ -98,7 +98,13 @@ const bootstrap = `
     { id: null, name: null, contactId: 'contact-priya', contactName: 'Priya Sharma',
       contactPhone: '0433 120 887', contactEmail: 'priya@example.com' },
     { id: 'opp-broken', name: 'Lookup failed row', contactId: 'contact-broken',
-      contactName: 'Tom Reilly', contactPhone: '0450 991 004', lookupFailed: true }
+      contactName: 'Tom Reilly', contactPhone: '0450 991 004', lookupFailed: true },
+    // A real opportunity that has NO Supabase job yet. Selecting it must resolve
+    // through the guarded owner, mint the canonical job, and consume the minted
+    // id directly — never re-resolve via find_job and strand the fresh job.
+    { id: 'opp-fresh', name: 'Nadia Fresh - New Colorbond', contactId: 'contact-fresh',
+      contactName: 'Nadia Fresh', contactPhone: '0455 000 111', contactEmail: 'nadia@example.com',
+      stageName: 'New Lead' }
   ];
 
   window.__swCalls = [];
@@ -134,7 +140,7 @@ const bootstrap = `
     if (action === 'lead_search') {
       var rows = q ? LEADS.filter(function(l) {
         return (l.contactName || '').toLowerCase().indexOf(q.toLowerCase()) >= 0;
-      }) : LEADS;
+      }) : LEADS.filter(function(l) { return l.id !== 'opp-fresh'; });
       // Deliberate latency so the "Searching contacts…" state is observable.
       return reply({ opportunities: rows }, window.__swSearchDelay || 400);
     }
@@ -146,9 +152,24 @@ const bootstrap = `
       return reply({ contact: { id: 'contact-dave', name: 'Dave Nguyen', phone: '0412 884 201',
         email: 'dave@example.com', address: '18 Marlow Way', suburb: 'Canning Vale' } }, 150);
     }
+    if (action === 'find_job') {
+      // No Supabase job exists for the fresh opportunity, so the guarded owner
+      // must mint. (Contact-only rows never reach this — they have no opp id.)
+      return reply({ job: null });
+    }
+    if (action === 'load_job') {
+      var loadId = decodeURIComponent((url.match(/[?&]jobId=([^&]*)/) || [])[1] || '');
+      return reply({ job: { id: loadId, job_number: 'SWF-' + loadId, status: 'draft',
+        scope_json: {}, ghl_opportunity_id: 'opp-fresh', ghl_contact_id: 'contact-fresh' } }, 120);
+    }
     if (action === 'mint_fence_job') {
-      return reply({ success: true, requestId: body.requestId, jobId: 'job-priya', jobNumber: 'SWF-2300',
-        contactId: body.contactId, opportunityId: 'opp-priya',
+      // A resolved-no-job mint carries the opportunity id; a contact-only mint
+      // does not. Return a distinct canonical job for each so the inline door's
+      // consumption of the freshly minted id is observable.
+      var mintedId = body.opportunityId ? 'job-fresh-mint' : 'job-priya';
+      var mintedNumber = body.opportunityId ? 'SWF-2400' : 'SWF-2300';
+      return reply({ success: true, requestId: body.requestId, jobId: mintedId, jobNumber: mintedNumber,
+        contactId: body.contactId, opportunityId: body.opportunityId || 'opp-priya',
         mapping: { outcome: 'created', canonicalOutcome: 'created' },
         revision: { scopeVersion: 1, scopeHash: null, updatedAt: '2026-07-21T02:15:00Z', requiresLoad: false }
       }, 200);
@@ -336,6 +357,38 @@ async function run() {
       !postCalls.some((a) => ['create_contact_and_opportunity', 'create_job'].includes(a)) &&
       jobIdAfter === 'job-priya' && jobIdAfter !== jobIdBefore,
       'actions=' + JSON.stringify(postCalls) + ' jobId ' + jobIdBefore + ' → ' + jobIdAfter);
+
+    // ── 4. A real opp with no Supabase job: dirty draft gets ONE switch decision,
+    // then the freshly minted id is consumed via load_job (never a post-mint
+    // re-resolve that a replicated read could miss and strand the new job). ──
+    await evalIn("window.app._clientNameResults = [];");
+    // Leave a meaningful local draft on screen so the target-switch guard engages.
+    await evalIn("(function(){var j=window.app.job;j.clientFirstName='Half Scoped';j.phone='0400111222';window.app._ensureFieldSync('inline_evidence');window.app.save();})()");
+    await evalIn("window.app._searchGHLContacts('Nadia')", true);
+    await waitFor(() => evalIn("(window.app._clientNameResults||[]).length === 1 && window.app._clientNameResults[0].id === 'opp-fresh'"), 8000, 'fresh opp row resolved');
+    await evalIn("window.__swCalls = [];");
+    // Do NOT await: the mint preflight shows exactly one target-switch modal we resolve.
+    await evalIn("window.app.selectGHLContact(0)");
+    await waitFor(() => evalIn("!!document.getElementById('targetOpenSeparateBtn')"), 5000, 'single target-switch modal');
+    await evalIn("document.getElementById('targetOpenSeparateBtn').click()");
+    await waitFor(() => evalIn("window._swIntegration.getSyncState().jobId === 'job-fresh-mint'"), 8000, 'inline non-contact canonical mint');
+    await new Promise((r) => setTimeout(r, 200));
+    const freshCalls = JSON.parse(await evalIn("JSON.stringify(window.__swCalls.map(function(c){return c.action;}))"));
+    const shotC = await shot('inline-03-non-contact-mint-consumed.png');
+    const findJobCount = freshCalls.filter((a) => a === 'find_job').length;
+    const mintIdx = freshCalls.indexOf('mint_fence_job');
+    const lastFindIdx = freshCalls.lastIndexOf('find_job');
+    const secondSwitchModal = await evalIn("!!document.getElementById('fenceTargetSwitchModal')");
+    record('inline non-contact door consumes the minted id via load_job, never a post-mint re-resolve',
+      freshCalls.includes('mint_fence_job') && freshCalls.includes('load_job') &&
+      findJobCount <= 1 && (lastFindIdx === -1 || lastFindIdx < mintIdx) &&
+      !freshCalls.some((a) => ['create_contact_and_opportunity', 'create_job'].includes(a)),
+      shotC + ' | actions=' + JSON.stringify(freshCalls));
+    record('inline non-contact dirty-draft path asks for the target switch exactly once',
+      !secondSwitchModal, 'a second switch modal was present=' + secondSwitchModal);
+    record('inline non-contact selection adopts the freshly minted canonical job',
+      (await evalIn("window._swIntegration.getSyncState().jobId")) === 'job-fresh-mint',
+      'jobId=' + await evalIn("window._swIntegration.getSyncState().jobId"));
 
     console.log('Inline client-name autocomplete guarded-entry browser evidence');
     for (const row of results) {

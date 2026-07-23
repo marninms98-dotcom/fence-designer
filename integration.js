@@ -519,9 +519,6 @@
     });
     expected.sort();
     var repeatReason = target.repeatReason || null;
-    if (intent === 'DELIBERATE_REPEAT' && !repeatReason && typeof window.prompt === 'function') {
-      repeatReason = window.prompt('Why is another fencing job needed for this client?') || null;
-    }
     if (intent === 'DELIBERATE_REPEAT' && String(repeatReason || '').trim().length < 3) {
       throw _entryError('repeat_reason_required', 'Starting another fencing job requires a short reason. Nothing was created.');
     }
@@ -562,6 +559,11 @@
       throw _entryError('local_identity_unavailable', 'The local fence identity could not be persisted. Nothing was created.');
     }
     var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
+    if (intent === 'DELIBERATE_REPEAT' && String(target.repeatReason || '').trim().length < 3) {
+      var collectedReason = await _collectRepeatReason(row);
+      if (collectedReason == null) throw _entryError('cancelled', 'The current fence draft was kept. Nothing was created.');
+      target.repeatReason = collectedReason;
+    }
     var input = _fenceMintInput(target, row, intent, resolvedJob);
     var fingerprint = _mintFingerprint(input);
     if (fs.pendingMintRequestId && fs.pendingMintFingerprint && fs.pendingMintFingerprint !== fingerprint) {
@@ -780,6 +782,51 @@
       _scopeCursorJobId = priorScopeCursorJobId;
       throw _entryError('identity_rebind_failed', 'Could not verify the new fence identity. The target was not armed for saving.');
     }
+  }
+
+  function _collectRepeatReason(row) {
+    var label = (row && (row.contactName || row.name)) || 'this client';
+    if (typeof document === 'undefined' || !document.body) return Promise.resolve(null);
+    var safeLabel = String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return new Promise(function(resolve) {
+      var existing = document.getElementById('fenceRepeatReasonModal');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'fenceRepeatReasonModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.74);z-index:10075;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+      overlay.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
+        '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:19px;font-weight:800;">Another fencing job</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Why does ' + safeLabel + ' need a second fencing job?</div></div>' +
+        '<div style="padding:18px 22px;display:grid;gap:12px;">' +
+          '<textarea id="fenceRepeatReasonInput" rows="3" placeholder="e.g. second property boundary" style="width:100%;box-sizing:border-box;border:1px solid #D4DEE4;border-radius:10px;padding:12px;font-size:15px;resize:vertical;"></textarea>' +
+          '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+            '<button id="fenceRepeatReasonCancel" style="border:1px solid #D1D5DB;background:#fff;border-radius:10px;padding:12px 16px;cursor:pointer;font-size:14px;color:#374151;">Cancel</button>' +
+            '<button id="fenceRepeatReasonConfirm" disabled style="border:1px solid #F15A29;background:#F15A29;border-radius:10px;padding:12px 16px;cursor:not-allowed;font-size:14px;color:#fff;font-weight:700;opacity:0.5;">Start job</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(overlay);
+      var input = document.getElementById('fenceRepeatReasonInput');
+      var confirmBtn = document.getElementById('fenceRepeatReasonConfirm');
+      var done = function(value) {
+        var el = document.getElementById('fenceRepeatReasonModal');
+        if (el) el.remove();
+        resolve(value);
+      };
+      var sync = function() {
+        var ok = String(input.value || '').trim().length >= 3;
+        confirmBtn.disabled = !ok;
+        confirmBtn.style.opacity = ok ? '1' : '0.5';
+        confirmBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+      };
+      input.addEventListener('input', sync);
+      confirmBtn.onclick = function() {
+        var v = String(input.value || '').trim();
+        if (v.length < 3) return;
+        done(v);
+      };
+      document.getElementById('fenceRepeatReasonCancel').onclick = function() { done(null); };
+      setTimeout(function() { try { input.focus(); } catch(_) {} }, 0);
+    });
   }
 
   function _resolveFencingTargetSwitch(source, target) {
@@ -2735,12 +2782,15 @@
       cloud.ui.showGHLPicker(_toolType, async function(opp) {
         console.log('[Integration] GHL opportunity selected:', opp.id, opp.contactName);
         try {
-          await _enterJob('ghl_context', { row: opp, source: 'loadPicker' });
-          var switchChoice = await _resolveFencingTargetSwitch('loadPicker', {
-            jobId: opp._supabaseJobId || null,
-            opportunityId: opp.id,
-            label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
-          });
+          var pickerPermit = await _enterJob('ghl_context', { row: opp, source: 'loadPicker' });
+          // Reuse the mint preflight's decision when it already asked, so a dirty
+          // draft is never prompted for the same target switch twice.
+          var switchChoice = (pickerPermit && pickerPermit.target && pickerPermit.target.switchChoice) ||
+            await _resolveFencingTargetSwitch('loadPicker', {
+              jobId: opp._supabaseJobId || opp.supabaseJobId || null,
+              opportunityId: opp.id,
+              label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
+            });
           if (switchChoice === 'cancel') return;
           _clearPendingNewOpp(opp.contactId);
           _ghlOpportunityId = opp.id;
@@ -2903,11 +2953,14 @@
           return _startNewJobForContact(lead, entryPermit);
         }
         try {
-          var switchChoice = await _resolveFencingTargetSwitch('lead_search', {
-            jobId: lead.supabaseJobId || null,
-            opportunityId: lead.id,
-            label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
-          });
+          // Reuse the mint preflight's decision when it already asked, so a dirty
+          // draft is never prompted for the same target switch twice.
+          var switchChoice = (entryPermit && entryPermit.target && entryPermit.target.switchChoice) ||
+            await _resolveFencingTargetSwitch('lead_search', {
+              jobId: lead.supabaseJobId || null,
+              opportunityId: lead.id,
+              label: lead.contactName || lead.name || lead.contactPhone || 'selected lead'
+            });
           if (switchChoice === 'cancel') return;
           _clearPendingNewOpp(lead.contactId);
           _ghlOpportunityId = lead.id;

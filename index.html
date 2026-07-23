@@ -5165,8 +5165,9 @@
         if (window._swIntegration && window._swIntegration.loadPicker) {
           // Simulate the opportunity selection flow from integration.js
           var cloud = window.SECUREWORKS_CLOUD;
+          var entryPermit;
           try {
-            await window._swIntegration.enterJob('ghl_context', { row: opp, source: 'inline_ghl_contact' });
+            entryPermit = await window._swIntegration.enterJob('ghl_context', { row: opp, source: 'inline_ghl_contact' });
           } catch(entryError) {
             this.showToast(entryError.message, 'error');
             return;
@@ -5175,10 +5176,18 @@
 
           this.showToast('Linking ' + (opp.contactName || opp.name || opp.contactPhone || 'GHL lead') + ' from GHL...', 'info');
 
+          // enterJob is the guarded owner: it has already resolved OR minted the
+          // canonical Supabase job for this opportunity and stamped its id onto
+          // opp.supabaseJobId. Consume that id directly. Re-resolving via
+          // findJobByOpportunity could miss a just-minted job on replication lag
+          // and strand the freshly created job.
+          var resolvedJobId = opp.supabaseJobId || opp._supabaseJobId ||
+            (entryPermit && entryPermit.target && entryPermit.target.jobId) || null;
+
           // Everything that can fail or change the answer is resolved BEFORE the
-          // form/media reset below. A re-verify that comes back missing or
-          // errored must stop with the scope still on screen, not after it has
-          // already been wiped.
+          // form/media reset below. A load that comes back missing or errored
+          // must stop with the scope still on screen, not after it has already
+          // been wiped.
           var contact = null;
           var existingJob = null;
           try {
@@ -5191,27 +5200,35 @@
             } else {
               contact = { name: opp.contactName, email: opp.contactEmail, phone: opp.contactPhone };
             }
+            if (!resolvedJobId) {
+              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+            }
             try {
-              existingJob = await cloud.ghl.findJobByOpportunity(opp.id, 'fencing');
+              existingJob = await cloud.ghl.loadJob(resolvedJobId);
             } catch(e) {
-              throw new Error('Could not re-verify this opportunity mapping. Nothing was linked or created, and your current scope is untouched.');
+              throw new Error('Could not load the resolved fence job. Nothing was changed, and your current scope is untouched.');
             }
             if (!existingJob || !existingJob.id) {
-              throw new Error('The resolved fence job changed during entry. Search again; nothing was created, and your current scope is untouched.');
+              throw new Error('The resolved fence job could not be loaded. Search again; your current scope is untouched.');
             }
           } catch(e) {
             this.showToast(e.message, 'error');
             return;
           }
 
-          // Dirty target-switch guard: do not auto-link a local draft to a different GHL/Supabase target.
-          let switchChoice = 'open_separately';
-          if (window._swIntegration.resolveFencingTargetSwitch) {
+          // Dirty target-switch guard: do not auto-link a local draft to a
+          // different GHL/Supabase target. When enterJob's mint preflight already
+          // asked (permit.target.switchChoice is set), reuse that single decision
+          // rather than prompting the operator a second time for the same draft.
+          let switchChoice = (entryPermit && entryPermit.target && entryPermit.target.switchChoice) || null;
+          if (!switchChoice && window._swIntegration.resolveFencingTargetSwitch) {
             switchChoice = await window._swIntegration.resolveFencingTargetSwitch('inline_ghl_contact', {
+              jobId: resolvedJobId,
               opportunityId: opp.id,
               label: opp.contactName || opp.name || opp.contactPhone || 'selected GHL lead'
             });
           }
+          if (!switchChoice) switchChoice = 'open_separately';
           if (switchChoice === 'cancel') return;
           // Linking a real opportunity row settles any earlier failed new-job
           // attempt for this contact, so its cached orphan opportunity must not
