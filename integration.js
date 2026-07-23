@@ -1309,10 +1309,12 @@
     var requiresLoad = !!(result.revision && result.revision.requiresLoad);
     var keepLocal = permit.target.source === 'local_save_promotion' || permit.target.switchChoice === 'keep_link';
 
-    // A reused job may now contain real scope. Unless the operator explicitly
-    // chose keep-current, route through the normal direct-link owner so frozen
-    // jobs redirect read-only and editable scope is hydrated, never blanked.
-    if (requiresLoad && !keepLocal) {
+    // A reused job may now contain real scope. Unless the operator EXPLICITLY
+    // chose keep-current (keep_link), route through the normal direct-link owner
+    // so frozen jobs redirect read-only and editable scope is hydrated, never
+    // blanked. local_save_promotion is an implicit source flag, not an explicit
+    // keep choice, so it must not silently overwrite an existing non-empty scope.
+    if (requiresLoad && permit.target.switchChoice !== 'keep_link') {
       _checkpointLocalDraftBeforeLoad('server_mint_reused_job');
       window.location.href = window.location.pathname + '?jobId=' + encodeURIComponent(result.jobId);
       return { jobId: result.jobId, opportunityId: result.opportunityId, requiresLoad: true };
@@ -2332,7 +2334,12 @@
                 }
               };
             }
-            await _applyFenceMintCanonical(promotionRow, promotionPermit, 'local_save_promotion');
+            var promotionOutcome = await _applyFenceMintCanonical(promotionRow, promotionPermit, 'local_save_promotion');
+            // The opportunity already maps to an existing cloud scope: the draft
+            // was checkpointed and the direct-link owner (triggered by the
+            // redirect) will hydrate/reconcile it. Bail before any write so the
+            // existing scope is never overwritten by this promotion.
+            if (promotionOutcome && promotionOutcome.requiresLoad) return;
             // Re-read after the identity scrub/rebind so the first cloud write
             // cannot carry the local draft's old ref or ownership metadata.
             state = _getStateFn();
@@ -2863,15 +2870,21 @@
             }
           }
 
-          // Check if a Supabase job already exists for this opportunity + tool type
-          // Passing _toolType prevents cross-division overwrite (patio vs fencing)
+          // The guarded preflight (_enterJob) already resolved or minted the
+          // canonical Supabase job id and stamped it on the row/permit. Consume
+          // it directly — a second findJobByOpportunity here is replication
+          // sensitive and could miss a freshly minted job, orphaning it.
+          var resolvedJobId = opp.supabaseJobId || opp._supabaseJobId ||
+            (pickerPermit && pickerPermit.target && pickerPermit.target.jobId) || null;
           var existingJob = null;
-          try {
-            existingJob = await cloud.ghl.findJobByOpportunity(opp.id, _toolType);
-            console.log('[Integration] Existing job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
-            _rememberScopeCursor(existingJob);
-          } catch(e) {
-            console.warn('[Integration] findJobByOpportunity failed:', e);
+          if (resolvedJobId) {
+            try {
+              existingJob = await cloud.ghl.loadJob(resolvedJobId);
+              console.log('[Integration] Canonical job for type ' + _toolType + ':', existingJob ? existingJob.id : 'none');
+              _rememberScopeCursor(existingJob);
+            } catch(e) {
+              console.warn('[Integration] loadJob failed:', e);
+            }
           }
 
           if (existingJob) {

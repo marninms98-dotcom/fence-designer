@@ -50,6 +50,29 @@ function sourceContract() {
   assert(/_jobStatus = 'frozen'/.test(integrationSource));
   assert(/_shouldAutoSave\(\)[\s\S]{0,120}_isReadonly/.test(integrationSource) || /if \(_isReadonly\) return false/.test(integrationSource));
 
+  // loadPicker must CONSUME the id the guarded owner already resolved/minted,
+  // never re-resolve via findJobByOpportunity after the mint (replication race
+  // would orphan a freshly minted job).
+  const loadPickerBody = integrationSource.slice(
+    integrationSource.indexOf('loadPicker: function()'),
+    integrationSource.indexOf('searchLeads: function('));
+  assert(/opp\.supabaseJobId \|\| opp\._supabaseJobId/.test(loadPickerBody),
+    'loadPicker consumes the resolved/minted job id');
+  assert(/cloud\.ghl\.loadJob\(resolvedJobId\)/.test(loadPickerBody),
+    'loadPicker loads the resolved id directly');
+  assert(!/findJobByOpportunity\(opp\.id/.test(loadPickerBody),
+    'loadPicker never re-resolves by opportunity after the guarded preflight');
+
+  // A local_save_promotion into an EXISTING scoped job must not clobber it:
+  // requiresLoad routes through the redirect (unless the operator explicitly
+  // chose keep_link) and the promotion caller bails before any saveScope write.
+  assert(!/if \(requiresLoad && !keepLocal\)/.test(integrationSource),
+    'requiresLoad redirect is no longer bypassed by the local_save_promotion source flag');
+  assert(/if \(requiresLoad && permit\.target\.switchChoice !== 'keep_link'\)/.test(integrationSource),
+    'requiresLoad redirects unless the operator explicitly kept the local draft');
+  assert(/local_save_promotion'\);[\s\S]{0,400}\.requiresLoad\) return;/.test(integrationSource),
+    'promotion bails before saveScope when the existing cloud scope must be reconciled first');
+
   // Execute the production scrub function, not a reimplementation: stale job A
   // cursor/ref/revision/pending ownership must be gone before job B can save.
   const scrubSource = extractFunction(integrationSource, '_scrubCrossJobIdentity');

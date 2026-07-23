@@ -30,10 +30,18 @@ That proves the deployed dispatcher contains the server-mint action and enforces
 
 - Existing compatibility ladder: **160 passed, 0 failed** across the ten fixture/runtime/browser harnesses in `npm run test:fixtures`.
 - Cloud save compatibility rung: **15 passed, 0 failed** in `tests/cp3-cloud-sync-behavior-harness.js` (included in the 160 total).
-- New Playwright iPad regressions: **3 passed, 0 failed** in `tests/reported-regressions-playwright.spec.js`.
+- New Playwright iPad regressions: **5 passed, 0 failed** in `tests/reported-regressions-playwright.spec.js`.
   - Load-mode contact-only GHL lead calls `mint_fence_job` and adopts the canonical job.
   - Local draft promotes, then calls `save_scope`, without either legacy browser create primitive.
+  - `loadPicker` consumes the id the guarded owner already resolved/minted via `load_job` — exactly one `find_job` (the preflight), no post-mint re-resolve that could orphan a fresh mint.
   - Reachable live pricing, online table-unavailable fallback, and actual offline labels remain distinct.
+
+## Post-review hardening (loadPicker consume + promotion clobber)
+
+Two follow-up review findings on the recovered client were fixed forward:
+
+1. **`loadPicker` re-resolve:** the GHL picker door discarded the id the guarded preflight already minted and re-called `findJobByOpportunity`, which on replication lag returned null and hard-stopped `identity_changed_during_entry` *after* a job was created, orphaning it. Now it loads `opp.supabaseJobId || opp._supabaseJobId || permit.target.jobId` directly. Proven by the new Playwright test above and source contracts in `tests/entry-funnel-runtime-harness.js`.
+2. **`local_save_promotion` clobber:** a local draft whose opportunity mapped to an existing *scoped* cloud job forced `keepLocal`, bypassing the `requiresLoad` redirect and overwriting that scope via compare-and-save. The redirect now fires unless the operator explicitly chose `keep_link`, and the promotion caller bails before `saveScope`, so the existing scope is hydrated/reconciled first. The index.html promotion caller is not executable in the node harness, so this is proven by executed/source contracts in `tests/entry-funnel-runtime-harness.js` (no `!keepLocal` bypass; redirect gated on `switchChoice !== 'keep_link'`; caller `requiresLoad) return` before any write).
 - Post-fix local browser proof reached the real central pricing table with HTTP 200 and displayed `Live DB prices` at 1024 x 1366.
 
 ## Recovery provenance

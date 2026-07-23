@@ -96,7 +96,26 @@ function installFixtureBrowser(pricingAvailable = true) {
         address: '1 Test Lab Way', suburb: 'Perth',
       }] });
     }
-    if (action === 'find_job') return reply({ job: null });
+    if (action === 'find_job') {
+      // An opportunity that already maps to an EXISTING scoped Supabase job.
+      // Selecting it via a local-draft promotion must NOT clobber that scope.
+      const opp = decodeURIComponent((url.match(/[?&]opportunityId=([^&]*)/) || [])[1] || '');
+      if (opp === 'opp-existing-scoped') return reply({ job: {
+        id: '20000000-0000-4000-8000-000000000077', job_number: 'SWF-TEST-7700',
+        status: 'draft', ghl_opportunity_id: 'opp-existing-scoped', ghl_contact_id: 'contact-existing',
+        current_scope_hash: 'existing-cloud-scope-hash', updated_at: '2026-07-22T00:00:00Z',
+        scope_json: { job: { runs: [{ lengthM: 30 }] } },
+      } });
+      return reply({ job: null });
+    }
+    if (action === 'load_job') {
+      const jobId = decodeURIComponent((url.match(/[?&]jobId=([^&]*)/) || [])[1] || '');
+      return reply({ job: {
+        id: jobId, job_number: 'SWF-TEST-2301', status: 'draft',
+        ghl_opportunity_id: 'opp-test-zzz', ghl_contact_id: 'contact-test-zzz',
+        scope_json: {}, pricing_json: null,
+      } });
+    }
     if (action === 'mint_fence_job') return reply({
       success: true, requestId: body.requestId,
       jobId: '20000000-0000-4000-8000-000000000002', jobNumber: 'SWF-TEST-2301',
@@ -227,6 +246,32 @@ test('local iPad draft promotes then cloud-saves against the canonical job', asy
   expect(result.sync.jobId).toBe('20000000-0000-4000-8000-000000000002');
   expect(result.calls.some((call) => call.action === 'mint_fence_job')).toBeTruthy();
   expect(result.calls.some((call) => call.action === 'save_scope')).toBeTruthy();
+  expect(result.calls.some((call) => ['create_contact_and_opportunity', 'create_job'].includes(call.action))).toBeFalsy();
+});
+
+test('loadPicker consumes the minted job id, never a replication-sensitive re-resolve', async ({ page }) => {
+  await openFixture(page);
+  const result = await page.evaluate(async () => {
+    const done = new Promise((resolve) => { window.__pickerDone = resolve; });
+    // Drive loadPicker with an UNRESOLVED opportunity (no supabaseJobId). The
+    // guarded entry owner mints a canonical job; loadPicker must load THAT id.
+    window.SECUREWORKS_CLOUD.ui.showGHLPicker = function(_toolType, onSelect) {
+      Promise.resolve(onSelect({
+        id: 'opp-fresh-picker', contactId: 'contact-test-zzz', contactName: 'TEST-ZZZ Picker Lead',
+        contactPhone: '0404777984', contactEmail: 'test-zzz@example.com',
+      })).then(() => window.__pickerDone());
+    };
+    window._swIntegration.loadPicker();
+    await done;
+    return { sync: window._swIntegration.getSyncState(), calls: window.__swCalls };
+  });
+
+  expect(result.sync.jobId).toBe('20000000-0000-4000-8000-000000000002');
+  // Exactly one find_job (inside the guarded preflight); the door consumes the
+  // minted id via load_job rather than re-resolving after the mint.
+  expect(result.calls.filter((call) => call.action === 'find_job')).toHaveLength(1);
+  expect(result.calls.some((call) => call.action === 'load_job')).toBeTruthy();
+  expect(result.calls.filter((call) => call.action === 'mint_fence_job')).toHaveLength(1);
   expect(result.calls.some((call) => ['create_contact_and_opportunity', 'create_job'].includes(call.action))).toBeFalsy();
 });
 
