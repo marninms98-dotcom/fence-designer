@@ -2045,10 +2045,91 @@
         fs.pendingOps = fs.pendingOps || [];
         fs.pendingOps.push({ type: 'cloud_load_attempt', source: source || 'unknown', at: new Date().toISOString() });
         this.save();
+        return this._writeLocalDraftCheckpoint(fs.localDraftId, source);
+      },
+
+      // The checkpoint keeps the whole draft, site plan included, whenever it
+      // fits. `omitSitePlan` is the last resort before a hard block: a job
+      // carrying a satellite site plan is ~half the ~5MB origin quota on its
+      // own, so a second full copy cannot land. Dropping only the image keeps
+      // the field work recoverable, and resume backfills it from the primary
+      // save. This is what hard-blocked Khairo's job creation on 2026-07-26.
+      _checkpointPayloadJob(omitSitePlan) {
+        if (!omitSitePlan) return this.job;
+        const slim = Object.assign({}, this.job);
+        delete slim.sitePlanImage;
+        slim._sitePlanOmitted = true;
+        return slim;
+      },
+
+      // Returns whether the checkpoint is READABLE BACK, never a bare `true`.
+      // Reporting success on a failed write is what made the failure look like
+      // a contradiction to the verifier and dead-ended the user.
+      _writeLocalDraftCheckpoint(localDraftId, source) {
+        if (!localDraftId) return false;
+        const key = 'fenceJob_checkpoint_' + localDraftId;
+        // Full payload, then the same cleanup the ordinary save performs, then
+        // the image-free payload. Each step is only reached because the one
+        // before it could not fit.
+        const attempts = [
+          { omitSitePlan: false, cleanupFirst: false },
+          { omitSitePlan: false, cleanupFirst: true },
+          { omitSitePlan: true, cleanupFirst: false },
+        ];
+        for (const attempt of attempts) {
+          if (attempt.cleanupFirst) {
+            try { this._cleanupStorage(); } catch (cleanupError) { console.warn('[FenceSync] checkpoint cleanup failed:', cleanupError); }
+          }
+          try {
+            const raw = JSON.stringify({ job: this._checkpointPayloadJob(attempt.omitSitePlan), source: source || 'unknown', savedAt: new Date().toISOString() });
+            localStorage.setItem(key, raw);
+            if (localStorage.getItem(key) === raw) return true;
+          } catch (e) {
+            console.warn('[FenceSync] checkpoint local draft failed:', e);
+            if (e.name !== 'QuotaExceededError' && e.code !== 22) return false;
+          }
+        }
+        return false;
+      },
+
+      // A checkpoint written under quota pressure has no site plan. The primary
+      // save still holds the full job, so restore the image from there rather
+      // than resuming a draft with its site plan silently missing.
+      _restoreCheckpointSitePlan(job) {
+        if (!job || !job._sitePlanOmitted) return job;
+        delete job._sitePlanOmitted;
         try {
-          localStorage.setItem('fenceJob_checkpoint_' + fs.localDraftId, JSON.stringify({ job: this.job, source: source || 'unknown', savedAt: new Date().toISOString() }));
-        } catch(e) { console.warn('[FenceSync] checkpoint local draft failed:', e); }
-        return true;
+          const primary = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+          const sameDraft = primary && primary._fieldSync && job._fieldSync &&
+            String(primary._fieldSync.localDraftId || '') === String(job._fieldSync.localDraftId || '');
+          if (sameDraft && primary.sitePlanImage) job.sitePlanImage = primary.sitePlanImage;
+        } catch (e) { console.warn('[FenceSync] site plan restore failed:', e); }
+        return job;
+      },
+
+      // The draft is recoverable whenever EITHER the dedicated checkpoint or
+      // the primary save holds this exact draft. Blocking a target switch
+      // because the redundant second copy would not fit, while the primary
+      // copy is intact, strands the user with no way forward.
+      _localDraftIsRecoverable(localDraftId) {
+        if (!localDraftId) return false;
+        try {
+          const checkpoint = localStorage.getItem('fenceJob_checkpoint_' + localDraftId);
+          if (checkpoint) {
+            const parsed = JSON.parse(checkpoint);
+            const fsync = parsed && parsed.job && parsed.job._fieldSync;
+            if (fsync && String(fsync.localDraftId || '') === String(localDraftId)) return true;
+          }
+        } catch (e) { console.warn('[FenceSync] checkpoint read-back failed:', e); }
+        try {
+          const primary = localStorage.getItem('fenceJob');
+          if (primary) {
+            const parsed = JSON.parse(primary);
+            const fsync = parsed && parsed._fieldSync;
+            if (fsync && String(fsync.localDraftId || '') === String(localDraftId)) return true;
+          }
+        } catch (e) { console.warn('[FenceSync] primary draft read-back failed:', e); }
+        return false;
       },
 
       _scrubLocalResumeJob(job) {
@@ -2092,7 +2173,7 @@
             const raw = localStorage.getItem(key);
             if (!raw) return;
             const parsed = JSON.parse(raw);
-            const job = parsed.job || parsed;
+            const job = this._restoreCheckpointSitePlan(parsed.job || parsed);
             if (!job || typeof job !== 'object') return;
             if (!hasMeaningfulJob(job)) return;
             const fs = job._fieldSync || {};
