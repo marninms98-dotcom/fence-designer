@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "npm run test:fixtures && npm run test:e2e",
-    "test:fixtures": "node tests/cp1-browser-flow-harness.js && node tests/cp1-field-scoping-harness.js && node tests/cp2-launch-save-state-harness.js && node tests/cp3-cloud-runtime-harness.js && node tests/cp3-cloud-sync-behavior-harness.js && node tests/cp3-offline-journal-harness.js && node tests/entry-funnel-runtime-harness.js && node tests/checkpoint-recovery-harness.js && node tests/cp2-repeat-client-browser-evidence.js && node tests/entry-funnel-inline-autocomplete-evidence.js && node tests/reconcile-two-device-browser.js",
+    "test:fixtures": "node tests/cp1-browser-flow-harness.js && node tests/cp1-field-scoping-harness.js && node tests/cp2-launch-save-state-harness.js && node tests/cp3-cloud-runtime-harness.js && node tests/cp3-cloud-sync-behavior-harness.js && node tests/cp3-offline-journal-harness.js && node tests/entry-funnel-runtime-harness.js && node tests/checkpoint-recovery-harness.js && node tests/frozen-viewer-loop-harness.js && node tests/cp2-repeat-client-browser-evidence.js && node tests/entry-funnel-inline-autocomplete-evidence.js && node tests/reconcile-two-device-browser.js",
     "test:e2e": "playwright test --config=playwright.config.js"
   },
   "keywords": [],
