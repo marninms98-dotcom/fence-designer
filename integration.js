@@ -474,12 +474,17 @@
     return fs.localDraftId ? 'local:' + fs.localDraftId : '';
   }
 
+  // A sealed revision is a MORE specific target than the job it belongs to, so
+  // it has to be identified first. Frozen-viewer and amendment entries carry
+  // both ids, and checking jobId first collapsed them onto the parent job. The
+  // "already on this target" shortcut then answered keep_link, with no prompt,
+  // for what is really a switch from the editable scope to a sealed revision.
   function _targetKey(target) {
     target = target || {};
+    if (target.scopeRevisionId) return 'revision:' + target.scopeRevisionId;
     if (target.jobId) return 'job:' + target.jobId;
     if (target.opportunityId) return 'opp:' + target.opportunityId;
     if (target.localDraftId) return 'local:' + target.localDraftId;
-    if (target.scopeRevisionId) return 'revision:' + target.scopeRevisionId;
     return '';
   }
 
@@ -491,6 +496,21 @@
     }
     var url = window.location.pathname + (currentId ? '?jobId=' + encodeURIComponent(currentId) : '');
     window.history.replaceState({}, '', url);
+  }
+
+  // Reopening a quoted job defaults to the sealed read-only viewer so nobody
+  // re-publishes an old scope by accident. That default must not fight an
+  // operator who has already chosen, in this page session, to stay on their
+  // editable scope: the redirect RELOADS the page, and the choice that returns
+  // to the editable scope clears the viewer URL, so together they spun the page
+  // in an endless reload loop (Marnin, 2026-07-26). One deliberate choice wins
+  // until the page is opened afresh.
+  var _frozenViewerDeclined = false;
+
+  function _shouldOpenFrozenViewer(job, urlParams) {
+    if (!job || !job.latest_frozen_scope_revision_id) return false;
+    if (urlParams && urlParams.get('edit') === '1') return false;
+    return !_frozenViewerDeclined;
   }
 
   function _entryError(code, message, details) {
@@ -3579,6 +3599,10 @@
           _isReadonly = false;
           _jobLoaded = false;
           document.documentElement.classList.remove('readonly-mode');
+          // Deliberately staying on the editable scope. Without this the live
+          // path would send the page straight back to the viewer and reload it,
+          // over and over.
+          _frozenViewerDeclined = true;
           _restoreCurrentFenceUrl();
           updateUI();
           return;
@@ -3626,8 +3650,7 @@
       // URL, which sets readonly-mode on reload and reuses the existing frozen
       // machinery. "Make a revision" navigates back with ?edit=1 to bypass this and
       // load the editable clone.
-      var wantsEdit = urlParams.get('edit') === '1';
-      if (!wantsEdit && job.latest_frozen_scope_revision_id) {
+      if (_shouldOpenFrozenViewer(job, urlParams)) {
         var _fu = new URL(window.location.href);
         _fu.searchParams.set('jobId', urlJobId);
         _fu.searchParams.set('scope_revision_id', job.latest_frozen_scope_revision_id);
