@@ -221,12 +221,34 @@
     var fs = window.app.job._fieldSync || {};
     var localDraftId = fs.localDraftId;
     if (!localDraftId) return false;
+    // This used to write its own second full copy of the job, which doubled the
+    // storage pressure it was measuring and made a large site plan
+    // un-checkpointable. It still ENSURES a checkpoint exists, because the
+    // divergence-recovery paths rely on that, but it delegates the write to the
+    // app's media-free writer instead of duplicating the whole job here.
+    if (window.app._localDraftIsRecoverable && window.app._writeLocalDraftCheckpoint) {
+      try {
+        if (localStorage.getItem('fenceJob_checkpoint_' + localDraftId) === null) {
+          window.app._writeLocalDraftCheckpoint(localDraftId, source);
+        }
+      } catch(e) {
+        console.warn('[FenceSync] Verified recovery checkpoint write failed:', e);
+      }
+      return !!window.app._localDraftIsRecoverable(localDraftId);
+    }
+    // Fallback for any app build without the checkpoint writer above: keep the
+    // original write-then-read-back behaviour so this stays a real proof, but
+    // drop the base64 site plan so a large one cannot exhaust the quota.
     try {
-      var snapshot = { job: window.app.job, source: source, savedAt: new Date().toISOString() };
+      var slimJob = {};
+      for (var key in window.app.job) {
+        if (Object.prototype.hasOwnProperty.call(window.app.job, key) && key !== 'sitePlanImage') slimJob[key] = window.app.job[key];
+      }
+      var snapshot = { job: slimJob, source: source, savedAt: new Date().toISOString() };
       var raw = JSON.stringify(snapshot);
-      var key = 'fenceJob_checkpoint_' + localDraftId;
-      localStorage.setItem(key, raw);
-      return localStorage.getItem(key) === raw;
+      var storageKey = 'fenceJob_checkpoint_' + localDraftId;
+      localStorage.setItem(storageKey, raw);
+      return localStorage.getItem(storageKey) === raw;
     } catch(e) {
       console.warn('[FenceSync] Verified recovery checkpoint failed:', e);
       return false;
