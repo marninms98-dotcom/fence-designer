@@ -169,7 +169,17 @@ async function run() {
     child.kill('SIGKILL');
     await closed;
     server.close();
-    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Chromium helper processes can outlive the SIGKILLed browser for a moment
+    // and drop fresh files into the profile mid-delete, which defeats rmSync's
+    // per-syscall retries — retry the whole recursive removal instead, and
+    // never fail the run over a leftover temp profile.
+    for (let i = 0; ; i++) {
+      try { fs.rmSync(profile, { recursive: true, force: true }); break; }
+      catch (e) {
+        if (i >= 20) { console.warn(`profile cleanup left ${profile}: ${e.message}`); break; }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
   }
 }
 run().catch((e) => { console.error(e.stack || e); process.exitCode = 1; });

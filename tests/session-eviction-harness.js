@@ -183,12 +183,23 @@ function bootCloud(localStorage, options) {
   };
   window.top = window;
 
+  // Enough DOM for ui.showLoginModal: overlays are tracked through
+  // body.appendChild/remove, and the modal's own controls resolve to inert stub
+  // elements so its wiring code can run.
+  const appended = [];
+  const loginEls = {};
   const document = {
     title: 'Fence Tool',
     querySelector() { return null; },
-    getElementById() { return null; },
-    createElement(tag) { return { tagName: tag, style: {} }; },
-    body: { appendChild() {} },
+    getElementById(id) {
+      if (String(id).indexOf('sw-login-') !== 0) return null;
+      return loginEls[id] || (loginEls[id] = {
+        id, style: {}, value: '', textContent: '', disabled: false,
+        addEventListener() {}, click() {},
+      });
+    },
+    createElement(tag) { return { tagName: tag, style: {}, remove() { this._removed = true; } }; },
+    body: { appendChild(el) { appended.push(el); } },
   };
 
   const requests = [];
@@ -217,7 +228,7 @@ function bootCloud(localStorage, options) {
     const raw = localStorage.getItem(SESSION_KEY);
     await authCallback(event, raw ? JSON.parse(raw) : null);
   };
-  return { cloud, requests, signIn: () => fireAuthEvent('SIGNED_IN'), fireAuthEvent };
+  return { cloud, requests, appended, signIn: () => fireAuthEvent('SIGNED_IN'), fireAuthEvent };
 }
 
 // Runs the REAL sign-in badge IIFE from index.html against a stub header DOM, a
@@ -471,7 +482,29 @@ async function run() {
     assert.strictEqual(badge.calls.logout, 0, 'the operator is never routed into sign-out');
   });
 
-  const total = 10;
+  await check('the login modal stays open while the latch is set, despite the cached user', async () => {
+    const localStorage = makeLocalStorage();
+    seedSession(localStorage);
+    const { cloud, appended, signIn } = bootCloud(localStorage);
+    await signIn();
+
+    localStorage.removeItem(SESSION_KEY);
+    await cloud.authorizedHeaders(); // sets the latch
+    assert.strictEqual(cloud.auth.isLoggedIn(), true, 'the cached user still reads signed-in');
+
+    cloud.ui.showLoginModal();
+    const latched = appended.filter((el) => el.id === 'sw-login-overlay')[0];
+    assert(latched, 'the login modal is appended');
+    assert(!latched._removed, 'the modal must not self-close on the cached isLoggedIn() — that is the dead tap');
+
+    seedSession(localStorage);
+    await cloud.authorizedHeaders(); // Bearer re-attaches, latch clears
+    cloud.ui.showLoginModal();
+    const restored = appended.filter((el) => el.id === 'sw-login-overlay')[1];
+    assert(restored._removed, 'with a real session the already-logged-in self-close still works');
+  });
+
+  const total = 11;
   console.log(`\nSummary: ${total - failures} passed, ${failures} failed`);
   if (failures) process.exitCode = 1;
 }

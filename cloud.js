@@ -1706,8 +1706,10 @@
         }
       };
 
-      // If already logged in via redirect, close modal
-      if (auth.isLoggedIn()) {
+      // If already logged in via redirect, close modal — but not while the
+      // session-lost latch is announced: isLoggedIn() is the cached _user,
+      // which stays true after an eviction, and re-login is the whole point.
+      if (auth.isLoggedIn() && !_sessionLostAnnounced) {
         overlay.remove();
         if (onSuccess) onSuccess(_userProfile);
       }
