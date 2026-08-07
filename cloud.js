@@ -121,6 +121,15 @@
     console.warn('[Cloud] Signed-in user has no Supabase session — requests are downgrading to the shared key');
     emit('auth:session_lost', _userProfile);
   }
+  // Companion recovery signal: fires only on the lost→restored transition, so a
+  // transient loss (offline iPad with an expired access token) un-flips the UI
+  // once a real Bearer token attaches again.
+  function _signalSessionRestored() {
+    if (!_sessionLostAnnounced) return;
+    _sessionLostAnnounced = false;
+    console.log('[Cloud] Supabase session restored — requests carry the user JWT again');
+    emit('auth:session_restored', _userProfile);
+  }
 
   async function authorizedHeaders(extra) {
     // Prefer the signed-in user's JWT (per-user attribution). If the session is
@@ -141,7 +150,7 @@
     var h = { 'Content-Type': 'application/json' };
     if (token) {
       h['Authorization'] = 'Bearer ' + token;
-      _sessionLostAnnounced = false;
+      _signalSessionRestored();
     } else {
       h['x-api-key'] = SW_API_KEY;
       _signalSessionLost();
@@ -629,10 +638,13 @@
   sb.auth.onAuthStateChange(async function(event, session) {
     if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
       _user = session.user;
-      _sessionLostAnnounced = false;
       await _loadUserProfile();
+      _signalSessionRestored();
       emit('auth:login', _userProfile);
       _flushQueue();
+    } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+      _user = session.user;
+      _signalSessionRestored();
     } else if (event === 'SIGNED_OUT') {
       _user = null;
       _userProfile = null;

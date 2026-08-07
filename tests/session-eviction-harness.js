@@ -212,11 +212,63 @@ function bootCloud(localStorage, options) {
   vm.runInNewContext(cloudSource, context, { filename: 'cloud.js' });
   const cloud = window.SECUREWORKS_CLOUD;
   assert(cloud, 'cloud.js should initialise with stubs');
-  return { cloud, requests, signIn: async () => {
+  const fireAuthEvent = async (event) => {
     assert(authCallback, 'cloud.js registers an auth state listener');
     const raw = localStorage.getItem(SESSION_KEY);
-    await authCallback('SIGNED_IN', raw ? JSON.parse(raw) : null);
-  } };
+    await authCallback(event, raw ? JSON.parse(raw) : null);
+  };
+  return { cloud, requests, signIn: () => fireAuthEvent('SIGNED_IN'), fireAuthEvent };
+}
+
+// Runs the REAL sign-in badge IIFE from index.html against a stub header DOM, a
+// stub integration layer and the real booted cloud.js, so the session-lost
+// latch is exercised exactly as the browser wires it.
+function bootBadge(cloud) {
+  const marker = '// ── Prominent sign-in button (header) ──';
+  const idx = indexSource.indexOf(marker);
+  assert(idx >= 0, 'the sign-in badge script exists in index.html');
+  const start = indexSource.indexOf('(function() {', idx);
+  const block = sliceBlock(indexSource, start) + ')();';
+
+  const btnClasses = new Set();
+  const btn = {
+    classList: {
+      add: (c) => btnClasses.add(c),
+      remove: (c) => btnClasses.delete(c),
+      contains: (c) => btnClasses.has(c),
+    },
+    title: '',
+  };
+  const label = { textContent: '' };
+  const calls = { login: 0, logout: 0, confirm: 0 };
+  let renderCb = null;
+  const integ = {
+    isLoggedIn: () => true, // the cached in-memory _user keeps this true after eviction
+    getUser: () => ({ name: 'Scoper' }),
+    onAuthChange(cb) { renderCb = cb; cb(this.isLoggedIn(), this.getUser()); },
+    login() { calls.login++; },
+    logout() { calls.logout++; },
+  };
+  const windowObj = { _swIntegration: integ, SECUREWORKS_CLOUD: cloud };
+  const context = {
+    window: windowObj,
+    document: {
+      getElementById: (id) => (id === 'swSignInBtn' ? btn : id === 'swSignInLabel' ? label : null),
+    },
+    setTimeout() { return 1; },
+    confirm() { calls.confirm++; return false; },
+    console: { log() {}, warn() {} },
+  };
+  vm.createContext(context);
+  vm.runInContext(block, context, { filename: 'index.html#swSignInBtn' });
+  assert(typeof windowObj.swSignInClick === 'function', 'the badge script installs swSignInClick');
+  return {
+    btnClasses,
+    label,
+    calls,
+    repaint: (loggedIn, user) => renderCb(loggedIn, user), // what updateUI() → _notifyAuthChange() does
+    click: () => windowObj.swSignInClick(),
+  };
 }
 
 let failures = 0;
@@ -345,7 +397,81 @@ async function run() {
     assert.strictEqual(requests.length, before, 'no mint request is sent on the shared key');
   });
 
-  const total = 6;
+  // 5. The badge latch: session loss must stay visible until a REAL session
+  //    proves recovery, and the click must route honestly while latched.
+  await check('the session-lost badge latch survives a cached-user repaint', async () => {
+    const localStorage = makeLocalStorage();
+    seedSession(localStorage);
+    const { cloud, signIn } = bootCloud(localStorage);
+    await signIn();
+    const badge = bootBadge(cloud);
+    assert(badge.btnClasses.has('signed-in'), 'the badge starts signed-in');
+
+    localStorage.removeItem(SESSION_KEY);
+    await cloud.authorizedHeaders();
+    assert(badge.btnClasses.has('signed-out'), 'session loss flips the badge to signed-out');
+
+    badge.repaint(true, { name: 'Scoper' }); // any updateUI() with the cached user
+    assert(badge.btnClasses.has('signed-out'), 'a cached-user repaint must not restore the signed-in badge');
+    assert(!badge.btnClasses.has('signed-in'), 'the stale signed-in class stays gone');
+    assert.strictEqual(badge.label.textContent, 'Sign in to link / sync');
+  });
+
+  await check('a successful Bearer attach unlatches the badge', async () => {
+    const localStorage = makeLocalStorage();
+    seedSession(localStorage);
+    const { cloud, signIn } = bootCloud(localStorage);
+    await signIn();
+    const badge = bootBadge(cloud);
+
+    localStorage.removeItem(SESSION_KEY);
+    await cloud.authorizedHeaders();
+    assert(badge.btnClasses.has('signed-out'), 'the latch is set');
+
+    seedSession(localStorage); // the session came back (re-login, connectivity restored)
+    const headers = await cloud.authorizedHeaders();
+    assert.strictEqual(headers['Authorization'], 'Bearer user-jwt-token', 'the request carries the user JWT again');
+    assert(badge.btnClasses.has('signed-in'), 'auth:session_restored re-renders the badge signed-in');
+    badge.repaint(true, { name: 'Scoper' });
+    assert(badge.btnClasses.has('signed-in'), 'later repaints render normally once unlatched');
+  });
+
+  await check('a TOKEN_REFRESHED auth event unlatches the badge', async () => {
+    const localStorage = makeLocalStorage();
+    seedSession(localStorage);
+    const { cloud, signIn, fireAuthEvent } = bootCloud(localStorage);
+    await signIn();
+    const badge = bootBadge(cloud);
+
+    localStorage.removeItem(SESSION_KEY);
+    await cloud.authorizedHeaders();
+    assert(badge.btnClasses.has('signed-out'), 'the latch is set');
+
+    seedSession(localStorage);
+    await fireAuthEvent('TOKEN_REFRESHED'); // supabase-js refreshed the session itself
+    assert(badge.btnClasses.has('signed-in'), 'a refreshed session clears the false signed-out badge');
+  });
+
+  await check('clicking the latched badge routes to login, not the sign-out confirm', async () => {
+    const localStorage = makeLocalStorage();
+    seedSession(localStorage);
+    const { cloud, signIn } = bootCloud(localStorage);
+    await signIn();
+    const badge = bootBadge(cloud);
+
+    badge.click(); // signed in, no latch: the existing sign-out confirm branch
+    assert.strictEqual(badge.calls.confirm, 1, 'the normal signed-in click still offers sign-out');
+    assert.strictEqual(badge.calls.login, 0);
+
+    localStorage.removeItem(SESSION_KEY);
+    await cloud.authorizedHeaders();
+    badge.click(); // isLoggedIn() is still true from the cached user
+    assert.strictEqual(badge.calls.login, 1, 'the first tap after session loss opens the login modal');
+    assert.strictEqual(badge.calls.confirm, 1, 'no "Sign out?" confirm while the latch is set');
+    assert.strictEqual(badge.calls.logout, 0, 'the operator is never routed into sign-out');
+  });
+
+  const total = 10;
   console.log(`\nSummary: ${total - failures} passed, ${failures} failed`);
   if (failures) process.exitCode = 1;
 }

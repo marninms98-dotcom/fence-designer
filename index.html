@@ -16547,7 +16547,14 @@
     var label = document.getElementById('swSignInLabel');
     if (!btn || !label) return;
 
+    // Latched on auth:session_lost, cleared only on auth:session_restored. The
+    // ~20 updateUI() call sites re-run render(true, cachedUser) constantly, so
+    // without the latch the signed-out flip would be repainted away almost
+    // immediately by the cached in-memory user.
+    var _sessionLost = false;
+
     function render(loggedIn, user) {
+        if (_sessionLost) { loggedIn = false; user = null; }
         if (loggedIn) {
             var who = (user && (user.name || user.full_name || user.email)) || 'Signed in';
             btn.classList.add('signed-in');
@@ -16565,6 +16572,13 @@
     window.swSignInClick = function() {
         var integ = window._swIntegration;
         if (!integ) return;
+        if (_sessionLost) {
+            // The operator was just told their sign-in expired: first tap must
+            // open the login modal, never the sign-out confirm the cached
+            // isLoggedIn() would route to.
+            integ.login && integ.login();
+            return;
+        }
         if (integ.isLoggedIn && integ.isLoggedIn()) {
             if (confirm('Sign out? Local iPad saving will continue, but you will need to sign back in to link or sync.')) {
                 integ.logout && integ.logout();
@@ -16596,7 +16610,16 @@
     function wireSessionLost() {
         var c = window.SECUREWORKS_CLOUD;
         if (c && c.on) {
-            c.on('auth:session_lost', function() { render(false, null); });
+            c.on('auth:session_lost', function() {
+                _sessionLost = true;
+                render(false, null);
+            });
+            c.on('auth:session_restored', function(user) {
+                _sessionLost = false;
+                var integ = window._swIntegration;
+                var loggedIn = !!(integ && integ.isLoggedIn && integ.isLoggedIn());
+                render(loggedIn, user || (integ && integ.getUser ? integ.getUser() : null));
+            });
         } else {
             setTimeout(wireSessionLost, 500);
         }
