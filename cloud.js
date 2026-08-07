@@ -108,6 +108,29 @@
     return err;
   }
 
+  // A session can vanish with no SIGNED_OUT event (a localStorage quota sweep,
+  // iOS ITP's 7-day script-storage cap, a private tab). The cached _user then
+  // keeps isLoggedIn() true and the header badge green while every request has
+  // quietly downgraded to the shared key. Announce that once so the UI can tell
+  // the truth. This does NOT change the fallback itself: field sync must keep
+  // working without a session.
+  var _sessionLostAnnounced = false;
+  function _signalSessionLost() {
+    if (!_user || _sessionLostAnnounced) return;
+    _sessionLostAnnounced = true;
+    console.warn('[Cloud] Signed-in user has no Supabase session — requests are downgrading to the shared key');
+    emit('auth:session_lost', _userProfile);
+  }
+  // Companion recovery signal: fires only on the lost→restored transition, so a
+  // transient loss (offline iPad with an expired access token) un-flips the UI
+  // once a real Bearer token attaches again.
+  function _signalSessionRestored() {
+    if (!_sessionLostAnnounced) return;
+    _sessionLostAnnounced = false;
+    console.log('[Cloud] Supabase session restored — requests carry the user JWT again');
+    emit('auth:session_restored', _userProfile);
+  }
+
   async function authorizedHeaders(extra) {
     // Prefer the signed-in user's JWT (per-user attribution). If the session is
     // missing or expired, try one refresh, then fall back to the shared key so a
@@ -127,8 +150,10 @@
     var h = { 'Content-Type': 'application/json' };
     if (token) {
       h['Authorization'] = 'Bearer ' + token;
+      _signalSessionRestored();
     } else {
       h['x-api-key'] = SW_API_KEY;
+      _signalSessionLost();
     }
     if (extra) { for (var k in extra) h[k] = extra[k]; }
     return h;
@@ -614,8 +639,12 @@
     if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
       _user = session.user;
       await _loadUserProfile();
+      _signalSessionRestored();
       emit('auth:login', _userProfile);
       _flushQueue();
+    } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+      _user = session.user;
+      _signalSessionRestored();
     } else if (event === 'SIGNED_OUT') {
       _user = null;
       _userProfile = null;
@@ -1074,6 +1103,34 @@
         authError.code = 'user_jwt_required';
         authError.httpStatus = 401;
         throw authError;
+      }
+      // mint_fence_job is the ONE server action that refuses the shared key, so
+      // the cached _user above is not enough of a gate: an evicted session would
+      // send this request on the shared key and come back with the server's
+      // transport-vocabulary 401 ("requires an authenticated Supabase user"),
+      // which reads as nonsense to an operator the app still calls signed in.
+      // Check the real session and say what actually happened instead.
+      var liveSession = null;
+      try {
+        var current = await sb.auth.getSession();
+        liveSession = (current && current.data && current.data.session) || null;
+        if (!liveSession || !liveSession.access_token) {
+          var refreshedSession = await sb.auth.refreshSession();
+          liveSession = (refreshedSession && refreshedSession.data && refreshedSession.data.session) || null;
+        }
+      } catch (e) {
+        liveSession = null;
+      }
+      if (!liveSession || !liveSession.access_token) {
+        _signalSessionLost();
+        var lostError = new Error('Your sign-in expired on this device - sign in again');
+        lostError.name = 'FenceMintError';
+        lostError.code = 'user_jwt_required';
+        lostError.reason = 'user_jwt_required';
+        lostError.httpStatus = 401;
+        lostError.status = 401;
+        lostError.requestId = input && input.requestId;
+        throw lostError;
       }
       var body = Object.assign({}, input, { organisationId: _orgId });
       var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=mint_fence_job', _signalOpts(opts, {
@@ -1649,8 +1706,10 @@
         }
       };
 
-      // If already logged in via redirect, close modal
-      if (auth.isLoggedIn()) {
+      // If already logged in via redirect, close modal — but not while the
+      // session-lost latch is announced: isLoggedIn() is the cached _user,
+      // which stays true after an eviction, and re-login is the whole point.
+      if (auth.isLoggedIn() && !_sessionLostAnnounced) {
         overlay.remove();
         if (onSuccess) onSuccess(_userProfile);
       }

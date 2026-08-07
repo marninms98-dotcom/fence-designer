@@ -13507,8 +13507,14 @@
       // ── LocalStorage ──
       _cleanupStorage() {
         // Remove old unrelated keys, but preserve field-sync checkpoints/offline queue.
+        // 'sb-' covers the Supabase auth keys (sb-<ref>-auth-token and any future
+        // code-verifier companions). Without it this sweep deleted the signed-in
+        // session under quota pressure, and every later request silently
+        // downgraded to the shared key while the badge still said "signed in" —
+        // which is what broke job creation with "requires an authenticated
+        // Supabase user" on 2026-08-07. Never drop it from this list.
         var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue', 'sw_offline_job_id_map', 'sw_offline_journal'];
-        var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_'];
+        var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_', 'sb-'];
         var toRemove = [];
         for (var i = 0; i < localStorage.length; i++) {
           var key = localStorage.key(i);
@@ -16541,7 +16547,14 @@
     var label = document.getElementById('swSignInLabel');
     if (!btn || !label) return;
 
+    // Latched on auth:session_lost, cleared only on auth:session_restored. The
+    // ~20 updateUI() call sites re-run render(true, cachedUser) constantly, so
+    // without the latch the signed-out flip would be repainted away almost
+    // immediately by the cached in-memory user.
+    var _sessionLost = false;
+
     function render(loggedIn, user) {
+        if (_sessionLost) { loggedIn = false; user = null; }
         if (loggedIn) {
             var who = (user && (user.name || user.full_name || user.email)) || 'Signed in';
             btn.classList.add('signed-in');
@@ -16559,6 +16572,13 @@
     window.swSignInClick = function() {
         var integ = window._swIntegration;
         if (!integ) return;
+        if (_sessionLost) {
+            // The operator was just told their sign-in expired: first tap must
+            // open the login modal, never the sign-out confirm the cached
+            // isLoggedIn() would route to.
+            integ.login && integ.login();
+            return;
+        }
         if (integ.isLoggedIn && integ.isLoggedIn()) {
             if (confirm('Sign out? Local iPad saving will continue, but you will need to sign back in to link or sync.')) {
                 integ.logout && integ.logout();
@@ -16581,6 +16601,30 @@
         }
     }
     wire();
+
+    // A session can disappear with no SIGNED_OUT event (storage quota sweep, iOS
+    // ITP, private tab), leaving this badge showing a cached name while every
+    // request has silently downgraded to the shared key. cloud.js announces that
+    // downgrade; show it here so the operator knows to sign in again BEFORE a
+    // JWT-only action (job creation) fails at the server.
+    function wireSessionLost() {
+        var c = window.SECUREWORKS_CLOUD;
+        if (c && c.on) {
+            c.on('auth:session_lost', function() {
+                _sessionLost = true;
+                render(false, null);
+            });
+            c.on('auth:session_restored', function(user) {
+                _sessionLost = false;
+                var integ = window._swIntegration;
+                var loggedIn = !!(integ && integ.isLoggedIn && integ.isLoggedIn());
+                render(loggedIn, user || (integ && integ.getUser ? integ.getUser() : null));
+            });
+        } else {
+            setTimeout(wireSessionLost, 500);
+        }
+    }
+    wireSessionLost();
 })();
 </script>
 
