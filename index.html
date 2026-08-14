@@ -14971,6 +14971,86 @@
       }, 50);
     }
 
+    // ════════════════════════════════════════════════════════
+    // SEND QUOTE — server pricing sync guard (2026-08)
+    // ════════════════════════════════════════════════════════
+    // The server send gate (`quotePricingGateError` in the send-quote edge
+    // function) validates jobs.pricing_json.totalIncGST — NOT the client
+    // payload. If an earlier autosave/freeze never landed on the server (e.g. a
+    // session eviction right after the job was minted), the jobs row still holds
+    // an empty pricing_json ({}), so the send is rejected as
+    //   "Quote total is zero or missing. Set pricing on the job..."
+    // AFTER a quote number has already been reserved/burned — even though the
+    // client-rendered PDF/HTML (built from the in-memory scope) shows the right
+    // total. Confirmed on SWF-261202: jobs.scope_json and jobs.pricing_json were
+    // both {} while the interactive quote showed $8803.
+    //
+    // Guard the send BEFORE reserving a quote number: the local pricing must be
+    // non-zero, and the SERVER row must carry a non-zero total. If the server is
+    // empty we push the current scope+pricing via the existing save path and
+    // re-read; if it still can't be confirmed we stop cleanly with an actionable
+    // message rather than burning a quote number on a scope the server rejects.
+    app._ensureServerPricingBeforeSend = async function(jobId) {
+      var cloud = window.SECUREWORKS_CLOUD;
+      // No cloud job to validate against (local-only / offline / legacy) — leave
+      // the pre-existing behaviour untouched.
+      if (!cloud || !jobId || String(jobId).indexOf('local-') === 0) {
+        return { ok: true, skipped: true };
+      }
+
+      // 1) Local guard: the pricing we are about to send must itself be > 0.
+      var localPj = null;
+      try { localPj = this.buildPricingJson(); } catch (e) { localPj = null; }
+      var localTotal = localPj ? Number(localPj.totalIncGST) : 0;
+      if (!(localTotal > 0)) {
+        return { ok: false, message: 'Quote total is $0 — set pricing on the job in the scoping tool before sending.' };
+      }
+
+      // Read the server-side total the send gate will actually validate.
+      // Returns null when the read itself failed (unknown, not "zero").
+      async function _serverTotal() {
+        try {
+          var job = await cloud.ghl.loadJob(jobId);
+          var pj = job && job.pricing_json;
+          if (typeof pj === 'string') { try { pj = JSON.parse(pj); } catch (e) { return null; } }
+          if (!pj || typeof pj !== 'object') return 0;
+          var t = pj.totalIncGST != null ? pj.totalIncGST : (pj.total != null ? pj.total : pj.grandTotal);
+          return Number(t) || 0;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      // 2) Fail-OPEN on an unreadable server total: a transient loadJob failure
+      // must never newly block a send that would otherwise work. We only act on
+      // a POSITIVELY-read empty/zero total (pj present but total <= 0), which is
+      // the deterministic session-eviction failure this guard exists for.
+      var before = await _serverTotal();
+      if (before == null) return { ok: true, unknown: true }; // read failed — don't block
+      if (before > 0) return { ok: true };                    // already priced — no write
+
+      // 3) Server total is positively zero/empty: push current scope+pricing via
+      // the existing save path, then re-verify.
+      this.job._pricing_json = localPj;
+      try {
+        if (window._swIntegration && typeof window._swIntegration.save === 'function') {
+          await window._swIntegration.save();
+        }
+      } catch (e) {
+        console.warn('[SendQuote] pre-send resync save threw:', e && e.message);
+      }
+      var after = await _serverTotal();
+      if (after == null) return { ok: true, resynced: true, unknown: true }; // can't verify — fail open
+      if (after > 0) return { ok: true, resynced: true };
+
+      // Still positively empty after a resave attempt — the server would reject
+      // this as $0. Stop cleanly BEFORE a quote number is reserved.
+      return {
+        ok: false,
+        message: 'This scope hasn’t finished syncing to the server, so its pricing isn’t saved there yet and the quote would be rejected as $0. Press Save, wait for the green tick, then send again.'
+      };
+    };
+
     async function executeSendQuote() {
       var overlay = document.getElementById('sendQuoteModal');
       if (!overlay) return;
@@ -15025,6 +15105,18 @@
         var clientName = [app.job.clientFirstName, app.job.clientLastName].filter(Boolean).join(' ') || 'Client';
         var jobRef = app.job.ref || '';
         var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
+
+        // Gate BOTH the per-run and single-quote flows on server-side pricing
+        // BEFORE any quote number is reserved. Covers the session-eviction case
+        // where the minted job carries an empty pricing_json server-side even
+        // though the in-memory scope (and the rendered PDF/HTML) is correct.
+        if (cloud && jobId) {
+          updateStep('Checking pricing sync...', '');
+          var _pricingGate = await app._ensureServerPricingBeforeSend(jobId);
+          if (!_pricingGate.ok) {
+            throw new Error(_pricingGate.message);
+          }
+        }
 
         // ── PER-RUN QUOTE FLOW (multi-neighbour fencing) ──
         var pricingJsonForRuns = app.buildPricingJson();
