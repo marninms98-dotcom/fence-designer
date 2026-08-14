@@ -15037,7 +15037,7 @@
         // Root cause of "Quote total is zero or missing" — fence-designer-qa-quote-zero, 2026-08-14.
         if (jobId && jobId.indexOf('local-') !== 0 && window._swIntegration && window._swIntegration.saveToCloud) {
           updateStep('Saving latest pricing...', '');
-          await window._swIntegration.saveToCloud();
+          await window._swIntegration.saveToCloud({ requireSynced: true });
         }
 
         // ── PER-RUN QUOTE FLOW (multi-neighbour fencing) ──

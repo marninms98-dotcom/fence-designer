@@ -351,3 +351,63 @@ test('send-quote saves fresh pricing to the cloud before calling prepare_quote, 
   expect(result.prepIdx).toBeGreaterThan(result.saveIdx);
   expect(result.savedTotalIncGST).toBe(result.liveTotal);
 });
+
+// Fail-closed companion to the test above: when the forced pre-send save
+// cannot actually reach the server (the 5xx/408/429/auth-downgrade family —
+// cloud.js saveScope queues the scope locally instead of writing), the send
+// must STOP with honest copy rather than proceed to prepare_quote against a
+// stale or missing DB pricing_json — which would reproduce the very
+// "Quote total is zero or missing" refusal the forced save exists to prevent.
+test('send-quote fails closed when the pre-send pricing save only queues locally', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async () => {
+    window._swIntegration._connectJob(
+      '20000000-0000-4000-8000-000000000002', 'opp-test-zzz', 'contact-test-zzz', 'draft'
+    );
+    Object.assign(window.app.job, {
+      clientFirstName: 'TEST-ZZZ', clientLastName: 'Khairo Repro',
+      phone: '0404777984', email: 'test-zzz@example.com',
+      address: '1 Test Lab Way', suburb: 'Perth', scoper: 'Khairo',
+      ref: 'SWF-TEST-2301',
+    });
+    window.app.job.runs = [{
+      name: 'Run 1', length: 25,
+      panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+    }];
+    window.fenceQA._verificationState = { scoper: { signedOff: true } };
+
+    const fixtureFetch = window.fetch;
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.includes('/functions/v1/ghl-proxy') && url.includes('action=save_scope')) {
+        let body = null;
+        try { body = init && init.body ? JSON.parse(init.body) : null; } catch (_) {}
+        window.__swCalls.push({ action: 'save_scope', body });
+        return Promise.resolve(new Response(JSON.stringify({ error: 'db unavailable' }), {
+          status: 503, headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+      return fixtureFetch(input, init);
+    };
+
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-zzz@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* the send must fail — how it surfaces is asserted below */ }
+
+    const overlay = document.getElementById('sendQuoteModal');
+    return {
+      saveAttempted: window.__swCalls.some((c) => c.action === 'save_scope'),
+      prepared: window.__swCalls.some((c) => c.action === 'prepare_quote'),
+      overlayText: overlay ? overlay.textContent : '',
+    };
+  });
+
+  expect(result.saveAttempted).toBe(true);
+  // The refusal must happen BEFORE any quote number is reserved or sent.
+  expect(result.prepared).toBe(false);
+  expect(result.overlayText).toContain('Send Failed');
+  expect(result.overlayText).toContain('sync_required');
+});
