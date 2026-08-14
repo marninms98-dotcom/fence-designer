@@ -411,3 +411,64 @@ test('send-quote fails closed when the pre-send pricing save only queues locally
   expect(result.overlayText).toContain('Send Failed');
   expect(result.overlayText).toContain('sync_required');
 });
+
+// Second fail-closed companion: a scope-hash CONFLICT at send time (409 —
+// another device or a quarantined cursor holds a different server scope) runs
+// the conflict-recovery flow, whose branches mostly end with "your iPad draft
+// is retained" and NOTHING written to the server. Recovery being *handled*
+// must not be mistaken for the pricing being *synced*: the send must still
+// stop, because jobs.pricing_json may hold the other scope's pricing — the
+// exact stale-total condition the server gate refuses.
+test('send-quote fails closed when the pre-send pricing save hits a scope conflict', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async () => {
+    window._swIntegration._connectJob(
+      '20000000-0000-4000-8000-000000000002', 'opp-test-zzz', 'contact-test-zzz', 'draft'
+    );
+    Object.assign(window.app.job, {
+      clientFirstName: 'TEST-ZZZ', clientLastName: 'Khairo Repro',
+      phone: '0404777984', email: 'test-zzz@example.com',
+      address: '1 Test Lab Way', suburb: 'Perth', scoper: 'Khairo',
+      ref: 'SWF-TEST-2301',
+    });
+    window.app.job.runs = [{
+      name: 'Run 1', length: 25,
+      panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+    }];
+    window.fenceQA._verificationState = { scoper: { signedOff: true } };
+
+    const fixtureFetch = window.fetch;
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.includes('/functions/v1/ghl-proxy') && url.includes('action=save_scope')) {
+        let body = null;
+        try { body = init && init.body ? JSON.parse(init.body) : null; } catch (_) {}
+        window.__swCalls.push({ action: 'save_scope', body });
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'Scope changed in Supabase', reason: 'scope_hash_conflict',
+          current_scope_hash: 'other-device-hash',
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return fixtureFetch(input, init);
+    };
+
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-zzz@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* the send must fail — how it surfaces is asserted below */ }
+
+    const overlay = document.getElementById('sendQuoteModal');
+    return {
+      saveAttempted: window.__swCalls.some((c) => c.action === 'save_scope'),
+      prepared: window.__swCalls.some((c) => c.action === 'prepare_quote'),
+      overlayText: overlay ? overlay.textContent : '',
+    };
+  });
+
+  expect(result.saveAttempted).toBe(true);
+  expect(result.prepared).toBe(false);
+  expect(result.overlayText).toContain('Send Failed');
+  expect(result.overlayText).toContain('sync_required');
+});

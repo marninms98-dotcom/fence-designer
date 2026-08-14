@@ -2816,7 +2816,7 @@
         var message = (e && e.message) || String(e);
         if (_isScopeHashConflict(e)) {
           var recovered = await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
-          if (recovered) return { synced: true, recovered: true };
+          if (recovered) return { synced: false, recovered: true, reason: 'scope_conflict_recovery' };
           message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
         } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
@@ -3418,6 +3418,9 @@
         }
         if (outcome.reason === 'login_required') {
           throw new Error('sync_required: your login has expired — sign in again, then retry sending the quote.');
+        }
+        if (outcome.reason === 'scope_conflict_recovery') {
+          throw new Error('sync_required: a sync conflict interrupted the pricing save — review the recovery outcome on screen, then send again.');
         }
         throw new Error('sync_required: the latest pricing could not be saved to the cloud (' + (outcome.reason || 'save_incomplete') + '). Resolve the save issue shown, then try sending again.');
       }
