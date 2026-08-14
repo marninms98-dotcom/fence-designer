@@ -77,7 +77,7 @@ function sourceContract() {
     'requiresLoad redirect is no longer bypassed by the local_save_promotion source flag');
   assert(/if \(requiresLoad && permit\.target\.switchChoice !== 'keep_link'\)/.test(integrationSource),
     'requiresLoad redirects unless the operator explicitly kept the local draft');
-  assert(/local_save_promotion'\);[\s\S]{0,400}\.requiresLoad\) return;/.test(integrationSource),
+  assert(/local_save_promotion'\);[\s\S]{0,400}\.requiresLoad\) return[^;]*;/.test(integrationSource),
     'promotion bails before saveScope when the existing cloud scope must be reconciled first');
 
   // Execute the production scrub function, not a reimplementation: stale job A

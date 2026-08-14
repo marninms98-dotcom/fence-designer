@@ -2287,24 +2287,24 @@
     save: async function() {
       if (_isReadonly) {
         console.warn('[Integration] Save blocked — readonly mode');
-        return;
+        return { synced: false, reason: 'readonly' };
       }
       if (!cloud || !cloud.auth.isLoggedIn()) {
         cloud.ui.showLoginModal();
-        return;
+        return { synced: false, reason: 'login_required' };
       }
 
       // ── Validation gate — hard block if required fields missing ──
       var validation = _validateForSave();
       if (!validation.valid) {
         _showValidationModal(validation.errors);
-        return;
+        return { synced: false, reason: 'validation_failed' };
       }
 
       var state = _getStateFn();
       if (!state) {
         alert('Nothing to save — no job data found.');
-        return;
+        return { synced: false, reason: 'no_state' };
       }
 
       var meta = {};
@@ -2381,7 +2381,7 @@
             // was checkpointed and the direct-link owner (triggered by the
             // redirect) will hydrate/reconcile it. Bail before any write so the
             // existing scope is never overwritten by this promotion.
-            if (promotionOutcome && promotionOutcome.requiresLoad) return;
+            if (promotionOutcome && promotionOutcome.requiresLoad) return { synced: false, reason: 'requires_load' };
             // Re-read after the identity scrub/rebind so the first cloud write
             // cannot carry the local draft's old ref or ownership metadata.
             state = _getStateFn();
@@ -2401,7 +2401,7 @@
             if (!meta.client_phone) {
               alert('Phone number is required to save this job. Please enter the client\'s phone number.');
               cloud.ui.showSaveStatus('error');
-              return;
+              return { synced: false, reason: 'phone_required' };
             }
             try {
               var ghlResult = await cloud.ghl.createContactAndOpportunity(contact, _toolType);
@@ -2413,7 +2413,7 @@
               console.error('[Integration] GHL contact creation FAILED:', ghlErr);
               alert('Could not create contact in GHL. Check your internet connection and try again.\n\n' + (ghlErr.message || 'Unknown error'));
               cloud.ui.showSaveStatus('error');
-              return; // DO NOT create a Supabase-only orphan job
+              return { synced: false, reason: 'ghl_create_failed' }; // DO NOT create a Supabase-only orphan job
             }
           }
 
@@ -2804,6 +2804,11 @@
         if (window.updateBottomToolbar) window.updateBottomToolbar();
         updateUI();
 
+        if (scopeQueuedLocally) {
+          return { synced: false, queued: true, queuedReason: (savedJob && savedJob.queuedReason) || 'offline' };
+        }
+        return { synced: true };
+
       } catch(e) {
         console.error('[Integration] Save failed:', e);
         cloud.ui.showSaveStatus('error');
@@ -2811,7 +2816,7 @@
         var message = (e && e.message) || String(e);
         if (_isScopeHashConflict(e)) {
           var recovered = await _handleScopeSaveError({ error: e, attemptedScope: state, fingerprint: String(_jobId) + ':manual' });
-          if (recovered) return;
+          if (recovered) return { synced: false, recovered: true, reason: 'scope_conflict_recovery' };
           message = 'Sync conflict: Supabase has a newer saved scope than this iPad loaded. Your iPad draft stayed local; reload/choose the correct scope before syncing again.';
         } else if (_isDuplicateJobNumberError(e)) {
           message = 'Recoverable conflict: duplicate job number (idx_jobs_job_number). Nothing was marked as saved — reload/link the job and retry.';
@@ -3397,9 +3402,29 @@
       }
     },
 
-    // Convenience: create cloud job + save scope in one step (for local-only sessions)
-    saveToCloud: async function() {
-      return await integration.save();
+    // Convenience: create cloud job + save scope in one step (for local-only sessions).
+    // opts.requireSynced: fail closed unless the scope provably reached the server —
+    // a queued/offline/silently-stopped save throws instead of resolving, so callers
+    // that depend on the DB being fresh (e.g. send-quote's server-side pricing gate)
+    // cannot proceed against stale data. A readonly viewer is exempt: no local edits
+    // are possible there, so the server copy is already authoritative.
+    saveToCloud: async function(opts) {
+      var outcome = await integration.save() || { synced: false, reason: 'save_incomplete' };
+      if (opts && opts.requireSynced && !outcome.synced && outcome.reason !== 'readonly') {
+        if (outcome.queued) {
+          throw new Error(outcome.queuedReason === 'server_error'
+            ? 'sync_required: the server rejected the pricing sync — your work is saved on this iPad only. Retry when the connection recovers.'
+            : 'sync_required: reconnect to Wi-Fi before sending the quote — the latest pricing has not reached the cloud.');
+        }
+        if (outcome.reason === 'login_required') {
+          throw new Error('sync_required: your login has expired — sign in again, then retry sending the quote.');
+        }
+        if (outcome.reason === 'scope_conflict_recovery') {
+          throw new Error('sync_required: a sync conflict interrupted the pricing save — review the recovery outcome on screen, then send again.');
+        }
+        throw new Error('sync_required: the latest pricing could not be saved to the cloud (' + (outcome.reason || 'save_incomplete') + '). Resolve the save issue shown, then try sending again.');
+      }
+      return outcome;
     },
 
     // Returns true if the current session is local-only (no cloud job yet)

@@ -293,3 +293,182 @@ test('online live prices and fallback states are labelled truthfully', async ({ 
   await expect(fallbackPage.locator('#priceSource')).toContainText('OFFLINE');
   await fallbackContext.close();
 });
+
+// fence-designer-qa-quote-zero, 2026-08-14: send-quote's server-side pricing
+// gate (secureworks-backend supabase/functions/send-quote/index.ts) reads
+// jobs.pricing_json straight from the database, not whatever this tab just
+// computed. Material Verification's confirm step only calls app.save()
+// (localStorage, never the network), and by the time an operator reaches
+// Send Quote the job number is normally already assigned — which skips the
+// one branch in showSendQuoteModal() that used to force a cloud save. The
+// only thing that would otherwise push fresh pricing to the DB was the
+// lagging 30s autosave tick, so an operator who reviews Material
+// Verification and hits Send (a normal, fast interaction) could have the
+// server refuse with "Quote total is zero or missing" even though the live
+// quote in the browser was fully priced — everything really was "on there".
+test('send-quote saves fresh pricing to the cloud before calling prepare_quote, even when the job number is already assigned', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async () => {
+    // A job that already has a real cloud id + assigned job number — the
+    // exact condition that used to skip showSendQuoteModal()'s only cloud
+    // save. Mirrors reopening/continuing a job past its initial mint.
+    window._swIntegration._connectJob(
+      '20000000-0000-4000-8000-000000000002', 'opp-test-zzz', 'contact-test-zzz', 'draft'
+    );
+    Object.assign(window.app.job, {
+      clientFirstName: 'TEST-ZZZ', clientLastName: 'Khairo Repro',
+      phone: '0404777984', email: 'test-zzz@example.com',
+      address: '1 Test Lab Way', suburb: 'Perth', scoper: 'Khairo',
+      ref: 'SWF-TEST-2301',
+    });
+    window.app.job.runs = [{
+      name: 'Run 1', length: 25,
+      panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+    }];
+    window.fenceQA._verificationState = { scoper: { signedOff: true } };
+
+    const liveTotal = window.app._collectOutputData().grandTotal;
+
+    // Drive the real compose-modal + send code path (not a shortcut re-implementation).
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-zzz@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* prepare_quote isn't mocked past this point — irrelevant to this test */ }
+
+    const calls = window.__swCalls;
+    const saveIdx = calls.findIndex((c) => c.action === 'save_scope');
+    const prepIdx = calls.findIndex((c) => c.action === 'prepare_quote');
+    const savedPricing = saveIdx >= 0 ? calls[saveIdx].body?.meta?.pricing_json : null;
+    return { liveTotal, saveIdx, prepIdx, savedTotalIncGST: savedPricing?.totalIncGST };
+  });
+
+  expect(result.liveTotal).toBeGreaterThan(0);
+  expect(result.saveIdx).toBeGreaterThanOrEqual(0);
+  // The cloud save must land before the quote is prepared/sent, and it must
+  // carry the same non-zero total the operator saw on screen.
+  expect(result.prepIdx).toBeGreaterThan(result.saveIdx);
+  expect(result.savedTotalIncGST).toBe(result.liveTotal);
+});
+
+// Fail-closed companion to the test above: when the forced pre-send save
+// cannot actually reach the server (the 5xx/408/429/auth-downgrade family —
+// cloud.js saveScope queues the scope locally instead of writing), the send
+// must STOP with honest copy rather than proceed to prepare_quote against a
+// stale or missing DB pricing_json — which would reproduce the very
+// "Quote total is zero or missing" refusal the forced save exists to prevent.
+test('send-quote fails closed when the pre-send pricing save only queues locally', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async () => {
+    window._swIntegration._connectJob(
+      '20000000-0000-4000-8000-000000000002', 'opp-test-zzz', 'contact-test-zzz', 'draft'
+    );
+    Object.assign(window.app.job, {
+      clientFirstName: 'TEST-ZZZ', clientLastName: 'Khairo Repro',
+      phone: '0404777984', email: 'test-zzz@example.com',
+      address: '1 Test Lab Way', suburb: 'Perth', scoper: 'Khairo',
+      ref: 'SWF-TEST-2301',
+    });
+    window.app.job.runs = [{
+      name: 'Run 1', length: 25,
+      panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+    }];
+    window.fenceQA._verificationState = { scoper: { signedOff: true } };
+
+    const fixtureFetch = window.fetch;
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.includes('/functions/v1/ghl-proxy') && url.includes('action=save_scope')) {
+        let body = null;
+        try { body = init && init.body ? JSON.parse(init.body) : null; } catch (_) {}
+        window.__swCalls.push({ action: 'save_scope', body });
+        return Promise.resolve(new Response(JSON.stringify({ error: 'db unavailable' }), {
+          status: 503, headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+      return fixtureFetch(input, init);
+    };
+
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-zzz@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* the send must fail — how it surfaces is asserted below */ }
+
+    const overlay = document.getElementById('sendQuoteModal');
+    return {
+      saveAttempted: window.__swCalls.some((c) => c.action === 'save_scope'),
+      prepared: window.__swCalls.some((c) => c.action === 'prepare_quote'),
+      overlayText: overlay ? overlay.textContent : '',
+    };
+  });
+
+  expect(result.saveAttempted).toBe(true);
+  // The refusal must happen BEFORE any quote number is reserved or sent.
+  expect(result.prepared).toBe(false);
+  expect(result.overlayText).toContain('Send Failed');
+  expect(result.overlayText).toContain('sync_required');
+});
+
+// Second fail-closed companion: a scope-hash CONFLICT at send time (409 —
+// another device or a quarantined cursor holds a different server scope) runs
+// the conflict-recovery flow, whose branches mostly end with "your iPad draft
+// is retained" and NOTHING written to the server. Recovery being *handled*
+// must not be mistaken for the pricing being *synced*: the send must still
+// stop, because jobs.pricing_json may hold the other scope's pricing — the
+// exact stale-total condition the server gate refuses.
+test('send-quote fails closed when the pre-send pricing save hits a scope conflict', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async () => {
+    window._swIntegration._connectJob(
+      '20000000-0000-4000-8000-000000000002', 'opp-test-zzz', 'contact-test-zzz', 'draft'
+    );
+    Object.assign(window.app.job, {
+      clientFirstName: 'TEST-ZZZ', clientLastName: 'Khairo Repro',
+      phone: '0404777984', email: 'test-zzz@example.com',
+      address: '1 Test Lab Way', suburb: 'Perth', scoper: 'Khairo',
+      ref: 'SWF-TEST-2301',
+    });
+    window.app.job.runs = [{
+      name: 'Run 1', length: 25,
+      panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+    }];
+    window.fenceQA._verificationState = { scoper: { signedOff: true } };
+
+    const fixtureFetch = window.fetch;
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.includes('/functions/v1/ghl-proxy') && url.includes('action=save_scope')) {
+        let body = null;
+        try { body = init && init.body ? JSON.parse(init.body) : null; } catch (_) {}
+        window.__swCalls.push({ action: 'save_scope', body });
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'Scope changed in Supabase', reason: 'scope_hash_conflict',
+          current_scope_hash: 'other-device-hash',
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return fixtureFetch(input, init);
+    };
+
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-zzz@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* the send must fail — how it surfaces is asserted below */ }
+
+    const overlay = document.getElementById('sendQuoteModal');
+    return {
+      saveAttempted: window.__swCalls.some((c) => c.action === 'save_scope'),
+      prepared: window.__swCalls.some((c) => c.action === 'prepare_quote'),
+      overlayText: overlay ? overlay.textContent : '',
+    };
+  });
+
+  expect(result.saveAttempted).toBe(true);
+  expect(result.prepared).toBe(false);
+  expect(result.overlayText).toContain('Send Failed');
+  expect(result.overlayText).toContain('sync_required');
+});

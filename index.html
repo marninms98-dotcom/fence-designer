@@ -15026,6 +15026,20 @@
         var jobRef = app.job.ref || '';
         var fileName = 'Quote_' + clientName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + jobRef + '.pdf';
 
+        // send-quote's server-side gate reads jobs.pricing_json straight from
+        // the database, not what this tab just computed. Material Verification's
+        // confirm step only calls app.save() (localStorage), and by send time the
+        // job number is normally already assigned — which skips the one other
+        // place (below, "assign job number") that forces a cloud save — so the
+        // only thing that would otherwise push fresh pricing to the DB is the
+        // lagging 30s autosave tick. Force and await one save here so the gate
+        // never reads a stale/missing total against a fully-priced live quote.
+        // Root cause of "Quote total is zero or missing" — fence-designer-qa-quote-zero, 2026-08-14.
+        if (jobId && jobId.indexOf('local-') !== 0 && window._swIntegration && window._swIntegration.saveToCloud) {
+          updateStep('Saving latest pricing...', '');
+          await window._swIntegration.saveToCloud({ requireSynced: true });
+        }
+
         // ── PER-RUN QUOTE FLOW (multi-neighbour fencing) ──
         var pricingJsonForRuns = app.buildPricingJson();
         if (pricingJsonForRuns.runs && pricingJsonForRuns.runs.length > 0 && pricingJsonForRuns.runs.some(function(r) { return r.neighbour_id; })) {
