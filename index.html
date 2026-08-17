@@ -1340,6 +1340,7 @@
         </div>
         <button class="btn-header" onclick="window._swIntegration && window._swIntegration.loadPicker()">Load Job</button>
         <button class="btn-header" onclick="app.newJob()">New</button>
+        <button class="btn-header" onclick="app.forceRefresh()" title="Clear stuck state and reload with a clean URL">↻ Refresh</button>
       </div>
     </div>
   </div>
@@ -3093,6 +3094,9 @@
         // Clear integration state (jobId, GHL IDs, job number)
         if (window._swIntegration) {
           window._swIntegration._connectJob(null, null, null);
+          // Drop frozen/readonly mode — otherwise the ghost banner stays and every
+          // save on the NEW job is silently blocked (app keeps one long-lived page).
+          if (window._swIntegration.exitReadonly) window._swIntegration.exitReadonly();
         }
         // Clear all local storage for this tool
         localStorage.removeItem('fenceJob');
@@ -3114,10 +3118,33 @@
         window.scrollTo(0, 0);
       },
 
+      // ── Force Refresh — escape hatch for stuck state ──
+      // Clears frozen/readonly mode and reloads with a clean URL. Deliberately does
+      // NOT delete the local job: it keeps ?jobId= so the job reconnects to the cloud
+      // on reload, and leaves localStorage alone. Use New / Reset to clear job data.
+      forceRefresh() {
+        if (!confirm('Clear stuck state and reload?\n\nYour current job is kept — this only clears read-only / frozen mode and reloads the page.')) return;
+        if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
+        if (window._swIntegration && window._swIntegration.exitReadonly) {
+          window._swIntegration.exitReadonly();
+        }
+        // Keep the real job link, drop only the params that cause readonly/frozen mode
+        var jobId = null;
+        try {
+          var p = new URLSearchParams(window.location.search);
+          jobId = p.get('jobId') || p.get('job');
+        } catch(e) {}
+        var target = window.location.pathname + (jobId ? '?jobId=' + encodeURIComponent(jobId) : '');
+        window.location.replace(target);
+      },
+
       resetJob() {
         if (!confirm('Reset everything? All data, photos, and runs will be permanently deleted.')) return;
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
-        if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
+        if (window._swIntegration) {
+          window._swIntegration._connectJob(null, null, null);
+          if (window._swIntegration.exitReadonly) window._swIntegration.exitReadonly();
+        }
         localStorage.removeItem('fenceJob');
         localStorage.removeItem('fenceQA_verification');
         if (typeof fenceQA !== 'undefined') fenceQA._verificationState = {};
@@ -11610,6 +11637,26 @@
           // Refresh header + bottom bar to show job number
           app._updateHeaderStatus();
           if (typeof updateButtonStages === 'function') updateButtonStages();
+        }
+
+        // Step 2b: ALWAYS push current pricing to the cloud before sending.
+        // send-quote gates on pricing_json read from the job row, and auto-save
+        // stops once a job is 'quoted' — so without this, every re-quote sends
+        // against stale pricing and fails with "Quote total is zero or missing".
+        if (sync.saveQuotePricing) {
+          app.job._pricing_json = app.buildPricingJson();
+          var priceSave = await sync.saveQuotePricing();
+          if (!priceSave.ok) {
+            var msg = {
+              zero_total: 'Quote total is $0 — set pricing before sending',
+              readonly:   'This job is open in read-only mode — tap Force Refresh, then reopen the job',
+              login:      'You need to be online to send quotes — log in and try again',
+              no_job:     'Job not synced yet — save to cloud first',
+              no_pricing: 'No pricing calculated yet — check the Quote section'
+            }[priceSave.reason] || ('Could not save pricing — ' + priceSave.reason);
+            app.showToast(msg, 'error');
+            return;
+          }
         }
       }
 

@@ -40,14 +40,39 @@
   var _jobStatus = null;  // Tracks loaded job status — gates auto-save for non-draft jobs
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
-  var _isReadonly = (function() {
+  // Evaluated LIVE on every call, never cached. The iPad app keeps one long-lived
+  // page across jobs, so a load-time constant kept the tool readonly — and every
+  // save silently blocked — for the rest of the session after viewing a frozen
+  // revision. _readonlyCleared is set by _exitReadonly() when a live job is opened.
+  var _readonlyCleared = false;
+  function _isReadonlyNow() {
+    if (_readonlyCleared) return false;
     var p = new URLSearchParams(window.location.search);
     return p.get('mode') === 'readonly' || !!p.get('scope_revision_id');
-  })();
+  }
+
+  // Leave frozen/readonly mode: strip the params that caused it, drop the banner
+  // and the document classes. Safe to call when not in readonly mode.
+  function _exitReadonly() {
+    _readonlyCleared = true;
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.delete('scope_revision_id');
+      url.searchParams.delete('mode');
+      window.history.replaceState({}, '', url.toString());
+    } catch(e) { console.warn('[Integration] Could not clean URL:', e); }
+    var banner = document.getElementById('sw-frozen-revision-banner');
+    if (banner) banner.remove();
+    var errBanner = document.getElementById('sw-frozen-error-banner');
+    if (errBanner) errBanner.remove();
+    document.documentElement.classList.remove('readonly-mode');
+    document.documentElement.classList.remove('view-mode');
+    console.log('[Integration] Readonly/frozen mode cleared');
+  }
 
   // Auto-save only allowed for draft/new jobs — never for quoted/accepted/scheduled/in_progress/completed
   function _shouldAutoSave() {
-    if (_isReadonly) return false;
+    if (_isReadonlyNow()) return false;
     var blocked = ['quoted', 'accepted', 'scheduled', 'in_progress', 'completed'];
     return blocked.indexOf(_jobStatus) === -1;
   }
@@ -756,7 +781,7 @@
     },
 
     save: async function() {
-      if (_isReadonly) {
+      if (_isReadonlyNow()) {
         console.warn('[Integration] Save blocked — readonly mode');
         return;
       }
@@ -1650,7 +1675,7 @@
     // Runs validation, saves scope + pricing + verification state to Supabase,
     // uploads photos/video, and links to GHL. Shows progress overlay.
     saveAfterSignOff: async function() {
-      if (_isReadonly) {
+      if (_isReadonlyNow()) {
         console.warn('[Integration] Sign-off blocked — readonly mode');
         return { success: false, reason: 'readonly' };
       }
@@ -1686,6 +1711,55 @@
     // Convenience: create cloud job + save scope in one step (for local-only sessions)
     saveToCloud: async function() {
       return await integration.save();
+    },
+
+    // Leave frozen/readonly mode (banner + document classes + URL params).
+    // Called by New Job / Reset Job / Force Refresh in the tool.
+    exitReadonly: function() {
+      _exitReadonly();
+    },
+
+    // ── Push current pricing to the jobs table before sending a quote ──
+    // The send-quote edge function gates on pricing_json.totalIncGST read from the
+    // job ROW, not from this page. Auto-save stops once a job is 'quoted', and the
+    // send path only saved on a job's first quote — so every re-quote sent against
+    // stale or absent pricing and was rejected with "Quote total is zero or missing".
+    //
+    // Deliberately NOT done by relaxing _shouldAutoSave: that guard stops a sent
+    // quote being overwritten by a background timer. This is an explicit,
+    // user-initiated write at the moment of sending.
+    saveQuotePricing: async function() {
+      if (_isReadonlyNow()) return { ok: false, reason: 'readonly' };
+      if (!cloud || !cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
+      if (!_jobId || _jobId.indexOf('local-') === 0) return { ok: false, reason: 'no_job' };
+
+      var state = _getStateFn();  // getFencingState() rebuilds _pricing_json
+      if (!state) return { ok: false, reason: 'no_state' };
+
+      var pricing = (state.job && state.job._pricing_json) || state._pricing_json || null;
+      if (!pricing) return { ok: false, reason: 'no_pricing' };
+
+      // Mirror the server-side gate so the rep is told here, not after the send fails.
+      var total = Number(pricing.totalIncGST || pricing.total || pricing.grandTotal || 0);
+      if (!(total > 0)) return { ok: false, reason: 'zero_total' };
+
+      var meta = { pricing_json: pricing };
+      if (state.job) {
+        meta.client_name = ((state.job.clientFirstName || '') + ' ' + (state.job.clientLastName || '')).trim() || state.job.client || '';
+        meta.client_phone = state.job.phone || '';
+        meta.client_email = state.job.email || '';
+        meta.site_address = state.job.address || '';
+        meta.site_suburb = state.job.suburb || '';
+      }
+
+      try {
+        await cloud.ghl.saveScope(_jobId, state, meta);
+        console.log('[Integration] Quote pricing saved before send: $' + total);
+        return { ok: true, total: total };
+      } catch(e) {
+        console.error('[Integration] saveQuotePricing failed:', e);
+        return { ok: false, reason: (e && e.message) || 'save_failed' };
+      }
     },
 
     // Returns true if the current session is local-only (no cloud job yet)
@@ -1859,9 +1933,12 @@
   // Fetches an immutable scope_revisions row via ops-api and hydrates the
   // tool with that exact frozen scope_json. Pricing recompute still happens
   // against the current rate tables — the frozen banner shows the SEALED
-  // total so the operator can compare. Auto-save is disabled by _isReadonly.
+  // total so the operator can compare. Auto-save is disabled by _isReadonlyNow().
   async function _autoLoadFrozenRevision(scopeRevId) {
     _jobLoaded = true;
+    // Re-arm readonly: a frozen revision is always read-only, even if _exitReadonly()
+    // ran earlier in this session.
+    _readonlyCleared = false;
     console.log('[Integration] Auto-loading frozen revision:', scopeRevId);
     try {
       var session = cloud.auth.session();
