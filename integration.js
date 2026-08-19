@@ -99,7 +99,10 @@
     }
     _clearFrozenViewerChrome();
     var cur = new URLSearchParams(window.location.search);
-    var jobId = cur.get('jobId') || cur.get('job') || ( _isRealJobId(_jobId) ? _jobId : null);
+    // Prefer the live session job when a caller already pointed us at the next
+    // editable target (mint / repeat-client / amendment). Fall back to the URL
+    // only when _jobId is not yet a real cloud id.
+    var jobId = (_isRealJobId(_jobId) ? _jobId : null) || cur.get('jobId') || cur.get('job');
     var edit = cur.get('edit');
     var next = window.location.pathname;
     var params = [];
@@ -3651,6 +3654,9 @@
           // path would send the page straight back to the viewer and reload it,
           // over and over.
           _frozenViewerDeclined = true;
+          // Restore the CURRENT editable job first so exitReadonly does not
+          // briefly keep the frozen viewer's jobId, then drop latch/chrome/params.
+          _restoreCurrentFenceUrl();
           exitReadonly();
           updateUI();
           return;
@@ -3871,7 +3877,17 @@
       'text-align:center'
     ].join(';');
     var prefix = status ? ('HTTP ' + status + ' — ') : '';
-    banner.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
+    var msgSpan = document.createElement('span');
+    msgSpan.textContent = 'Failed to load frozen revision: ' + prefix + (msg || '').slice(0, 300);
+    banner.appendChild(msgSpan);
+    var errRefresh = document.createElement('button');
+    errRefresh.textContent = 'Force Refresh';
+    errRefresh.style.cssText = [
+      'margin-left:10px','background:#fff','color:#c00','border:none','border-radius:4px',
+      'padding:2px 10px','font-size:11px','font-weight:700','cursor:pointer'
+    ].join(';');
+    errRefresh.onclick = function() { forceRefresh(); };
+    banner.appendChild(errRefresh);
     banner.dataset.swPadTop = '32';
     document.body.appendChild(banner);
     document.body.style.paddingTop = (parseInt(document.body.style.paddingTop || '0', 10) + 32) + 'px';

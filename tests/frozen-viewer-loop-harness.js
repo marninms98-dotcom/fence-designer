@@ -365,6 +365,57 @@ check('frozen banner still exists and now has a Force Refresh escape hatch', () 
   assert(banner.includes('Force Refresh'), 'Force Refresh control added');
 });
 
+check('ghosted frozen error bar also has Force Refresh so a leftover viewer cannot trap a rep', () => {
+  const err = extractFunction(integrationSource, '_renderFrozenError');
+  assert(err.includes('Force Refresh'), 'error banner Force Refresh');
+  assert(err.includes('forceRefresh()'), 'error banner calls forceRefresh');
+});
+
+check('declining a frozen viewer restores the current editable job URL after exitReadonly', () => {
+  const auto = extractFunction(integrationSource, '_autoLoadJob');
+  assert(auto.includes('exitReadonly()'), 'decline path exits readonly');
+  assert(auto.includes('_restoreCurrentFenceUrl()'), 'decline path still restores the current job URL');
+});
+
+check('leftover frozen URL unblocks autosave after exitReadonly; still blocks while frozen', () => {
+  function shouldSave(search, status) {
+    global.window = { location: { search: search } };
+    return new Function('status', `
+      var _jobStatus = status;
+      ${extractFunction(integrationSource, '_isReadonlyNow')}
+      ${extractFunction(integrationSource, '_shouldAutoSave')}
+      return _shouldAutoSave();
+    `)(status);
+  }
+  assert.strictEqual(shouldSave('?jobId=' + JOB_ID + '&scope_revision_id=' + REVISION_ID, 'draft'), false,
+    'frozen viewer still blocks autosave');
+  assert.strictEqual(shouldSave('?jobId=' + JOB_ID + '&mode=readonly', 'draft'), false,
+    'mode=readonly still blocks autosave');
+  assert.strictEqual(shouldSave('?jobId=' + JOB_ID, 'draft'), true,
+    'clean editable job URL allows autosave');
+  assert.strictEqual(shouldSave('?jobId=' + JOB_ID, 'quoted'), false,
+    'status block list is unchanged');
+
+  const page = mockPage('?jobId=' + JOB_ID + '&scope_revision_id=' + REVISION_ID + '&mode=readonly');
+  global.window = page.win;
+  global.document = page.doc;
+  const after = new Function('JOB_ID', `
+    var _isReadonly = true;
+    var _jobId = JOB_ID;
+    var _jobStatus = 'draft';
+    function _isRealJobId(id) { return !!id; }
+    ${extractFunction(integrationSource, '_clearFrozenViewerChrome')}
+    ${extractFunction(integrationSource, 'exitReadonly')}
+    ${extractFunction(integrationSource, '_isReadonlyNow')}
+    ${extractFunction(integrationSource, '_shouldAutoSave')}
+    exitReadonly();
+    return { latch: _isReadonly, live: _isReadonlyNow(), auto: _shouldAutoSave() };
+  `)(JOB_ID);
+  assert.strictEqual(after.latch, false, 'latch cleared');
+  assert.strictEqual(after.live, false, 'live URL is no longer a frozen viewer');
+  assert.strictEqual(after.auto, true, 'autosave unblocked after exitReadonly');
+});
+
 check('SAFETY: a frozen URL still blocks writes', () => {
   assert.strictEqual(readonlyNow('?scope_revision_id=' + REVISION_ID), true);
 });
