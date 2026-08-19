@@ -83,14 +83,43 @@
   var _NEW_JOB_TIMEOUT_MS = 45000;
   // Readonly applies when ?mode=readonly OR ?scope_revision_id is supplied
   // (frozen-revision viewer must not write — Scope-Memory-Saving step 8 Option B).
-  var _isReadonly = (function() {
+  // Recompute from the CURRENT url on every check. The iPad app keeps one
+  // long-lived page and restores the last URL, so a one-shot IIFE latches
+  // readonly for the life of the page and later jobs silently fail to save (SCOPE-23).
+  function _isReadonlyNow() {
     var p = new URLSearchParams(window.location.search);
     return p.get('mode') === 'readonly' || !!p.get('scope_revision_id');
-  })();
+  }
+  var _isReadonly = _isReadonlyNow();
+
+  function exitReadonly() {
+    _isReadonly = false;
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.classList.remove('readonly-mode');
+    }
+    _clearFrozenViewerChrome();
+    var cur = new URLSearchParams(window.location.search);
+    var jobId = cur.get('jobId') || cur.get('job') || ( _isRealJobId(_jobId) ? _jobId : null);
+    var edit = cur.get('edit');
+    var next = window.location.pathname;
+    var params = [];
+    if (jobId) params.push('jobId=' + encodeURIComponent(jobId));
+    if (edit === '1') params.push('edit=1');
+    if (params.length) next += '?' + params.join('&');
+    window.history.replaceState({}, '', next);
+  }
+
+  // Full reload keeping ?jobId= only. Does not touch localStorage. Escape hatch
+  // when a leftover frozen URL is still on the long-lived iPad page (SCOPE-23).
+  function forceRefresh() {
+    var jobId = getJobIdFromURL() || (_isRealJobId(_jobId) ? _jobId : null);
+    var url = window.location.pathname + (jobId ? '?jobId=' + encodeURIComponent(jobId) : '');
+    window.location.replace(url);
+  }
 
   // Auto-save only allowed for draft/new jobs — never for quoted/accepted/scheduled/in_progress/completed
   function _shouldAutoSave() {
-    if (_isReadonly) return false;
+    if (_isReadonlyNow()) return false;
     var blocked = ['quoted', 'accepted', 'scheduled', 'in_progress', 'completed'];
     return blocked.indexOf(_jobStatus) === -1;
   }
@@ -1369,9 +1398,7 @@
     _ghlContactId = result.contactId;
     _lastJobNumber = result.jobNumber;
     _jobStatus = 'draft';
-    _isReadonly = false;
-    document.documentElement.classList.remove('readonly-mode');
-    _clearFrozenViewerChrome();
+    exitReadonly();
 
     var revision = result.revision || {};
     if (revision.scopeHash) {
@@ -1557,14 +1584,8 @@
     // ?scope_revision_id / ?mode=readonly, so the load-time readonly flag must
     // not leak in and silently disable autosave. The frozen scope has already
     // been reset out of the form, so the M4 viewer lock is unaffected.
-    _isReadonly = false;
-    document.documentElement.classList.remove('readonly-mode');
-
-    // The frozen viewer's banner outlives its URL: its "Make a revision" button
-    // and revision switcher close over the OLD scope revision and job, so left
-    // mounted they would clone the previous client's sealed scope from what is
-    // now a different client's editable job.
-    _clearFrozenViewerChrome();
+    // exitReadonly also tears down leftover frozen chrome (SCOPE-23 iPad latch).
+    exitReadonly();
 
     // Link anchor (ensures field sync), prefill client fields, wire the URL.
     _linkFencingAnchor(_jobId, _ghlOpportunityId, _ghlContactId, 'repeat_client_new_job');
@@ -2285,7 +2306,7 @@
     },
 
     save: async function() {
-      if (_isReadonly) {
+      if (_isReadonlyNow()) {
         console.warn('[Integration] Save blocked — readonly mode');
         return { synced: false, reason: 'readonly' };
       }
@@ -3341,9 +3362,13 @@
       };
     },
 
+    isReadonly: function() { return _isReadonlyNow(); },
+    exitReadonly: exitReadonly,
+    forceRefresh: forceRefresh,
+
     ensureJobSynced: async function(options) {
       options = options || {};
-      if (_isReadonly) return { ok: false, reason: 'readonly' };
+      if (_isReadonlyNow()) return { ok: false, reason: 'readonly' };
       if (!_hasReleaseAnchor()) return { ok: false, reason: 'link_required', releaseState: 'needs_ghl_or_job_anchor' };
       if (!cloud) return { ok: false, reason: 'no_cloud' };
       if (!cloud.auth.isLoggedIn()) return { ok: false, reason: 'login' };
@@ -3359,7 +3384,7 @@
     // Runs validation, saves scope + pricing + verification state to Supabase,
     // uploads photos/video, and links to GHL. Shows progress overlay.
     saveAfterSignOff: async function() {
-      if (_isReadonly) {
+      if (_isReadonlyNow()) {
         console.warn('[Integration] Sign-off blocked — readonly mode');
         return { success: false, reason: 'readonly' };
       }
@@ -3621,14 +3646,12 @@
         // current editable scope and remove the viewer URL/readonly flag; switch
         // checkpoints then opens the sealed parent read-only.
         if (frozenChoice === 'cancel' || frozenChoice === 'keep_link') {
-          _isReadonly = false;
           _jobLoaded = false;
-          document.documentElement.classList.remove('readonly-mode');
           // Deliberately staying on the editable scope. Without this the live
           // path would send the page straight back to the viewer and reload it,
           // over and over.
           _frozenViewerDeclined = true;
-          _restoreCurrentFenceUrl();
+          exitReadonly();
           updateUI();
           return;
         }
@@ -3813,6 +3836,12 @@
     revBtn.onclick = function() { _makeRevision(scopeRevId, jobId); };
     controls.appendChild(revBtn);
 
+    var refreshBtn = document.createElement('button');
+    refreshBtn.textContent = 'Force Refresh';
+    refreshBtn.style.cssText = revBtn.style.cssText;
+    refreshBtn.onclick = function() { forceRefresh(); };
+    controls.appendChild(refreshBtn);
+
     // Version switcher select (G-F3) — hidden until _loadRevisionSwitcher shows it
     var switcher = document.createElement('select');
     switcher.id = 'sw-frozen-rev-switcher';
@@ -3898,8 +3927,14 @@
       var u = new URL(window.location.href);
       u.searchParams.set('jobId', jobId);
       u.searchParams.delete('scope_revision_id');
+      u.searchParams.delete('mode');
       u.searchParams.set('edit', '1');
-      window.location.replace(u.toString());
+      window.history.replaceState({}, '', u.pathname + u.search);
+      // iPad often does not actually reload the long-lived page. Clear the
+      // latch and frozen chrome here so the clone is editable even if replace
+      // is a no-op (SCOPE-23).
+      exitReadonly();
+      window.location.replace(u.pathname + u.search);
     } catch (e) {
       window.alert('Could not start a revision: ' + (e && e.message || e));
     }
