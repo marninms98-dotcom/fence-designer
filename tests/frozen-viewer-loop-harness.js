@@ -223,4 +223,150 @@ check('SAFETY: the viewer redirect is still the only writer of scope_revision_id
   );
 });
 
+// ── SCOPE-23: iPad save lock / leftover frozen URL latch ──────────────────────
+console.log('SCOPE-23 iPad save lock');
+
+check('readonly is re-computable (_isReadonlyNow), not a one-shot IIFE', () => {
+  assert(integrationSource.includes('function _isReadonlyNow()'), '_isReadonlyNow exists');
+  assert(
+    !/var _isReadonly = \(function\(\)/.test(integrationSource),
+    'the load-time IIFE latch is gone'
+  );
+});
+
+function readonlyNow(search) {
+  global.window = { location: { search: search } };
+  return new Function(`
+    ${extractFunction(integrationSource, '_isReadonlyNow')}
+    return _isReadonlyNow();
+  `)();
+}
+
+check('_isReadonlyNow is true for a frozen revision URL', () => {
+  assert.strictEqual(readonlyNow('?jobId=' + JOB_ID + '&scope_revision_id=' + REVISION_ID), true);
+});
+
+check('_isReadonlyNow is true for mode=readonly', () => {
+  assert.strictEqual(readonlyNow('?jobId=' + JOB_ID + '&mode=readonly'), true);
+});
+
+check('_isReadonlyNow is false for a clean job URL', () => {
+  assert.strictEqual(readonlyNow('?jobId=' + JOB_ID), false);
+});
+
+check('_isReadonlyNow is false for an editable revision clone (?edit=1, no frozen params)', () => {
+  assert.strictEqual(readonlyNow('?jobId=' + JOB_ID + '&edit=1'), false);
+});
+
+check('write gates and autosave consult live readonly, not the stale latch', () => {
+  const saveSlice = integrationSource.slice(
+    integrationSource.indexOf('save: async function()'),
+    integrationSource.indexOf('ensureJobSynced: async function')
+  );
+  assert(/if \(_isReadonlyNow\(\)\)/.test(saveSlice), 'save() uses _isReadonlyNow');
+  assert(/if \(_isReadonlyNow\(\)\) return \{ ok: false, reason: 'readonly' \}/.test(integrationSource),
+    'ensureJobSynced uses _isReadonlyNow');
+  assert(/saveAfterSignOff: async function\(\) \{\s*if \(_isReadonlyNow\(\)\)/.test(integrationSource),
+    'saveAfterSignOff uses _isReadonlyNow');
+  const auto = extractFunction(integrationSource, '_shouldAutoSave');
+  assert(auto.includes('_isReadonlyNow()'), '_shouldAutoSave uses live readonly');
+  assert(
+    /blocked = \['quoted', 'accepted', 'scheduled', 'in_progress', 'completed'\]/.test(auto),
+    '_shouldAutoSave still blocks non-draft statuses'
+  );
+});
+
+function mockPage(search) {
+  const replaces = [];
+  const history = [];
+  const storage = { fenceJob: '{"keep":true}', other: '1' };
+  const classList = { items: new Set(['readonly-mode']), remove: function(c) { this.items.delete(c); } };
+  const banner = { id: 'sw-frozen-revision-banner', dataset: { swPadTop: '36' }, parentNode: { removeChild: function() { banner.gone = true; } } };
+  const body = { style: { paddingTop: '36px' } };
+  const elements = { 'sw-frozen-revision-banner': banner, 'sw-frozen-error-banner': null };
+  const win = {
+    location: {
+      search: search,
+      pathname: '/fence-designer/',
+      href: 'https://example.test/fence-designer/' + search,
+      replace: function(u) { replaces.push(u); }
+    },
+    history: {
+      replaceState: function(_s, _t, url) {
+        history.push(url);
+        win.location.search = url.indexOf('?') >= 0 ? url.slice(url.indexOf('?')) : '';
+      }
+    },
+    localStorage: {
+      getItem: function(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+      setItem: function(k, v) { storage[k] = String(v); },
+      removeItem: function(k) { delete storage[k]; }
+    }
+  };
+  const doc = {
+    documentElement: { classList: classList },
+    body: body,
+    getElementById: function(id) { return elements[id] || null; }
+  };
+  return { win: win, doc: doc, history: history, replaces: replaces, storage: storage, classList: classList, banner: banner };
+}
+
+check('exitReadonly clears latch, chrome, and leftover frozen URL; keeps jobId; no localStorage wipe', () => {
+  const page = mockPage('?jobId=' + JOB_ID + '&scope_revision_id=' + REVISION_ID + '&mode=readonly');
+  global.window = page.win;
+  global.document = page.doc;
+  const out = new Function('JOB_ID', `
+    var _isReadonly = true;
+    var _jobId = JOB_ID;
+    function _isRealJobId(id) { return !!id; }
+    ${extractFunction(integrationSource, '_clearFrozenViewerChrome')}
+    ${extractFunction(integrationSource, 'exitReadonly')}
+    exitReadonly();
+    return { isReadonly: _isReadonly };
+  `)(JOB_ID);
+  assert.strictEqual(out.isReadonly, false, 'latch cleared');
+  assert.strictEqual(page.classList.items.has('readonly-mode'), false, 'readonly-mode class removed');
+  assert.strictEqual(page.banner.gone, true, 'frozen banner torn down');
+  assert.strictEqual(page.history.length, 1, 'url rewritten once');
+  const lastUrl = page.history[0];
+  assert(lastUrl.indexOf('jobId=' + JOB_ID) !== -1, 'keeps jobId: ' + lastUrl);
+  assert(lastUrl.indexOf('scope_revision_id') === -1, 'drops scope_revision_id: ' + lastUrl);
+  assert(lastUrl.indexOf('mode=') === -1, 'drops mode: ' + lastUrl);
+  assert.strictEqual(page.storage.fenceJob, '{"keep":true}', 'does not touch localStorage');
+});
+
+check('Force Refresh reloads ?jobId= only and does not touch localStorage', () => {
+  const page = mockPage('?jobId=' + JOB_ID + '&scope_revision_id=' + REVISION_ID + '&mode=readonly');
+  global.window = page.win;
+  new Function('JOB_ID', `
+    var _jobId = JOB_ID;
+    function _isRealJobId(id) { return !!id; }
+    function getJobIdFromURL() { return JOB_ID; }
+    ${extractFunction(integrationSource, 'forceRefresh')}
+    forceRefresh();
+  `)(JOB_ID);
+  assert.strictEqual(page.replaces.length, 1, 'one full reload');
+  assert.strictEqual(page.replaces[0], '/fence-designer/?jobId=' + JOB_ID);
+  assert.strictEqual(page.storage.fenceJob, '{"keep":true}', 'does not touch localStorage');
+});
+
+check('Make a revision exits readonly so an iPad no-reload still becomes editable', () => {
+  const make = integrationSource.slice(
+    integrationSource.indexOf('async function _makeRevision'),
+    integrationSource.indexOf('async function _loadRevisionSwitcher')
+  );
+  assert(make.includes('exitReadonly()'), '_makeRevision calls exitReadonly');
+  assert(make.includes("searchParams.delete('scope_revision_id')"), 'revision URL drops frozen id');
+});
+
+check('frozen banner still exists and now has a Force Refresh escape hatch', () => {
+  const banner = extractFunction(integrationSource, '_renderFrozenBanner');
+  assert(banner.includes('Make a revision'), 'revision button kept');
+  assert(banner.includes('Force Refresh'), 'Force Refresh control added');
+});
+
+check('SAFETY: a frozen URL still blocks writes', () => {
+  assert.strictEqual(readonlyNow('?scope_revision_id=' + REVISION_ID), true);
+});
+
 console.log(`\n${passed} checks passed, 0 failed`);
