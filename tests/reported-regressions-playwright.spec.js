@@ -472,3 +472,59 @@ test('send-quote fails closed when the pre-send pricing save hits a scope confli
   expect(result.overlayText).toContain('Send Failed');
   expect(result.overlayText).toContain('sync_required');
 });
+
+// SCOPE-24: the global fenceJob key was the cold-open ghost. A new tab with no
+// ?jobId= must start empty and offer "Resume [client name]?", never assume.
+test('cold open with no job in the URL does not restore yesterday\'s client; decline stays blank', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fenceJob', JSON.stringify({
+      clientFirstName: 'Yesterday', clientLastName: 'Ghost',
+      phone: '0400000000', address: '9 Old Job St',
+      runs: [{ length: 12, panels: [{ height: 1800 }] }],
+      _fieldSync: { localDraftId: 'local-fence-ghost', syncAnchorType: 'local_only', syncState: 'local_dirty' },
+    }));
+  });
+  page.on('dialog', async (dialog) => {
+    if (/Resume Yesterday Ghost/.test(dialog.message())) await dialog.dismiss();
+    else await dialog.dismiss();
+  });
+  await openFixture(page);
+  const state = await page.evaluate(() => {
+    const j = window.app.job || {};
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    return {
+      name: [j.clientFirstName, j.clientLastName].filter(Boolean).join(' '),
+      perJob: localStorage.getItem('fenceJob:local-fence-ghost'),
+      migrated: localStorage.getItem('fenceJob:migrated'),
+      keys,
+    };
+  });
+  expect(state.name).not.toBe('Yesterday Ghost');
+  expect(state.perJob).toBeTruthy();
+  expect(state.migrated).toBe('1');
+});
+
+test('cold open resume accept restores the unsaved client only after yes', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1024, height: 1366 } });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    localStorage.setItem('fenceJob', JSON.stringify({
+      clientFirstName: 'Yesterday', clientLastName: 'Ghost',
+      phone: '0400000000', address: '9 Old Job St',
+      runs: [{ length: 12, panels: [{ height: 1800 }] }],
+      _fieldSync: { localDraftId: 'local-fence-ghost', syncAnchorType: 'local_only', syncState: 'local_dirty' },
+    }));
+  });
+  page.on('dialog', async (dialog) => {
+    if (/Resume Yesterday Ghost/.test(dialog.message())) await dialog.accept();
+    else await dialog.dismiss();
+  });
+  await openFixture(page);
+  const name = await page.evaluate(() => {
+    const j = window.app.job || {};
+    return [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ');
+  });
+  expect(name).toBe('Yesterday Ghost');
+  await context.close();
+});
