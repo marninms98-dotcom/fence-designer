@@ -1914,8 +1914,9 @@
       job: null,
       currentRunId: null,
 
-      init() {
-        this.loadFromStorage();
+      init(opts) {
+        opts = opts || {};
+        if (!opts.skipStorage) this.loadFromStorage();
         this.bindHeaderInputs();
 
         if (!this.job) {
@@ -1994,6 +1995,114 @@
       // ── Field Sync / Launcher (CP2 local-wins contract) ──
       _newLocalDraftId() {
         return 'local-fence-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+      },
+
+      // SCOPE-24: per-job localStorage keys. The global `fenceJob` key was the
+      // cold-open ghost — a new tab with no ?jobId= restored yesterday's client.
+      // Do not ship the key change without the one-time migration below.
+      _urlJobId() {
+        try {
+          var p = new URLSearchParams((window.location && window.location.search) || '');
+          return p.get('jobId') || p.get('job') || null;
+        } catch (e) { return null; }
+      },
+
+      _jobStorageId(job) {
+        var j = job || this.job || {};
+        var fs = j._fieldSync || {};
+        if (fs.syncAnchorType === 'job' && fs.syncAnchorId) return String(fs.syncAnchorId);
+        if (fs.localDraftId) return String(fs.localDraftId);
+        var urlId = this._urlJobId();
+        if (urlId) return String(urlId);
+        return 'unanchored';
+      },
+
+      _jobStorageKey(job) {
+        return 'fenceJob:' + this._jobStorageId(job);
+      },
+
+      _migrateLegacyFenceJobOnce() {
+        try {
+          if (localStorage.getItem('fenceJob:migrated') === '1') return;
+          var raw = localStorage.getItem('fenceJob');
+          if (!raw) {
+            localStorage.setItem('fenceJob:migrated', '1');
+            return;
+          }
+          var job = null;
+          try { job = JSON.parse(raw); } catch (e) { job = null; }
+          if (!job || typeof job !== 'object') {
+            localStorage.setItem('fenceJob:migrated', '1');
+            return;
+          }
+          var dest = this._jobStorageKey(job);
+          if (!localStorage.getItem(dest)) localStorage.setItem(dest, raw);
+          if (localStorage.getItem(dest)) {
+            localStorage.removeItem('fenceJob');
+            localStorage.setItem('fenceJob:migrated', '1');
+          }
+        } catch (e) {
+          console.warn('[FenceSync] legacy fenceJob migration failed:', e);
+        }
+      },
+
+      _readPersistedJob() {
+        try {
+          this._migrateLegacyFenceJobOnce();
+          var raw = localStorage.getItem(this._jobStorageKey()) || localStorage.getItem('fenceJob');
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) { return null; }
+      },
+
+      _clearPersistedJob() {
+        try {
+          var key = this._jobStorageKey();
+          if (key) localStorage.removeItem(key);
+        } catch (e) {}
+        try { localStorage.removeItem('fenceJob'); } catch (e) {}
+      },
+
+      _writeJobToStorage() {
+        this._migrateLegacyFenceJobOnce();
+        var key = 'fenceJob';
+        try {
+          if (typeof this._jobStorageKey === 'function') key = this._jobStorageKey();
+        } catch (e) { key = 'fenceJob'; }
+        localStorage.setItem(key, JSON.stringify(this.job));
+        if (this._lastJobStorageKey && this._lastJobStorageKey !== key) {
+          try { localStorage.removeItem(this._lastJobStorageKey); } catch (e2) {}
+        }
+        this._lastJobStorageKey = key;
+      },
+
+      _primaryJobRaw(job) {
+        var fs = (job && job._fieldSync) || (this.job && this.job._fieldSync) || {};
+        var keys = [];
+        if (fs.syncAnchorType === 'job' && fs.syncAnchorId) keys.push('fenceJob:' + fs.syncAnchorId);
+        if (fs.localDraftId) keys.push('fenceJob:' + fs.localDraftId);
+        keys.push('fenceJob');
+        for (var i = 0; i < keys.length; i++) {
+          var raw = localStorage.getItem(keys[i]);
+          if (raw) return raw;
+        }
+        return null;
+      },
+
+      _clientNameOf(job) {
+        var j = job || {};
+        return [j.clientFirstName, j.clientLastName].filter(Boolean).join(' ') || j.client || 'unsaved draft';
+      },
+
+      _findResumeCandidate() {
+        var items = [];
+        try { items = this._listLocalDraftCheckpoints() || []; } catch (e) { items = []; }
+        if (!items.length) return null;
+        var top = items[0];
+        return {
+          raw: JSON.stringify(top.job),
+          clientName: this._clientNameOf(top.job),
+          key: top.key
+        };
       },
 
       _ensureFieldSync(launchMode) {
@@ -2099,7 +2208,8 @@
         if (!job || !job._sitePlanOmitted) return job;
         delete job._sitePlanOmitted;
         try {
-          const primary = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+          var _primaryRaw = (typeof this._primaryJobRaw === 'function') ? this._primaryJobRaw(job) : localStorage.getItem('fenceJob');
+          const primary = _primaryRaw ? JSON.parse(_primaryRaw) : null;
           const sameDraft = primary && primary._fieldSync && job._fieldSync &&
             String(primary._fieldSync.localDraftId || '') === String(job._fieldSync.localDraftId || '');
           if (sameDraft && primary.sitePlanImage) job.sitePlanImage = primary.sitePlanImage;
@@ -2122,7 +2232,11 @@
           }
         } catch (e) { console.warn('[FenceSync] checkpoint read-back failed:', e); }
         try {
-          const primary = localStorage.getItem('fenceJob');
+          var primary = null;
+          if (typeof this._primaryJobRaw === 'function') {
+            primary = this._primaryJobRaw({ _fieldSync: { localDraftId: localDraftId } });
+          }
+          if (!primary) primary = localStorage.getItem('fenceJob:' + localDraftId) || localStorage.getItem('fenceJob');
           if (primary) {
             const parsed = JSON.parse(primary);
             const fsync = parsed && parsed._fieldSync;
@@ -2196,8 +2310,11 @@
         readPayload('fenceJob', 'Current local draft', 'current');
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && key.indexOf('fenceJob_checkpoint_') === 0) {
+          if (!key) continue;
+          if (key.indexOf('fenceJob_checkpoint_') === 0) {
             readPayload(key, 'Checkpoint', 'checkpoint');
+          } else if (key.indexOf('fenceJob:') === 0 && key !== 'fenceJob:migrated') {
+            readPayload(key, 'Saved job', 'per_job');
           }
         }
         items.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
@@ -2244,12 +2361,11 @@
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
         const resumedJob = this._scrubLocalResumeJob(item.job);
-        localStorage.setItem('fenceJob', JSON.stringify(resumedJob));
-        this.job = null;
+        this.job = resumedJob;
         this.currentRunId = null;
         this._siteInfoTab = 'client';
         this._resetSections();
-        this.init();
+        this.init({ skipStorage: true });
         this._ensureFieldSync('resumed_local_checkpoint');
         this.save();
         window.history.replaceState({}, '', window.location.pathname);
@@ -2394,12 +2510,12 @@
         }
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
-        localStorage.removeItem('fenceJob');
+        window.history.replaceState({}, '', window.location.pathname);
         this.job = null;
         this.currentRunId = null;
         this._siteInfoTab = 'client';
         this._resetSections();
-        this.init();
+        this.init({ skipStorage: true });
         if (window._swIntegration && window._swIntegration.resetToolMediaState) {
           window._swIntegration.resetToolMediaState();
         }
@@ -3705,14 +3821,16 @@
         if (!confirm('Reset everything? All data, photos, and runs will be permanently deleted.')) return;
         if (window.SECUREWORKS_CLOUD) window.SECUREWORKS_CLOUD.stopAutoSave();
         if (window._swIntegration) window._swIntegration._connectJob(null, null, null);
-        localStorage.removeItem('fenceJob');
+        if (typeof this._clearPersistedJob === 'function') this._clearPersistedJob();
+        else localStorage.removeItem('fenceJob');
         localStorage.removeItem('fenceQA_verification');
         if (typeof fenceQA !== 'undefined') fenceQA._verificationState = {};
         this.job = null;
         this.currentRunId = null;
         this._siteInfoTab = 'client';
         this._resetSections();
-        this.init();
+        window.history.replaceState({}, '', window.location.pathname);
+        this.init({ skipStorage: true });
         if (window._swIntegration && window._swIntegration.resetToolMediaState) {
           window._swIntegration.resetToolMediaState();
         }
@@ -13405,10 +13523,9 @@
             const data = JSON.parse(e.target.result);
             if (!data.runs || !Array.isArray(data.runs)) throw new Error('Invalid fence job format');
             if (!confirm(`Import job for "${data.client || data.clientFirstName || 'Unknown'}"? This will replace current data.`)) return;
-            localStorage.setItem('fenceJob', JSON.stringify(data));
-            this.job = null;
+            this.job = data;
             this.currentRunId = null;
-            this.init();
+            this.init({ skipStorage: true });
             this.showToast('Job imported successfully', 'success');
           } catch (err) {
             this.showToast('Import failed: ' + err.message, 'error');
@@ -13514,7 +13631,7 @@
         // which is what broke job creation with "requires an authenticated
         // Supabase user" on 2026-08-07. Never drop it from this list.
         var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue', 'sw_offline_job_id_map', 'sw_offline_journal'];
-        var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_', 'sb-'];
+        var keepPrefixes = ['fenceJob:', 'fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_', 'sb-'];
         var toRemove = [];
         for (var i = 0; i < localStorage.length; i++) {
           var key = localStorage.key(i);
@@ -13573,7 +13690,8 @@
         try {
           this._markLocalEdited();
           this._persistMediaManifest();
-          localStorage.setItem('fenceJob', JSON.stringify(this.job));
+          if (typeof this._writeJobToStorage === 'function') this._writeJobToStorage();
+          else localStorage.setItem('fenceJob', JSON.stringify(this.job));
           updateSyncDot('local');
         } catch (e) {
           if (e.name === 'QuotaExceededError' || e.code === 22) {
@@ -13587,7 +13705,8 @@
             // Step 3: Retry save
             try {
               this._persistMediaManifest();
-              localStorage.setItem('fenceJob', JSON.stringify(this.job));
+              if (typeof this._writeJobToStorage === 'function') this._writeJobToStorage();
+              else localStorage.setItem('fenceJob', JSON.stringify(this.job));
               updateSyncDot('local');
               this.showToast('Storage recovered — saved successfully', 'success');
             } catch (e2) {
@@ -13602,7 +13721,8 @@
                   // Do not overwrite sw_media_manifest_* here: this branch has
                   // deliberately stripped photo data URLs from fenceJob to recover
                   // quota, so the existing manifest is the safer breadcrumb.
-                  localStorage.setItem('fenceJob', JSON.stringify(this.job));
+                  if (typeof this._writeJobToStorage === 'function') this._writeJobToStorage();
+                  else localStorage.setItem('fenceJob', JSON.stringify(this.job));
                   updateSyncDot('local');
                   this.showToast('Storage full — photos cleared from local (cloud copies kept)', 'warning');
                 } catch (e3) {
@@ -13620,7 +13740,22 @@
       },
 
       loadFromStorage() {
-        const saved = localStorage.getItem('fenceJob');
+        if (typeof this._migrateLegacyFenceJobOnce === 'function') this._migrateLegacyFenceJobOnce();
+        var saved = null;
+        var urlJobId = (typeof this._urlJobId === 'function') ? this._urlJobId() : null;
+        if (urlJobId) {
+          // Opening a specific job: only that job's local cache, never a sibling client.
+          saved = localStorage.getItem('fenceJob:' + urlJobId);
+        } else {
+          // COLD OPEN: empty quote, not yesterday's client. Offer resume; never assume.
+          var candidate = (typeof this._findResumeCandidate === 'function') ? this._findResumeCandidate() : null;
+          if (candidate && candidate.raw) {
+            var resumeName = candidate.clientName || 'unsaved draft';
+            if (typeof confirm === 'function' && confirm('Resume ' + resumeName + '?')) {
+              saved = candidate.raw;
+            }
+          }
+        }
         if (saved) {
           try {
             this.job = JSON.parse(saved);

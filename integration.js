@@ -131,6 +131,23 @@
     return !!(id && String(id).indexOf('local-') !== 0 && String(id).indexOf('local-fence-') !== 0);
   }
 
+  // SCOPE-24: app.save() now writes fenceJob:<id>. Mint verification and any
+  // other "did the iPad persist this?" check must read the same key. Fall back
+  // to the legacy global key so older fixtures / in-flight drafts still verify.
+  function _readPersistedFenceJob() {
+    if (window.app && typeof window.app._readPersistedJob === 'function') {
+      try {
+        var fromApp = window.app._readPersistedJob();
+        if (fromApp) return fromApp;
+      } catch (_readAppErr) {}
+    }
+    try {
+      return JSON.parse(localStorage.getItem('fenceJob') || 'null');
+    } catch (_readLegacyErr) {
+      return null;
+    }
+  }
+
   function _hasReleaseAnchor() {
     return _isRealJobId(_jobId) || !!_ghlOpportunityId;
   }
@@ -485,11 +502,13 @@
   function _openFencingTargetSeparately(source) {
     if (_toolType !== 'fencing' || !window.app) return true;
     _checkpointLocalDraftBeforeLoad((source || 'cloud_load') + '_open_separately');
-    localStorage.removeItem('fenceJob');
+    // SCOPE-24: leave per-job keys in place (resume / unsaved work). Only drop
+    // the leftover global ghost key so a skipStorage init cannot reload it.
+    try { localStorage.removeItem('fenceJob'); } catch (_rmLegacy) {}
     window.app.job = null;
     window.app.currentRunId = null;
     if (typeof window.app._resetSections === 'function') window.app._resetSections();
-    window.app.init();
+    window.app.init({ skipStorage: true });
     _resetToolMediaState();
     localStorage.removeItem('fenceQA_verification');
     if (typeof window.fenceQA !== 'undefined') window.fenceQA._verificationState = {};
@@ -669,7 +688,7 @@
     if (typeof window.app.save === 'function') window.app.save();
     var persistedRequestId = null;
     try {
-      var persistedDraft = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+      var persistedDraft = _readPersistedFenceJob();
       persistedRequestId = persistedDraft && persistedDraft._fieldSync && persistedDraft._fieldSync.pendingMintRequestId;
     } catch(_persistReadError) {}
     if (String((window.app.job._fieldSync || {}).pendingMintRequestId || '') !== String(input.requestId) ||
@@ -708,7 +727,7 @@
     if (typeof window.app.save === 'function') window.app.save();
     var persistedCanonical = null;
     try {
-      var canonicalDraft = JSON.parse(localStorage.getItem('fenceJob') || 'null');
+      var canonicalDraft = _readPersistedFenceJob();
       persistedCanonical = canonicalDraft && canonicalDraft._fieldSync && canonicalDraft._fieldSync.completedMintCanonical;
     } catch(_canonicalReadError) {}
     if (!persistedCanonical || String(persistedCanonical.requestId || '') !== String(result.requestId || '') ||
