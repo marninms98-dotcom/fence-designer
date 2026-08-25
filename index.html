@@ -1585,7 +1585,12 @@
     const SUPPLIER_PROFILES = {
       RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380, longPanelWidth: 3150 },
       Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365, longPanelWidth: 3150 },
-      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 }
+      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 },
+      // Stratco panel width + profiles are authoritative from SPEC.md:154 / :296 / :312.
+      // longPanelWidth is the shared long-panel width (3150mm) used by every supplier —
+      // SPEC only specifies Stratco's STANDARD width (2350mm), so this is the established
+      // generic long width, not an invented Stratco-specific number.
+      Stratco:{ profiles: ['Superdek', 'Good Neighbour'], panelWidth: 2350, longPanelWidth: 3150 }
     };
 
     // ── Section 9: Colorbond fencing colour palette ──
@@ -4537,25 +4542,40 @@
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Flag each item as <b>Material</b> (appears on the material order) or <b>Labour</b>. Cost price feeds the job margin.</div>
           ${items.map((c, i) => `
-            <div class="form-row" style="margin-bottom:8px;">
-              <div class="form-group">
-                <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra labour, skip bin, etc."
-                  onchange="app.updateCustomItem(${i}, 'desc', this.value)">
+            <div style="border:1px solid #e3e8ec;border-radius:8px;padding:8px;margin-bottom:8px;">
+              <div class="form-row" style="margin-bottom:6px;">
+                <div class="form-group" style="flex:1;">
+                  <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra panel, skip bin, extra labour"
+                    onchange="app.updateCustomItem(${i}, 'desc', this.value)">
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                    onchange="app.updateCustomItem(${i}, 'qty', this.value)">
+                  <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
+                    onchange="app.updateCustomItem(${i}, 'unit', this.value)">
+                    ${['','each','m','m²','hrs','job','lot'].map(u => '<option value="' + u + '"' + (c.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('')}
+                  </select>
+                </div>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
-                  onchange="app.updateCustomItem(${i}, 'qty', this.value)">
-                <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
-                  onchange="app.updateCustomItem(${i}, 'unit', this.value)">
-                  ${['','each','m','m²','hrs','job','lot'].map(u => '<option value="' + u + '"' + (c.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('')}
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select title="Material items appear on the material order" style="min-height:44px;font-size:15px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'kind', this.value)">
+                  <option value="material" ${(c.kind || 'material') === 'material' ? 'selected' : ''}>Material</option>
+                  <option value="labour" ${c.kind === 'labour' ? 'selected' : ''}>Labour</option>
                 </select>
-                <span style="font-weight:700;">$</span>
-                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Price" style="width:80px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                <span style="font-weight:700;">Sell $</span>
+                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Sell/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'price', this.value)">
+                <span style="font-weight:700;">Cost $</span>
+                <input type="number" value="${c.costPrice || ''}" min="0" step="1" placeholder="Cost/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'costPrice', this.value)">
+                <button class="btn-delete" style="min-height:44px;" onclick="app.deleteCustomItem(${i})">Remove</button>
               </div>
             </div>
           `).join('')}
+          <button class="btn-orange" onclick="app.addCustomItem()">+ Add Custom Item</button>
         `;
       },
 
@@ -6217,9 +6237,30 @@
         if (!this.job.quote) this.job.quote = {};
         if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
         while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push({});
-        if (field === 'qty' || field === 'price') value = parseFloat(value) || 0;
+        if (field === 'qty' || field === 'price' || field === 'costPrice') value = parseFloat(value) || 0;
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
+        this.updateStats();
+        this.renderQuoteAndOrders();
+      },
+
+      addCustomItem() {
+        if (!this.job.quote) this.job.quote = {};
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
+        this.job.quote.customLineItems.push({ kind: 'material' });
+        this.save();
+        this.renderQuote();
+        this.updateStats();
+        this.renderQuoteAndOrders();
+      },
+
+      deleteCustomItem(idx) {
+        if (!this.job.quote || !this.job.quote.customLineItems) return;
+        this.job.quote.customLineItems.splice(idx, 1);
+        // Keep at least the three default slots so the section never collapses.
+        while (this.job.quote.customLineItems.length < 3) this.job.quote.customLineItems.push({});
+        this.save();
+        this.renderQuote();
         this.updateStats();
         this.renderQuoteAndOrders();
       },
@@ -9763,7 +9804,7 @@
           removeAsbestosQty: removalActive && rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: removalActive && rem.vegetation,
           groundFinish: q.groundFinish || 'none',
-          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 })),
+          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: c.kind || 'material', costPrice: c.costPrice || 0 })),
           notes: job.siteNotes || '',
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
@@ -9790,7 +9831,9 @@
         let totalMetres = 0;
         let totalPanels = 0;
         let totalPosts = 0;
-        let totalPlinths = 0;
+        let totalPlinths = 0;            // all plinths (standard + long) — kept for existing sell/quote math
+        let totalPlinthsStandard = 0;    // plinths on standard-width panels
+        let totalPlinthsLong = 0;        // plinths on long-width panels (auto → long plinth, COST_PRICES.plinthLong)
         let totalPatioTubes = 0;
         const postGroups = {}; // { "1800_2400": { sheetH, postH, count } }
         const runDetails = [];
@@ -9804,6 +9847,8 @@
           totalPosts += postCount;
 
           let runPlinths = 0;
+          let runPlinthsStandard = 0;
+          let runPlinthsLong = 0;
           let panelsWithPatio = 0;
           const panelDetails = [];
 
@@ -9823,6 +9868,11 @@
 
             // Group panels by sheet height + post height + panel width for material order
             const panelWidthMm = this.getPanelW(panel);
+            // A plinth spans the panel it sits under, so a long panel needs LONG
+            // plinths. Track by width so the order auto-generates the long plinth
+            // line and margin reads COST_PRICES.plinthLong (no hand-add).
+            const isLongPanel = panelWidthMm > this.getPanelWidthMm();
+            if (isLongPanel) runPlinthsLong += plinths; else runPlinthsStandard += plinths;
             const key = `${panel.height}_${postH}_${panelWidthMm}`;
             if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, panelW: panelWidthMm, count: 0 };
             postGroups[key].count++;
@@ -9841,6 +9891,8 @@
 
           const patioTubes = panelsWithPatio > 0 ? panelsWithPatio + 1 : 0;
           totalPlinths += runPlinths;
+          totalPlinthsStandard += runPlinthsStandard;
+          totalPlinthsLong += runPlinthsLong;
           totalPatioTubes += patioTubes;
 
           // Check if run has any retaining at all
@@ -9863,6 +9915,8 @@
             panelCount,
             postCount,
             plinths: runPlinths,
+            plinthsStandard: runPlinthsStandard,
+            plinthsLong: runPlinthsLong,
             patioTubes,
             panelsWithPatio,
             hasRetaining,
@@ -10021,14 +10075,22 @@
           groundFinishDesc = js.groundFinish.charAt(0).toUpperCase() + js.groundFinish.slice(1) + ' ground finish';
         }
 
-        // Custom items
+        // Custom items — each carries a material/labour kind and a cost price.
+        // Material-flagged items flow to the material order; every item's cost
+        // feeds the margin (customCostTotal), not just its sell price.
         let customTotal = 0;
+        let customCostTotal = 0;
         const customItems = [];
         (js.custom || []).forEach(c => {
-          if (c.desc && c.qty > 0 && c.price > 0) {
-            const t = c.qty * c.price;
+          const cost = c.costPrice || 0;
+          // Admit a line when it has a sell price OR (as a material) a cost price,
+          // so a cost-only material still reaches the order and the margin.
+          if (c.desc && c.qty > 0 && (c.price > 0 || cost > 0)) {
+            const t = c.qty * (c.price || 0);
+            const kind = c.kind === 'labour' ? 'labour' : 'material';
             customTotal += t;
-            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price, total: t });
+            customCostTotal += c.qty * cost;
+            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price || 0, costPrice: cost, kind, total: t });
           }
         });
 
@@ -10081,7 +10143,10 @@
           }
           internalCost += g.count * unitCost;
         });
-        internalCost += totalPlinths * COST_PRICES.plinth;
+        // Plinth material cost is width-aware: long plinths (on long panels) cost
+        // COST_PRICES.plinthLong ($48) vs standard COST_PRICES.plinth ($41).
+        internalCost += totalPlinthsStandard * COST_PRICES.plinth;
+        internalCost += totalPlinthsLong * COST_PRICES.plinthLong;
         internalCost += totalPatioTubes * COST_PRICES.patioTube;
         internalCost += concreteBags * COST_PRICES.concrete;
         internalCost += tekBoxes * COST_PRICES.tekScrewBox;
@@ -10096,6 +10161,9 @@
           if (r.costPrice) internalRemovalCost += r.qty * r.costPrice;
         });
         internalCost += internalRemovalCost;
+        // Custom-item cost (material or labour) — so margin reflects what each
+        // custom line actually costs us, not just its sell price.
+        internalCost += customCostTotal;
         // Delivery cost (actual cost to us, not the sell price charged to client)
         internalCost += COST_PRICES.delivery;
 
@@ -10162,11 +10230,14 @@
           supplier: job.supplier, profile: job.profile, colour: job.colour,
           panelWidthMm: defaultPanelWidthMm, panelWidthM: defaultPanelWidthM, pricePerMetre,
           totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
+          totalPlinthsStandard, totalPlinthsLong,
+          plinthLongWidthMm: supplier.longPanelWidth || 3150,
+          plinthLongCost: COST_PRICES.plinthLong,
           postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
           gatesTotal, removalTotal, removalItems, internalRemovalCost,
-          groundFinishTotal, groundFinishDesc, customTotal, customItems,
+          groundFinishTotal, groundFinishDesc, customTotal, customCostTotal, customItems,
           addonsTotal, addonItems,
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
@@ -10834,10 +10905,26 @@
         order += `Supplier: ${d.supplier}\n\n`;
         order += `${'═'.repeat(50)}\n  SECTION 1: FENCING PANELS & POSTS (Supplier)\n${'═'.repeat(50)}\n\n`;
         order += `${panelLines}`;
-        if (d.totalPlinths > 0) order += `PLINTHS:\n${d.totalPlinths} \u00D7 150mm Plinths \u2014 ${d.colour}\n\n`;
+        // Plinths are width-aware: long-panel plinths auto-generate a SEPARATE long
+        // plinth order line (no hand-add). The long line reads COST_PRICES.plinthLong
+        // via d.plinthLongCost for supplier reconciliation.
+        const _plStd = d.totalPlinthsStandard != null ? d.totalPlinthsStandard : d.totalPlinths;
+        const _plLong = d.totalPlinthsLong || 0;
+        if (_plStd > 0) order += `PLINTHS (standard):\n${_plStd} \u00D7 150mm Plinths @ ${d.panelWidthMm}mm \u2014 ${d.colour}\n\n`;
+        if (_plLong > 0) order += `PLINTHS (long):\n${_plLong} \u00D7 150mm Long Plinths @ ${d.plinthLongWidthMm}mm \u2014 ${d.colour}\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)\n\n`;
         if (d.totalPatioTubes > 0) {
           const patioCalcParts = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio} panels + 1 = ${r.patioTubes}`);
           order += `PATIO TUBING:\n${d.totalPatioTubes} \u00D7 76x38 RHS Patio Tube @ 3000mm\n    (${patioCalcParts.join('; ')})\n\n`;
+        }
+        // Custom MATERIAL line items reach the supplier order (labour-flagged
+        // custom items stay off the order \u2014 they are not supplier materials).
+        const customMaterials = (d.customItems || []).filter(c => c.kind === 'material');
+        if (customMaterials.length) {
+          order += `CUSTOM MATERIALS:\n`;
+          customMaterials.forEach(c => {
+            order += `${c.qty} \u00D7 ${c.desc}${c.unit ? ` (${c.unit})` : ''}${c.costPrice > 0 ? `\n    (cost $${(c.costPrice).toFixed(2)} ea)` : ''}\n`;
+          });
+          order += `\n`;
         }
         if (d.gatePosts > 0) {
           order += `\n${'═'.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'═'.repeat(50)}\n\n`;
@@ -10869,7 +10956,10 @@
         order += `\n${'═'.repeat(50)}\n  RUN BREAKDOWN\n${'═'.repeat(50)}\n\n`;
         d.runDetails.forEach(r => {
           order += `${r.name}: ${r.panelCount} panels, ${r.length}m\n`;
-          if (r.plinths > 0) order += `    Plinths: ${r.plinths}\n`;
+          if (r.plinths > 0) {
+            if (r.plinthsLong > 0) order += `    Plinths: ${r.plinths} (${r.plinthsStandard || 0} standard, ${r.plinthsLong} long)\n`;
+            else order += `    Plinths: ${r.plinths}\n`;
+          }
           if (r.patioTubes > 0) order += `    Patio tubes: ${r.patioTubes}\n`;
           order += '\n';
         });
@@ -13730,7 +13820,7 @@
                 deliveryFee: js.delivery || 200,
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
-                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 }))
+                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: c.kind || 'material', costPrice: c.costPrice || 0 }))
                   : [{}, {}, {}]
               };
             }
@@ -13818,7 +13908,7 @@
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
       });
       (d.customItems || []).forEach(function(c) {
-        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, total_sell: c.total, category: 'custom' });
+        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: c.kind || 'material' });
       });
       if (d.accessSurcharge > 0) {
         lineItems.push({ description: 'Access surcharge (' + (d.accessRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.accessSurcharge, category: 'surcharges' });
