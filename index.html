@@ -12622,11 +12622,15 @@
       // Render the populated template -> jsPDF (6 full-page images at scale 2).
       // profileImages = { runId: dataURL } captured by the caller; we use the
       // first/widest run as the page-2 hero elevation.
-      async _renderFenceQuoteHTMLToPDF(doc, d, profileImages) {
+      // presetImgs (optional): skip _collectFenceQuoteImgs entirely and reuse an
+      // already-built imgs object (same shape it returns) — for rendering the
+      // same job's fence/photos again for a different recipient (per-neighbour
+      // PDFs) without re-running 3D capture + asset fetches per party.
+      async _renderFenceQuoteHTMLToPDF(doc, d, profileImages, presetImgs) {
         var PAGE_W = 794, PAGE_H = 1123; // A4 @ 96dpi
 
         // WAVE1: Use shared helper so PDF + preview produce identical images.
-        var imgs = await this._collectFenceQuoteImgs(profileImages);
+        var imgs = presetImgs || await this._collectFenceQuoteImgs(profileImages);
 
         // Stash imgs so executeSendQuote can reuse them for the web HTML upload
         // without re-fetching all remote assets a second time.
@@ -12831,249 +12835,61 @@
         }
       },
 
-      // ── Generate Per-Neighbour PDF (their portion only) ──
-      generateNeighbourPDF(contact, d, neighbourKey) {
+      // ── Generate Per-Party PDF for a shared-boundary job ──────────────────
+      // Every recipient (primary client + each named neighbour) now gets the
+      // SAME premium branded document (_buildFenceQuoteHTML) — full scope, full
+      // project total, Cost Split cards — with the cover's "(you)" tag moved to
+      // whichever party this PDF is for. Previously this was a hand-coded jsPDF
+      // one-table document, completely different (and much cruder) than the
+      // primary client's quote — see AGENTS.md "Two neighbour-quote paths".
+      // 2026-08-28: ported onto the shared pipeline (Khairo/Marnin decision:
+      // reuse the full premium quote rather than build a new their-portion-only
+      // renderer, since prorating shared costs like posts/site-prep per neighbour
+      // has no existing rule in the codebase and is a pricing-policy question).
+      async generateNeighbourPDF(contact, d, neighbourKey) {
         // contact: { client_name, quote_number, upload_url, contact_type }
         // d: output from _collectOutputData()
         // neighbourKey: neighbourId string or '__client__'
         const costs = d.neighbourCosts[neighbourKey];
         if (!costs) return null;
 
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-        const pw = 210, ph = 297, mx = 20;
-        let y = 20;
+        const qData = this._gatherFenceQuoteData(d);
+        await this._swFenceSitePhotosToDataURL(qData);
 
-        // Header bar
-        doc.setFillColor(41, 60, 70);
-        doc.rect(0, 0, pw, 32, 'F');
-        doc.setTextColor(241, 90, 41);
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        doc.text('SECUREWORKS GROUP PTY LTD', pw / 2, 14, { align: 'center' });
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.text('ABN 64 689 223 416  |  fencing@secureworkswa.com.au  |  +61 489 267 772', pw / 2, 22, { align: 'center' });
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        var quoteNumLabel = contact.quote_number ? 'CLIENT QUOTE  —  ' + contact.quote_number : 'CLIENT QUOTE';
-        doc.text(quoteNumLabel, pw / 2, 29, { align: 'center' });
-        y = 40;
+        // Move the cover's "(you)" tag to this recipient. boundaryParties[0] is
+        // always the primary client; each named neighbour follows in the same
+        // order as job.neighbours, matching _gatherFenceQuoteData's own build
+        // (see its "SHARED-BOUNDARY PARTIES, NAMES ONLY" block).
+        const job = d.job || this.job;
+        const namedNbs = (job.neighbours || []).filter(n => n && (n.firstName || n.lastName));
+        const youIdx = neighbourKey === '__client__' ? 0 : (1 + namedNbs.findIndex(n => n.id === neighbourKey));
+        qData.boundaryParties = (qData.boundaryParties || []).map((p, i) => Object.assign({}, p, { you: i === youIdx }));
 
-        // Client details (contact's name, not primary client)
-        doc.setTextColor(41, 60, 70);
-        doc.setFontSize(10);
-        const date = d.job.date || new Date().toISOString().slice(0, 10);
-        const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
-        const address = d.job.address || '\u2014';
-        const drawInfoRow = (row, ry) => {
-          row.forEach((r, col) => {
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
-            doc.setTextColor(76, 106, 124);
-            doc.text(r[0].toUpperCase(), mx + col * 85, ry);
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
-            doc.setTextColor(41, 60, 70);
-            doc.text(String(r[1]), mx + col * 85 + 30, ry);
+        // Cost Split cards (page 4) are labelled "Your Share" / "Neighbour Share"
+        // from _gatherFenceCostSplit, always relative to the PRIMARY client — so
+        // without this, a neighbour's own copy would say "Your Share: [primary
+        // client's name]", contradicting the "(you)" tag on the cover. Match by
+        // name (not index) since a share can be missing if that party has no
+        // cost entry yet, which would desync it from boundaryParties.
+        const myName = neighbourKey === '__client__'
+          ? (qData.boundaryParties[0] ? qData.boundaryParties[0].name : job.client)
+          : (namedNbs.find(n => n.id === neighbourKey) ? [namedNbs.find(n => n.id === neighbourKey).firstName, namedNbs.find(n => n.id === neighbourKey).lastName].filter(Boolean).join(' ') : '');
+        if (qData.split && qData.split.shown && Array.isArray(qData.split.shares)) {
+          qData.split = Object.assign({}, qData.split, {
+            shares: qData.split.shares.map(s => Object.assign({}, s, { who: s.name === myName ? 'Your Share' : 'Their Share' }))
           });
-        };
-        drawInfoRow([['Client', contact.client_name || '\u2014'], ['Job Ref', d.job.ref || '\u2014']], y);
-        y += 7;
-        // Address gets its own full-width, wrapped line so a long address can never
-        // run into the Date/Valid Until row that follows (was previously packed into
-        // the same 2-column grid as everything else and would overlap Date).
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(76, 106, 124);
-        doc.text('ADDRESS', mx, y);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.setTextColor(41, 60, 70);
-        const addrLines = doc.splitTextToSize(String(address), pw - mx * 2 - 30);
-        doc.text(addrLines, mx + 30, y);
-        y += Math.max(addrLines.length * 5, 7);
-        drawInfoRow([['Date', date], ['Valid Until', validUntil]], y);
-        y += 7 + 4;
-
-        // Portion note
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(9);
-        doc.setTextColor(76, 106, 124);
-        doc.text('Your portion of the shared fencing project at ' + address, mx, y);
-        y += 8;
-
-        // Quote description (if scoper entered one)
-        const quoteDesc = (d.job.quote && d.job.quote.customDescription) || (d.js && d.js.notes) || '';
-        if (quoteDesc.trim()) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(41, 60, 70);
-          doc.text('DESCRIPTION', mx, y);
-          doc.setDrawColor(76, 106, 124);
-          doc.line(mx, y + 1, pw - mx, y + 1);
-          y += 6;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9);
-          doc.setTextColor(41, 60, 70);
-          const descLines = doc.splitTextToSize(quoteDesc.trim(), pw - mx * 2);
-          doc.text(descLines, mx, y);
-          y += descLines.length * 4 + 6;
         }
 
-        // Material selection
-        const colourHex = this._getColourHex(d.colour);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(41, 60, 70);
-        doc.text('MATERIAL SELECTION', mx, y);
-        doc.setDrawColor(76, 106, 124);
-        doc.line(mx, y + 1, pw - mx, y + 1);
-        y += 7;
-        const hex = colourHex.replace('#', '');
-        const cr = parseInt(hex.substring(0,2), 16), cg = parseInt(hex.substring(2,4), 16), cb = parseInt(hex.substring(4,6), 16);
-        doc.setFillColor(cr, cg, cb);
-        doc.rect(mx, y - 3, 10, 10, 'F');
-        doc.setDrawColor(200, 200, 200);
-        doc.rect(mx, y - 3, 10, 10, 'S');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.setTextColor(41, 60, 70);
-        doc.text('COLORBOND ' + d.colour, mx + 14, y + 1);
-        doc.text('Profile: ' + d.profile, mx + 14, y + 6);
-        y += 14;
+        // Each recipient has their own GHL-assigned quote number (from
+        // prepare_neighbour_quotes) — use it in place of the shared job ref.
+        if (contact.quote_number) qData.qNum = contact.quote_number;
 
-        // Scope — only their assigned runs
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('SCOPE OF WORKS', mx, y);
-        doc.setDrawColor(76, 106, 124);
-        doc.line(mx, y + 1, pw - mx, y + 1);
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        const theirRuns = costs.runs || [];
-        const runDescs = theirRuns.map(r => {
-          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour;
-          if (r.plinths > 0) desc += ' (' + r.plinths + ' retaining plinths)';
-          return desc;
-        });
-        const totalM = theirRuns.reduce((s, r) => s + r.length, 0);
-        runDescs.push('Total: ' + totalM.toFixed(1) + 'm COLORBOND fencing \u2014 supply & install');
-        const scopeText = runDescs.join('\n');
-        const scopeLines = doc.splitTextToSize(scopeText, pw - mx * 2);
-        doc.text(scopeLines, mx, y);
-        y += scopeLines.length * 4 + 6;
-
-        // Pricing
-        if (y > ph - 60) { doc.addPage(); y = 20; }
-        const portionExGst = costs.totalExGst;
-        const portionGst = costs.gst;
-        const portionTotal = costs.totalIncGst;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(41, 60, 70);
-        doc.text('PRICING', mx, y);
-        doc.setDrawColor(76, 106, 124);
-        doc.line(mx, y + 1, pw - mx, y + 1);
-        y += 6;
-        doc.setFillColor(245, 245, 245);
-        doc.rect(mx, y - 3, pw - mx * 2, 6, 'F');
-        doc.setFontSize(8);
-        doc.setTextColor(76, 106, 124);
-        doc.text('DESCRIPTION', mx + 2, y);
-        doc.text('AMOUNT', pw - mx - 2, y, { align: 'right' });
-        y += 6;
-        doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text('COLORBOND Fencing \u2014 Your Portion (Supply & Install)', mx + 2, y);
-        doc.text('$' + this._fmt(portionExGst), pw - mx - 2, y, { align: 'right' });
-        y += 4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(76, 106, 124);
-        const detailStr = totalM.toFixed(1) + 'm across ' + theirRuns.length + ' run' + (theirRuns.length > 1 ? 's' : '');
-        doc.text(detailStr, mx + 2, y);
-        y += 6;
-
-        // Totals
-        doc.setDrawColor(41, 60, 70);
-        doc.setLineWidth(0.5);
-        doc.line(mx, y, pw - mx, y);
-        y += 4;
-        doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text('Subtotal (excl. GST)', mx + 2, y);
-        doc.text('$' + this._fmt(portionExGst), pw - mx - 2, y, { align: 'right' });
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.text('GST (10%)', mx + 2, y);
-        doc.text('$' + this._fmt(portionGst), pw - mx - 2, y, { align: 'right' });
-        y += 6;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(13);
-        doc.setTextColor(241, 90, 41);
-        doc.text('TOTAL (incl. GST)', mx + 2, y);
-        doc.text('$' + this._fmt(portionTotal), pw - mx - 2, y, { align: 'right' });
-        y += 10;
-
-        // Deposit
-        doc.setTextColor(41, 60, 70);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        const deposit = portionTotal * 0.5;
-        doc.text('Deposit Required (50%): $' + this._fmt(deposit), mx, y);
-        y += 8;
-
-        // Payment terms
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('PAYMENT TERMS', mx, y);
-        doc.line(mx, y + 1, pw - mx, y + 1);
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text('50% deposit required to confirm booking. Balance due on completion.', mx, y);
-        y += 10;
-
-        // T&C
-        if (y > ph - 60) { doc.addPage(); y = 20; }
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text('TERMS & CONDITIONS', mx, y);
-        doc.line(mx, y + 1, pw - mx, y + 1);
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 100, 100);
-        DISCLAIMERS.forEach((disc, i) => {
-          if (y > ph - 15) { doc.addPage(); y = 20; }
-          const lines = doc.splitTextToSize((i + 1) + '. ' + disc, pw - mx * 2);
-          doc.text(lines, mx, y);
-          y += lines.length * 3.2 + 2;
-        });
-
-        // Warranty
-        y += 4;
-        doc.setTextColor(41, 60, 70);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.text('WARRANTY', mx, y);
-        y += 4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 100, 100);
-        doc.text('BlueScope 10-year warranty on COLORBOND steel. SecureWorks Group 12-month workmanship warranty.', mx, y);
-
-        // Footer
-        const fy = ph - 8;
-        doc.setFontSize(7);
-        doc.setTextColor(76, 106, 124);
-        doc.text('SecureWorks Group PTY LTD | ABN 64 689 223 416 | fencing@secureworkswa.com.au | +61 489 267 772', pw / 2, fy, { align: 'center' });
-
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        // Reuse the images already captured for the primary client's PDF earlier
+        // in the same send flow (same job, same fence — nothing recipient-specific
+        // about the render/photos) instead of re-fetching/re-rendering per party.
+        await this._renderFenceQuoteHTMLToPDF(doc, qData, null, window._lastFenceQuoteImgs || null);
         return doc.output('blob');
       },
 
@@ -15325,7 +15141,7 @@
                 console.warn('[SendQuote] No neighbourCosts for', pContact.client_name, '(key=' + nbKey + '). Runs may not have neighbour assignments.');
                 continue;
               }
-              var blob = app.generateNeighbourPDF(pContact, d, nbKey);
+              var blob = await app.generateNeighbourPDF(pContact, d, nbKey);
               if (!blob) continue;
               var _nbOk = await app._swVerifiedPut(pContact.upload_url, blob, 'application/pdf');
               if (_nbOk) {
