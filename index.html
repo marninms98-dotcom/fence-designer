@@ -12867,24 +12867,35 @@
         const date = d.job.date || new Date().toISOString().slice(0, 10);
         const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
         const address = d.job.address || '\u2014';
-        const info = [
-          ['Client', contact.client_name || '\u2014'], ['Job Ref', d.job.ref || '\u2014'],
-          ['Address', address], ['Date', date],
-          ['Valid Until', validUntil]
-        ];
-        info.forEach((row, i) => {
-          const col = i % 2;
-          const ry = y + Math.floor(i / 2) * 7;
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.setTextColor(76, 106, 124);
-          doc.text(row[0].toUpperCase(), mx + col * 85, ry);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          doc.setTextColor(41, 60, 70);
-          doc.text(String(row[1]), mx + col * 85 + 30, ry);
-        });
-        y += Math.ceil(info.length / 2) * 7 + 4;
+        const drawInfoRow = (row, ry) => {
+          row.forEach((r, col) => {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8);
+            doc.setTextColor(76, 106, 124);
+            doc.text(r[0].toUpperCase(), mx + col * 85, ry);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(10);
+            doc.setTextColor(41, 60, 70);
+            doc.text(String(r[1]), mx + col * 85 + 30, ry);
+          });
+        };
+        drawInfoRow([['Client', contact.client_name || '\u2014'], ['Job Ref', d.job.ref || '\u2014']], y);
+        y += 7;
+        // Address gets its own full-width, wrapped line so a long address can never
+        // run into the Date/Valid Until row that follows (was previously packed into
+        // the same 2-column grid as everything else and would overlap Date).
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(76, 106, 124);
+        doc.text('ADDRESS', mx, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(41, 60, 70);
+        const addrLines = doc.splitTextToSize(String(address), pw - mx * 2 - 30);
+        doc.text(addrLines, mx + 30, y);
+        y += Math.max(addrLines.length * 5, 7);
+        drawInfoRow([['Date', date], ['Valid Until', validUntil]], y);
+        y += 7 + 4;
 
         // Portion note
         doc.setFont('helvetica', 'italic');
