@@ -12060,11 +12060,32 @@
         if (pagesStages.length === 0) { pagesStages = [[]]; investOnOwnPage = false; }
         var nScopePages = pagesStages.length + (investOnOwnPage ? 1 : 0);
 
+        // ----- SPLIT-CARDS CONTINUATION (itemized + shared-boundary safety valve) -----
+        // Itemized mode always shows the Cost Split cards too now (a shared-boundary
+        // quote must never omit each party's $ share) — but page 4 is FIXED height
+        // with no auto-pagination, so if the itemized table + split cards together
+        // would exceed it, the split cards move to their own continuation page
+        // instead of risking a clipped PDF. Formula calibrated against real
+        // headless-Chrome measurements of #pg4 .lower (2026-08-28): height ≈ 480 +
+        // 40*lineItems + 130*cardRows, where cardRows = ceil(parties / 4) (the
+        // splitgrid fits 4 cards per row at this page width). Measured safe up to
+        // ~919px, first measured overflow at 1046px — budget set to 900 and the
+        // per-unit constants rounded UP so a "fits" verdict never clips.
+        var _splitOnOwnPage = false;
+        if (d.priceDisplay === 'itemized' && d.split && d.split.shown) {
+          var _nLineItems = (d.priceLineItems || []).length;
+          var _nParties = (d.split.shares || []).length;
+          var _cardRows = Math.max(1, Math.ceil(_nParties / 4));
+          var _estLower = 480 + 40 * _nLineItems + 130 * _cardRows;
+          _splitOnOwnPage = _estLower > 900;
+        }
+
         // Dynamic page numbering: cover(1) + design(2) [+ site(3)] + scope(nScopePages)
-        // + investment + terms + close.
+        // + investment [+ split-continuation] + terms + close.
         var _pB = 2 + (hasSitePage ? 1 : 0);
         var _pInvest = _pB + nScopePages + 1;
-        var _pTerms = _pInvest + 1;
+        var _pSplit = _splitOnOwnPage ? _pInvest + 1 : null;
+        var _pTerms = _pInvest + (_splitOnOwnPage ? 2 : 1);
         var _pClose = _pTerms + 1;
         var totalPages = _pClose;
         var pfn = function(n) {
@@ -12213,14 +12234,20 @@
           + '<div class="scrim"></div><div class="scrim-foot"></div>'
           + '<div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
           + '<div class="eyebrowrow"><span class="num">04</span><span class="accent-bar"></span><span class="label">Your Investment</span></div>'
-          // The dollar cost-split cards are suppressed in itemized mode: the itemized
-          // table already fills the fixed-height page, and stacking the split cards
-          // under it overflows/clips the PDF. Names of every party still appear on the
-          // cover (D5); the per-party dollar split is a deferred slice per Marnin.
-          + '<div class="lower">' + invBody
-          + (d.priceDisplay === 'itemized' ? '' : splitBlock)
-          + '</div>'
+          + '<div class="lower">' + invBody + (_splitOnOwnPage ? '' : splitBlock) + '</div>'
           + pfn(_pInvest) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
+
+        // ----- PAGE 4B COST SPLIT (continuation, only when it wouldn't fit on p4) -----
+        var p4b = '';
+        if (_splitOnOwnPage) {
+          p4b = '<div id="pg4" class="pgwrap"><section class="page">'
+            + (imgs.pricePhoto ? '<div class="bgimg" style="background-image:url(\'' + imgs.pricePhoto + '\');"></div>' : '<div class="bgimg"></div>')
+            + '<div class="scrim"></div><div class="scrim-foot"></div>'
+            + '<div class="head"><div class="logo">' + imgs.logo + '</div>' + hmeta + '</div>'
+            + '<div class="eyebrowrow"><span class="num">04</span><span class="accent-bar"></span><span class="label">Cost Split</span></div>'
+            + '<div class="lower">' + splitBlock.replace(/^<div class="split">/, '<div class="split" style="margin-top:0;padding-top:0;border-top:none;">') + '</div>'
+            + pfn(_pSplit) + '<div class="groundedge"></div><div class="pageframe"></div></section></div>';
+        }
 
         // ----- PAGE 5 TERMS -----
         // Strong pro-SecureWorks clauses (plain English, no em dashes). Rendered as
@@ -12545,7 +12572,7 @@
           + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">'
           + '<style>' + css + '</style></head><body class="' + (forPDF ? 'pdf' : 'web') + '">'
           + (forPDF ? '' : '<div class="sw-qbg"></div><div class="sw-qscrim"></div>')
-          + p1 + webCtaBar + p2 + pSite + scopePagesHTML + p4 + p5 + p6
+          + p1 + webCtaBar + p2 + pSite + scopePagesHTML + p4 + p4b + p5 + p6
           + stickyBar
           + webScript
           + (forPDF ? '' : '<script>(function(){function f(){var ps=document.querySelectorAll(".pgwrap");if(window.innerWidth>820){ps.forEach(function(p){p.style.zoom="";});return;}var z=document.documentElement.clientWidth/794;ps.forEach(function(p){p.style.zoom=z;});}f();addEventListener("resize",f);addEventListener("orientationchange",f);})();<\/script>')
