@@ -39,6 +39,17 @@ The supplier **material order** and the internal **work order** are plain-text/H
 - **Profile artwork resolves in three tiers** in `_getProfileSVG(profile, panelSystem)`: repo-held product photography in `app._PROFILE_PHOTOS` (keyed `'<panel system>::<profile>'`, relative `textures/` paths — this ships to Pages under a subpath) → the remote `steelselect.com.au` URL map → the generated `_buildProfileSVG` diagram, which is also the `onerror` fallback. Add a key only when the file actually exists. All four Stratco profiles have a photo, normalised to a 720x470 canvas; they render at `_PROFILE_PHOTO_MAX_W` (520px) rather than the diagram's 340px because CGI Corrugated and CGI Mini are the same corrugated shape at different pitch and are indistinguishable at thumbnail size — picking the wrong one is a wrong material order.
 - Coverage: `tests/material-order-playwright.spec.js` and `tests/supplier-routing-playwright.spec.js` (both in the `playwright.config.js` `testMatch`).
 
+## Per-component fence colours (2026-09)
+
+Sheets, rails, posts and plinths each carry a colour. `job.colour` **is the SHEET colour** and is read in ~48 places (quote, order, work order, 3D render, pricing) — it was deliberately NOT rewired. The other three are additive, optional overrides:
+
+- `job.componentColours = { rails, posts, plinths }` — job-level; `run.colours = { sheets, rails, posts, plinths }` — per-run. Both store only what was explicitly set and are **deleted** when cleared, so a job that never used the feature carries none of these keys and behaves identically to before (proven byte-identical across order, work order, quote HTML, specs, pricing JSON and totals).
+- Resolve through `app.getComponentColour(component, run)` / `getRunColourSet(run)` — never read the raw fields. Precedence: **explicit run > explicit job > that run's resolved sheet colour**. So overriding a run's sheets does not drag away a rail colour the operator set at job level; the run-override UI labels each blank option with what it actually inherits.
+- **Colour never touches price** (Captain: "nah"). Nothing in this feature feeds costing.
+- Downstream, differing colours must SPLIT order lines or we buy the wrong stock: `postGroups` keys include sheet/rail/post colour, and `plinthGroups` tallies plinths by colour × width alongside the unchanged flat `totalPlinths*`. The order prints one `Colour:` line when sheets/rails/posts match (byte-identical to before) and expands to `Sheets:`/`Rails:`/`Posts:` only when they differ. The quote adds a single `Trim Colours` spec row only when something differs, protecting the fixed PDF page budget.
+- The 3D render and the AI image prompt still use `job.colour` (sheets) only — trim colours are not visualised.
+- Coverage: `tests/component-colours-playwright.spec.js`.
+
 ## Two neighbour-quote paths (do not conflate)
 
 - The PRIMARY client's quote renders via `_buildFenceQuoteHTML` (above), uploads both `pdf_url` and `html_url`.

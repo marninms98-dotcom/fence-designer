@@ -14,7 +14,7 @@ const executablePath = chromeCandidates.find((candidate) => fs.existsSync(candid
 
 module.exports = defineConfig({
   testDir: './tests',
-  testMatch: /(reported-regressions-playwright|material-order-playwright|supplier-routing-playwright)\.spec\.js/,
+  testMatch: /(reported-regressions-playwright|material-order-playwright|supplier-routing-playwright|component-colours-playwright)\.spec\.js/,
   timeout: 30000,
   fullyParallel: false,
   workers: 1,
