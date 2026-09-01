@@ -484,16 +484,24 @@ test('Unit 1 — picking the literal "Custom..." option keeps the free-text inpu
 });
 
 // ── Stratco profile photography ──
-// We hold real product photos for TWO of Stratco's four profiles. Those two must
-// show the photo; the other two must keep the generated diagram rather than a
-// broken image, an empty box or a placeholder that reads as a mistake. Every
-// other panel system keeps whatever it rendered before.
-test('Stratco Superdek and Wavelok render their product photo from the repo', async ({ page }) => {
+// All FOUR Stratco profiles ship with Stratco's own product photo in the repo.
+// CGI Corrugated and CGI Mini are the same corrugated shape at different pitch,
+// so each profile must resolve to its OWN file and be rendered big enough to
+// tell apart on an iPad — a mix-up here is a wrong material order. Non-Stratco
+// panel systems keep exactly the behaviour they had before.
+const STRATCO_PROFILE_PHOTOS = {
+  'Superdek': 'textures/stratco-superdek.png',
+  'CGI Corrugated': 'textures/stratco-cgi-corrugated.png',
+  'Wavelok': 'textures/stratco-wavelok.png',
+  'CGI Mini': 'textures/stratco-cgi-mini.png',
+};
+
+test('each of the four Stratco profiles renders its own distinct product photo', async ({ page }) => {
   await openApp(page);
-  const res = await page.evaluate(() => {
+  const res = await page.evaluate((profiles) => {
     const app = window.app;
     const out = {};
-    ['Superdek', 'Wavelok'].forEach((profile) => {
+    profiles.forEach((profile) => {
       app.job.installation = {};
       app.updateSupplier('Stratco');
       app.job.profile = profile;
@@ -502,73 +510,105 @@ test('Stratco Superdek and Wavelok render their product photo from the repo', as
       out[profile] = {
         src: img ? img.getAttribute('src') : null,
         alt: img ? img.getAttribute('alt') : null,
-        // Sized to the column, never intrinsic pixels that shove the form about.
         width: img ? img.style.width : null,
         height: img ? img.style.height : null,
         maxWidth: img ? img.parentElement.style.maxWidth : null,
-        hasFallback: img ? img.getAttribute('onerror') : null,
+        onerror: img ? img.getAttribute('onerror') : null,
       };
     });
+    // Every Stratco profile in the live dropdown must be covered — adding a
+    // fifth profile without an image would otherwise slip through silently.
+    out.__dropdown = Array.from(document.querySelectorAll('#profile option'))
+      .map((o) => o.value).filter((v) => v && v !== '__custom__');
     return out;
-  });
+  }, Object.keys(STRATCO_PROFILE_PHOTOS));
 
-  expect(res.Superdek.src).toBe('textures/stratco-superdek.png');
-  expect(res.Wavelok.src).toBe('textures/stratco-wavelok.png');
-  expect(res.Superdek.alt).toBe('Superdek profile');
-  expect(res.Wavelok.alt).toBe('Wavelok profile');
-  Object.values(res).forEach((r) => {
+  expect(res.__dropdown).toEqual(Object.keys(STRATCO_PROFILE_PHOTOS));
+
+  const seen = new Set();
+  Object.entries(STRATCO_PROFILE_PHOTOS).forEach(([profile, src]) => {
+    const r = res[profile];
+    expect(r.src, profile).toBe(src);
+    expect(r.alt, profile).toBe(profile + ' profile');
+    // Distinct file per profile: the two corrugated profiles must never share one.
+    expect(seen.has(r.src), profile).toBeFalsy();
+    seen.add(r.src);
     // Relative path — this ships to Pages under a subpath, never from root.
-    expect(r.src.startsWith('/')).toBeFalsy();
-    expect(r.src).not.toMatch(/^https?:/);
-    expect(r.width).toBe('100%');
-    expect(r.height).toBe('auto');
-    expect(r.maxWidth).toBe('340px');
+    expect(r.src.startsWith('/'), profile).toBeFalsy();
+    expect(r.src, profile).not.toMatch(/^https?:/);
+    // Responsive, and big enough that CGI Corrugated vs CGI Mini is legible.
+    expect(r.width, profile).toBe('100%');
+    expect(r.height, profile).toBe('auto');
+    expect(parseInt(r.maxWidth, 10), profile).toBeGreaterThanOrEqual(480);
     // A missing file degrades to the diagram, never a broken image icon.
-    expect(r.hasFallback).toContain('_onProfileImgError');
+    expect(r.onerror, profile).toContain('_onProfileImgError');
   });
 });
 
-test('the Stratco profiles with no photo keep the existing diagram, not a broken image', async ({ page }) => {
+test('the four Stratco photos load, and CGI Corrugated and CGI Mini are visibly different', async ({ page }) => {
   await openApp(page);
-  const res = await page.evaluate(() => {
+  const res = await page.evaluate(async (profiles) => {
     const app = window.app;
     const out = {};
-    ['CGI Corrugated', 'CGI Mini'].forEach((profile) => {
+    for (const profile of profiles) {
       app.job.installation = {};
       app.updateSupplier('Stratco');
       app.job.profile = profile;
       app.renderInstallation();
-      const panel = document.getElementById('bodyInstallation');
+      const img = document.querySelector('#bodyInstallation img[alt$="profile"]');
+      await img.decode().catch(() => {});
+      const box = img.getBoundingClientRect();
+      // Sample the rendered pixels so two different files cannot pass as one.
+      const c = document.createElement('canvas');
+      c.width = 64; c.height = 42;
+      c.getContext('2d').drawImage(img, 0, 0, 64, 42);
       out[profile] = {
-        imgCount: panel.querySelectorAll('img[alt$="profile"]').length,
-        hasSvg: !!panel.querySelector('svg'),
-        markup: app._getProfileSVG(profile, 'Stratco'),
+        complete: img.complete,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        renderedWidth: Math.round(box.width),
+        fingerprint: c.toDataURL().slice(-800),
       };
-    });
+    }
     return out;
-  });
+  }, Object.keys(STRATCO_PROFILE_PHOTOS));
 
   Object.entries(res).forEach(([profile, r]) => {
-    expect(r.imgCount, profile).toBe(0);        // no photo, and no broken <img>
-    expect(r.hasSvg, profile).toBeTruthy();     // the existing generated diagram
-    expect(r.markup, profile).not.toContain('textures/');
-    expect(r.markup, profile).not.toContain('<img');
+    expect(r.complete, profile).toBeTruthy();
+    // The four are normalised to one canvas, so they render at a consistent size.
+    expect(r.naturalWidth, profile).toBe(720);
+    expect(r.naturalHeight, profile).toBe(470);
+    // Not a thumbnail: fine corrugations have to survive to the screen.
+    expect(r.renderedWidth, profile).toBeGreaterThanOrEqual(480);
   });
+  // The load-bearing one: the two corrugated profiles are not the same picture.
+  expect(res['CGI Corrugated'].fingerprint).not.toBe(res['CGI Mini'].fingerprint);
+  const prints = Object.values(res).map((r) => r.fingerprint);
+  expect(new Set(prints).size).toBe(4);
 });
 
-test('the photos are scoped to Stratco — other panel systems are untouched', async ({ page }) => {
+test('non-Stratco panel systems keep their existing profile artwork untouched', async ({ page }) => {
   await openApp(page);
   const res = await page.evaluate(() => {
     const app = window.app;
     return {
-      // Same profile NAME under a different system must not pick up the photo.
-      foreignSuperdek: app._getProfileSVG('Superdek', 'Metroll'),
-      // A pre-existing remote-image profile still renders from its remote URL.
+      // A profile in neither map still renders the generated diagram.
+      unmapped: app._getProfileSVG('Some Custom Profile', 'Metroll'),
+      // The pre-existing remote-image profiles are unchanged.
       lysaght: app._getProfileSVG('Neetascreen', 'Lysaght'),
       metroll: app._getProfileSVG('Trimclad', 'Metroll'),
+      rnr: app._getProfileSVG('Ridgeside', 'RNR'),
+      // Same profile NAME under another system must not pick up Stratco's photo.
+      foreignSuperdek: app._getProfileSVG('Superdek', 'Metroll'),
+      foreignCgiMini: app._getProfileSVG('CGI Mini', 'Lysaght'),
     };
   });
-  expect(res.foreignSuperdek).not.toContain('textures/');
+
+  expect(res.unmapped).toContain('<svg');
+  expect(res.unmapped).not.toContain('<img');
   expect(res.lysaght).toContain('steelselect.com.au');
   expect(res.metroll).toContain('steelselect.com.au');
+  expect(res.rnr).toContain('steelselect.com.au');
+  [res.unmapped, res.lysaght, res.metroll, res.rnr, res.foreignSuperdek, res.foreignCgiMini]
+    .forEach((markup) => expect(markup).not.toContain('textures/'));
 });

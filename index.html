@@ -6516,16 +6516,25 @@
         return c ? c.hex : '#cccccc';
       },
 
-      // Real product photography we hold IN THE REPO, keyed by panel system +
-      // profile (profile names are not guaranteed unique across systems).
-      // Relative paths only — this ships to GitHub Pages under a subpath.
-      // Only the profiles we actually have a photo for belong here: anything
-      // absent falls through to the remote image map and then to the generated
-      // diagram, so a missing photo is never a broken image or an empty box.
+      // Stratco's own product photography, held IN THE REPO and normalised to a
+      // common 720x470 canvas so the four render at a consistent size. Keyed by
+      // panel system + profile, because profile names are not guaranteed unique
+      // across systems. Relative paths only — this ships to GitHub Pages under a
+      // subpath. Add a key only when the file really exists: anything absent
+      // falls through to the remote image map and then to the generated diagram,
+      // so a missing photo is never a broken image or an empty box.
       _PROFILE_PHOTOS: {
         'Stratco::Superdek': 'textures/stratco-superdek.png',
-        'Stratco::Wavelok': 'textures/stratco-wavelok.png'
+        'Stratco::CGI Corrugated': 'textures/stratco-cgi-corrugated.png',
+        'Stratco::Wavelok': 'textures/stratco-wavelok.png',
+        'Stratco::CGI Mini': 'textures/stratco-cgi-mini.png'
       },
+
+      // Wider than the 340px the generated diagram uses. CGI Corrugated and CGI
+      // Mini are the SAME corrugated shape at different pitch — at thumbnail size
+      // a scoper cannot tell them apart, and picking the wrong one is a wrong
+      // order. Still width:100%, so it shrinks with a narrow iPad split view.
+      _PROFILE_PHOTO_MAX_W: 520,
 
       // `panelSystem` defaults to the job's current one so existing callers keep
       // working; pass it explicitly when rendering a profile for another system.
@@ -6534,7 +6543,7 @@
         const escapedName = String(profile || '').replace(/'/g, "\\'");
         const photo = this._PROFILE_PHOTOS[system + '::' + profile];
         if (photo) {
-          return `<div style="margin-top:8px;max-width:340px;">
+          return `<div style="margin-top:8px;max-width:${this._PROFILE_PHOTO_MAX_W}px;">
             <img src="${photo}" alt="${this._esc(profile)} profile"
               style="width:100%;height:auto;border-radius:4px;display:block;background:#f3f4f6;"
               onerror="app._onProfileImgError(this,'${escapedName}')">
