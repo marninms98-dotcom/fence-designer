@@ -4303,7 +4303,7 @@
               <select id="profile" onchange="app.updateProfile(this.value)"></select>
             </div>
           </div>
-          ${this._getProfileSVG(j.profile)}
+          ${this._getProfileSVG(j.profile, j.supplier)}
           <div class="form-group" style="margin-top:16px;">
             <label>Colour *</label>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:8px 0 6px;">Stock Colours</div>
@@ -6516,7 +6516,30 @@
         return c ? c.hex : '#cccccc';
       },
 
-      _getProfileSVG(profile) {
+      // Real product photography we hold IN THE REPO, keyed by panel system +
+      // profile (profile names are not guaranteed unique across systems).
+      // Relative paths only — this ships to GitHub Pages under a subpath.
+      // Only the profiles we actually have a photo for belong here: anything
+      // absent falls through to the remote image map and then to the generated
+      // diagram, so a missing photo is never a broken image or an empty box.
+      _PROFILE_PHOTOS: {
+        'Stratco::Superdek': 'textures/stratco-superdek.png',
+        'Stratco::Wavelok': 'textures/stratco-wavelok.png'
+      },
+
+      // `panelSystem` defaults to the job's current one so existing callers keep
+      // working; pass it explicitly when rendering a profile for another system.
+      _getProfileSVG(profile, panelSystem) {
+        const system = panelSystem !== undefined ? panelSystem : this.job.supplier;
+        const escapedName = String(profile || '').replace(/'/g, "\\'");
+        const photo = this._PROFILE_PHOTOS[system + '::' + profile];
+        if (photo) {
+          return `<div style="margin-top:8px;max-width:340px;">
+            <img src="${photo}" alt="${this._esc(profile)} profile"
+              style="width:100%;height:auto;border-radius:4px;display:block;background:#f3f4f6;"
+              onerror="app._onProfileImgError(this,'${escapedName}')">
+          </div>`;
+        }
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
         const dimBase = 'https://steelselect.com.au/sites/default/files/images/products/dimensions/';
         const urls = {

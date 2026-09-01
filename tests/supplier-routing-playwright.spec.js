@@ -482,3 +482,93 @@ test('Unit 1 — picking the literal "Custom..." option keeps the free-text inpu
   expect(res.hasInput).toBeTruthy();
   expect(res.typed).toBe('Bunnings Trade');
 });
+
+// ── Stratco profile photography ──
+// We hold real product photos for TWO of Stratco's four profiles. Those two must
+// show the photo; the other two must keep the generated diagram rather than a
+// broken image, an empty box or a placeholder that reads as a mistake. Every
+// other panel system keeps whatever it rendered before.
+test('Stratco Superdek and Wavelok render their product photo from the repo', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(() => {
+    const app = window.app;
+    const out = {};
+    ['Superdek', 'Wavelok'].forEach((profile) => {
+      app.job.installation = {};
+      app.updateSupplier('Stratco');
+      app.job.profile = profile;
+      app.renderInstallation();
+      const img = document.querySelector('#bodyInstallation img[alt$="profile"]');
+      out[profile] = {
+        src: img ? img.getAttribute('src') : null,
+        alt: img ? img.getAttribute('alt') : null,
+        // Sized to the column, never intrinsic pixels that shove the form about.
+        width: img ? img.style.width : null,
+        height: img ? img.style.height : null,
+        maxWidth: img ? img.parentElement.style.maxWidth : null,
+        hasFallback: img ? img.getAttribute('onerror') : null,
+      };
+    });
+    return out;
+  });
+
+  expect(res.Superdek.src).toBe('textures/stratco-superdek.png');
+  expect(res.Wavelok.src).toBe('textures/stratco-wavelok.png');
+  expect(res.Superdek.alt).toBe('Superdek profile');
+  expect(res.Wavelok.alt).toBe('Wavelok profile');
+  Object.values(res).forEach((r) => {
+    // Relative path — this ships to Pages under a subpath, never from root.
+    expect(r.src.startsWith('/')).toBeFalsy();
+    expect(r.src).not.toMatch(/^https?:/);
+    expect(r.width).toBe('100%');
+    expect(r.height).toBe('auto');
+    expect(r.maxWidth).toBe('340px');
+    // A missing file degrades to the diagram, never a broken image icon.
+    expect(r.hasFallback).toContain('_onProfileImgError');
+  });
+});
+
+test('the Stratco profiles with no photo keep the existing diagram, not a broken image', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(() => {
+    const app = window.app;
+    const out = {};
+    ['CGI Corrugated', 'CGI Mini'].forEach((profile) => {
+      app.job.installation = {};
+      app.updateSupplier('Stratco');
+      app.job.profile = profile;
+      app.renderInstallation();
+      const panel = document.getElementById('bodyInstallation');
+      out[profile] = {
+        imgCount: panel.querySelectorAll('img[alt$="profile"]').length,
+        hasSvg: !!panel.querySelector('svg'),
+        markup: app._getProfileSVG(profile, 'Stratco'),
+      };
+    });
+    return out;
+  });
+
+  Object.entries(res).forEach(([profile, r]) => {
+    expect(r.imgCount, profile).toBe(0);        // no photo, and no broken <img>
+    expect(r.hasSvg, profile).toBeTruthy();     // the existing generated diagram
+    expect(r.markup, profile).not.toContain('textures/');
+    expect(r.markup, profile).not.toContain('<img');
+  });
+});
+
+test('the photos are scoped to Stratco — other panel systems are untouched', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(() => {
+    const app = window.app;
+    return {
+      // Same profile NAME under a different system must not pick up the photo.
+      foreignSuperdek: app._getProfileSVG('Superdek', 'Metroll'),
+      // A pre-existing remote-image profile still renders from its remote URL.
+      lysaght: app._getProfileSVG('Neetascreen', 'Lysaght'),
+      metroll: app._getProfileSVG('Trimclad', 'Metroll'),
+    };
+  });
+  expect(res.foreignSuperdek).not.toContain('textures/');
+  expect(res.lysaght).toContain('steelselect.com.au');
+  expect(res.metroll).toContain('steelselect.com.au');
+});
