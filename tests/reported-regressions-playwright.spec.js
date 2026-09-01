@@ -472,3 +472,99 @@ test('send-quote fails closed when the pre-send pricing save hits a scope confli
   expect(result.overlayText).toContain('Send Failed');
   expect(result.overlayText).toContain('sync_required');
 });
+
+// ── Neighbour cost share % is mandatory before a quote can be sent ──
+// The share % input RENDERS an even-split default but only PERSISTS it when the
+// operator touches it, so a neighbour job could reach Send with no share stored
+// at all — after which every downstream consumer silently substituted its own
+// default (`n.sharePercent || 50`). The quote then went out apportioned on a
+// number nobody chose. showSendQuoteModal() is the send door; the rule lives in
+// app._validateRequired() so quote generation is gated by the same check.
+function seedNeighbourJob(sharePercent) {
+  window._swIntegration._connectJob(
+    '20000000-0000-4000-8000-000000000009', 'opp-test-nb', 'contact-test-nb', 'draft'
+  );
+  Object.assign(window.app.job, {
+    clientFirstName: 'TEST-NB', clientLastName: 'Boundary',
+    phone: '0404777984', email: 'test-nb@example.com',
+    address: '9 Shared Fence Way', suburb: 'Perth', scoper: 'Khairo',
+    ref: 'SWF-TEST-2309',
+    neighboursRequired: true,
+    neighbours: [{
+      id: 'nb-1', firstName: 'Grace', lastName: 'Hopper',
+      phone: '0400111222', email: 'grace@example.com',
+      address: '11 Shared Fence Way',
+      ...(sharePercent === null ? {} : { sharePercent }),
+    }],
+  });
+  window.app.job.runs = [{
+    name: 'Run 1', length: 25,
+    panels: Array.from({ length: 8 }, () => ({ height: 1800, retaining: 0, slopePlinths: 0 })),
+  }];
+  window.fenceQA._verificationState = { scoper: { signedOff: true } };
+}
+
+test('send is blocked when a neighbour has no cost share %, naming the missing field', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async (seed) => {
+    // eslint-disable-next-line no-eval
+    eval('(' + seed + ')')(null);   // neighbour with NO sharePercent at all
+    const toasts = [];
+    const realToast = window.app.showToast;
+    window.app.showToast = function (msg, kind) { toasts.push({ msg, kind }); return realToast.call(this, msg, kind); };
+
+    window.__swCalls.length = 0;
+    await window.showSendQuoteModal();
+    window.app.showToast = realToast;
+
+    return {
+      toasts,
+      missing: window.app._validateRequired(),
+      reachedVerify: !!document.getElementById('materialVerifyModal'),
+      actions: window.__swCalls.map((c) => c.action),
+    };
+  }, seedNeighbourJob.toString());
+
+  expect(result.missing).toContain('Neighbour cost share %');
+  // Stopped AT the door: the operator is told which field, by name.
+  expect(result.toasts.some((t) => t.kind === 'error' && /Neighbour cost share %/.test(t.msg))).toBeTruthy();
+  // And nothing downstream ran — no material verification, no cloud write, no send.
+  expect(result.reachedVerify).toBeFalsy();
+  expect(result.actions).not.toContain('save_scope');
+  expect(result.actions).not.toContain('prepare_quote');
+});
+
+test('a neighbour job WITH a cost share % still sends: fresh pricing saves, then prepare_quote runs', async ({ page }) => {
+  await openFixture(page);
+
+  const result = await page.evaluate(async (seed) => {
+    // eslint-disable-next-line no-eval
+    eval('(' + seed + ')')(60);   // an explicit, operator-chosen share
+
+    const liveTotal = window.app._collectOutputData().grandTotal;
+    window.__swCalls.length = 0;
+
+    window._showSendQuoteModalInternal();
+    window._sqLastTo = 'test-nb@example.com';
+    window._sqLastMessage = ''; window._sqLastCC = ''; window._sqLastSubject = '';
+    window._sqLastLibPaths = []; window._sqNeighbourSend = null;
+    try { await window.executeSendQuote(); } catch (_) { /* past prepare_quote the fixture stops mocking */ }
+
+    const calls = window.__swCalls;
+    const saveIdx = calls.findIndex((c) => c.action === 'save_scope');
+    const prepIdx = calls.findIndex((c) => c.action === 'prepare_quote');
+    const savedPricing = saveIdx >= 0 ? calls[saveIdx].body?.meta?.pricing_json : null;
+    return {
+      liveTotal, saveIdx, prepIdx,
+      savedTotalIncGST: savedPricing?.totalIncGST,
+      missing: window.app._validateRequired(),
+    };
+  }, seedNeighbourJob.toString());
+
+  expect(result.missing).not.toContain('Neighbour cost share %');
+  expect(result.liveTotal).toBeGreaterThan(0);
+  expect(result.saveIdx).toBeGreaterThanOrEqual(0);
+  expect(result.prepIdx).toBeGreaterThan(result.saveIdx);
+  expect(result.savedTotalIncGST).toBe(result.liveTotal);
+});

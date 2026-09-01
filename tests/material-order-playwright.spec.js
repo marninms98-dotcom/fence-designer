@@ -117,7 +117,7 @@ async function openApp(page) {
     && typeof window.app._generateMaterialOrderHTML === 'function');
 }
 
-test('Task C — Stratco resolves to a 2350mm panel width + Superdek/Good Neighbour, never the 2380 fallback', async ({ page }) => {
+test('Task C — Stratco resolves to a 2350mm panel width + its four real profiles, never the 2380 fallback', async ({ page }) => {
   await openApp(page);
   const res = await page.evaluate(() => {
     const app = window.app;
@@ -137,8 +137,14 @@ test('Task C — Stratco resolves to a 2350mm panel width + Superdek/Good Neighb
   expect(res.width).not.toBe(2380);          // no silent fallback
   expect(res.longWidth).toBe(3150);          // long-plinth / long-panel width wired
   expect(res.supplierOptions).toContain('Stratco (2350mm)');
-  expect(res.profileOptions).toContain('Superdek');
-  expect(res.profileOptions).toContain('Good Neighbour');
+  // Exactly the four profiles Stratco actually publishes, in order — plus the
+  // shared "Select.../Custom..." sentinels the dropdown always carries.
+  expect(res.profileOptions.filter(v => v && v !== '__custom__'))
+    .toEqual(['Superdek', 'CGI Corrugated', 'Wavelok', 'CGI Mini']);
+  // "Good Neighbour" is Stratco's RANGE name, not a profile; Smartspan (2170mm)
+  // is excluded by Captain ruling because it does not round to the 2.4m standard.
+  expect(res.profileOptions).not.toContain('Good Neighbour');
+  expect(res.profileOptions).not.toContain('Smartspan');
 });
 
 test('Task B — long-panel plinths auto-generate a separate long-plinth order line (reads plinthLong)', async ({ page }) => {

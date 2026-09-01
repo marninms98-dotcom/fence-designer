@@ -1586,11 +1586,52 @@
       RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380, longPanelWidth: 3150 },
       Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365, longPanelWidth: 3150 },
       Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 },
-      // Stratco panel width + profiles are authoritative from SPEC.md:154 / :296 / :312.
-      // longPanelWidth is the shared long-panel width (3150mm) used by every supplier —
-      // SPEC only specifies Stratco's STANDARD width (2350mm), so this is the established
-      // generic long width, not an invented Stratco-specific number.
-      Stratco:{ profiles: ['Superdek', 'Good Neighbour'], panelWidth: 2350, longPanelWidth: 3150 }
+      // Stratco panel width is authoritative from SPEC.md:154 / :296 / :312.
+      // Profiles verified against Stratco's own site (data/stratco-profiles-scout/report.md):
+      //   • "Good Neighbour" is Stratco's fencing RANGE name, not a profile — removed.
+      //   • Stratco writes "CGI Corrugated", never bare "Corrugated" — match their wording.
+      //   • Smartspan is deliberately EXCLUDED (Captain ruling): its real width is 2170mm,
+      //     which does not round safely to the 2.4m standard the business counts by.
+      // The four kept profiles are 2350 or 2390mm, so the flat 2350 standard width is safe.
+      // Captain ruled: "we count standard panels as 2.4 and long panels as 3.1, as long
+      // it's around there it's fine" — do NOT add per-profile widths.
+      // longPanelWidth is the shared long-panel width (3150mm) used by every supplier.
+      // SPEC only specifies Stratco's STANDARD width (2350mm), and the scout found NO
+      // Stratco source for 3150 anywhere — 3150 is accepted as approximately 3.1m by
+      // Captain ruling, not as a published Stratco figure.
+      Stratco:{ profiles: ['Superdek', 'CGI Corrugated', 'Wavelok', 'CGI Mini'], panelWidth: 2350, longPanelWidth: 3150 }
+    };
+
+    // ── Section 4B.1: Buy-from suppliers + material-order email routing ──
+    // DISTINCT from SUPPLIER_PROFILES above. SUPPLIER_PROFILES is the PANEL SYSTEM
+    // (job.supplier — drives panel width and the profile list, despite its name).
+    // This list is WHO WE PHYSICALLY BUY FROM (job.installation.supplierSource) and
+    // where the material order email is addressed. Array order IS the dropdown order:
+    // the four most-used sit at the top, the rest follow.
+    // Every fencing material order additionally CCs the universal address below
+    // (Captain: "ALL"), so a Stratco order carries TWO CCs.
+    const MATERIAL_ORDER_UNIVERSAL_CC = 'fencing@secureworkswa.com.au';
+    const SUPPLIER_SOURCES = [
+      { name: 'RnR Direct',        to: 'sales@randrfencing.com.au',          cc: [] },
+      { name: 'Fencing Warehouse', to: 'sales@fencingwarehousewa.au',        cc: [] },
+      { name: 'Lysaght',           to: 'lysaghtsaleswa@lysaght.com',         cc: [] },
+      { name: 'Stratco',           to: 'tony.bacich@stratcowa.com.au',       cc: ['tradewa@stratcowa.com.au'] },
+      { name: 'Metric Fencing',    to: 'info@metricfencing.com.au',          cc: [] },
+      { name: 'Mackson',           to: 'info@mackson.com.au',                cc: [] },
+      { name: 'Team Work Fencing', to: 'admin@teamworkfencing.com.au',       cc: [] },
+      { name: 'Metroll Direct',    to: 'helen.mewburn@perth.metroll.com.au', cc: [] },
+      { name: 'Oxworks',           to: 'Nicole.Tingey@oxworks.com.au',       cc: [] }
+    ];
+    const SUPPLIER_SOURCE_NAMES = SUPPLIER_SOURCES.map(s => s.name);
+
+    // Panel system → default buy-from supplier. A DEFAULT, never a lock: picking a
+    // panel system pre-fills the Supplier (Buy From) field, and the operator can
+    // override it afterwards (the override sticks — see app.updateSupplier).
+    const PANEL_SYSTEM_DEFAULT_SUPPLIER = {
+      RNR:     'RnR Direct',
+      Metroll: 'Fencing Warehouse',   // default; Metroll Direct is the alternative
+      Lysaght: 'Lysaght',
+      Stratco: 'Stratco'
     };
 
     // ── Section 9: Colorbond fencing colour palette ──
@@ -3935,10 +3976,13 @@
                 </div>
                 <div class="form-group" style="max-width:110px">
                   <label>Cost Share % *</label>
-                  <input type="number" value="${nb.sharePercent || Math.round(100 / (nbs.length + 1))}" min="0" max="100" step="5"
+                  <input type="number" value="${Number(nb.sharePercent) > 0 ? nb.sharePercent : ''}" min="1" max="100" step="5"
+                    placeholder="${Math.round(100 / (nbs.length + 1))}"
                     oninput="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
                     style="text-align:center">
-                  <div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>
+                  ${Number(nb.sharePercent) > 0
+                    ? '<div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>'
+                    : '<div style="font-size:10px;color:#C0392B;margin-top:2px;">Required — blocks quote &amp; send</div>'}
                 </div>
               </div>
               ${(() => {
@@ -4221,6 +4265,13 @@
         const inst = j.installation || {};
         const supplierKeys = Object.keys(SUPPLIER_PROFILES);
         const colourHex = this._getColourHex(j.colour);
+        // Buy-from supplier. The RAW stored value drives the control — including the
+        // '__custom__' sentinel, which must keep the free-text input open rather
+        // than snapping back to a preset. Only an EMPTY field falls through to the
+        // panel system's default (Unit 2 auto-select), so a job saved before that
+        // existed never shows a blank supplier.
+        const storedSource = (inst.supplierSource || '');
+        const supplierSource = storedSource || (PANEL_SYSTEM_DEFAULT_SUPPLIER[j.supplier] || '');
 
         const swatchHtml = (colours) => colours.map(c => {
           const sel = c.name === j.colour;
@@ -4234,7 +4285,7 @@
               <label>Supplier (Buy From)</label>
               <select id="supSelect" onchange="app.updateInstallation('supplierSource', this.value)">
                 <option value="">Select...</option>
-                ${['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'].map(s => `<option value="${s}" ${inst.supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
+                ${SUPPLIER_SOURCE_NAMES.map(s => `<option value="${s}" ${supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -4279,7 +4330,7 @@
               style="margin-top:8px;" onchange="app.updateInstallation('coreDrillHoles', this.value)">` : ''}
           </div>
         `;
-        this._addCustomOption('supSelect', inst.supplierSource, ['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'], 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
+        this._addCustomOption('supSelect', supplierSource, SUPPLIER_SOURCE_NAMES, 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
         this._addCustomPanelSystemInputs(j.supplier, j.customPanelWidth);
         this.updateProfileDropdown();
       },
@@ -6197,15 +6248,48 @@
         this.updateSectionStatuses();
       },
 
+      // Panel system (job.supplier — drives panel width + the profile list).
+      // NOT the buy-from supplier; that is job.installation.supplierSource.
       updateSupplier(value) {
         this.job.supplier = value;
         const supplierData = SUPPLIER_PROFILES[value];
         if (supplierData && !supplierData.profiles.includes(this.job.profile)) {
           this.job.profile = supplierData.profiles[0];
         }
+        // Unit 2 auto-select: picking a panel system pre-fills who we buy from.
+        // A DEFAULT, not a lock — the operator can change the Buy From field
+        // straight afterwards and that choice sticks until the panel system moves.
+        const defaultSource = PANEL_SYSTEM_DEFAULT_SUPPLIER[value];
+        if (defaultSource) {
+          if (!this.job.installation) this.job.installation = {};
+          this.job.installation.supplierSource = defaultSource;
+        }
         this.recalculateAll();
         this.save();
         this.renderInstallation();
+      },
+
+      // ── Buy-from supplier + material-order email routing (Units 2/3) ──
+      // The operator's explicit choice wins. Jobs saved before the auto-select
+      // landed carry no supplierSource, so fall back to the panel system's default
+      // rather than showing a blank supplier on an otherwise complete job.
+      getSupplierSource() {
+        const chosen = (this.job.installation && this.job.installation.supplierSource) || '';
+        if (chosen && chosen !== '__custom__') return chosen;
+        return PANEL_SYSTEM_DEFAULT_SUPPLIER[this.job.supplier] || '';
+      },
+
+      // Resolve where a material order for this job is addressed.
+      // Returns { supplier, to, cc, known }. `cc` ALWAYS carries the universal
+      // fencing address (Captain: "ALL"), so a Stratco order carries two CCs.
+      // An unknown/custom supplier resolves with an empty `to` — honest, so the
+      // draft opens with the universal CC and the operator types the address.
+      getMaterialOrderRouting() {
+        const supplier = this.getSupplierSource();
+        const entry = SUPPLIER_SOURCES.find(s => s.name === supplier) || null;
+        const cc = (entry ? entry.cc.slice() : []);
+        if (cc.indexOf(MATERIAL_ORDER_UNIVERSAL_CC) === -1) cc.push(MATERIAL_ORDER_UNIVERSAL_CC);
+        return { supplier: supplier, to: entry ? entry.to : '', cc: cc, known: !!entry };
       },
 
       updateProfile(value) {
@@ -10227,7 +10311,13 @@
 
         return {
           job, js, scopeType: job.scopeType || 'fence-and-gate',
+          // `supplier` is the PANEL SYSTEM (job.supplier keys SUPPLIER_PROFILES).
+          // `supplierSource` is WHO WE BUY FROM, and `orderRouting` is where the
+          // material order email goes. Keep the two apart at every render site.
           supplier: job.supplier, profile: job.profile, colour: job.colour,
+          panelSystem: job.supplier,
+          supplierSource: this.getSupplierSource(),
+          orderRouting: this.getMaterialOrderRouting(),
           panelWidthMm: defaultPanelWidthMm, panelWidthM: defaultPanelWidthM, pricePerMetre,
           totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
           totalPlinthsStandard, totalPlinthsLong,
@@ -10886,7 +10976,11 @@
         return html;
       },
 
-      _generateMaterialOrderHTML(d) {
+      // Plain-text material order body. Extracted so the on-screen <pre>, the
+      // clipboard copy and the Outlook draft all render from ONE source — an
+      // order the supplier reads on screen must be byte-identical to the one
+      // that lands in their inbox.
+      _buildMaterialOrderText(d) {
         const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
         let panelLines = '';
@@ -10894,6 +10988,10 @@
           panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${g.panelW || d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n    Colour: ${d.colour}\n\n`;
         });
 
+        // ASCII rules, not box-drawing. Identical in the monospace <pre>, but a
+        // '═' costs NINE characters once percent-encoded into a mailto: URL —
+        // eight separator lines of them alone pushed a routine order past the
+        // length ceiling and into the clipboard fallback.
         let order = '';
         order += `SECUREWORKS GROUP PTY LTD\nMaterial Order\n\n`;
         order += `Job Ref: ${d.job.ref || '\u2014'}\n`;
@@ -10902,8 +11000,17 @@
         order += `Site Contact: 0489 267 772\n`;
         order += `Delivery Date: ${tomorrow} | Time: 8-10am\n`;
         if (d.job.scoper) order += `Scoped by: ${d.job.scoper}\n`;
-        order += `Supplier: ${d.supplier}\n\n`;
-        order += `${'═'.repeat(50)}\n  SECTION 1: FENCING PANELS & POSTS (Supplier)\n${'═'.repeat(50)}\n\n`;
+        // The order is EMAILED to the buy-from supplier, so it heads itself with
+        // who it is addressed to. `d.supplier` is the PANEL SYSTEM, which the
+        // supplier still needs in order to pick the right stock — it is printed
+        // as "Panel System", not as "Supplier". (Before this split the header
+        // read "Supplier: Metroll" on an order emailed to Fencing Warehouse.)
+        const _routing = d.orderRouting || { supplier: '', to: '', cc: [] };
+        order += `Order To: ${_routing.supplier || '\u2014 (no supplier selected)'}`;
+        if (_routing.to) order += ` <${_routing.to}>`;
+        order += `\n`;
+        order += `Panel System: ${d.supplier || '\u2014'}\n\n`;
+        order += `${'='.repeat(50)}\n  SECTION 1: FENCING PANELS & POSTS (Supplier)\n${'='.repeat(50)}\n\n`;
         order += `${panelLines}`;
         // Plinths are width-aware: long-panel plinths auto-generate a SEPARATE long
         // plinth order line (no hand-add). The long line reads COST_PRICES.plinthLong
@@ -10927,7 +11034,7 @@
           order += `\n`;
         }
         if (d.gatePosts > 0) {
-          order += `\n${'═'.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'═'.repeat(50)}\n\n`;
+          order += `\n${'='.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'='.repeat(50)}\n\n`;
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
           const allGates = [];
           (d.job.gates || []).forEach(g => {
@@ -10937,7 +11044,7 @@
           });
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
-        order += `\n${'═'.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'═'.repeat(50)}\n\n`;
+        order += `\n${'='.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'='.repeat(50)}\n\n`;
         var ov = d.job._materialOverrides || {};
         var concreteFinal = ov.concreteBags != null ? ov.concreteBags : d.concreteBags;
         var tekFinal = ov.tekBoxes != null ? ov.tekBoxes : d.tekBoxes;
@@ -10949,11 +11056,11 @@
         order += `\n\n`;
         // Supplier notes
         if (d.job.supplierNotes) {
-          order += `\n${'═'.repeat(50)}\n  SUPPLIER NOTES\n${'═'.repeat(50)}\n\n`;
+          order += `\n${'='.repeat(50)}\n  SUPPLIER NOTES\n${'='.repeat(50)}\n\n`;
           order += d.job.supplierNotes + '\n\n';
         }
         // Per-run breakdown
-        order += `\n${'═'.repeat(50)}\n  RUN BREAKDOWN\n${'═'.repeat(50)}\n\n`;
+        order += `\n${'='.repeat(50)}\n  RUN BREAKDOWN\n${'='.repeat(50)}\n\n`;
         d.runDetails.forEach(r => {
           order += `${r.name}: ${r.panelCount} panels, ${r.length}m\n`;
           if (r.plinths > 0) {
@@ -10963,7 +11070,19 @@
           if (r.patioTubes > 0) order += `    Patio tubes: ${r.patioTubes}\n`;
           order += '\n';
         });
-        order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks Group\nfencing@secureworkswa.com.au | 0489 267 772`;
+        order += `${'-'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks Group\nfencing@secureworkswa.com.au | 0489 267 772`;
+
+        return order;
+      },
+
+      _generateMaterialOrderHTML(d) {
+        const order = this._buildMaterialOrderText(d);
+        const routing = d.orderRouting || this.getMaterialOrderRouting();
+        const routingBar = `<div class="no-print" style="margin:0 0 10px;padding:10px 12px;background:#F3F6F7;border:1px solid #D6DEE1;border-radius:6px;font-size:12px;color:#293C46;">
+            <strong>Email to:</strong> ${this._esc(routing.to || '— no address on file')}
+            &nbsp;|&nbsp; <strong>CC:</strong> ${this._esc(routing.cc.join(', '))}
+            ${routing.known ? '' : '<div style="margin-top:4px;color:#B45309;">No routing on file for this supplier — add the address in Outlook before sending.</div>'}
+          </div>`;
 
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
@@ -10973,10 +11092,15 @@
             <h1>MATERIAL ORDER</h1>
           </div>
           <div class="section">
+            ${routingBar}
             <pre>${order}</pre>
             <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
               Copy to Clipboard
+            </button>
+            <button class="no-print" id="emailOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#F15A29;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
+              onclick="if(window.opener&&window.opener.app){window.opener.app.emailMaterialOrder();}else{alert('Reopen the material order from the app to draft the email.');}">
+              ✉ Draft Email in Outlook
             </button>
           </div>
         </body></html>`;
@@ -11077,7 +11201,8 @@
           <div class="section">
             <h2>Fence Specification</h2>
             <div class="info-grid">
-              <div><span class="label">Supplier:</span> <span class="value">${d.supplier}</span></div>
+              <div><span class="label">Panel system:</span> <span class="value">${d.supplier}</span></div>
+              <div><span class="label">Supplied by:</span> <span class="value">${d.supplierSource || '\u2014'}</span></div>
               <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
               <div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>
               <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(Object.values(d.postGroups).map(g => g.panelW)); if (ws.size === 0) ws.add(d.panelWidthMm); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
@@ -13399,6 +13524,98 @@
         this.showToast('Material order generated', 'success');
       },
 
+      // ── Material order email: ALWAYS an Outlook DRAFT, never an auto-send ──
+      // This app has no mail transport of its own (no backend mail command, no
+      // Graph credentials in the browser — see the branch report). A mailto: URL
+      // is the one mechanism a static GitHub Pages page has to hand an order to
+      // the operator's own Outlook: it opens a COMPOSE window, Outlook inserts
+      // the signed-in user's own default signature, and a HUMAN presses Send.
+      // Nothing in this file sends mail. Do not add an automatic send path.
+      // Deliberately no signature text here — Outlook adds Shaun's own; writing
+      // one would give every draft two.
+      _materialOrderEmail(d) {
+        const routing = d.orderRouting || this.getMaterialOrderRouting();
+        const client = d.job.client || [d.job.clientFirstName, d.job.clientLastName].filter(Boolean).join(' ');
+        const subject = ['Material Order', d.job.ref, client, d.job.address].filter(Boolean).join(' \u2014 ');
+        return { to: routing.to, cc: routing.cc, subject: subject, body: this._buildMaterialOrderText(d), routing: routing };
+      },
+
+      // A mailto: URL is handed to the OS, which caps its length. A routine order
+      // encodes to roughly 2,800 characters, comfortably inside what Chrome/Edge
+      // plus Outlook desktop and Outlook for iPad accept; a very large order can
+      // still outgrow it, and a SILENTLY truncated material order is worse than
+      // no order. So past this ceiling the draft carries a short covering note
+      // instead, and either way the full order goes to the clipboard so a paste
+      // always recovers it. Confirm the real ceiling on the Captain's own
+      // Outlook build before relying on a larger number here.
+      _MAILTO_SAFE_LEN: 6000,
+
+      // The single point where this app hands anything to a mail client. It opens
+      // a compose window and nothing else — there is no send path behind it.
+      // Kept as its own seam so tests can prove that without opening real mail.
+      _openMailDraft(url) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      },
+
+      _buildMailtoUrl(mail) {
+        // Addresses stay readable: Outlook desktop mishandles a percent-encoded
+        // '@' in the recipient, and RFC 6068 allows both unencoded.
+        const addr = (v) => encodeURIComponent(v || '').replace(/%40/g, '@').replace(/%2C/g, ',');
+        const q = [];
+        if (mail.cc && mail.cc.length) q.push('cc=' + addr(mail.cc.join(',')));
+        q.push('subject=' + encodeURIComponent(mail.subject));
+        q.push('body=' + encodeURIComponent(mail.body));
+        return 'mailto:' + addr(mail.to) + '?' + q.join('&');
+      },
+
+      async emailMaterialOrder() {
+        const missing = this._validateRequired();
+        if (missing.length > 0) {
+          this.showToast('Missing: ' + missing.join(', '), 'error');
+          return;
+        }
+        this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        const d = this._collectOutputData();
+        const mail = this._materialOrderEmail(d);
+
+        // Record where this order was addressed. The registry stays the single
+        // source of truth for routing; this is an audit stamp, never read back.
+        if (!this.job.installation) this.job.installation = {};
+        this.job.installation.supplierSource = mail.routing.supplier || this.job.installation.supplierSource || '';
+        this.job.installation.supplierRouting = { to: mail.routing.to, cc: mail.routing.cc.slice(), at: new Date().toISOString() };
+        this.save();
+
+        // Always put the full order on the clipboard: if the OS trims a long
+        // mailto anyway, one paste recovers the order in full.
+        let copied = false;
+        try { await navigator.clipboard.writeText(mail.body); copied = true; } catch (e) { copied = false; }
+
+        let url = this._buildMailtoUrl(mail);
+        let clipped = false;
+        if (url.length > this._MAILTO_SAFE_LEN) {
+          const note = 'Hi team,\n\nMaterial order for ' + (d.job.ref || d.job.address || 'the job below') + '.\n\n'
+            + (copied ? 'Full order is on the clipboard \u2014 paste it here before sending.'
+                      : 'Full order is in the Material Order tab \u2014 copy it across before sending.')
+            + '\n';
+          url = this._buildMailtoUrl({ to: mail.to, cc: mail.cc, subject: mail.subject, body: note });
+          clipped = true;
+        }
+        // Opens a DRAFT for a human to check and send. It does not send.
+        this._openMailDraft(url);
+        if (!mail.routing.known) {
+          this.showToast('Draft opened \u2014 no address on file for this supplier, add it in Outlook', 'error');
+        } else if (clipped) {
+          this.showToast('Draft opened \u2014 order too long for the link, paste it from the clipboard', 'info');
+        } else {
+          this.showToast('Outlook draft opened \u2014 check it and press Send yourself', 'success');
+        }
+      },
+
       // ── Generate Work Order ──
       generateWorkOrder() {
         const missing = this._validateRequired();
@@ -13449,6 +13666,15 @@
             if (!n.lastName) missing.push('Neighbour last name' + label);
             if (!n.address) missing.push('Neighbour address' + label);
             if (!n.email) missing.push('Neighbour email' + label);
+            // Cost share % is mandatory once neighbour details are in play.
+            // The input RENDERS an even-split default but only PERSISTS it when
+            // the operator touches it, so an untouched neighbour reaches the
+            // quote with no share at all. Everything downstream then silently
+            // substitutes its own default (`n.sharePercent || ...`), which also
+            // swallows a literal 0 — so 0 is treated as missing here too rather
+            // than accepted and then ignored.
+            const pct = Number(n.sharePercent);
+            if (!Number.isFinite(pct) || pct <= 0 || pct > 100) missing.push('Neighbour cost share %' + label);
           });
         }
         return missing;
@@ -14173,6 +14399,17 @@
       }
       var photos = (j.checklist && j.checklist.photos) || [];
       if (photos.length < 1) errors.push('• At least 1 site photo required');
+      // Neighbour cost share % is mandatory — kept in step with the live
+      // _validateRequired rule so the two cannot drift. NOTE: this whole
+      // function currently has NO call site (see CLAUDE.md); the enforcing
+      // copy of this rule is the one in app._validateRequired.
+      if (j.neighboursRequired === true) {
+        (j.neighbours || []).forEach(function(n, i) {
+          var lbl = (j.neighbours.length > 1 ? ' (neighbour ' + (i + 1) + ')' : '');
+          var pct = Number(n.sharePercent);
+          if (!isFinite(pct) || pct <= 0 || pct > 100) errors.push('• Neighbour cost share % is required' + lbl);
+        });
+      }
       // Check pricing
       try {
         var d = app._collectOutputData();
@@ -14295,6 +14532,10 @@
             if (!n.lastName) flag('Job Details', 'red', 'Neighbour last name missing' + label, 'neighbours');
             if (!n.address) flag('Job Details', 'red', 'Neighbour address missing' + label, 'neighbours');
             if (!n.email) flag('Job Details', 'red', 'Neighbour email missing' + label, 'neighbours');
+            // RED, matching app._validateRequired: an empty (or 0) share % hard-blocks
+            // quote generation and send, so QA must not let it through as an amber.
+            const pct = Number(n.sharePercent);
+            if (!isFinite(pct) || pct <= 0 || pct > 100) flag('Job Details', 'red', 'Neighbour cost share % missing' + label, 'neighbours');
           });
         }
 
@@ -14313,7 +14554,8 @@
         if (!isGateOnly) {
           if (!j.colour) flag('Colours & Profile', 'red', 'No fence colour selected');
           if (!j.profile) flag('Colours & Profile', 'amber', 'No sheet profile selected');
-          if (!j.supplier) flag('Colours & Profile', 'amber', 'No supplier selected');
+          if (!j.supplier) flag('Colours & Profile', 'amber', 'No panel system selected');
+          if (!app.getSupplierSource()) flag('Colours & Profile', 'amber', 'No supplier (buy from) selected');
         }
 
         // Gates
@@ -16103,7 +16345,8 @@
       // Video
       if (!(j.checklist && j.checklist.videoWalkthrough)) tips.push({ severity: 'amber', message: 'Video walkthrough not marked done' });
       // Supplier
-      if (!j.supplier) tips.push({ severity: 'amber', message: 'No supplier selected — needed for lead times' });
+      if (!j.supplier) tips.push({ severity: 'amber', message: 'No panel system selected — needed for panel width and profiles' });
+      if (!app.getSupplierSource()) tips.push({ severity: 'amber', message: 'No supplier (buy from) selected — needed for lead times and the order email' });
       var html = '';
       if (tips.length === 0) html += '<div style="padding:20px;text-align:center;color:#065F46;font-weight:600;font-size:15px;">No blind spots found ✓</div>';
       tips.forEach(function(tip) {
@@ -16544,6 +16787,8 @@
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateQuotePDF()">📄 Quote PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateMaterialOrder()">📄 Material PDF</button>';
+        // Opens an Outlook DRAFT addressed to the buy-from supplier. Never sends.
+        html += '<button class="gen-btn gen-btn-ops" onclick="app.emailMaterialOrder()">✉ Draft Order Email</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateWorkOrder()">📄 Work Order PDF</button>';
         html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote ✉</button>';
       }
