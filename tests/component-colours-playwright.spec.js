@@ -679,10 +679,21 @@ function collectEveryColourSurface() {
   app.renderCostBreakdown();
 
   // The confirm-before-order gate, rendered for real and read from the DOM.
+  // Gate rows are pulled out first: gates are the documented job-level
+  // exception, so they are asserted separately rather than blanket-scanned.
   window.showMaterialVerificationModal(raw);
   const modal = document.getElementById('materialVerifyModal');
-  const mvText = modal ? modal.textContent : '';
-  if (modal) modal.remove();
+  let mvText = '';
+  let mvGateText = '';
+  if (modal) {
+    const gateEls = Array.from(modal.querySelectorAll('*')).filter((el) =>
+      /gate kit \|/i.test(el.textContent)
+      && !Array.from(el.children).some((c) => /gate kit \|/i.test(c.textContent)));
+    mvGateText = gateEls.map((el) => el.textContent).join('\n');
+    gateEls.forEach((el) => el.remove());
+    mvText = modal.textContent;
+    modal.remove();
+  }
 
   const pricing = app.buildPricingJson();
   const stripB64 = (h) => h.replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]+/gi, 'data:[BINARY]');
@@ -701,6 +712,7 @@ function collectEveryColourSurface() {
     poCard: document.getElementById('bodyQuoteOrders').textContent,
     costBreakdown: document.getElementById('bodyCostBreakdown').textContent,
     materialVerify: mvText,
+    materialVerifyGate: mvGateText,
     pricingDescriptions: JSON.stringify([
       pricing.job_description,
       (pricing.line_items || []).map((li) => li.description),
@@ -708,8 +720,6 @@ function collectEveryColourSurface() {
     ]),
     runDetailSheetColours: (raw.runDetails || []).map((r) => r.sheetColour),
     pricingRunSheetColours: (pricing.runs || []).map((r) => r.sheet_colour),
-    colourMatchedClaim: /colour-matched throughout/.test(stripB64(app._buildFenceQuoteHTML(quote, {}, { forPDF: false }))),
-    includedStripLive: /COLORBOND® steel throughout/.test(stripB64(app._buildFenceQuoteHTML(quote, {}, { forPDF: false }))),
   };
 }
 
@@ -762,8 +772,20 @@ test('no rendered surface names the job colour once a component colour overrides
   expect(res.materialOrder).toContain('Pedestrian gate kit');
 
   // Every human-rendered surface. None may say Monument — nothing is bought in it.
+  // Gates are the one documented exception: nothing attaches them to a run, so
+  // they resolve to the job colour on purpose. They are scanned separately.
+  const orderWithoutGates = res.materialOrder.split('\n').filter((l) => !/gate kit \|/i.test(l)).join('\n');
+  const gateKitLines = res.materialOrder.split('\n').filter((l) => /gate kit \|/i.test(l));
+  expect(gateKitLines.length).toBeGreaterThan(0);
+  gateKitLines.forEach((l) => {
+    expect(l).toContain('Monument');
+    expect(l.includes('Basalt')).toBeFalsy();
+  });
+  expect(res.materialVerifyGate).toContain('Monument');
+  expect(res.materialVerifyGate.includes('Basalt')).toBeFalsy();
+
   const surfaces = {
-    materialOrder: res.materialOrder,
+    materialOrder: orderWithoutGates,
     workOrder: res.workOrder,
     clientQuote: res.clientQuote,
     legacyQuote: res.legacyQuote,
@@ -790,12 +812,6 @@ test('no rendered surface names the job colour once a component colour overrides
   // The two jsPDF paths are not assertable as text; the data they read is.
   expect(res.runDetailSheetColours).toEqual(['Basalt']);
   expect(res.pricingRunSheetColours).toEqual(['Basalt']);
-
-  // The Included strip must not claim colour-matching on a three-colour job.
-  // It never does: the live strip reads 'COLORBOND® steel throughout', which
-  // asserts the material and not the colour.
-  expect(res.colourMatchedClaim).toBeFalsy();
-  expect(res.includedStripLive).toBeTruthy();
 });
 
 test('a job with no colour overrides still renders every surface as it does today', async ({ page }) => {
@@ -820,10 +836,102 @@ test('a job with no colour overrides still renders every surface as it does toda
   expect(res.specs.map((s) => s[0])).not.toContain('Trim Colours');
   expect(res.runDetailSheetColours).toEqual(['Monument']);
   expect(res.pricingRunSheetColours).toEqual(['Monument']);
-  // The live Included strip is unchanged for a single-colour job.
-  expect(res.includedStripLive).toBeTruthy();
-  expect(res.colourMatchedClaim).toBeFalsy();
   // And nothing accidentally names a colour nobody chose.
   expect(res.materialOrder.includes('Basalt')).toBeFalsy();
   expect(res.clientQuote.includes('Basalt')).toBeFalsy();
+});
+
+// ── An order line that names two colours cannot be filled ──────────────────
+// Panel and plinth lines split per group precisely so one supplier line never
+// carries two colours. This pins the FAILURE MODE generally rather than the one
+// line that regressed: any order line joining two of the job's colours fails,
+// including lines added in future.
+test('no material order line ever names two colours at once', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    job.componentColours = { rails: 'Surfmist', posts: 'Surfmist', plinths: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    const raw = app._collectOutputData();
+    const cc = raw.componentColours || {};
+    const colours = Array.from(new Set(
+      [].concat(cc.sheets || [], cc.rails || [], cc.posts || [], cc.plinths || []).filter(Boolean)
+    ));
+    const joined = [];
+    colours.forEach((a) => colours.forEach((b) => { if (a !== b) joined.push(a + ' / ' + b); }));
+
+    const order = app._buildMaterialOrderText(raw);
+    const offending = order.split('\n').filter((line) => joined.some((p) => line.includes(p)));
+    const gateLines = order.split('\n').filter((line) => /gate kit \|/i.test(line));
+    return {
+      colours, joinedCount: joined.length, offending, gateLines,
+      jobColour: app.job.colour,
+      mvGateRows: (function () {
+        window.showMaterialVerificationModal(raw);
+        const modal = document.getElementById('materialVerifyModal');
+        const rows = modal
+          ? Array.from(modal.querySelectorAll('*'))
+              .map((el) => el.textContent)
+              .filter((t) => /gate kit/i.test(t) && t.length < 200)
+          : [];
+        if (modal) modal.remove();
+        return rows;
+      })(),
+    };
+  }, buildMixedColourJob.toString());
+
+  // The job genuinely carries several colours, so the scan has something to catch.
+  expect(res.colours.length).toBeGreaterThan(1);
+  expect(res.joinedCount).toBeGreaterThan(0);
+  // No order line joins any two of them.
+  expect(res.offending, 'order lines naming two colours: ' + JSON.stringify(res.offending)).toEqual([]);
+
+  // The gate line exists and names exactly one colour — the job's.
+  expect(res.gateLines.length).toBeGreaterThan(0);
+  res.gateLines.forEach((line) => {
+    expect(line).toContain(res.jobColour);
+    expect(line.includes(' / ')).toBeFalsy();
+  });
+  // ...and so does the confirm-before-order gate row for it.
+  expect(res.mvGateRows.length).toBeGreaterThan(0);
+  res.mvGateRows.forEach((t) => expect(t.includes(' / ')).toBeFalsy());
+});
+
+// ── Operator free text reaches an inline handler ───────────────────────────
+// The Custom Colour field writes arbitrary text to job.colour. An apostrophe in
+// it used to close the JS string inside the onclick attribute, making the whole
+// handler a syntax error and the button silently inert.
+test('a custom colour containing an apostrophe still leaves the run override working', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    app.job = Object.assign(app.job, job);
+    // Exactly what the Custom Colour input does with this typed in.
+    app.updateColour("Bob's Grey");
+
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+
+    const btn = Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Override for this run/i.test(b.textContent));
+    const before = app.job.runs[0].colours;
+    if (btn) btn.click();
+    return {
+      found: !!btn,
+      before: before || null,
+      after: app.job.runs[0].colours || null,
+      resolved: app.getRunColourSet(app.job.runs[0]).sheets,
+    };
+  }, buildPreChangeJob.toString());
+
+  expect(res.found).toBeTruthy();
+  expect(res.before).toBeNull();
+  // The click actually ran: the override was written, with the apostrophe intact.
+  expect(res.after).toEqual({ sheets: "Bob's Grey" });
+  expect(res.resolved).toBe("Bob's Grey");
 });

@@ -4403,7 +4403,7 @@
         if (!has) {
           return `<div style="margin-top:10px;font-size:12px;color:#8899A6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <span>Colours: follows the job (${this._esc(resolved.sheets || '\u2014')}${resolved.uniform ? '' : ' + trim'})</span>
-            <button type="button" onclick="app.updateRunColour('${run.id}', 'sheets', '${this._esc(resolved.sheets || '')}')"
+            <button type="button" onclick="app.updateRunColour('${run.id}', 'sheets', '${this._escJsAttr(resolved.sheets || '')}')"
               style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#293C46;font-size:11px;font-weight:700;cursor:pointer;">
               Override for this run
             </button>
@@ -6495,6 +6495,14 @@
         return sheets.length ? sheets.join(' / ') : ((d && d.colour) || '');
       },
 
+      // Gates are job-level: nothing attaches them to a run, so the job sheet
+      // colour is the only one the data model defines for them. They must never
+      // resolve through the job-wide summary, which JOINS every run's colour —
+      // a supplier order line naming two colours cannot be fulfilled.
+      gateSheetColour(d) {
+        return (d && d.colour) || '';
+      },
+
       // A swatch can only paint one colour. Where a job resolves to several
       // sheet colours this takes the first RESOLVED one, never the job default.
       primarySheetColour(d) {
@@ -6832,6 +6840,16 @@
       _esc(val) {
         if (!val) return '';
         return String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      },
+
+      // For a value interpolated into a SINGLE-QUOTED JS string inside an inline
+      // handler attribute. `_esc` alone is not enough there: it leaves the
+      // apostrophe alone, so operator free text like a custom colour named
+      // "Bob's Grey" closes the string early and makes the whole handler a
+      // syntax error — the control then does nothing, with no visible cause.
+      _escJsAttr(val) {
+        if (val == null) return '';
+        return this._esc(String(val).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
       },
 
       _getColourHex(name) {
@@ -11443,7 +11461,7 @@
           order += `\n${'='.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'='.repeat(50)}\n\n`;
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
           const allGates = [];
-          const gateColour = this.resolvedSheetColour(d);
+          const gateColour = this.gateSheetColour(d);
           (d.job.gates || []).forEach(g => {
             const h = g.height || 1800;
             if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${gateColour}`);
@@ -12616,17 +12634,6 @@
 
         var runRows = d.runSummary.map(function(r) {
           return '<div class="runitem"><span class="rname">' + E(r.name) + '</span><span class="rspec">' + E(r.spec) + '</span><span class="rlen">' + E(r.length) + '</span></div>';
-        }).join('');
-
-        var coloursUniform = !d.componentColours || d.componentColours.uniform !== false;
-        var includeItems = [
-          'Professional installation by our licensed crew',
-          'All posts set in concrete footings',
-          coloursUniform ? 'COLORBOND® steel, colour-matched throughout' : '',
-          'Full site cleanup on completion',
-          '12-month workmanship warranty'
-        ].filter(Boolean).map(function(t) {
-          return '<div class="incitem"><span class="tick">' + TICK + '</span><span class="itxt">' + E(t) + '</span></div>';
         }).join('');
 
         var schedItems = d.schedule.map(function(s) {
@@ -15147,7 +15154,7 @@
       (app.job.gates || []).forEach(function(g) {
         var typeLabel = g.type === 'pedestrian' ? 'Pedestrian gate kit' : 'Double swing gate kit';
         var panelH = (app.job.runs && app.job.runs[0] && app.job.runs[0].panels[0]) ? app.job.runs[0].panels[0].height : 1800;
-        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (app.resolvedSheetColour(d) || 'Shale Grey'), matQty: 1 });
+        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (app.gateSheetColour(d) || 'Shale Grey'), matQty: 1 });
       });
       // Cross-check gates
       var pricingGates = pricingQty('gates');
