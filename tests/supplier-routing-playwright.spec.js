@@ -1033,3 +1033,51 @@ test('a Custom supplier selection survives a Panel System change with its input 
   expect(res.source).toBe('');
   expect(res.to).toBe('');
 });
+
+// ── The work order's spec grid carries operator free text ──────────────────
+// The Custom supplier and Custom panel-system/profile inputs accept arbitrary
+// text. Interpolated raw, a name containing '<' opens a tag and swallows the
+// rest of the grid — the rows after it simply vanish from the crew's document.
+test('a supplier or profile name containing angle brackets renders verbatim in the work order', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.installation = { supplierSource: 'Steel <WA> & Co' };
+    app.job.profile = 'Trim<clad> "Pro"';
+
+    const d = app._collectOutputData();
+    const html = app._generateWorkOrderHTML(d);
+
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frame.contentDocument.open();
+    frame.contentDocument.write(html);
+    frame.contentDocument.close();
+    const grid = frame.contentDocument.querySelector('.info-grid');
+    const rowText = (label) => {
+      const el = Array.from(frame.contentDocument.querySelectorAll('.info-grid div'))
+        .find((n) => n.querySelector('.label') && n.querySelector('.label').textContent.trim() === label);
+      return el ? el.querySelector('.value').textContent : null;
+    };
+    const out = {
+      suppliedBy: rowText('Supplied by:'),
+      profile: rowText('Profile:'),
+      panelSystem: rowText('Panel system:'),
+      colour: rowText('Colour:'),
+      panelWidth: rowText('Panel width:'),
+      gridText: grid ? grid.textContent : '',
+    };
+    frame.remove();
+    return out;
+  }, buildLegacyJob.toString());
+
+  // The typed names survive exactly, brackets and all.
+  expect(res.suppliedBy).toBe('Steel <WA> & Co');
+  expect(res.profile).toBe('Trim<clad> "Pro"');
+  // ...and the rows that follow them are still rendered, not swallowed.
+  expect(res.panelSystem).toBeTruthy();
+  expect(res.colour).toBe('Monument');
+  expect(res.panelWidth).toContain('mm');
+});

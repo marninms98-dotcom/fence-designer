@@ -4426,7 +4426,7 @@
         if (!has) {
           return `<div style="margin-top:10px;font-size:12px;color:#8899A6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <span>Colours: follows the job (${this._esc(resolved.sheets || '\u2014')}${resolved.uniform ? '' : ' + trim'})</span>
-            <button type="button" onclick="app.updateRunColour('${run.id}', 'sheets', '${this._escJsAttr(resolved.sheets || '')}')"
+            <button type="button" onclick="app.overrideRunColours('${run.id}')"
               style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#293C46;font-size:11px;font-weight:700;cursor:pointer;">
               Override for this run
             </button>
@@ -4475,11 +4475,31 @@
         this._componentColoursOpen = true;
         this.save();
         this.renderInstallation();
+        this._refreshRunColourUI();
         this.renderQuoteAndOrders();
       },
 
       // Per-run override (Section 9.2). Job level is the default a run inherits;
       // this lets one run differ without disturbing the rest.
+      // The run block states what each run inherits and lists the colours in
+      // play, so a job-level colour change has to redraw it or it describes a
+      // colour the job no longer uses.
+      _refreshRunColourUI() {
+        if (!this.job.runs || !document.getElementById('runContent')) return;
+        if (!this.job.runs.some(r => r.id === this.currentRunId)) return;
+        this.renderRunContent();
+      },
+
+      // Start overriding a run at the colour it resolves to RIGHT NOW. The
+      // button must not carry a colour baked in at render time: the job colour
+      // can change after this block was last drawn, and pinning the abandoned
+      // colour makes the material order buy stock the operator moved away from.
+      overrideRunColours(runId) {
+        const run = (this.job.runs || []).find(r => r.id === runId);
+        if (!run) return;
+        this.updateRunColour(runId, 'sheets', this.getRunColourSet(run).sheets || '');
+      },
+
       updateRunColour(runId, component, value) {
         const run = (this.job.runs || []).find(r => r.id === runId);
         if (!run) return;
@@ -6650,6 +6670,7 @@
         if (this._openSections.visualizer) this.renderProfileView();
         this.save();
         this.renderInstallation();
+        this._refreshRunColourUI();
         this.updateSectionStatuses();
       },
 
@@ -11647,9 +11668,9 @@
           <div class="section">
             <h2>Fence Specification</h2>
             <div class="info-grid">
-              <div><span class="label">Panel system:</span> <span class="value">${d.supplier}</span></div>
-              <div><span class="label">Supplied by:</span> <span class="value">${d.supplierSource || '\u2014'}</span></div>
-              <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
+              <div><span class="label">Panel system:</span> <span class="value">${this._esc(d.supplier)}</span></div>
+              <div><span class="label">Supplied by:</span> <span class="value">${this._esc(d.supplierSource) || '\u2014'}</span></div>
+              <div><span class="label">Profile:</span> <span class="value">${this._esc(d.profile)}</span></div>
               ${(() => {
                 // One colour for the whole job renders exactly as it always did.
                 const cc = d.componentColours;

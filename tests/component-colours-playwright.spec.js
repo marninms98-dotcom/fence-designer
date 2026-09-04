@@ -1010,3 +1010,86 @@ test('a palette-colour job renders the run colour options exactly as before', as
   expect(new Set(res.optionValues).size).toBe(res.optionValues.length);
   expect(res.selectValue).toBe('Basalt');
 });
+
+// ── The override button must read the colour at CLICK time ─────────────────
+// It used to bake the resolved colour into its onclick at render time, and
+// nothing re-rendered the run block when the job colour changed. An operator
+// who switched the job to Basalt and then tapped Override pinned that run to
+// Monument — and the material order then bought Monument panels for it.
+test('overriding a run after a job colour change stores the NEW colour, not the stale one', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobSrc + ')')());
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+
+    // Capture the button as it exists NOW, then change the job colour and click
+    // that same node. A render-time snapshot writes the old colour; a
+    // click-time resolution writes the new one, with no re-render required.
+    const staleBtn = Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Override for this run/i.test(b.textContent));
+    app.updateColour('Basalt');
+    staleBtn.click();
+
+    const raw = app._collectOutputData();
+    const runADetail = (raw.runDetails || []).find((r) => r.name === 'Rear');
+    const liveLabel = (document.querySelector('#runContent') || {}).textContent || '';
+    return {
+      stored: app.job.runs[0].colours ? app.job.runs[0].colours.sheets : null,
+      resolved: app.getRunColourSet(app.job.runs[0]).sheets,
+      runASheetColour: runADetail ? runADetail.sheetColour : null,
+      order: app._buildMaterialOrderText(raw),
+      liveLabelMentionsBasalt: /follows the job \(Basalt\)/.test(liveLabel),
+      liveLabelMentionsMonument: /follows the job \(Monument\)/.test(liveLabel),
+    };
+  }, buildPreChangeJob.toString());
+
+  // The override pins the colour the job actually has now.
+  expect(res.stored).toBe('Basalt');
+  expect(res.resolved).toBe('Basalt');
+  expect(res.runASheetColour).toBe('Basalt');
+  // ...so the order buys Basalt, and never the abandoned colour.
+  expect(res.order).toContain('Colour: Basalt');
+  expect(res.order.includes('Monument')).toBeFalsy();
+  // The still-mounted run block also describes the current job colour.
+  expect(res.liveLabelMentionsMonument).toBeFalsy();
+  expect(res.liveLabelMentionsBasalt).toBeFalsy();
+});
+
+// A job-level colour change must redraw the run block, or it keeps describing
+// an inheritance that no longer holds and omits a newly typed custom colour.
+test('a job colour change refreshes the run block without any explicit re-render', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobSrc + ')')());
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+
+    app.updateColour("Bob's Grey");
+    const label = document.querySelector('#runContent').textContent;
+
+    app.updateRunColour('run-a', 'sheets', "Bob's Grey");
+    const sel = Array.from(document.querySelectorAll('#runContent select')).find((s) => {
+      const l = s.closest('.form-group') && s.closest('.form-group').querySelector('label');
+      return l && l.textContent.trim() === 'Sheets';
+    });
+    return {
+      label,
+      optionValues: sel ? Array.from(sel.options).map((o) => o.value) : [],
+      selectValue: sel ? sel.value : null,
+    };
+  }, buildPreChangeJob.toString());
+
+  // The label follows the job's current colour, with no explicit render call.
+  expect(res.label).toContain("follows the job (Bob's Grey)");
+  expect(res.label.includes('follows the job (Monument)')).toBeFalsy();
+  // ...and the newly typed custom colour is selectable in the run's own control.
+  expect(res.optionValues).toContain("Bob's Grey");
+  expect(res.selectValue).toBe("Bob's Grey");
+});
