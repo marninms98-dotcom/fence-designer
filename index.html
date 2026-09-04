@@ -1625,8 +1625,9 @@
     const SUPPLIER_SOURCE_NAMES = SUPPLIER_SOURCES.map(s => s.name);
 
     // Panel system → default buy-from supplier. A DEFAULT, never a lock: picking a
-    // panel system pre-fills the Supplier (Buy From) field, and the operator can
-    // override it afterwards (the override sticks — see app.updateSupplier).
+    // panel system pre-fills the Supplier (Buy From) field only while the operator
+    // has not chosen one themselves. Once they have, app.updateSupplier leaves it
+    // alone no matter how often the Panel System dropdown is touched.
     const PANEL_SYSTEM_DEFAULT_SUPPLIER = {
       RNR:     'RnR Direct',
       Metroll: 'Fencing Warehouse',   // default; Metroll Direct is the alternative
@@ -6392,18 +6393,31 @@
       // Panel system (job.supplier — drives panel width + the profile list).
       // NOT the buy-from supplier; that is job.installation.supplierSource.
       updateSupplier(value) {
+        const previousSystem = this.job.supplier;
         this.job.supplier = value;
         const supplierData = SUPPLIER_PROFILES[value];
         if (supplierData && !supplierData.profiles.includes(this.job.profile)) {
           this.job.profile = supplierData.profiles[0];
         }
         // Unit 2 auto-select: picking a panel system pre-fills who we buy from.
-        // A DEFAULT, not a lock — the operator can change the Buy From field
-        // straight afterwards and that choice sticks until the panel system moves.
+        // A DEFAULT, not a lock — and it must NEVER stomp a supplier the operator
+        // deliberately chose. This dropdown fires on every touch, including
+        // switching away and back to correct a misclick, so an unconditional
+        // overwrite here silently re-routed the order email to the wrong
+        // supplier's inbox (worst on Metroll, the one system with a real
+        // alternative). Only auto-fill when the operator has not spoken: nothing
+        // stored, or what is stored is still exactly the PREVIOUS panel system's
+        // default. Deliberately picking the colour that happens to BE the default
+        // is indistinguishable from never overriding — that is fine, it just
+        // re-defaults, which is what an operator who never overrode expects.
         const defaultSource = PANEL_SYSTEM_DEFAULT_SUPPLIER[value];
         if (defaultSource) {
           if (!this.job.installation) this.job.installation = {};
-          this.job.installation.supplierSource = defaultSource;
+          const stored = this.job.installation.supplierSource || '';
+          const previousDefault = PANEL_SYSTEM_DEFAULT_SUPPLIER[previousSystem] || '';
+          if (!stored || stored === previousDefault) {
+            this.job.installation.supplierSource = defaultSource;
+          }
         }
         this.recalculateAll();
         this.save();
@@ -13252,7 +13266,7 @@
       },
 
       async generateQuotePDF() {
-        const missing = this._validateRequired();
+        const missing = this._validateRequired({ forQuote: true });
         if (missing.length > 0) {
           this.showToast('Missing required fields — run QA Check first', 'error');
           return;
@@ -13949,7 +13963,12 @@
       },
 
       // ── Validation helper ──
-      _validateRequired() {
+      // `opts.forQuote` adds the rules that only make sense for a CLIENT-facing
+      // quote. The material order and work order are internal documents — the
+      // crew routinely has to order stock before a neighbour's cost share is
+      // settled — so they call this bare and stay reachable.
+      _validateRequired(opts) {
+        const forQuote = !!(opts && opts.forQuote);
         const missing = [];
         if (!this.job.clientFirstName) missing.push('Client first name');
         if (!this.job.clientLastName) missing.push('Client last name');
@@ -13964,15 +13983,19 @@
             if (!n.lastName) missing.push('Neighbour last name' + label);
             if (!n.address) missing.push('Neighbour address' + label);
             if (!n.email) missing.push('Neighbour email' + label);
-            // Cost share % is mandatory once neighbour details are in play.
+            // Cost share % is mandatory before a CLIENT QUOTE is generated or
+            // sent — it decides who is billed what, so it has no bearing on an
+            // internal material or work order and must not block those.
             // The input RENDERS an even-split default but only PERSISTS it when
             // the operator touches it, so an untouched neighbour reaches the
             // quote with no share at all. Everything downstream then silently
             // substitutes its own default (`n.sharePercent || ...`), which also
             // swallows a literal 0 — so 0 is treated as missing here too rather
             // than accepted and then ignored.
-            const pct = Number(n.sharePercent);
-            if (!Number.isFinite(pct) || pct <= 0 || pct > 100) missing.push('Neighbour cost share %' + label);
+            if (forQuote) {
+              const pct = Number(n.sharePercent);
+              if (!Number.isFinite(pct) || pct <= 0 || pct > 100) missing.push('Neighbour cost share %' + label);
+            }
           });
         }
         return missing;
@@ -15246,8 +15269,8 @@
         return;
       }
 
-      // Step 1: Validate required fields
-      var missing = app._validateRequired();
+      // Step 1: Validate required fields (client-quote rules apply — this is the send door)
+      var missing = app._validateRequired({ forQuote: true });
       if (missing.length > 0) {
         app.showToast('Missing: ' + missing.join(', '), 'error');
         return;

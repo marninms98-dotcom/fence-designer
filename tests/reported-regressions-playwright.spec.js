@@ -520,13 +520,18 @@ test('send is blocked when a neighbour has no cost share %, naming the missing f
 
     return {
       toasts,
-      missing: window.app._validateRequired(),
+      // The send door passes `{ forQuote: true }` — the share % is a client-billing
+      // rule and deliberately does NOT gate the internal material/work orders.
+      missing: window.app._validateRequired({ forQuote: true }),
+      missingInternal: window.app._validateRequired(),
       reachedVerify: !!document.getElementById('materialVerifyModal'),
       actions: window.__swCalls.map((c) => c.action),
     };
   }, seedNeighbourJob.toString());
 
   expect(result.missing).toContain('Neighbour cost share %');
+  // The same job must still be able to produce its internal documents.
+  expect(result.missingInternal).not.toContain('Neighbour cost share %');
   // Stopped AT the door: the operator is told which field, by name.
   expect(result.toasts.some((t) => t.kind === 'error' && /Neighbour cost share %/.test(t.msg))).toBeTruthy();
   // And nothing downstream ran — no material verification, no cloud write, no send.
@@ -558,7 +563,7 @@ test('a neighbour job WITH a cost share % still sends: fresh pricing saves, then
     return {
       liveTotal, saveIdx, prepIdx,
       savedTotalIncGST: savedPricing?.totalIncGST,
-      missing: window.app._validateRequired(),
+      missing: window.app._validateRequired({ forQuote: true }),
     };
   }, seedNeighbourJob.toString());
 

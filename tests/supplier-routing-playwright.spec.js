@@ -325,14 +325,16 @@ test('Unit 6 — an empty neighbour cost share % blocks quote generation and sen
       address: '14 Analytical Way, Perth WA 6000',
       // sharePercent deliberately absent — the exact gap this unit closes.
     }];
-    const missingEmpty = app._validateRequired();
+    // The share % is a CLIENT-BILLING rule, so it only applies to the quote and
+    // send paths — `{ forQuote: true }` is what those two doors pass.
+    const missingEmpty = app._validateRequired({ forQuote: true });
     const qaEmpty = window.fenceQA.runScopeChecks();
 
     app.job.neighbours[0].sharePercent = 0;   // 0 is swallowed downstream — also blocked
-    const missingZero = app._validateRequired();
+    const missingZero = app._validateRequired({ forQuote: true });
 
     app.job.neighbours[0].sharePercent = 50;  // now valid
-    const missingSet = app._validateRequired();
+    const missingSet = app._validateRequired({ forQuote: true });
     return {
       missingEmpty, missingZero, missingSet,
       qaRed: (qaEmpty.items || qaEmpty).filter
@@ -611,4 +613,176 @@ test('non-Stratco panel systems keep their existing profile artwork untouched', 
   expect(res.rnr).toContain('steelselect.com.au');
   [res.unmapped, res.lysaght, res.metroll, res.rnr, res.foreignSuperdek, res.foreignCgiMini]
     .forEach((markup) => expect(markup).not.toContain('textures/'));
+});
+
+// ── Regression: a deliberate Buy From override must survive Panel System changes ──
+// The Panel System dropdown fires onchange on EVERY touch, including switching
+// away and back to correct a misclick. It used to overwrite the buy-from
+// supplier unconditionally, silently re-routing the order email to a supplier
+// the operator did not choose — worst on Metroll, the one panel system with a
+// real named alternative. The earlier Unit 2 test overrode once and stopped,
+// which is exactly why it could not see this.
+test('a deliberate Buy From override survives later Panel System changes', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(() => {
+    const app = window.app;
+    app.job.installation = {};
+    app.updateSupplier('Metroll');                                // auto → Fencing Warehouse
+    const autoFilled = app.getSupplierSource();
+    app.updateInstallation('supplierSource', 'Metroll Direct');   // deliberate override
+
+    // The operator corrects a misclick: away to another system and back.
+    app.updateSupplier('RNR');
+    const afterAway = { source: app.getSupplierSource(), to: app.getMaterialOrderRouting().to };
+    app.updateSupplier('Metroll');
+    const afterBack = { source: app.getSupplierSource(), to: app.getMaterialOrderRouting().to };
+
+    // Re-selecting the SAME system must not stomp it either.
+    app.updateSupplier('Metroll');
+    const afterResame = app.getSupplierSource();
+
+    // ...and the control shows the operator's choice, not the default.
+    app.renderInstallation();
+    const rendered = document.getElementById('supSelect').value;
+    return { autoFilled, afterAway, afterBack, afterResame, rendered };
+  });
+
+  expect(res.autoFilled).toBe('Fencing Warehouse');
+  // The override survives every subsequent Panel System touch...
+  expect(res.afterAway.source).toBe('Metroll Direct');
+  expect(res.afterBack.source).toBe('Metroll Direct');
+  expect(res.afterResame).toBe('Metroll Direct');
+  expect(res.rendered).toBe('Metroll Direct');
+  // ...and the order email follows the operator, not the panel system's default.
+  expect(res.afterAway.to).toBe('helen.mewburn@perth.metroll.com.au');
+  expect(res.afterBack.to).toBe('helen.mewburn@perth.metroll.com.au');
+  expect(res.afterBack.to).not.toBe('sales@fencingwarehousewa.au');
+});
+
+test('auto-select still re-defaults for an operator who never overrode it', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(() => {
+    const app = window.app;
+    // Never-touched buy-from field: each panel system change re-defaults, which
+    // is the whole point of the auto-select. Fixing the override bug must not
+    // cost us this.
+    app.job.installation = {};
+    const trail = [];
+    ['Metroll', 'RNR', 'Lysaght', 'Stratco', 'Metroll'].forEach((sys) => {
+      app.updateSupplier(sys);
+      trail.push(app.getSupplierSource());
+    });
+
+    // A fresh job with a supplier already stored from a PREVIOUS system's
+    // default is still treated as un-overridden and re-defaults.
+    app.job.installation = { supplierSource: 'Lysaght' };
+    app.job.supplier = 'Lysaght';
+    app.updateSupplier('Stratco');
+    const carriedDefault = app.getSupplierSource();
+    return { trail, carriedDefault };
+  });
+
+  expect(res.trail).toEqual(['Fencing Warehouse', 'RnR Direct', 'Lysaght', 'Stratco', 'Fencing Warehouse']);
+  expect(res.carriedDefault).toBe('Stratco');
+});
+
+// ── Regression: internal documents are not gated by a client-billing field ──
+// The neighbour cost share % decides who is BILLED what. The crew routinely has
+// to order stock before that is settled, so it must gate the client quote and
+// the send door only — never the internal material order or work order.
+test('an empty neighbour share % blocks the quote but not the material or work order', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.neighboursRequired = true;
+    app.job.neighbours = [{
+      id: 'nb-1', firstName: 'Grace', lastName: 'Hopper',
+      phone: '0400111222', email: 'grace@example.com',
+      address: '14 Analytical Way, Perth WA 6000',
+      // sharePercent deliberately absent
+    }];
+
+    const internal = app._validateRequired();
+    const quote = app._validateRequired({ forQuote: true });
+
+    // The internal documents must actually be produced, not merely permitted.
+    const opened = [];
+    const realOpen = app._openOutputTab;
+    app._openOutputTab = (title, html) => { opened.push({ title, len: html.length }); };
+    const toasts = [];
+    const realToast = app.showToast;
+    app.showToast = (msg, kind) => { toasts.push({ msg, kind }); };
+
+    app.generateMaterialOrder();
+    app.generateWorkOrder();
+
+    app._openOutputTab = realOpen;
+    app.showToast = realToast;
+    return { internal, quote, opened, toasts };
+  }, buildLegacyJob.toString());
+
+  // The gate still fires for the client quote and the send door...
+  expect(res.quote).toContain('Neighbour cost share %');
+  // ...and no longer for internal documents.
+  expect(res.internal).not.toContain('Neighbour cost share %');
+  expect(res.opened.map((o) => o.title)).toEqual(['Material Order', 'Work Order']);
+  res.opened.forEach((o) => expect(o.len).toBeGreaterThan(500));
+  expect(res.toasts.some((t) => t.kind === 'error')).toBeFalsy();
+});
+
+// ── Regression pin: internal cost and margin must never reach the client quote ──
+// Verified correct today; this exists so it stays that way. The quote is what
+// the client reads — a cost price or margin figure appearing there is the
+// worst-case leak from the custom-item cost work.
+test('cost, margin and internal fields never reach the client quote HTML', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    // Distinctive, unmistakable numbers: a cost nobody could produce by accident
+    // and a sell price that must appear.
+    app.job.quote.customLineItems = [
+      { desc: 'Powder-coated post caps', qty: 6, unit: 'each', price: 15, costPrice: 987.65, kind: 'material' },
+      { desc: 'Extra site labour', qty: 3, unit: 'hrs', price: 80, costPrice: 543.21, kind: 'labour' },
+    ];
+    app.job.quote.priceDisplay = 'itemized';   // the mode that prints line items
+    app.job.installation = { supplierSource: 'Stratco' };
+
+    const raw = app._collectOutputData();
+    const d = app._gatherFenceQuoteData(raw);
+    const html = app._buildFenceQuoteHTML(d, {}, { forPDF: false });
+    // Embedded base64 images coincidentally contain almost any short digit
+    // string, so scan the real DOCUMENT text, not the binary payloads.
+    const scannable = html.replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]+/gi, 'data:[BINARY]');
+    return {
+      html, scannable,
+      binaryStripped: html.length - scannable.length,
+      gatheredKeys: Object.keys(d),
+      internalCost: raw.internalCost,
+      customCostTotal: raw.customCostTotal,
+      materialMargin: raw.materialMargin,
+    };
+  }, buildLegacyJob.toString());
+
+  // The engine really did capture the costs — otherwise this test proves nothing.
+  expect(res.customCostTotal).toBeCloseTo(6 * 987.65 + 3 * 543.21, 2);
+  expect(res.internalCost).toBeGreaterThan(0);
+
+  // Sanity: the strip actually removed binary, so a pass is not a vacuous one.
+  expect(res.binaryStripped).toBeGreaterThan(1000);
+  // Not one of them reaches the client's document.
+  ['987.65', '987', '543.21', '5925.9', '1629.63', 'costPrice', 'cost_price', 'internalCost',
+   'materialMargin', 'customCostTotal', 'Cost price', 'Margin'].forEach((needle) => {
+    expect(res.scannable.includes(needle), 'client quote leaked "' + needle + '"').toBeFalsy();
+  });
+  // Nor does the gathered quote object even carry the internal fields.
+  ['internalCost', 'materialMargin', 'customCostTotal', 'plinthGroups', 'postGroups', 'orderRouting']
+    .forEach((key) => expect(res.gatheredKeys, key).not.toContain(key));
+
+  // ...while the client-facing SELL price for the same item is present.
+  expect(res.scannable).toContain('Powder-coated post caps');
+  expect(res.scannable).toContain('90.00');          // 6 x $15 sell
 });
