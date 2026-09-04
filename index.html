@@ -6434,8 +6434,19 @@
       // rather than showing a blank supplier on an otherwise complete job.
       getSupplierSource() {
         const chosen = (this.job.installation && this.job.installation.supplierSource) || '';
-        if (chosen && chosen !== '__custom__') return chosen;
+        // '__custom__' is a chosen-but-not-yet-named supplier. It is still a
+        // deliberate override, so it must NOT fall through to the panel
+        // system's default — that would answer a real address for a supplier
+        // the operator has not named, which is the one thing routing must
+        // never do. It resolves to no supplier until a name is typed.
+        if (chosen === '__custom__') return '';
+        if (chosen) return chosen;
         return PANEL_SYSTEM_DEFAULT_SUPPLIER[this.job.supplier] || '';
+      },
+
+      // True while the operator has picked Custom but not yet named the supplier.
+      isCustomSupplierPending() {
+        return ((this.job.installation && this.job.installation.supplierSource) || '') === '__custom__';
       },
 
       // Resolve where a material order for this job is addressed.
@@ -6515,6 +6526,35 @@
           return 'Sheets ' + sheetC + ' / Rails ' + g.railColour + ' / Posts ' + g.postColour;
         }
         return String(sheetC == null ? '' : sheetC);
+      },
+
+      // The plinth stock this job orders, one row per colour x width class, in
+      // the order the supplier reads them. The material order and the Material
+      // Verification checklist BOTH render from this, so the line the scoper
+      // confirms cannot name a colour the order does not buy.
+      _plinthGroupRows(d) {
+        const groups = d.plinthGroups || {};
+        const stdWidth = d.panelWidthMm;
+        const longWidth = d.plinthLongWidthMm;
+        const rowsFor = (cls, fallbackCount, widthMm) => {
+          const found = Object.values(groups)
+            .filter(g => g.widthClass === cls && g.count > 0)
+            .map(g => ({ widthClass: cls, colour: g.colour, count: g.count, widthMm }));
+          if (found.length) return found;
+          return fallbackCount > 0 ? [{ widthClass: cls, colour: d.colour, count: fallbackCount, widthMm }] : [];
+        };
+        const std = d.totalPlinthsStandard != null ? d.totalPlinthsStandard : d.totalPlinths;
+        return rowsFor('standard', std, stdWidth).concat(rowsFor('long', d.totalPlinthsLong || 0, longWidth));
+      },
+
+      // The plinth lines of the Material Verification checklist, mirroring the
+      // order's separate standard / long lines.
+      _materialVerifyPlinthRows(d) {
+        return this._plinthGroupRows(d).map(r => ({
+          desc: r.count + ' &times; 150mm ' + (r.widthClass === 'long' ? 'Long Plinths @ ' + r.widthMm + 'mm' : 'Plinths')
+            + ' &mdash; ' + (r.colour || d.colour || 'Shale Grey'),
+          matQty: r.count
+        }));
       },
 
       // The panel lines of the Material Verification checklist — the gate the
@@ -11344,22 +11384,15 @@
         // Plinths are width-aware: long-panel plinths auto-generate a SEPARATE long
         // plinth order line (no hand-add). The long line reads COST_PRICES.plinthLong
         // via d.plinthLongCost for supplier reconciliation.
-        const _plStd = d.totalPlinthsStandard != null ? d.totalPlinthsStandard : d.totalPlinths;
-        const _plLong = d.totalPlinthsLong || 0;
         // Plinths are tallied by colour as well as width, so mixed plinth colours
         // print one line each. A single plinth colour collapses back to exactly
         // the one line this always emitted.
-        const _plGroups = d.plinthGroups || {};
-        const _byClass = (cls, fallbackCount) => {
-          const rows = Object.values(_plGroups).filter(g => g.widthClass === cls && g.count > 0);
-          if (!rows.length) return fallbackCount > 0 ? [{ colour: d.colour, count: fallbackCount }] : [];
-          return rows;
-        };
-        _byClass('standard', _plStd).forEach(row => {
-          order += `PLINTHS (standard):\n${row.count} \u00D7 150mm Plinths @ ${d.panelWidthMm}mm \u2014 ${row.colour}\n\n`;
+        const _plRows = this._plinthGroupRows(d);
+        _plRows.filter(r => r.widthClass === 'standard').forEach(row => {
+          order += `PLINTHS (standard):\n${row.count} \u00D7 150mm Plinths @ ${row.widthMm}mm \u2014 ${row.colour}\n\n`;
         });
-        _byClass('long', _plLong).forEach(row => {
-          order += `PLINTHS (long):\n${row.count} \u00D7 150mm Long Plinths @ ${d.plinthLongWidthMm}mm \u2014 ${row.colour}\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)\n\n`;
+        _plRows.filter(r => r.widthClass === 'long').forEach(row => {
+          order += `PLINTHS (long):\n${row.count} \u00D7 150mm Long Plinths @ ${row.widthMm}mm \u2014 ${row.colour}\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)\n\n`;
         });
         if (d.totalPatioTubes > 0) {
           const patioCalcParts = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio} panels + 1 = ${r.patioTubes}`);
@@ -11435,7 +11468,7 @@
           </div>
           <div class="section">
             ${routingBar}
-            <pre>${order}</pre>
+            <pre>${this._esc(order)}</pre>
             <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
               Copy to Clipboard
@@ -11549,7 +11582,10 @@
               ${(() => {
                 // One colour for the whole job renders exactly as it always did.
                 const cc = d.componentColours;
-                if (!cc || cc.uniform) return `<div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>`;
+                if (!cc || cc.uniform) {
+                  const sheets = (cc && cc.sheets) ? cc.sheets : [];
+                  return `<div><span class="label">Colour:</span> <span class="value">${this._esc(sheets.length ? sheets.join(' / ') : d.colour)}</span></div>`;
+                }
                 return FENCE_COMPONENTS.map(c => `<div><span class="label">${FENCE_COMPONENT_LABELS[c]}:</span> <span class="value">${this._esc((cc[c] || []).join(' / ') || '\u2014')}</span></div>`).join('');
               })()}
               <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(Object.values(d.postGroups).map(g => g.panelW)); if (ws.size === 0) ws.add(d.panelWidthMm); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
@@ -12305,7 +12341,7 @@
         // order legitimately buys two sheet colours — so the Colour row itself
         // must name them all, or the quote states a colour we are not buying.
         var sheetColours = (cc && cc.sheets) ? cc.sheets : [];
-        var quotedSheetColour = sheetColours.length > 1 ? sheetColours.join(' / ') : d.colour;
+        var quotedSheetColour = sheetColours.length ? sheetColours.join(' / ') : d.colour;
         if (cc && !cc.uniform) {
           var sheetList = sheetColours.join(' / ');
           colourBreakdown = ['rails', 'posts', 'plinths'].map(function(k) {
@@ -13951,14 +13987,20 @@
           this.showToast('Missing: ' + missing.join(', '), 'error');
           return;
         }
+        if (this.isCustomSupplierPending()) {
+          this.showToast('Name the custom supplier before drafting the order', 'error');
+          return;
+        }
         this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
         const d = this._collectOutputData();
         const mail = this._materialOrderEmail(d);
 
         // Record where this order was addressed. The registry stays the single
         // source of truth for routing; this is an audit stamp, never read back.
+        // It must not touch supplierSource: opening a draft is not the operator
+        // choosing a supplier, and writing the resolved name back over their
+        // stored choice is how a deliberate selection got lost.
         if (!this.job.installation) this.job.installation = {};
-        this.job.installation.supplierSource = mail.routing.supplier || this.job.installation.supplierSource || '';
         this.job.installation.supplierRouting = { to: mail.routing.to, cc: mail.routing.cc.slice(), at: new Date().toISOString() };
         this.save();
 
@@ -15039,10 +15081,9 @@
       });
 
       // ── Section 2: Plinths & Tubing ──
-      var plinthRows = [];
-      if (d.totalPlinths > 0) {
-        plinthRows.push({ idx: checkIdx++, desc: d.totalPlinths + ' &times; 150mm Plinths &mdash; ' + (d.colour || 'Shale Grey'), matQty: d.totalPlinths });
-      }
+      var plinthRows = app._materialVerifyPlinthRows(d).map(function(r) {
+        return { idx: checkIdx++, desc: r.desc, matQty: r.matQty };
+      });
       if (d.totalPatioTubes > 0) {
         var tubeBreakdown = (d.runDetails || []).filter(function(r) { return r.patioTubes > 0; }).map(function(r) { return r.name + ': ' + r.patioTubes; }).join(', ');
         plinthRows.push({ idx: checkIdx++, desc: d.totalPatioTubes + ' &times; 76&times;38 RHS Patio Tube @ 3000mm' + (tubeBreakdown ? ' (' + tubeBreakdown + ')' : ''), matQty: d.totalPatioTubes });

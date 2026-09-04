@@ -893,3 +893,143 @@ test('a cost-only custom item reaches the order and margin but never the client 
   expect(res.legacyHtml).toContain('Gate hardware upgrade');
   expect(res.customLineDescs).toContain('Gate hardware upgrade');
 });
+
+// ── The RENDERED order page, not just the builder string ──
+// `Order To: Stratco <tony.bacich@stratcowa.com.au>` interpolated raw into a
+// <pre> is parsed as an unknown start tag, so the address vanished from the
+// page, from Print/PDF and from the Copy-to-Clipboard button (which copies
+// pre.textContent). Asserting the builder string alone could not see it.
+test('the rendered material order page keeps the supplier address and any angle brackets', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.installation = { supplierSource: 'Stratco' };
+    app.job.supplierNotes = 'Use <b>galv</b> brackets & 5 > 4 spacing';
+
+    const d = app._collectOutputData();
+    const html = app._generateMaterialOrderHTML(d);
+
+    // Render it the way the operator's tab does, then read what the DOM
+    // actually shows and what the Copy button would copy.
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frame.contentDocument.open();
+    frame.contentDocument.write(html);
+    frame.contentDocument.close();
+    const pre = frame.contentDocument.querySelector('pre');
+    const rendered = pre.textContent;
+    const builderText = app._buildMaterialOrderText(d);
+    frame.remove();
+    return { rendered, builderText };
+  }, buildLegacyJob.toString());
+
+  // The address the order was just routed to survives to the page.
+  expect(res.rendered).toContain('Order To: Stratco <tony.bacich@stratcowa.com.au>');
+  // A supplier note with angle brackets is shown verbatim, not swallowed as markup.
+  expect(res.rendered).toContain('Use <b>galv</b> brackets & 5 > 4 spacing');
+  // The page and the builder agree exactly — the mailto body and the tab can
+  // never disagree about what was ordered.
+  expect(res.rendered).toBe(res.builderText);
+});
+
+// ── A pending "Custom..." supplier must never resolve to a guessed address ──
+test('a Custom supplier not yet named routes nowhere and refuses to draft', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(async (jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.supplier = 'RNR';                       // panel system with a real default
+    app.job.installation = { supplierSource: '__custom__' };
+
+    const defaultRouting = (() => {
+      app.job.installation.supplierSource = '';
+      return app.getMaterialOrderRouting();          // what the default WOULD be
+    })();
+    app.job.installation.supplierSource = '__custom__';
+
+    const captured = [];
+    const realOpen = app._openMailDraft;
+    app._openMailDraft = (url) => { captured.push(String(url)); };
+    const toasts = [];
+    const realToast = app.showToast;
+    app.showToast = (msg, kind) => { toasts.push({ msg, kind }); };
+
+    let error = null;
+    try { await app.emailMaterialOrder(); } catch (e) { error = String(e); }
+
+    app._openMailDraft = realOpen;
+    app.showToast = realToast;
+    return {
+      error, captured, toasts,
+      defaultTo: defaultRouting.to,
+      source: app.getSupplierSource(),
+      routing: app.getMaterialOrderRouting(),
+      stillCustom: app.job.installation.supplierSource,
+      stamped: app.job.installation.supplierRouting || null,
+    };
+  }, buildLegacyJob.toString());
+
+  // The panel system really does have a default — otherwise this proves nothing.
+  expect(res.defaultTo).toBe('sales@randrfencing.com.au');
+  // ...and the pending Custom selection does NOT inherit it.
+  expect(res.source).toBe('');
+  expect(res.routing.to).toBe('');
+  expect(res.routing.known).toBeFalsy();
+  // The universal CC still attaches, as it does for any unknown supplier.
+  expect(res.routing.cc).toEqual(['fencing@secureworkswa.com.au']);
+  // No draft opens at all, and the operator is told why.
+  expect(res.error).toBeNull();
+  expect(res.captured).toEqual([]);
+  expect(res.toasts.some((t) => t.kind === 'error' && /custom supplier/i.test(t.msg))).toBeTruthy();
+  expect(res.toasts.some((t) => t.kind === 'success')).toBeFalsy();
+  // The selection is left exactly as the operator left it.
+  expect(res.stillCustom).toBe('__custom__');
+  expect(res.stamped).toBeNull();
+});
+
+test('a Custom supplier selection survives a Panel System change with its input intact', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.supplier = 'RNR';
+    app.job.installation = { supplierSource: '' };
+    app.renderInstallation();
+
+    // The operator picks Custom through the real handler.
+    app.updateInstallation('supplierSource', '__custom__');
+    app.renderInstallation();
+    const inputAfterPick = !!document.querySelector('#supSelect + input, #supSelect ~ input');
+
+    // Then changes the Panel System — twice, since switching away and back is
+    // exactly how the earlier no-stomp bug surfaced.
+    app.updateSupplier('Metroll');
+    app.updateSupplier('RNR');
+    app.renderInstallation();
+
+    const select = document.getElementById('supSelect');
+    const input = document.querySelector('#supSelect ~ input');
+    return {
+      inputAfterPick,
+      stored: app.job.installation.supplierSource,
+      selected: select.value,
+      inputPresent: !!input,
+      source: app.getSupplierSource(),
+      to: app.getMaterialOrderRouting().to,
+    };
+  }, buildLegacyJob.toString());
+
+  expect(res.inputAfterPick).toBeTruthy();
+  // The deliberate Custom choice is not replaced by the panel system's default.
+  expect(res.stored).toBe('__custom__');
+  expect(res.selected).toBe('__custom__');
+  // ...and the free-text input is still there to type the name into.
+  expect(res.inputPresent).toBeTruthy();
+  // Still routing nowhere until it is actually named.
+  expect(res.source).toBe('');
+  expect(res.to).toBe('');
+});

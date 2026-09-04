@@ -549,3 +549,110 @@ test('a job whose rails and posts differ names all three on the checklist line',
   });
   expect(res.poCard).toContain('Sheets Monument / Rails Surfmist / Posts Basalt');
 });
+
+// ── Every run carrying the SAME sheet override collapses the summary to one
+// entry and reads as uniform, so the "more than one colour" branch never fired
+// and the quote fell back to the raw job colour while the order bought the
+// override. Single-run jobs are the common shape of this.
+function buildSingleRunJob() {
+  return {
+    clientFirstName: 'Ada', clientLastName: 'Lovelace', client: 'Ada Lovelace',
+    address: '12 Analytical Way, Perth WA 6000', phone: '0400000000', email: 'ada@example.com',
+    ref: 'FEN-3001',
+    supplier: 'Metroll', profile: 'Trimclad',
+    colour: 'Monument',
+    scopeType: 'fence-and-gate', pricePerMetre: 125, gates: [],
+    neighboursRequired: false, neighbours: [],
+    installation: { supplierSource: 'Fencing Warehouse' },
+    runs: [{
+      id: 'run-a', name: 'Rear', length: 12, sheetHeight: 1800,
+      panels: [
+        { id: 'p1', height: 1800, retaining: 150, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        { id: 'p2', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+      ],
+    }],
+    quote: { urgency: 'standard', deliveryFee: 200, groundFinish: 'none', addons: {}, customLineItems: [] },
+  };
+}
+
+test('a sheet override on EVERY run is still the colour the quote and work order state', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    job.runs[0].colours = { sheets: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    const raw = app._collectOutputData();
+    const quote = app._gatherFenceQuoteData(raw);
+    return {
+      uniform: raw.componentColours.uniform,
+      sheets: raw.componentColours.sheets,
+      jobColour: app.job.colour,
+      specs: quote.specs,
+      order: app._buildMaterialOrderText(raw),
+      workOrder: app._generateWorkOrderHTML(raw),
+    };
+  }, buildSingleRunJob.toString());
+
+  // The summary really does collapse to one entry and read as uniform — this is
+  // the shape that used to slip through.
+  expect(res.uniform).toBeTruthy();
+  expect(res.sheets).toEqual(['Basalt']);
+  expect(res.jobColour).toBe('Monument');
+  // The order buys Basalt...
+  expect(res.order).toContain('    Colour: Basalt');
+  expect(res.order).not.toContain('    Colour: Monument');
+  // ...so the quote and the work order must say Basalt, not the raw job colour.
+  expect(res.specs).toContainEqual(['Colour', 'COLORBOND® Basalt']);
+  expect(res.specs).not.toContainEqual(['Colour', 'COLORBOND® Monument']);
+  expect(res.workOrder).toContain('<span class="label">Colour:</span> <span class="value">Basalt</span>');
+  expect(res.workOrder).not.toContain('<span class="value">Monument</span>');
+});
+
+// ── The Material Verification plinth row is the same order gate as the panel
+// rows: it must name the colour and width the order actually buys.
+test('the checklist plinth rows mirror the order, colour by colour and width by width', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([preSrc, singleSrc]) => {
+    const app = window.app;
+    const load = (job) => {
+      // Object.assign leaves stale keys behind, so a previous case's job-level
+      // override would silently colour the next one.
+      delete app.job.componentColours;
+      app.job = Object.assign(app.job, job);
+      const d = app._collectOutputData();
+      return { rows: app._materialVerifyPlinthRows(d).map((r) => r.desc), order: app._buildMaterialOrderText(d) };
+    };
+    // eslint-disable-next-line no-eval
+    const single = load(eval('(' + singleSrc + ')')());
+
+    // eslint-disable-next-line no-eval
+    const mixed = eval('(' + preSrc + ')')();
+    mixed.componentColours = { plinths: 'Basalt' };
+    const overridden = load(mixed);
+
+    // eslint-disable-next-line no-eval
+    const perRun = eval('(' + preSrc + ')')();
+    perRun.runs[1].colours = { plinths: 'Surfmist' };
+    const split = load(perRun);
+    return { single, overridden, split };
+  }, [buildPreChangeJob.toString(), buildSingleRunJob.toString()]);
+
+  // One colour, one width class — exactly one row, reading as it always did.
+  expect(res.single.rows).toEqual(['1 &times; 150mm Plinths &mdash; Monument']);
+
+  // A plinth override is named on the checklist, matching what the order buys.
+  expect(res.overridden.order).toContain('150mm Plinths @ 2365mm — Basalt');
+  res.overridden.rows.forEach((r) => expect(r).toContain('Basalt'));
+  res.overridden.rows.forEach((r) => expect(r).not.toContain('Monument'));
+  // Standard and long are separate lines on the order, so separate rows here.
+  expect(res.overridden.rows.some((r) => r.includes('Long Plinths @ 3150mm'))).toBeTruthy();
+  expect(res.overridden.rows.some((r) => !r.includes('Long'))).toBeTruthy();
+
+  // Two plinth colours across runs: one row each, none duplicated.
+  expect(new Set(res.split.rows).size).toBe(res.split.rows.length);
+  expect(res.split.rows.some((r) => r.includes('Monument'))).toBeTruthy();
+  expect(res.split.rows.some((r) => r.includes('Surfmist'))).toBeTruthy();
+  expect(res.split.order).toContain('— Surfmist');
+});
