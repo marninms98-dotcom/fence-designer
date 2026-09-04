@@ -130,7 +130,6 @@ function snapshotFactory() {
       order: app._buildMaterialOrderText(raw),
       workOrder: app._generateWorkOrderHTML(raw),
       specs: quote.specs,
-      colourBreakdown: quote.colourBreakdown,
       grandTotal: Math.round(raw.grandTotal * 100) / 100,
       subtotal: Math.round(raw.subtotal * 100) / 100,
       internalCost: Math.round(raw.internalCost * 100) / 100,
@@ -185,7 +184,6 @@ test('a pre-change saved job opens, renders, orders and prices identically', asy
   expect(b.order).toContain('150mm Plinths @ 2365mm — Monument');
   expect(b.order).toContain('150mm Long Plinths @ 3150mm — Monument');
   // The quote reads exactly as before: one Colour row, no Trim Colours row.
-  expect(b.colourBreakdown).toBe('');
   expect(b.specs).toContainEqual(['Colour', 'COLORBOND® Monument']);
   expect(b.specs.map((s) => s[0])).not.toContain('Trim Colours');
   // The work order keeps its single Colour row.
@@ -221,7 +219,6 @@ test('rails and posts differing from the sheets split the material order lines',
   // Plinths were not overridden, so they still follow the sheets.
   expect(a.order).toContain('150mm Plinths @ 2365mm — Monument');
   // The quote states it, once.
-  expect(a.colourBreakdown).toBe('Rails Surfmist · Posts Surfmist');
   expect(a.specs).toContainEqual(['Colour', 'COLORBOND® Monument (sheets)']);
   expect(a.specs).toContainEqual(['Trim Colours', 'Rails Surfmist · Posts Surfmist']);
 });
@@ -240,7 +237,7 @@ test('rails and posts can differ from EACH OTHER, not just from the sheets', asy
   expect(res.order).toContain('    Sheets: Monument');
   expect(res.order).toContain('    Rails: Surfmist');
   expect(res.order).toContain('    Posts: Basalt');
-  expect(res.colourBreakdown).toBe('Rails Surfmist · Posts Basalt');
+  expect(res.specs).toContainEqual(['Trim Colours', 'Rails Surfmist · Posts Basalt']);
 });
 
 test('a plinth colour override splits the plinth order lines by colour', async ({ page }) => {
@@ -257,7 +254,7 @@ test('a plinth colour override splits the plinth order lines by colour', async (
   expect(res.order).toContain('150mm Long Plinths @ 3150mm — Surfmist');
   expect(res.order).not.toContain('Plinths @ 2365mm — Monument');
   expect(res.plinthGroups.every((g) => g.colour === 'Surfmist')).toBeTruthy();
-  expect(res.colourBreakdown).toBe('Plinths Surfmist');
+  expect(res.specs).toContainEqual(['Trim Colours', 'Plinths Surfmist']);
 });
 
 test('a per-run override beats the job default and splits the order by run', async ({ page }) => {
@@ -310,7 +307,6 @@ test('a per-run SHEET override alone is still named on the quote Colour row', as
   expect(res.order).toContain('    Colour: Monument');
   expect(res.order).toContain('    Colour: Basalt');
   // Nothing differs from the sheets, so there is no Trim Colours row...
-  expect(res.colourBreakdown).toBe('');
   expect(res.specs.map((s) => s[0])).not.toContain('Trim Colours');
   // ...but the Colour row itself must name both, with no misleading "(sheets)"
   // qualifier pointing at a breakdown that is not there.
@@ -934,4 +930,83 @@ test('a custom colour containing an apostrophe still leaves the run override wor
   // The click actually ran: the override was written, with the apostrophe intact.
   expect(res.after).toEqual({ sheets: "Bob's Grey" });
   expect(res.resolved).toBe("Bob's Grey");
+});
+
+// ── A control must be able to DISPLAY what is genuinely stored ─────────────
+// The per-run colour selects only ever offered the two palettes, so a stored
+// CUSTOM colour had no matching <option> and the browser fell back to showing
+// the first one — "Follow job (…)" — while an override really was stored.
+test('a run override on a custom colour is the selected option, not a fallback', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobSrc + ')')());
+    // Exactly what the Custom Colour input does.
+    app.updateColour("Bob's Grey");
+
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+    const btn = Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Override for this run/i.test(b.textContent));
+    if (btn) btn.click();
+
+    // Now change the JOB colour. The run must keep — and keep showing — its own.
+    app.updateColour('Monument');
+    app.render();
+
+    const sel = Array.from(document.querySelectorAll('#runContent select')).find((s) => {
+      const label = s.closest('.form-group') && s.closest('.form-group').querySelector('label');
+      return label && label.textContent.trim() === 'Sheets';
+    });
+    return {
+      stored: app.job.runs[0].colours ? app.job.runs[0].colours.sheets : null,
+      resolved: app.getRunColourSet(app.job.runs[0]).sheets,
+      selectValue: sel ? sel.value : null,
+      selectedText: sel ? (sel.options[sel.selectedIndex] || {}).text : null,
+      selectedIndex: sel ? sel.selectedIndex : -1,
+      optionValues: sel ? Array.from(sel.options).map((o) => o.value) : [],
+    };
+  }, buildPreChangeJob.toString());
+
+  // The override really is stored, and the engine resolves the run to it.
+  expect(res.stored).toBe("Bob's Grey");
+  expect(res.resolved).toBe("Bob's Grey");
+  // ...and the control says so, rather than falling back to the first option.
+  expect(res.selectValue).toBe("Bob's Grey");
+  expect(res.selectedText).toBe("Bob's Grey");
+  expect(res.selectedIndex).toBeGreaterThan(0);
+  // The custom colour appears exactly once — it is not in either palette.
+  expect(res.optionValues.filter((v) => v === "Bob's Grey")).toHaveLength(1);
+});
+
+test('a palette-colour job renders the run colour options exactly as before', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobSrc + ')')());
+    app.updateRunColour('run-a', 'sheets', 'Basalt');
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+    const sel = Array.from(document.querySelectorAll('#runContent select')).find((s) => {
+      const label = s.closest('.form-group') && s.closest('.form-group').querySelector('label');
+      return label && label.textContent.trim() === 'Sheets';
+    });
+    return {
+      optionValues: Array.from(sel.options).map((o) => o.value),
+      groupLabels: Array.from(sel.querySelectorAll('optgroup')).map((g) => g.label),
+      selectValue: sel.value,
+      customColours: app._customColoursInPlay(),
+    };
+  }, buildPreChangeJob.toString());
+
+  // Every colour is on a palette, so nothing extra is emitted.
+  expect(res.customColours).toEqual([]);
+  expect(res.groupLabels).toEqual(['── Stock ──', '── Special Order ──']);
+  // No duplicates, and the stored palette colour is still selected.
+  expect(new Set(res.optionValues).size).toBe(res.optionValues.length);
+  expect(res.selectValue).toBe('Basalt');
 });

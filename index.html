@@ -4326,7 +4326,7 @@
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Special Order</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_SPECIAL)}</div>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Custom Colour</div>
-            <input type="text" id="customColourInput" placeholder="Type non-standard colour name..." value="${j.customColour || ''}"
+            <input type="text" id="customColourInput" placeholder="Type non-standard colour name..." value="${this._esc(j.customColour || '')}"
               style="width:100%;max-width:340px;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;transition:border 0.2s;"
               onfocus="this.style.borderColor='#F15A29'" onblur="this.style.borderColor='#d1d5db'"
               onchange="app.job.customColour=this.value; if(this.value.trim()){app.updateColour(this.value.trim())}">
@@ -4361,11 +4361,34 @@
       // that is not always "match sheet colour" — an explicit job-level rail
       // colour is inherited ahead of the run's sheets — and a field tool must
       // not imply a colour it will not order.
+      // Colours this job actually uses that are not in either palette — an
+      // operator-typed Custom Colour, at job level or stored on a run. Without
+      // these the select has no option matching a stored custom value, so the
+      // browser falls back to showing the FIRST option and the control reports
+      // "Follow job (…)" while an override really is stored underneath.
+      _customColoursInPlay() {
+        const known = {};
+        COLOURS_STOCK.forEach(c => { known[c.name] = true; });
+        COLOURS_SPECIAL.forEach(c => { known[c.name] = true; });
+        const extra = [];
+        const add = (v) => { if (v && !known[v] && extra.indexOf(v) === -1) extra.push(v); };
+        add(this.job.colour);
+        const jc = this.job.componentColours || {};
+        FENCE_COMPONENTS.forEach(c => add(jc[c]));
+        (this.job.runs || []).forEach(r => {
+          const rc = (r && r.colours) || {};
+          FENCE_COMPONENTS.forEach(c => add(rc[c]));
+        });
+        return extra;
+      },
+
       _componentColourOptions(selected, emptyLabel) {
         const opt = (v, label) => `<option value="${this._esc(v)}" ${selected === v ? 'selected' : ''}>${this._esc(label)}</option>`;
+        const custom = this._customColoursInPlay();
         return opt('', emptyLabel || 'Match sheet colour')
           + '<optgroup label="── Stock ──">' + COLOURS_STOCK.map(c => opt(c.name, c.name)).join('') + '</optgroup>'
-          + '<optgroup label="── Special Order ──">' + COLOURS_SPECIAL.map(c => opt(c.name, c.name + ' (SO)')).join('') + '</optgroup>';
+          + '<optgroup label="── Special Order ──">' + COLOURS_SPECIAL.map(c => opt(c.name, c.name + ' (SO)')).join('') + '</optgroup>'
+          + (custom.length ? '<optgroup label="── Custom ──">' + custom.map(v => opt(v, v)).join('') + '</optgroup>' : '');
       },
 
       _renderComponentColourBlock() {
@@ -6881,13 +6904,12 @@
       // working; pass it explicitly when rendering a profile for another system.
       _getProfileSVG(profile, panelSystem) {
         const system = panelSystem !== undefined ? panelSystem : this.job.supplier;
-        const escapedName = String(profile || '').replace(/'/g, "\\'");
         const photo = this._PROFILE_PHOTOS[system + '::' + profile];
         if (photo) {
           return `<div style="margin-top:8px;max-width:${this._PROFILE_PHOTO_MAX_W}px;">
             <img src="${photo}" alt="${this._esc(profile)} profile"
               style="width:100%;height:auto;border-radius:4px;display:block;background:#f3f4f6;"
-              onerror="app._onProfileImgError(this,'${escapedName}')">
+              onerror="app._onProfileImgError(this,'${this._escJsAttr(profile)}')">
           </div>`;
         }
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
@@ -6912,12 +6934,11 @@
           'Good Neighbour': imgBase + 'stratco-good-neighbour-fencing.jpg'
         };
         const url = urls[profile];
-        const escaped = profile.replace(/'/g, "\\'");
         if (url) {
           return `<div style="margin-top:8px;max-width:340px;">
             <img src="${url}" alt="${this._esc(profile)} profile"
               style="width:100%;border-radius:4px;display:block;background:#f3f4f6;"
-              onerror="app._onProfileImgError(this,'${escaped}')">
+              onerror="app._onProfileImgError(this,'${this._escJsAttr(profile)}')">
           </div>`;
         }
         return this._buildProfileSVG(profile);
@@ -8847,7 +8868,7 @@
               const pl = new THREE.Mesh(plGeo, plinthMat);
               pl.position.set(panelX, panelGnd + retH/2, 0);
               pl.castShadow = true; pl.receiveShadow = true;
-              pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${job.colour}` };
+              pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${app._esc(job.colour)}` };
               f.fenceGrp.add(pl);
               // Horizontal lines to show plinth divisions
               for (let pli = 1; pli < totalPl; pli++) {
@@ -8871,7 +8892,7 @@
             const sheet = new THREE.Mesh(sheetGeo, panelMat);
             sheet.position.set(panelX, stackY + sheetH/2, 0);
             sheet.castShadow = true; sheet.receiveShadow = true;
-            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
+            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${app._esc(profile)}<br>${app._esc(job.colour)}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
             f.fenceGrp.add(sheet);
             addSheetRibHighlights(f.fenceGrp, panelX, stackY + sheetH/2, thisPanelW, sheetH, 0);
             stackY += sheetH;
@@ -8917,7 +8938,7 @@
                 const lMesh = new THREE.Mesh(this._createFenceSheetGeo(lW, gateH, profile), panelMat);
                 lMesh.position.set(gateX + leaf*(gateW/2) + lW/2 + 0.015, gateH/2 + railH, 0);
                 lMesh.castShadow = true;
-                lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${job.colour} ${profile}` };
+                lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${app._esc(job.colour)} ${app._esc(profile)}` };
                 f.fenceGrp.add(lMesh);
                 addSheetRibHighlights(f.fenceGrp, lMesh.position.x, lMesh.position.y, lW, gateH, 0);
               }
@@ -8934,7 +8955,7 @@
               const gP = new THREE.Mesh(this._createFenceSheetGeo(gateW - 0.03, gateH, profile), panelMat);
               gP.position.set(gateX + gateW/2, gateH/2 + railH, 0);
               gP.castShadow = true;
-              gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${job.colour} ${profile}` };
+              gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${app._esc(job.colour)} ${app._esc(profile)}` };
               f.fenceGrp.add(gP);
               addSheetRibHighlights(f.fenceGrp, gP.position.x, gP.position.y, gateW - 0.03, gateH, 0);
               // Hinges
@@ -12513,8 +12534,6 @@
           issuedStr: this._swQLongDate(issued),
           validUntilStr: this._swQLongDate(validUntil),
           specs: specs,
-          // Sheet colour stays `colour`; these describe the rest when it differs.
-          componentColours: cc || null, colourBreakdown: colourBreakdown,
           runSummary: runSummary,
           lede: lede,
           totalIncGST: totalIncGST,
