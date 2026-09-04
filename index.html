@@ -2022,7 +2022,7 @@
               urgency: 'standard',
               deliveryFee: 200,
               groundFinish: 'none',
-              customLineItems: [{}, {}, {}],
+              customLineItems: this._blankCustomItems(),
               // Scope add-ons (use custom line items instead)
               addons: {}
             },
@@ -4656,7 +4656,7 @@
       renderQuote() {
         const j = this.job;
         const q = j.quote || {};
-        const items = q.customLineItems && q.customLineItems.length >= 3 ? q.customLineItems : [{}, {}, {}];
+        const items = q.customLineItems && q.customLineItems.length >= 3 ? q.customLineItems : this._blankCustomItems();
         document.getElementById('bodyQuote').innerHTML = `
           <div class="form-row">
             <div class="form-group">
@@ -6726,8 +6726,8 @@
 
       updateCustomItem(idx, field, value) {
         if (!this.job.quote) this.job.quote = {};
-        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
-        while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push({});
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = this._blankCustomItems();
+        while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push(this._blankCustomItem());
         if (field === 'qty' || field === 'price' || field === 'costPrice') value = parseFloat(value) || 0;
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
@@ -6737,8 +6737,8 @@
 
       addCustomItem() {
         if (!this.job.quote) this.job.quote = {};
-        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
-        this.job.quote.customLineItems.push({ kind: 'material' });
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = this._blankCustomItems();
+        this.job.quote.customLineItems.push(this._blankCustomItem());
         this.save();
         this.renderQuote();
         this.updateStats();
@@ -6760,6 +6760,14 @@
         return (c && c.kind === 'material') ? 'material' : 'labour';
       },
 
+      _blankCustomItem() {
+        return { kind: 'material' };
+      },
+
+      _blankCustomItems() {
+        return [this._blankCustomItem(), this._blankCustomItem(), this._blankCustomItem()];
+      },
+
       _sellableCustomItems(d) {
         return ((d && d.customItems) || []).filter(function(c) { return (Number(c.total) || 0) > 0; });
       },
@@ -6768,7 +6776,7 @@
         if (!this.job.quote || !this.job.quote.customLineItems) return;
         this.job.quote.customLineItems.splice(idx, 1);
         // Keep at least the three default slots so the section never collapses.
-        while (this.job.quote.customLineItems.length < 3) this.job.quote.customLineItems.push({});
+        while (this.job.quote.customLineItems.length < 3) this.job.quote.customLineItems.push(this._blankCustomItem());
         this.save();
         this.renderQuote();
         this.updateStats();
@@ -11625,7 +11633,7 @@
             <pre>${this._esc(order)}</pre>
             <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
-              Copy to Clipboard
+              Copy (internal — includes costs)
             </button>
             <pre id="supplierOrderBody" style="display:none;">${this._esc(supplierOrder)}</pre>
             <button class="no-print" id="copySupplierOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#4C6A7C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
@@ -14622,7 +14630,7 @@
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
                   ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: app.customItemKind(c), costPrice: c.costPrice || 0 }))
-                  : [{}, {}, {}]
+                  : this._blankCustomItems()
               };
             }
             // Migration: ensure addon fields exist

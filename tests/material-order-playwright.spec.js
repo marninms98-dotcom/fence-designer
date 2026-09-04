@@ -543,3 +543,124 @@ test('the kind picker shows what the order will actually do with the item', asyn
   expect(res.picked.slice(0, 3)).toEqual(['labour', 'material', 'labour']);
   expect(res.engineKinds).toEqual(res.picked.slice(0, 3));
 });
+
+// The legacy rule ("no kind means labour") only holds if a slot the app itself
+// created carries an explicit kind. A fresh job seeds three custom-item slots,
+// and an operator who types a material into slot 1 without touching the kind
+// picker must still have it ordered — otherwise stock is silently short.
+test('a default custom slot on a fresh job reaches the supplier order untouched', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+    const job = build({ matCost: 4, labCost: 55 });
+    // Keep the slots app.init() created for this fresh job; the fixture's own
+    // explicitly-kinded items would hide the default entirely.
+    const freshSlots = app.job.quote.customLineItems;
+    app.job = Object.assign(app.job, job);
+    app.job.quote.customLineItems = freshSlots;
+    app.job.installation = { supplierSource: 'Stratco' };
+
+    // The operator fills slot 1 through the real input path and never opens
+    // the kind picker.
+    app.updateCustomItem(0, 'desc', 'Powder-coated post caps');
+    app.updateCustomItem(0, 'qty', '6');
+    app.updateCustomItem(0, 'unit', 'each');
+    app.updateCustomItem(0, 'price', '15');
+
+    // ...and adds a fourth row with the + button, filling that one too.
+    app.addCustomItem();
+    app.updateCustomItem(3, 'desc', 'Gate drop bolt');
+    app.updateCustomItem(3, 'qty', '1');
+    app.updateCustomItem(3, 'unit', 'each');
+    app.updateCustomItem(3, 'price', '40');
+
+    if (!app._openSections.quote) app.toggleSection('quote');
+    app.render();
+    const picked = Array.from(document.querySelectorAll('#bodyQuote select'))
+      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'material,labour')
+      .map((s) => s.options[s.selectedIndex].value);
+
+    const d = app._collectOutputData();
+    const order = app._buildMaterialOrderText(d);
+    const email = app._materialOrderEmail(d).body;
+
+    // The same job as it would have been SAVED before this branch: the slot
+    // carries no kind at all.
+    const legacy = JSON.parse(JSON.stringify(app.job));
+    legacy.quote.customLineItems = legacy.quote.customLineItems.map((c) => {
+      const copy = Object.assign({}, c);
+      delete copy.kind;
+      return copy;
+    });
+    app.job = legacy;
+    const legacyOrder = app._buildMaterialOrderText(app._collectOutputData());
+
+    return {
+      picked: picked.slice(0, 4),
+      kinds: (d.customItems || []).map((c) => ({ desc: c.desc, kind: c.kind })),
+      order,
+      email,
+      legacyOrder,
+    };
+  }, buildJob.toString());
+
+  // (a) The default slot behaves exactly like the + Add row: both ordered.
+  expect(res.kinds).toEqual([
+    { desc: 'Powder-coated post caps', kind: 'material' },
+    { desc: 'Gate drop bolt', kind: 'material' },
+  ]);
+  expect(res.order).toContain('CUSTOM MATERIALS');
+  expect(res.order).toContain('Powder-coated post caps');
+  expect(res.order).toContain('Gate drop bolt');
+  expect(res.email).toContain('Powder-coated post caps');
+  expect(res.email).toContain('Gate drop bolt');
+  // The picker agrees with the engine on every row, filled or blank.
+  expect(res.picked).toEqual(['material', 'material', 'material', 'material']);
+
+  // (b) The legacy half still holds: strip the kind the app stamped and the
+  // same items drop off the supplier order.
+  expect(res.legacyOrder).not.toContain('CUSTOM MATERIALS');
+  expect(res.legacyOrder).not.toContain('Powder-coated post caps');
+  expect(res.legacyOrder).not.toContain('Gate drop bolt');
+});
+
+// Two clipboard buttons sit side by side on the Material Order page and copy
+// different bodies. The cost-bearing one must say so, or an operator drafting
+// a supplier email presses the wrong one and pastes our costs to the vendor.
+test('the material order page marks which copy button carries internal cost', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+    app.job = Object.assign(app.job, build({ matCost: 4, labCost: 55 }));
+    app.job.installation = { supplierSource: 'Stratco' };
+
+    const html = app._generateMaterialOrderHTML(app._collectOutputData());
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frame.contentDocument.open(); frame.contentDocument.write(html); frame.contentDocument.close();
+    const buttons = Array.from(frame.contentDocument.querySelectorAll('button'))
+      .filter((b) => /clipboard\.writeText/.test(b.getAttribute('onclick') || ''))
+      .map((b) => ({
+        label: b.textContent.trim(),
+        // What that button would actually put on the clipboard.
+        body: b.previousElementSibling.textContent,
+      }));
+    frame.remove();
+    return { buttons };
+  }, buildJob.toString());
+
+  expect(res.buttons).toHaveLength(2);
+  const carriesCost = (b) => /ea cost\)|\(cost \$/.test(b.body);
+  const internal = res.buttons.filter(carriesCost);
+  const supplier = res.buttons.filter((b) => !carriesCost(b));
+  expect(internal).toHaveLength(1);
+  expect(supplier).toHaveLength(1);
+  // The cost-bearing button names its scope; the supplier one names its use.
+  expect(internal[0].label).toMatch(/internal/i);
+  expect(internal[0].label).toMatch(/cost/i);
+  expect(supplier[0].label).toBe('Copy for supplier email');
+});
