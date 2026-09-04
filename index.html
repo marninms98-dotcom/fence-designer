@@ -1585,7 +1585,54 @@
     const SUPPLIER_PROFILES = {
       RNR:    { profiles: ['Ridgeside', 'Sameside'], panelWidth: 2380, longPanelWidth: 3150 },
       Metroll:{ profiles: ['Trimclad', 'Metline Premium', 'Harmony', 'Metzag', 'Corodek', 'Mini Corodek', 'Atlas', 'Polaris', 'Gemini'], panelWidth: 2365, longPanelWidth: 3150 },
-      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 }
+      Lysaght:{ profiles: ['Neetascreen', 'Smartascreen', 'Miniscreen', 'Customscreen', 'Spanscreen'], panelWidth: 2360, longPanelWidth: 3150 },
+      // Stratco panel width is authoritative from SPEC.md sections 3.5 / 4B.
+      // Profiles verified against Stratco's own site (data/stratco-profiles-scout/report.md):
+      //   • "Good Neighbour" is Stratco's fencing RANGE name, not a profile — removed.
+      //   • Stratco writes "CGI Corrugated", never bare "Corrugated" — match their wording.
+      //   • Smartspan is deliberately EXCLUDED (Captain ruling): its real width is 2170mm,
+      //     which does not round safely to the 2.4m standard the business counts by.
+      // The four kept profiles are 2350 or 2390mm, so the flat 2350 standard width is safe.
+      // Captain ruled: "we count standard panels as 2.4 and long panels as 3.1, as long
+      // it's around there it's fine" — do NOT add per-profile widths.
+      // longPanelWidth is the shared long-panel width (3150mm) used by every supplier.
+      // SPEC only specifies Stratco's STANDARD width (2350mm), and the scout found NO
+      // Stratco source for 3150 anywhere — 3150 is accepted as approximately 3.1m by
+      // Captain ruling, not as a published Stratco figure.
+      Stratco:{ profiles: ['Superdek', 'CGI Corrugated', 'Wavelok', 'CGI Mini'], panelWidth: 2350, longPanelWidth: 3150 }
+    };
+
+    // ── Section 4B.1: Buy-from suppliers + material-order email routing ──
+    // DISTINCT from SUPPLIER_PROFILES above. SUPPLIER_PROFILES is the PANEL SYSTEM
+    // (job.supplier — drives panel width and the profile list, despite its name).
+    // This list is WHO WE PHYSICALLY BUY FROM (job.installation.supplierSource) and
+    // where the material order email is addressed. Array order IS the dropdown order:
+    // the four most-used sit at the top, the rest follow.
+    // Every fencing material order additionally CCs the universal address below
+    // (Captain: "ALL"), so a Stratco order carries TWO CCs.
+    const MATERIAL_ORDER_UNIVERSAL_CC = 'fencing@secureworkswa.com.au';
+    const SUPPLIER_SOURCES = [
+      { name: 'RnR Direct',        to: 'sales@randrfencing.com.au',          cc: [] },
+      { name: 'Fencing Warehouse', to: 'sales@fencingwarehousewa.au',        cc: [] },
+      { name: 'Lysaght',           to: 'lysaghtsaleswa@lysaght.com',         cc: [] },
+      { name: 'Stratco',           to: 'tony.bacich@stratcowa.com.au',       cc: ['tradewa@stratcowa.com.au'] },
+      { name: 'Metric Fencing',    to: 'info@metricfencing.com.au',          cc: [] },
+      { name: 'Mackson',           to: 'info@mackson.com.au',                cc: [] },
+      { name: 'Team Work Fencing', to: 'admin@teamworkfencing.com.au',       cc: [] },
+      { name: 'Metroll Direct',    to: 'helen.mewburn@perth.metroll.com.au', cc: [] },
+      { name: 'Oxworks',           to: 'Nicole.Tingey@oxworks.com.au',       cc: [] }
+    ];
+    const SUPPLIER_SOURCE_NAMES = SUPPLIER_SOURCES.map(s => s.name);
+
+    // Panel system → default buy-from supplier. A DEFAULT, never a lock: picking a
+    // panel system pre-fills the Supplier (Buy From) field only while the operator
+    // has not chosen one themselves. Once they have, app.updateSupplier leaves it
+    // alone no matter how often the Panel System dropdown is touched.
+    const PANEL_SYSTEM_DEFAULT_SUPPLIER = {
+      RNR:     'RnR Direct',
+      Metroll: 'Fencing Warehouse',   // default; Metroll Direct is the alternative
+      Lysaght: 'Lysaght',
+      Stratco: 'Stratco'
     };
 
     // ── Section 9: Colorbond fencing colour palette ──
@@ -1615,6 +1662,19 @@
       { name: 'Jasper',       hex: '#6C6153' },
       { name: 'Windspray',    hex: '#888B8A' }
     ];
+
+    // ── Section 9.2: Per-component fence colours ──
+    // A fence panel is SHEETS + RAILS + POSTS, with PLINTHS under a retaining
+    // panel. `job.colour` is and stays the SHEET colour — it is read in ~48
+    // places across quote, order, work order, 3D render and pricing, and is NOT
+    // rewired here. The other three are ADDITIVE, OPTIONAL overrides that
+    // default to following the sheet colour, so a job where everything matches
+    // carries none of these fields and behaves exactly as it always did:
+    //   job.componentColours = { rails, posts, plinths }   // '' = follow sheets
+    //   run.colours          = { sheets, rails, posts, plinths }  // per-run override
+    // Colour NEVER affects price (Captain: "nah") — nothing here feeds costing.
+    const FENCE_COMPONENTS = ['sheets', 'rails', 'posts', 'plinths'];
+    const FENCE_COMPONENT_LABELS = { sheets: 'Sheets', rails: 'Rails', posts: 'Posts', plinths: 'Plinths' };
 
     // ── Section 6.3: Post height lookup tables ──
     // Key: sheetHeight, Value: array of { maxRetaining, postSize, patioTube }
@@ -1962,7 +2022,7 @@
               urgency: 'standard',
               deliveryFee: 200,
               groundFinish: 'none',
-              customLineItems: [{}, {}, {}],
+              customLineItems: this._blankCustomItems(),
               // Scope add-ons (use custom line items instead)
               addons: {}
             },
@@ -3336,7 +3396,7 @@
         // Fencing (suppressed in gate-only mode)
         if (!isGateOnly) {
           rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
-          rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
+          rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(this.resolvedSheetColour(d))} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
           if (d.totalPlinths > 0)
             rows += `<tr><td>Retaining plinths (150mm COLORBOND)</td><td class="r">${d.totalPlinths} × $${d.plinthSell}</td><td class="r">$${f(d.plinthsTotal)}</td></tr>`;
           if (d.totalPatioTubes > 0)
@@ -3429,7 +3489,7 @@
 
             // Build per-run allocation items
             const items = [];
-            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
+            if (rd.length > 0) items.push({ key: 'fencing', desc: `${rd.sheetColour || this.resolvedSheetColour(d)} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
             if (rd.plinths > 0) items.push({ key: 'plinths', desc: `Retaining plinths ×${rd.plinths}`, total: rd.runPlinthsCost });
             if (rd.patioTubes > 0) items.push({ key: 'patio_tubes', desc: `Patio tubes ×${rd.patioTubes}`, total: rd.runPatioCost });
             // Pro-rated delivery
@@ -3492,6 +3552,7 @@
 
         // ── Material & Removal PO Card ──
         let matRows = '';
+        const matMultiColour = this._postGroupsAreMultiColour(d.postGroups);
         Object.values(d.postGroups).forEach(g => {
           let unitCost = 0;
           if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
@@ -3503,7 +3564,7 @@
           } else if (g.sheetH === 2100) {
             unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
           } else unitCost = COST_PRICES.panelKit1800_2400;
-          matRows += `<tr><td>${g.sheetH}H panels + ${g.postH}H posts</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
+          matRows += `<tr><td>${g.sheetH}H panels + ${g.postH}H posts${matMultiColour ? ' — ' + this._esc(this._postGroupColourText(g, d.colour)) : ''}</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
         });
         if (d.totalPlinths > 0) matRows += `<tr><td>Retaining plinths</td><td class="r">${d.totalPlinths} × $${f(COST_PRICES.plinth)}</td><td class="r">$${f(d.totalPlinths * COST_PRICES.plinth)}</td></tr>`;
         if (d.totalPatioTubes > 0) matRows += `<tr><td>Patio tubes (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${f(COST_PRICES.patioTube)}</td><td class="r">$${f(d.totalPatioTubes * COST_PRICES.patioTube)}</td></tr>`;
@@ -3539,7 +3600,7 @@
         if (d.removalItems.length > 0) {
           matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
           d.removalItems.forEach(r => {
-            if (r.costPrice) matRows += `<tr><td>${r.desc}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)}</td><td class="r">$${f(r.qty * r.costPrice)}</td></tr>`;
+            if (r.costPrice) matRows += `<tr><td>${this._esc(r.desc)}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)}</td><td class="r">$${f(r.qty * r.costPrice)}</td></tr>`;
           });
         }
         matRows += `<tr class="po-total"><td colspan="2">Total Cost (materials + removal)</td><td class="r">$${f(d.internalCost)}</td></tr>`;
@@ -3930,10 +3991,13 @@
                 </div>
                 <div class="form-group" style="max-width:110px">
                   <label>Cost Share % *</label>
-                  <input type="number" value="${nb.sharePercent || Math.round(100 / (nbs.length + 1))}" min="0" max="100" step="5"
+                  <input type="number" value="${Number(nb.sharePercent) > 0 ? nb.sharePercent : ''}" min="0" max="100" step="5"
+                    placeholder="${Math.round(100 / (nbs.length + 1))}"
                     oninput="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
                     style="text-align:center">
-                  <div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>
+                  ${Number(nb.sharePercent) > 0
+                    ? '<div style="font-size:10px;color:#8899A6;margin-top:2px;">Fallback if no runs assigned</div>'
+                    : '<div style="font-size:10px;color:#C0392B;margin-top:2px;">Required — blocks quote &amp; send</div>'}
                 </div>
               </div>
               ${(() => {
@@ -4020,12 +4084,12 @@
 
       addNeighbour() {
         if (!this.job.neighbours) this.job.neighbours = [];
-        var totalParties = this.job.neighbours.length + 2; // +1 for new nb, +1 for client
-        var defaultShare = Math.round(100 / totalParties);
+        // No seeded share: an even split nobody chose is exactly what the
+        // mandatory cost-share gate exists to stop, and seeding here would let
+        // every neighbour after the first sail through it.
         this.job.neighbours.push({
           id: 'nb-' + Date.now(),
-          firstName: '', lastName: '', phone: '', email: '', address: '',
-          sharePercent: defaultShare
+          firstName: '', lastName: '', phone: '', email: '', address: ''
         });
         this.save();
         this.renderSiteInfo();
@@ -4216,6 +4280,13 @@
         const inst = j.installation || {};
         const supplierKeys = Object.keys(SUPPLIER_PROFILES);
         const colourHex = this._getColourHex(j.colour);
+        // Buy-from supplier. The RAW stored value drives the control — including the
+        // '__custom__' sentinel, which must keep the free-text input open rather
+        // than snapping back to a preset. Only an EMPTY field falls through to the
+        // panel system's default (Unit 2 auto-select), so a job saved before that
+        // existed never shows a blank supplier.
+        const storedSource = (inst.supplierSource || '');
+        const supplierSource = storedSource || (PANEL_SYSTEM_DEFAULT_SUPPLIER[j.supplier] || '');
 
         const swatchHtml = (colours) => colours.map(c => {
           const sel = c.name === j.colour;
@@ -4229,7 +4300,7 @@
               <label>Supplier (Buy From)</label>
               <select id="supSelect" onchange="app.updateInstallation('supplierSource', this.value)">
                 <option value="">Select...</option>
-                ${['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'].map(s => `<option value="${s}" ${inst.supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
+                ${SUPPLIER_SOURCE_NAMES.map(s => `<option value="${s}" ${supplierSource === s ? 'selected' : ''}>${s}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -4247,15 +4318,15 @@
               <select id="profile" onchange="app.updateProfile(this.value)"></select>
             </div>
           </div>
-          ${this._getProfileSVG(j.profile)}
+          ${this._getProfileSVG(j.profile, j.supplier)}
           <div class="form-group" style="margin-top:16px;">
-            <label>Colour *</label>
+            <label>Sheet Colour *</label>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:8px 0 6px;">Stock Colours</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_STOCK)}</div>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Special Order</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">${swatchHtml(COLOURS_SPECIAL)}</div>
             <div style="font-size:11px;font-weight:700;color:#4C6A70;text-transform:uppercase;letter-spacing:0.3px;margin:14px 0 6px;">Custom Colour</div>
-            <input type="text" id="customColourInput" placeholder="Type non-standard colour name..." value="${j.customColour || ''}"
+            <input type="text" id="customColourInput" placeholder="Type non-standard colour name..." value="${this._esc(j.customColour || '')}"
               style="width:100%;max-width:340px;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;transition:border 0.2s;"
               onfocus="this.style.borderColor='#F15A29'" onblur="this.style.borderColor='#d1d5db'"
               onchange="app.job.customColour=this.value; if(this.value.trim()){app.updateColour(this.value.trim())}">
@@ -4264,6 +4335,7 @@
               <span style="font-size:14px;color:#293C46;font-weight:600;">${this._esc(j.colour)}</span>
             </div>` : ''}
           </div>
+          ${this._renderComponentColourBlock()}
           <div class="form-group" style="margin-top:16px;">
             <label>Core Drill</label>
             <div class="toggle-group">
@@ -4274,9 +4346,182 @@
               style="margin-top:8px;" onchange="app.updateInstallation('coreDrillHoles', this.value)">` : ''}
           </div>
         `;
-        this._addCustomOption('supSelect', inst.supplierSource, ['RnR Direct','Metroll Direct','Fencing Warehouse','Oxworks'], 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
+        this._addCustomOption('supSelect', supplierSource, SUPPLIER_SOURCE_NAMES, 'Enter supplier name...', function(v) { app.updateInstallation('supplierSource', v); });
         this._addCustomPanelSystemInputs(j.supplier, j.customPanelWidth);
         this.updateProfileDropdown();
+      },
+
+      // ── Optional rails / posts / plinths colours (Section 9.2) ──
+      // Collapsed by default and rendered as a single line of plain text, so a
+      // job where everything matches the sheets shows no extra fields and costs
+      // the operator no extra taps. Opening it reveals three INDEPENDENT
+      // pickers — rails and posts are usually the same but must be separately
+      // selectable — each defaulting to "Match sheet colour".
+      // `emptyLabel` names what leaving this blank ACTUALLY resolves to. On a run
+      // that is not always "match sheet colour" — an explicit job-level rail
+      // colour is inherited ahead of the run's sheets — and a field tool must
+      // not imply a colour it will not order.
+      // Colours this job actually uses that are not in either palette — an
+      // operator-typed Custom Colour, at job level or stored on a run. Without
+      // these the select has no option matching a stored custom value, so the
+      // browser falls back to showing the FIRST option and the control reports
+      // "Follow job (…)" while an override really is stored underneath.
+      _customColoursInPlay() {
+        const known = {};
+        COLOURS_STOCK.forEach(c => { known[c.name] = true; });
+        COLOURS_SPECIAL.forEach(c => { known[c.name] = true; });
+        const extra = [];
+        const add = (v) => { if (v && !known[v] && extra.indexOf(v) === -1) extra.push(v); };
+        add(this.job.colour);
+        const jc = this.job.componentColours || {};
+        FENCE_COMPONENTS.forEach(c => add(jc[c]));
+        (this.job.runs || []).forEach(r => {
+          const rc = (r && r.colours) || {};
+          FENCE_COMPONENTS.forEach(c => add(rc[c]));
+        });
+        return extra;
+      },
+
+      _componentColourOptions(selected, emptyLabel) {
+        const opt = (v, label) => `<option value="${this._esc(v)}" ${selected === v ? 'selected' : ''}>${this._esc(label)}</option>`;
+        const custom = this._customColoursInPlay();
+        return opt('', emptyLabel || 'Match sheet colour')
+          + '<optgroup label="── Stock ──">' + COLOURS_STOCK.map(c => opt(c.name, c.name)).join('') + '</optgroup>'
+          + '<optgroup label="── Special Order ──">' + COLOURS_SPECIAL.map(c => opt(c.name, c.name + ' (SO)')).join('') + '</optgroup>'
+          + (custom.length ? '<optgroup label="── Custom ──">' + custom.map(v => opt(v, v)).join('') + '</optgroup>' : '');
+      },
+
+      _renderComponentColourBlock() {
+        const jc = this.job.componentColours || {};
+        const overridden = ['rails', 'posts', 'plinths'].filter(c => !!jc[c]);
+        // Stay open once the operator has set something, so their choice is visible.
+        const open = this._componentColoursOpen || overridden.length > 0;
+        const summary = overridden.length
+          ? overridden.map(c => FENCE_COMPONENT_LABELS[c] + ': ' + this._esc(jc[c])).join(' · ')
+          : 'Rails, posts and plinths match the sheet colour';
+        const rows = ['rails', 'posts', 'plinths'].map(c => `
+          <div class="form-group">
+            <label>${FENCE_COMPONENT_LABELS[c]} Colour</label>
+            <select onchange="app.updateComponentColour('${c}', this.value)">${this._componentColourOptions(jc[c] || '')}</select>
+          </div>`).join('');
+        return `
+          <div class="form-group" style="margin-top:12px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <button type="button" onclick="app.toggleComponentColours()"
+                style="padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#293C46;font-size:12px;font-weight:700;cursor:pointer;">
+                ${open ? '▾' : '▸'} Rails, posts &amp; plinths
+              </button>
+              <span style="font-size:12px;color:${overridden.length ? '#293C46' : '#8899A6'};">${summary}</span>
+            </div>
+            ${open ? `<div class="form-row" style="margin-top:10px;">${rows}</div>` : ''}
+          </div>`;
+      },
+
+      // Per-run colour override. A run with no override shows ONE line of text
+      // stating what it inherits — no extra fields, no extra taps — so the
+      // common case looks exactly as it did before this existed.
+      _renderRunColourBlock(run) {
+        const resolved = this.getRunColourSet(run);
+        const has = this.runHasColourOverride(run) || this._runColourOpenId === run.id;
+        if (!has) {
+          return `<div style="margin-top:10px;font-size:12px;color:#8899A6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span>Colours: follows the job (${this._esc(resolved.sheets || '\u2014')}${resolved.uniform ? '' : ' + trim'})</span>
+            <button type="button" onclick="app.overrideRunColours('${run.id}')"
+              style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#293C46;font-size:11px;font-weight:700;cursor:pointer;">
+              Override for this run
+            </button>
+          </div>`;
+        }
+        const rc = run.colours || {};
+        // What THIS field would resolve to if left blank, with the run's OTHER
+        // choices left standing — clearing the whole override would report the
+        // wrong colour for a component that follows this run's own sheets.
+        const inheritedFor = (component) => {
+          const without = Object.assign({}, rc);
+          delete without[component];
+          return this.getComponentColour(component, Object.assign({}, run, { colours: without }));
+        };
+        const cells = FENCE_COMPONENTS.map(c => `
+          <div class="form-group">
+            <label>${FENCE_COMPONENT_LABELS[c]}</label>
+            <select onchange="app.updateRunColour('${run.id}', '${c}', this.value)">
+              ${this._componentColourOptions(rc[c] || '', 'Follow job (' + (inheritedFor(c) || '\u2014') + ')')}
+            </select>
+          </div>`).join('');
+        return `<div style="margin-top:10px;padding:10px;border:1px solid #E3E8EA;border-radius:8px;background:#FAFBFB;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+            <strong style="font-size:12px;color:#293C46;">Run colours (overrides the job)</strong>
+            <button type="button" onclick="app.clearRunColours('${run.id}')"
+              style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#293C46;font-size:11px;font-weight:700;cursor:pointer;">
+              Back to job colours
+            </button>
+          </div>
+          <div class="run-settings-grid">${cells}</div>
+        </div>`;
+      },
+
+      toggleComponentColours() {
+        this._componentColoursOpen = !this._componentColoursOpen;
+        this.renderInstallation();
+      },
+
+      // '' means "follow the sheet colour" — the field is deleted rather than
+      // stored empty, so a job that never used this carries none of these keys.
+      updateComponentColour(component, value) {
+        if (!this.job.componentColours) this.job.componentColours = {};
+        if (value) this.job.componentColours[component] = value;
+        else delete this.job.componentColours[component];
+        if (!Object.keys(this.job.componentColours).length) delete this.job.componentColours;
+        this._componentColoursOpen = true;
+        this.save();
+        this.renderInstallation();
+        this._refreshRunColourUI();
+        this.renderQuoteAndOrders();
+      },
+
+      // Per-run override (Section 9.2). Job level is the default a run inherits;
+      // this lets one run differ without disturbing the rest.
+      // The run block states what each run inherits and lists the colours in
+      // play, so a job-level colour change has to redraw it or it describes a
+      // colour the job no longer uses.
+      _refreshRunColourUI() {
+        if (!this.job.runs || !document.getElementById('runContent')) return;
+        if (!this.job.runs.some(r => r.id === this.currentRunId)) return;
+        this.renderRunContent();
+      },
+
+      // REVEALS the per-component pickers and stores NOTHING. Writing the
+      // resolved sheet colour here would pin it on a run the operator only
+      // opened to set a plinth: a later job-colour change then leaves that run
+      // behind and the order buys two colours nobody asked for. A colour is
+      // stored only when the operator actually picks one.
+      overrideRunColours(runId) {
+        const run = (this.job.runs || []).find(r => r.id === runId);
+        if (!run) return;
+        this._runColourOpenId = runId;
+        this.render();
+      },
+
+      updateRunColour(runId, component, value) {
+        const run = (this.job.runs || []).find(r => r.id === runId);
+        if (!run) return;
+        if (!run.colours) run.colours = {};
+        if (value) run.colours[component] = value;
+        else delete run.colours[component];
+        if (!Object.keys(run.colours).length) delete run.colours;
+        this.save();
+        this.render();
+      },
+
+      // Clearing the override drops every per-run colour, so the run goes back
+      // to inheriting the job exactly as an untouched run does.
+      clearRunColours(runId) {
+        const run = (this.job.runs || []).find(r => r.id === runId);
+        if (!run) return;
+        if (this._runColourOpenId === runId) this._runColourOpenId = null;
+        delete run.colours;
+        this.save();
+        this.render();
       },
 
       // ── Reveal name + panel-width inputs when Panel System is "Custom..." ──
@@ -4375,7 +4620,7 @@
                 <label>Run / After Panel</label>
                 <div style="display:flex;gap:8px;align-items:center;">
                   <select style="flex:1;" onchange="app.updateGate('${gate.id}', 'runIndex', this.value)">
-                    ${j.runs.map((r, ri) => `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${r.name || 'Unnamed'}</option>`).join('')}
+                    ${j.runs.map((r, ri) => `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${this._esc(r.name) || 'Unnamed'}</option>`).join('')}
                   </select>
                   <span style="font-weight:700;">P</span>
                   <input type="number" value="${gate.afterPanel}" min="1" style="width:70px;"
@@ -4411,7 +4656,7 @@
       renderQuote() {
         const j = this.job;
         const q = j.quote || {};
-        const items = q.customLineItems && q.customLineItems.length >= 3 ? q.customLineItems : [{}, {}, {}];
+        const items = q.customLineItems && q.customLineItems.length >= 3 ? q.customLineItems : this._blankCustomItems();
         document.getElementById('bodyQuote').innerHTML = `
           <div class="form-row">
             <div class="form-group">
@@ -4537,25 +4782,40 @@
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Flag each item as <b>Material</b> (appears on the material order) or <b>Labour</b>. Cost price feeds the job margin.</div>
           ${items.map((c, i) => `
-            <div class="form-row" style="margin-bottom:8px;">
-              <div class="form-group">
-                <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra labour, skip bin, etc."
-                  onchange="app.updateCustomItem(${i}, 'desc', this.value)">
+            <div style="border:1px solid #e3e8ec;border-radius:8px;padding:8px;margin-bottom:8px;">
+              <div class="form-row" style="margin-bottom:6px;">
+                <div class="form-group" style="flex:1;">
+                  <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra panel, skip bin, extra labour"
+                    onchange="app.updateCustomItem(${i}, 'desc', this.value)">
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                    onchange="app.updateCustomItem(${i}, 'qty', this.value)">
+                  <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
+                    onchange="app.updateCustomItem(${i}, 'unit', this.value)">
+                    ${['','each','m','m²','hrs','job','lot'].map(u => '<option value="' + u + '"' + (c.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('')}
+                  </select>
+                </div>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
-                  onchange="app.updateCustomItem(${i}, 'qty', this.value)">
-                <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
-                  onchange="app.updateCustomItem(${i}, 'unit', this.value)">
-                  ${['','each','m','m²','hrs','job','lot'].map(u => '<option value="' + u + '"' + (c.unit === u ? ' selected' : '') + '>' + (u || '—') + '</option>').join('')}
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select title="Material items appear on the material order" style="min-height:44px;font-size:15px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'kind', this.value)">
+                  <option value="material" ${this.customItemKind(c) === 'material' ? 'selected' : ''}>Material</option>
+                  <option value="labour" ${this.customItemKind(c) === 'labour' ? 'selected' : ''}>Labour</option>
                 </select>
-                <span style="font-weight:700;">$</span>
-                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Price" style="width:80px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                <span style="font-weight:700;">Sell $</span>
+                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Sell/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'price', this.value)">
+                <span style="font-weight:700;">Cost $</span>
+                <input type="number" value="${c.costPrice || ''}" min="0" step="1" placeholder="Cost/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  onchange="app.updateCustomItem(${i}, 'costPrice', this.value)">
+                <button class="btn-delete" style="min-height:44px;" onclick="app.deleteCustomItem(${i})">Remove</button>
               </div>
             </div>
           `).join('')}
+          <button class="btn-orange" onclick="app.addCustomItem()">+ Add Custom Item</button>
         `;
       },
 
@@ -4592,7 +4852,10 @@
         // Source: index.html line 8685 (_collectOutputData), lines 8967-8997 (internalCost build)
         const rows = [];
 
-        // Panel kits — from d.postGroups (engine-built, line 8770)
+        // Panel kits — from d.postGroups (engine-built, line 8770). Colour is
+        // part of the grouping key, so a mixed-colour job would otherwise show
+        // two rows with the same label; only then does the label name a colour.
+        const multiColour = this._postGroupsAreMultiColour(d.postGroups);
         Object.values(d.postGroups).forEach(g => {
           let unitCost = COST_PRICES.panelKit1800_2400;
           if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
@@ -4605,7 +4868,7 @@
             unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
           }
           rows.push({
-            label: `Panel kit ${g.sheetH}H + ${g.postH}H post (${g.panelW}mm wide)`,
+            label: `Panel kit ${g.sheetH}H + ${g.postH}H post (${g.panelW}mm wide)` + (multiColour ? ` — ${this._postGroupColourText(g, d.colour)}` : ''),
             category: 'panels',
             qty: g.count,
             unitCost: unitCost,
@@ -6177,15 +6440,72 @@
         this.updateSectionStatuses();
       },
 
+      // Panel system (job.supplier — drives panel width + the profile list).
+      // NOT the buy-from supplier; that is job.installation.supplierSource.
       updateSupplier(value) {
+        const previousSystem = this.job.supplier;
         this.job.supplier = value;
         const supplierData = SUPPLIER_PROFILES[value];
         if (supplierData && !supplierData.profiles.includes(this.job.profile)) {
           this.job.profile = supplierData.profiles[0];
         }
+        // Unit 2 auto-select: picking a panel system pre-fills who we buy from.
+        // A DEFAULT, not a lock — and it must NEVER stomp a supplier the operator
+        // deliberately chose. This dropdown fires on every touch, including
+        // switching away and back to correct a misclick, so an unconditional
+        // overwrite here silently re-routed the order email to the wrong
+        // supplier's inbox (worst on Metroll, the one system with a real
+        // alternative). Only auto-fill when the operator has not spoken: nothing
+        // stored, or what is stored is still exactly the PREVIOUS panel system's
+        // default. Deliberately picking the colour that happens to BE the default
+        // is indistinguishable from never overriding — that is fine, it just
+        // re-defaults, which is what an operator who never overrode expects.
+        const defaultSource = PANEL_SYSTEM_DEFAULT_SUPPLIER[value];
+        if (defaultSource) {
+          if (!this.job.installation) this.job.installation = {};
+          const stored = this.job.installation.supplierSource || '';
+          const previousDefault = PANEL_SYSTEM_DEFAULT_SUPPLIER[previousSystem] || '';
+          if (!stored || stored === previousDefault) {
+            this.job.installation.supplierSource = defaultSource;
+          }
+        }
         this.recalculateAll();
         this.save();
         this.renderInstallation();
+      },
+
+      // ── Buy-from supplier + material-order email routing (Units 2/3) ──
+      // The operator's explicit choice wins. Jobs saved before the auto-select
+      // landed carry no supplierSource, so fall back to the panel system's default
+      // rather than showing a blank supplier on an otherwise complete job.
+      getSupplierSource() {
+        const chosen = (this.job.installation && this.job.installation.supplierSource) || '';
+        // '__custom__' is a chosen-but-not-yet-named supplier. It is still a
+        // deliberate override, so it must NOT fall through to the panel
+        // system's default — that would answer a real address for a supplier
+        // the operator has not named, which is the one thing routing must
+        // never do. It resolves to no supplier until a name is typed.
+        if (chosen === '__custom__') return '';
+        if (chosen) return chosen;
+        return PANEL_SYSTEM_DEFAULT_SUPPLIER[this.job.supplier] || '';
+      },
+
+      // True while the operator has picked Custom but not yet named the supplier.
+      isCustomSupplierPending() {
+        return ((this.job.installation && this.job.installation.supplierSource) || '') === '__custom__';
+      },
+
+      // Resolve where a material order for this job is addressed.
+      // Returns { supplier, to, cc, known }. `cc` ALWAYS carries the universal
+      // fencing address (Captain: "ALL"), so a Stratco order carries two CCs.
+      // An unknown/custom supplier resolves with an empty `to` — honest, so the
+      // draft opens with the universal CC and the operator types the address.
+      getMaterialOrderRouting() {
+        const supplier = this.getSupplierSource();
+        const entry = SUPPLIER_SOURCES.find(s => s.name === supplier) || null;
+        const cc = (entry ? entry.cc.slice() : []);
+        if (cc.indexOf(MATERIAL_ORDER_UNIVERSAL_CC) === -1) cc.push(MATERIAL_ORDER_UNIVERSAL_CC);
+        return { supplier: supplier, to: entry ? entry.to : '', cc: cc, known: !!entry };
       },
 
       updateProfile(value) {
@@ -6195,11 +6515,202 @@
         this.updateSectionStatuses();
       },
 
+      // ── Per-component colour resolution (Section 9.2) ──
+      // Precedence for rails/posts/plinths: an EXPLICIT run choice beats an
+      // EXPLICIT job choice, which beats simply following that run's sheet
+      // colour. So overriding a run's sheets does not silently drag along a
+      // rail colour the operator deliberately set at job level.
+      getComponentColour(component, run) {
+        const rc = (run && run.colours) || {};
+        const jc = this.job.componentColours || {};
+        const sheet = rc.sheets || this.job.colour || '';
+        if (component === 'sheets') return sheet;
+        return rc[component] || jc[component] || sheet;
+      },
+
+      // THE sheet colour to show a human for a whole job. Every rendered
+      // surface — quote, order, work order, PO card, checklist, pricing
+      // descriptions — must go through here rather than reading `d.colour`,
+      // because `d.colour` is the job DEFAULT and a run can override it. Naming
+      // the default on a document while the order buys the override is how the
+      // quote came to contradict the material order.
+      resolvedSheetColour(d) {
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        return sheets.length ? sheets.join(' / ') : ((d && d.colour) || '');
+      },
+
+      // Gates are job-level: nothing attaches them to a run. When the ORDER
+      // carries exactly one sheet colour that is what a gate is made in, even
+      // if a run override moved the job away from `d.colour`. Only when runs
+      // genuinely differ does it fall back to the job colour, because the
+      // job-wide summary JOINS colours and a supplier line naming two of them
+      // cannot be fulfilled. It never returns a joined value.
+      gateSheetColour(d) {
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        if (sheets.length === 1) return sheets[0];
+        return (d && d.colour) || '';
+      },
+
+      // A swatch can only paint one colour. Where a job resolves to several
+      // sheet colours this takes the first RESOLVED one, never the job default.
+      primarySheetColour(d) {
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        if (sheets.length) return sheets[0];
+        return (d && d.colour) || '';
+      },
+
+      // The four colours for one run, plus `uniform` — true when they are all
+      // the same, which is the overwhelmingly common case and the one every
+      // downstream renderer must keep rendering exactly as it did before.
+      getRunColourSet(run) {
+        const set = {
+          sheets: this.getComponentColour('sheets', run),
+          rails: this.getComponentColour('rails', run),
+          posts: this.getComponentColour('posts', run),
+          plinths: this.getComponentColour('plinths', run)
+        };
+        set.uniform = set.rails === set.sheets && set.posts === set.sheets && set.plinths === set.sheets;
+        return set;
+      },
+
+      // Job-wide colour picture for the quote and work order: the distinct
+      // colours each component actually resolves to across every run, and
+      // whether the whole job is one colour (the common case, which must render
+      // exactly as it always did).
+      // Derived from the ORDER'S OWN GROUPS, never from the job model, so the
+      // quote cannot name a colour the material order does not buy. Every case
+      // that used to need its own filter falls out of that: a run with no panels
+      // never entered postGroups, a gate-only job has none, a job with no
+      // retaining has no plinthGroups, and a component overridden on a job that
+      // carries none of that component contributes nothing.
+      _summariseComponentColours(job, postGroups, plinthGroups) {
+        const j = job || this.job;
+        const out = {};
+        FENCE_COMPONENTS.forEach(c => { out[c] = []; });
+        const add = (c, v) => { if (v && out[c].indexOf(v) === -1) out[c].push(v); };
+        Object.values(postGroups || {}).forEach(g => {
+          add('sheets', g.sheetColour);
+          add('rails', g.railColour);
+          add('posts', g.postColour);
+        });
+        Object.values(plinthGroups || {}).forEach(g => { if (g.count > 0) add('plinths', g.colour); });
+        // Nothing on the order at all — fall back to the job sheet colour so the
+        // quote is not blank, and stays uniform rather than naming trim that
+        // does not exist.
+        if (!FENCE_COMPONENTS.some(c => out[c].length)) {
+          FENCE_COMPONENTS.forEach(c => add(c, j.colour));
+        }
+        const all = [];
+        FENCE_COMPONENTS.forEach(c => out[c].forEach(v => { if (all.indexOf(v) === -1) all.push(v); }));
+        out.uniform = all.length <= 1;
+        return out;
+      },
+
+      // How ONE postGroups row's colours read. Sheets/rails/posts are part of
+      // the grouping key, so two rows can be identical apart from colour — a
+      // row that names no colour is then unidentifiable stock.
+      _postGroupColourText(g, fallback) {
+        const sheetC = g.sheetColour != null ? g.sheetColour : fallback;
+        if (g.uniformColour === false) {
+          return 'Sheets ' + sheetC + ' / Rails ' + g.railColour + ' / Posts ' + g.postColour;
+        }
+        return String(sheetC == null ? '' : sheetC);
+      },
+
+      // How ONE run's colours read on the two documents a person physically
+      // handling the job carries (work order, material order run breakdown).
+      // The panel lines split by colour but a group is keyed by spec + colour,
+      // never by run, so without this nothing maps the Basalt stock to Run B and
+      // the crew can put either colour on either run.
+      // Empty unless the job genuinely carries more than one colour ON THE ORDER
+      // (`componentColours` is derived from the order's own groups), and unless
+      // this run actually put panels on it — so a single-colour job renders both
+      // documents byte-identically, and a run carrying no stock names no colour.
+      _runColourText(d, r) {
+        const cc = d && d.componentColours;
+        if (!cc || cc.uniform !== false) return '';
+        if (!r || !(r.panelCount > 0)) return '';
+        const sheetC = r.sheetColour != null ? r.sheetColour : d.colour;
+        if (r.uniformColour === false) {
+          let txt = 'Sheets ' + sheetC + ' / Rails ' + r.railColour + ' / Posts ' + r.postColour;
+          if (r.plinths > 0) txt += ' / Plinths ' + r.plinthColour;
+          return txt;
+        }
+        return String(sheetC == null ? '' : sheetC);
+      },
+
+      // The plinth stock this job orders, one row per colour x width class, in
+      // the order the supplier reads them. The material order and the Material
+      // Verification checklist BOTH render from this, so the line the scoper
+      // confirms cannot name a colour the order does not buy.
+      _plinthGroupRows(d) {
+        const groups = d.plinthGroups || {};
+        const stdWidth = d.panelWidthMm;
+        const longWidth = d.plinthLongWidthMm;
+        const rowsFor = (cls, fallbackCount, widthMm) => {
+          const found = Object.values(groups)
+            .filter(g => g.widthClass === cls && g.count > 0)
+            .map(g => ({ widthClass: cls, colour: g.colour, count: g.count, widthMm }));
+          if (found.length) return found;
+          return fallbackCount > 0 ? [{ widthClass: cls, colour: d.colour, count: fallbackCount, widthMm }] : [];
+        };
+        const std = d.totalPlinthsStandard != null ? d.totalPlinthsStandard : d.totalPlinths;
+        return rowsFor('standard', std, stdWidth).concat(rowsFor('long', d.totalPlinthsLong || 0, longWidth));
+      },
+
+      // The plinth lines of the Material Verification checklist, mirroring the
+      // order's separate standard / long lines.
+      _materialVerifyPlinthRows(d) {
+        return this._plinthGroupRows(d).map(r => ({
+          desc: r.count + ' &times; 150mm ' + (r.widthClass === 'long' ? 'Long Plinths @ ' + r.widthMm + 'mm' : 'Plinths')
+            + ' &mdash; ' + (r.colour || d.colour || 'Shale Grey'),
+          matQty: r.count
+        }));
+      },
+
+      // The panel lines of the Material Verification checklist — the gate the
+      // scoper confirms before we order. Each line names THIS group's colour,
+      // not the job's: colour is part of the grouping, so a Basalt group titled
+      // Monument is a line ticked off against stock we are not buying.
+      _materialVerifyPanelRows(d) {
+        return Object.values(d.postGroups).map(g => {
+          const groupColour = this._postGroupColourText(g, d.colour) || (d.colour || 'Shale Grey');
+          return {
+            desc: g.count + ' &times; ' + g.sheetH + 'H &times; ' + (g.panelW || d.panelWidthMm)
+              + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + groupColour,
+            matQty: g.count
+          };
+        });
+      },
+
+      // True when the panel groups as a whole involve more than one colour.
+      // An all-one-colour job answers false, so labels that never carried a
+      // colour keep reading exactly as they always did.
+      _postGroupsAreMultiColour(groups) {
+        const seen = [];
+        Object.values(groups || {}).forEach(g => {
+          [g.sheetColour, g.railColour, g.postColour].forEach(c => {
+            if (c != null && seen.indexOf(c) === -1) seen.push(c);
+          });
+        });
+        return seen.length > 1;
+      },
+
+      // True when this run carries any explicit colour of its own.
+      runHasColourOverride(run) {
+        const rc = (run && run.colours) || {};
+        return FENCE_COMPONENTS.some(c => !!rc[c]);
+      },
+
       updateColour(value) {
         this.job.colour = value;
         if (this._openSections.visualizer) this.renderProfileView();
         this.save();
         this.renderInstallation();
+        this._refreshRunColourUI();
         this.updateSectionStatuses();
       },
 
@@ -6215,11 +6726,59 @@
 
       updateCustomItem(idx, field, value) {
         if (!this.job.quote) this.job.quote = {};
-        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = [{}, {}, {}];
-        while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push({});
-        if (field === 'qty' || field === 'price') value = parseFloat(value) || 0;
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = this._blankCustomItems();
+        while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push(this._blankCustomItem());
+        if (field === 'qty' || field === 'price' || field === 'costPrice') value = parseFloat(value) || 0;
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
+        this.updateStats();
+        this.renderQuoteAndOrders();
+      },
+
+      addCustomItem() {
+        if (!this.job.quote) this.job.quote = {};
+        if (!this.job.quote.customLineItems) this.job.quote.customLineItems = this._blankCustomItems();
+        this.job.quote.customLineItems.push(this._blankCustomItem());
+        this.save();
+        this.renderQuote();
+        this.updateStats();
+        this.renderQuoteAndOrders();
+      },
+
+      // A custom item is admitted on a sell price OR a cost price, so a
+      // cost-only material still reaches the order and the margin. It must not
+      // reach the client's price table though: a $0.00 line item is not a thing
+      // we are charging for. Every client-facing list goes through here.
+      // A custom item reaches the SUPPLIER only when it is explicitly material.
+      // A missing `kind` is not missing data: main carries no `kind` field and
+      // no CUSTOM MATERIALS block, so an item without one was created when
+      // custom lines could not reach a supplier at all — and the old input
+      // prompted for "Extra labour, skip bin, etc.". One rule, every site,
+      // including the picker, so the control can never claim Material for an
+      // item the order will treat as labour.
+      customItemKind(c) {
+        return (c && c.kind === 'material') ? 'material' : 'labour';
+      },
+
+      _blankCustomItem() {
+        return { kind: 'material' };
+      },
+
+      _blankCustomItems() {
+        return [this._blankCustomItem(), this._blankCustomItem(), this._blankCustomItem()];
+      },
+
+      _sellableCustomItems(d) {
+        return ((d && d.customItems) || []).filter(function(c) { return (Number(c.total) || 0) > 0; });
+      },
+
+      deleteCustomItem(idx) {
+        if (!this.job.quote || !this.job.quote.customLineItems) return;
+        this.job.quote.customLineItems.splice(idx, 1);
+        // Keep at least the three default slots so the section never collapses.
+        while (this.job.quote.customLineItems.length < 3) this.job.quote.customLineItems.push(this._blankCustomItem());
+        this.save();
+        this.renderQuote();
         this.updateStats();
         this.renderQuoteAndOrders();
       },
@@ -6386,12 +6945,53 @@
         return String(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       },
 
+      // For a value interpolated into a SINGLE-QUOTED JS string inside an inline
+      // handler attribute. `_esc` alone is not enough there: it leaves the
+      // apostrophe alone, so operator free text like a custom colour named
+      // "Bob's Grey" closes the string early and makes the whole handler a
+      // syntax error — the control then does nothing, with no visible cause.
+      _escJsAttr(val) {
+        if (val == null) return '';
+        return this._esc(String(val).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      },
+
       _getColourHex(name) {
         const c = [...COLOURS_STOCK, ...COLOURS_SPECIAL].find(c => c.name === name);
         return c ? c.hex : '#cccccc';
       },
 
-      _getProfileSVG(profile) {
+      // Stratco's own product photography, held IN THE REPO and normalised to a
+      // common 720x470 canvas so the four render at a consistent size. Keyed by
+      // panel system + profile, because profile names are not guaranteed unique
+      // across systems. Relative paths only — this ships to GitHub Pages under a
+      // subpath. Add a key only when the file really exists: anything absent
+      // falls through to the remote image map and then to the generated diagram,
+      // so a missing photo is never a broken image or an empty box.
+      _PROFILE_PHOTOS: {
+        'Stratco::Superdek': 'textures/stratco-superdek.png',
+        'Stratco::CGI Corrugated': 'textures/stratco-cgi-corrugated.png',
+        'Stratco::Wavelok': 'textures/stratco-wavelok.png',
+        'Stratco::CGI Mini': 'textures/stratco-cgi-mini.png'
+      },
+
+      // Wider than the 340px the generated diagram uses. CGI Corrugated and CGI
+      // Mini are the SAME corrugated shape at different pitch — at thumbnail size
+      // a scoper cannot tell them apart, and picking the wrong one is a wrong
+      // order. Still width:100%, so it shrinks with a narrow iPad split view.
+      _PROFILE_PHOTO_MAX_W: 520,
+
+      // `panelSystem` defaults to the job's current one so existing callers keep
+      // working; pass it explicitly when rendering a profile for another system.
+      _getProfileSVG(profile, panelSystem) {
+        const system = panelSystem !== undefined ? panelSystem : this.job.supplier;
+        const photo = this._PROFILE_PHOTOS[system + '::' + profile];
+        if (photo) {
+          return `<div style="margin-top:8px;max-width:${this._PROFILE_PHOTO_MAX_W}px;">
+            <img src="${photo}" alt="${this._esc(profile)} profile"
+              style="width:100%;height:auto;border-radius:4px;display:block;background:#f3f4f6;"
+              onerror="app._onProfileImgError(this,'${this._escJsAttr(profile)}')">
+          </div>`;
+        }
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
         const dimBase = 'https://steelselect.com.au/sites/default/files/images/products/dimensions/';
         const urls = {
@@ -6414,12 +7014,11 @@
           'Good Neighbour': imgBase + 'stratco-good-neighbour-fencing.jpg'
         };
         const url = urls[profile];
-        const escaped = profile.replace(/'/g, "\\'");
         if (url) {
           return `<div style="margin-top:8px;max-width:340px;">
             <img src="${url}" alt="${this._esc(profile)} profile"
               style="width:100%;border-radius:4px;display:block;background:#f3f4f6;"
-              onerror="app._onProfileImgError(this,'${escaped}')">
+              onerror="app._onProfileImgError(this,'${this._escJsAttr(profile)}')">
           </div>`;
         }
         return this._buildProfileSVG(profile);
@@ -6760,6 +7359,7 @@
                 </select>
               </div>
             </div>
+            ${this._renderRunColourBlock(run)}
             <div class="run-settings-actions">
               <button class="btn-orange" onclick="app.applyHeightToAll('${run.id}')">Apply Height to All</button>
               <button class="btn-delete" onclick="app.deleteRun('${run.id}')">Delete Run</button>
@@ -8348,7 +8948,7 @@
               const pl = new THREE.Mesh(plGeo, plinthMat);
               pl.position.set(panelX, panelGnd + retH/2, 0);
               pl.castShadow = true; pl.receiveShadow = true;
-              pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${job.colour}` };
+              pl.userData = { info: `<b>${Math.round(totalPl)} Plinths</b><br>Panel ${pi+1}<br>${Math.round(retH*1000)}mm retaining<br>${app._esc(job.colour)}` };
               f.fenceGrp.add(pl);
               // Horizontal lines to show plinth divisions
               for (let pli = 1; pli < totalPl; pli++) {
@@ -8372,7 +8972,7 @@
             const sheet = new THREE.Mesh(sheetGeo, panelMat);
             sheet.position.set(panelX, stackY + sheetH/2, 0);
             sheet.castShadow = true; sheet.receiveShadow = true;
-            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${profile}<br>${job.colour}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
+            sheet.userData = { info: `<b>Panel ${pi+1}</b><br>${panel.height}mm ${app._esc(profile)}<br>${app._esc(job.colour)}<br>Width: ${thisPanelWMm}mm${totalPl > 0 ? '<br>Retaining: '+Math.round(retH*1000)+'mm ('+Math.round(totalPl)+' plinths)' : ''}` };
             f.fenceGrp.add(sheet);
             addSheetRibHighlights(f.fenceGrp, panelX, stackY + sheetH/2, thisPanelW, sheetH, 0);
             stackY += sheetH;
@@ -8418,7 +9018,7 @@
                 const lMesh = new THREE.Mesh(this._createFenceSheetGeo(lW, gateH, profile), panelMat);
                 lMesh.position.set(gateX + leaf*(gateW/2) + lW/2 + 0.015, gateH/2 + railH, 0);
                 lMesh.castShadow = true;
-                lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${job.colour} ${profile}` };
+                lMesh.userData = { info: `<b>Double Gate Leaf ${leaf+1}</b><br>${gateH*1000}mm × ${Math.round(lW*1000)}mm<br>${app._esc(job.colour)} ${app._esc(profile)}` };
                 f.fenceGrp.add(lMesh);
                 addSheetRibHighlights(f.fenceGrp, lMesh.position.x, lMesh.position.y, lW, gateH, 0);
               }
@@ -8435,7 +9035,7 @@
               const gP = new THREE.Mesh(this._createFenceSheetGeo(gateW - 0.03, gateH, profile), panelMat);
               gP.position.set(gateX + gateW/2, gateH/2 + railH, 0);
               gP.castShadow = true;
-              gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${job.colour} ${profile}` };
+              gP.userData = { info: `<b>Pedestrian Gate</b><br>${gateH*1000}mm × ${Math.round((gateW-0.03)*1000)}mm<br>${app._esc(job.colour)} ${app._esc(profile)}` };
               f.fenceGrp.add(gP);
               addSheetRibHighlights(f.fenceGrp, gP.position.x, gP.position.y, gateW - 0.03, gateH, 0);
               // Hinges
@@ -9763,7 +10363,7 @@
           removeAsbestosQty: removalActive && rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: removalActive && rem.vegetation,
           groundFinish: q.groundFinish || 'none',
-          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 })),
+          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: this.customItemKind(c), costPrice: c.costPrice || 0 })),
           notes: job.siteNotes || '',
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
@@ -9790,13 +10390,21 @@
         let totalMetres = 0;
         let totalPanels = 0;
         let totalPosts = 0;
-        let totalPlinths = 0;
+        let totalPlinths = 0;            // all plinths (standard + long) — kept for existing sell/quote math
+        let totalPlinthsStandard = 0;    // plinths on standard-width panels
+        let totalPlinthsLong = 0;        // plinths on long-width panels (auto → long plinth, COST_PRICES.plinthLong)
         let totalPatioTubes = 0;
-        const postGroups = {}; // { "1800_2400": { sheetH, postH, count } }
+        const postGroups = {}; // { "1800_2400_2380_<colours>": { sheetH, postH, panelW, colours, count } }
+        // Plinths tallied BY COLOUR as well as by width, so an order never merges
+        // two colours onto one line and buys the wrong stock. Flat
+        // totalPlinths/Standard/Long are still produced unchanged alongside.
+        const plinthGroups = {}; // { "<colour>_standard": { colour, widthClass, count } }
         const runDetails = [];
         const isGateOnly = job.scopeType === 'gate-only';
 
         if (!isGateOnly) job.runs.forEach(run => {
+          // Job-level colours, with this run's overrides applied (Section 9.2).
+          const runColours = this.getRunColourSet(run);
           const panelCount = run.panels.length;
           const postCount = panelCount + 1;
           totalMetres += run.length || 0;
@@ -9804,6 +10412,8 @@
           totalPosts += postCount;
 
           let runPlinths = 0;
+          let runPlinthsStandard = 0;
+          let runPlinthsLong = 0;
           let panelsWithPatio = 0;
           const panelDetails = [];
 
@@ -9823,8 +10433,28 @@
 
             // Group panels by sheet height + post height + panel width for material order
             const panelWidthMm = this.getPanelW(panel);
-            const key = `${panel.height}_${postH}_${panelWidthMm}`;
-            if (!postGroups[key]) postGroups[key] = { sheetH: panel.height, postH, panelW: panelWidthMm, count: 0 };
+            // A plinth spans the panel it sits under, so a long panel needs LONG
+            // plinths. Track by width so the order auto-generates the long plinth
+            // line and margin reads COST_PRICES.plinthLong (no hand-add).
+            const isLongPanel = panelWidthMm > this.getPanelWidthMm();
+            if (isLongPanel) runPlinthsLong += plinths; else runPlinthsStandard += plinths;
+            if (plinths > 0) {
+              const plinthClass = isLongPanel ? 'long' : 'standard';
+              const pKey = `${runColours.plinths}_${plinthClass}`;
+              if (!plinthGroups[pKey]) plinthGroups[pKey] = { colour: runColours.plinths, widthClass: plinthClass, count: 0 };
+              plinthGroups[pKey].count += plinths;
+            }
+            // Panels of DIFFERENT component colours are different stock and must
+            // never share an order line, so the colours are part of the key.
+            const key = `${panel.height}_${postH}_${panelWidthMm}_${runColours.sheets}|${runColours.rails}|${runColours.posts}`;
+            if (!postGroups[key]) postGroups[key] = {
+              sheetH: panel.height, postH, panelW: panelWidthMm, count: 0,
+              sheetColour: runColours.sheets, railColour: runColours.rails,
+              postColour: runColours.posts,
+              // Uniformity for a PANEL line is sheets/rails/posts only — plinths
+              // are their own order line and do not belong in this judgement.
+              uniformColour: runColours.rails === runColours.sheets && runColours.posts === runColours.sheets
+            };
             postGroups[key].count++;
 
             panelDetails.push({
@@ -9841,6 +10471,8 @@
 
           const patioTubes = panelsWithPatio > 0 ? panelsWithPatio + 1 : 0;
           totalPlinths += runPlinths;
+          totalPlinthsStandard += runPlinthsStandard;
+          totalPlinthsLong += runPlinthsLong;
           totalPatioTubes += patioTubes;
 
           // Check if run has any retaining at all
@@ -9863,9 +10495,17 @@
             panelCount,
             postCount,
             plinths: runPlinths,
+            plinthsStandard: runPlinthsStandard,
+            plinthsLong: runPlinthsLong,
             patioTubes,
             panelsWithPatio,
             hasRetaining,
+            sheetColour: runColours.sheets,
+            railColour: runColours.rails,
+            postColour: runColours.posts,
+            plinthColour: runColours.plinths,
+            uniformColour: runColours.rails === runColours.sheets && runColours.posts === runColours.sheets
+              && (runPlinths === 0 || runColours.plinths === runColours.sheets),
             panels: panelDetails,
             runSubtotal,
             runFencing,
@@ -10021,14 +10661,22 @@
           groundFinishDesc = js.groundFinish.charAt(0).toUpperCase() + js.groundFinish.slice(1) + ' ground finish';
         }
 
-        // Custom items
+        // Custom items — each carries a material/labour kind and a cost price.
+        // Material-flagged items flow to the material order; every item's cost
+        // feeds the margin (customCostTotal), not just its sell price.
         let customTotal = 0;
+        let customCostTotal = 0;
         const customItems = [];
         (js.custom || []).forEach(c => {
-          if (c.desc && c.qty > 0 && c.price > 0) {
-            const t = c.qty * c.price;
+          const cost = c.costPrice || 0;
+          // Admit a line when it has a sell price OR (as a material) a cost price,
+          // so a cost-only material still reaches the order and the margin.
+          if (c.desc && c.qty > 0 && (c.price > 0 || cost > 0)) {
+            const t = c.qty * (c.price || 0);
+            const kind = this.customItemKind(c);
             customTotal += t;
-            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price, total: t });
+            customCostTotal += c.qty * cost;
+            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price || 0, costPrice: cost, kind, total: t });
           }
         });
 
@@ -10081,7 +10729,10 @@
           }
           internalCost += g.count * unitCost;
         });
-        internalCost += totalPlinths * COST_PRICES.plinth;
+        // Plinth material cost is width-aware: long plinths (on long panels) cost
+        // COST_PRICES.plinthLong ($48) vs standard COST_PRICES.plinth ($41).
+        internalCost += totalPlinthsStandard * COST_PRICES.plinth;
+        internalCost += totalPlinthsLong * COST_PRICES.plinthLong;
         internalCost += totalPatioTubes * COST_PRICES.patioTube;
         internalCost += concreteBags * COST_PRICES.concrete;
         internalCost += tekBoxes * COST_PRICES.tekScrewBox;
@@ -10096,6 +10747,9 @@
           if (r.costPrice) internalRemovalCost += r.qty * r.costPrice;
         });
         internalCost += internalRemovalCost;
+        // Custom-item cost (material or labour) — so margin reflects what each
+        // custom line actually costs us, not just its sell price.
+        internalCost += customCostTotal;
         // Delivery cost (actual cost to us, not the sell price charged to client)
         internalCost += COST_PRICES.delivery;
 
@@ -10157,16 +10811,28 @@
           }
         }
 
+        const _componentColours = this._summariseComponentColours(job, postGroups, plinthGroups);
+
         return {
           job, js, scopeType: job.scopeType || 'fence-and-gate',
+          // `supplier` is the PANEL SYSTEM (job.supplier keys SUPPLIER_PROFILES).
+          // `supplierSource` is WHO WE BUY FROM, and `orderRouting` is where the
+          // material order email goes. Keep the two apart at every render site.
           supplier: job.supplier, profile: job.profile, colour: job.colour,
+          panelSystem: job.supplier,
+          supplierSource: this.getSupplierSource(),
+          orderRouting: this.getMaterialOrderRouting(),
           panelWidthMm: defaultPanelWidthMm, panelWidthM: defaultPanelWidthM, pricePerMetre,
           totalMetres, totalPanels, totalPosts, totalPlinths, totalPatioTubes,
-          postGroups, runDetails, gatePosts, gateDetails, gateLineItems,
+          totalPlinthsStandard, totalPlinthsLong,
+          plinthLongWidthMm: supplier.longPanelWidth || 3150,
+          plinthLongCost: COST_PRICES.plinthLong,
+          postGroups, plinthGroups, componentColours: _componentColours,
+          runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
           gatesTotal, removalTotal, removalItems, internalRemovalCost,
-          groundFinishTotal, groundFinishDesc, customTotal, customItems,
+          groundFinishTotal, groundFinishDesc, customTotal, customCostTotal, customItems,
           addonsTotal, addonItems,
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
@@ -10556,7 +11222,7 @@
           const heights = [...new Set(d.runDetails.map(r => r.panels.length > 0 ? r.panels[0].height : d.job.runs[0].sheetHeight))];
           const heightStr = heights.length === 1 ? heights[0] + 'mm' : heights.map(h => h + 'mm').join(' / ');
 
-          parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
+          parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${this.resolvedSheetColour(d)} (${heightStr} height)`);
           if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
           if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
           parts.push('All posts set in concrete');
@@ -10599,7 +11265,8 @@
         const date = d.job.date || new Date().toISOString().slice(0, 10);
         const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
         const scopeDesc = this._buildQuoteScopeDesc(d);
-        const colourHex = this._getColourHex(d.colour);
+        const quoteSheetColour = this.resolvedSheetColour(d);
+        const colourHex = this._getColourHex(this.primarySheetColour(d));
 
         // Profile image URL
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
@@ -10619,7 +11286,7 @@
         // Itemised category rows for the Pricing table (one row per non-zero category)
         const isGateOnlyHtml = d.scopeType === 'gate-only';
         const fencingLabel = isGateOnlyHtml ? '' : 'COLORBOND\u00AE Fencing';
-        const fencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}` : '';
+        const fencingDetail = (d.totalMetres > 0 && d.profile && quoteSheetColour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${quoteSheetColour}` : '';
         const gatesDetail = (d.gateLineItems || []).map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc).join(' | ');
         const categoryRows = [
           { label: fencingLabel,        detail: fencingDetail, amount: d.fencingTotal },
@@ -10683,7 +11350,7 @@
               <div class="spec-card">
                 <div style="font-size:11px;font-weight:700;color:#4C6A7C;text-transform:uppercase;margin-bottom:6px;">Colour</div>
                 <div class="colour-swatch" style="background:${colourHex};"></div>
-                <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(d.colour)}</div>
+                <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(quoteSheetColour)}</div>
               </div>
             </div>
           </div>`}
@@ -10705,8 +11372,11 @@
                   </td>
                   <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(r.amount)}</td>
                 </tr>`).join('')}
-                ${d.customItems.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
-                  d.customItems.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : ''}
+                ${(() => {
+                  const sellable = this._sellableCustomItems(d);
+                  return sellable.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
+                    sellable.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : '';
+                })()}
               </tbody>
               <tfoot>
                 <tr class="total-row"><td>Subtotal (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>
@@ -10776,7 +11446,7 @@
         <div class="section">
           <div class="section-title">Fence Specification</div>
           <table>
-            <tr><td><strong>Profile:</strong></td><td>${this._esc(d.profile || '')} — ${this._esc(d.colour || '')}</td></tr>
+            <tr><td><strong>Profile:</strong></td><td>${this._esc(d.profile || '')} — ${this._esc(this.resolvedSheetColour(d))}</td></tr>
             <tr><td><strong>Shared boundary:</strong></td><td>${totalM.toFixed(1)}m across ${nbRuns.length} run${nbRuns.length > 1 ? 's' : ''}</td></tr>`;
 
         nbRuns.forEach(r => {
@@ -10815,14 +11485,34 @@
         return html;
       },
 
-      _generateMaterialOrderHTML(d) {
+      // Plain-text material order body. Extracted so the on-screen <pre>, the
+      // clipboard copy and the Outlook draft all render from ONE source — an
+      // order the supplier reads on screen must be byte-identical to the one
+      // that lands in their inbox.
+      _buildMaterialOrderText(d, opts) {
+        const showInternalCosts = !(opts && opts.forEmail);
         const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
+        // One line per DISTINCT panel spec. Component colours are part of the
+        // grouping (see postGroups), so two colours can never end up on one line
+        // and have us order the wrong stock. When sheets, rails and posts match
+        // — the common case — the line prints the single `Colour:` it always
+        // did, byte for byte; only a genuine difference expands it.
         let panelLines = '';
         Object.values(d.postGroups).forEach(g => {
-          panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${g.panelW || d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n    Colour: ${d.colour}\n\n`;
+          const sheetC = g.sheetColour != null ? g.sheetColour : d.colour;
+          panelLines += `${g.count} \u00D7 ${g.sheetH}H \u00D7 ${g.panelW || d.panelWidthMm}W panels W/ ${g.postH}H posts\n    Profile: ${d.profile}\n`;
+          if (g.uniformColour === false) {
+            panelLines += `    Sheets: ${sheetC}\n    Rails: ${g.railColour}\n    Posts: ${g.postColour}\n\n`;
+          } else {
+            panelLines += `    Colour: ${sheetC}\n\n`;
+          }
         });
 
+        // ASCII rules, not box-drawing. Identical in the monospace <pre>, but a
+        // '═' costs NINE characters once percent-encoded into a mailto: URL —
+        // eight separator lines of them alone pushed a routine order past the
+        // length ceiling and into the clipboard fallback.
         let order = '';
         order += `SECUREWORKS GROUP PTY LTD\nMaterial Order\n\n`;
         order += `Job Ref: ${d.job.ref || '\u2014'}\n`;
@@ -10831,26 +11521,61 @@
         order += `Site Contact: 0489 267 772\n`;
         order += `Delivery Date: ${tomorrow} | Time: 8-10am\n`;
         if (d.job.scoper) order += `Scoped by: ${d.job.scoper}\n`;
-        order += `Supplier: ${d.supplier}\n\n`;
-        order += `${'═'.repeat(50)}\n  SECTION 1: FENCING PANELS & POSTS (Supplier)\n${'═'.repeat(50)}\n\n`;
+        // The order is EMAILED to the buy-from supplier, so it heads itself with
+        // who it is addressed to. `d.supplier` is the PANEL SYSTEM, which the
+        // supplier still needs in order to pick the right stock — it is printed
+        // as "Panel System", not as "Supplier". (Before this split the header
+        // read "Supplier: Metroll" on an order emailed to Fencing Warehouse.)
+        const _routing = d.orderRouting || { supplier: '', to: '', cc: [] };
+        order += `Order To: ${_routing.supplier || '\u2014 (no supplier selected)'}`;
+        if (_routing.to) order += ` <${_routing.to}>`;
+        order += `\n`;
+        order += `Panel System: ${d.supplier || '\u2014'}\n\n`;
+        order += `${'='.repeat(50)}\n  SECTION 1: FENCING PANELS & POSTS (Supplier)\n${'='.repeat(50)}\n\n`;
         order += `${panelLines}`;
-        if (d.totalPlinths > 0) order += `PLINTHS:\n${d.totalPlinths} \u00D7 150mm Plinths \u2014 ${d.colour}\n\n`;
+        // Plinths are width-aware: long-panel plinths auto-generate a SEPARATE long
+        // plinth order line (no hand-add). The long line reads COST_PRICES.plinthLong
+        // via d.plinthLongCost for supplier reconciliation.
+        // Plinths are tallied by colour as well as width, so mixed plinth colours
+        // print one line each. A single plinth colour collapses back to exactly
+        // the one line this always emitted.
+        const _plRows = this._plinthGroupRows(d);
+        _plRows.filter(r => r.widthClass === 'standard').forEach(row => {
+          order += `PLINTHS (standard):\n${row.count} \u00D7 150mm Plinths @ ${row.widthMm}mm \u2014 ${row.colour}\n\n`;
+        });
+        _plRows.filter(r => r.widthClass === 'long').forEach(row => {
+          const longCostNote = showInternalCosts
+            ? `\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)`
+            : '';
+          order += `PLINTHS (long):\n${row.count} \u00D7 150mm Long Plinths @ ${row.widthMm}mm \u2014 ${row.colour}${longCostNote}\n\n`;
+        });
         if (d.totalPatioTubes > 0) {
           const patioCalcParts = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio} panels + 1 = ${r.patioTubes}`);
           order += `PATIO TUBING:\n${d.totalPatioTubes} \u00D7 76x38 RHS Patio Tube @ 3000mm\n    (${patioCalcParts.join('; ')})\n\n`;
         }
+        // Custom MATERIAL line items reach the supplier order (labour-flagged
+        // custom items stay off the order \u2014 they are not supplier materials).
+        const customMaterials = (d.customItems || []).filter(c => c.kind === 'material');
+        if (customMaterials.length) {
+          order += `CUSTOM MATERIALS:\n`;
+          customMaterials.forEach(c => {
+            order += `${c.qty} \u00D7 ${c.desc}${c.unit ? ` (${c.unit})` : ''}${showInternalCosts && c.costPrice > 0 ? `\n    (cost $${(c.costPrice).toFixed(2)} ea)` : ''}\n`;
+          });
+          order += `\n`;
+        }
         if (d.gatePosts > 0) {
-          order += `\n${'═'.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'═'.repeat(50)}\n\n`;
+          order += `\n${'='.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'='.repeat(50)}\n\n`;
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
           const allGates = [];
+          const gateColour = this.gateSheetColour(d);
           (d.job.gates || []).forEach(g => {
             const h = g.height || 1800;
-            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
-            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
+            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${gateColour}`);
+            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${h}mm H | ${gateColour}`);
           });
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
-        order += `\n${'═'.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'═'.repeat(50)}\n\n`;
+        order += `\n${'='.repeat(50)}\n  SECTION 3: CONCRETE & FIXINGS (Hardware)\n${'='.repeat(50)}\n\n`;
         var ov = d.job._materialOverrides || {};
         var concreteFinal = ov.concreteBags != null ? ov.concreteBags : d.concreteBags;
         var tekFinal = ov.tekBoxes != null ? ov.tekBoxes : d.tekBoxes;
@@ -10862,18 +11587,39 @@
         order += `\n\n`;
         // Supplier notes
         if (d.job.supplierNotes) {
-          order += `\n${'═'.repeat(50)}\n  SUPPLIER NOTES\n${'═'.repeat(50)}\n\n`;
+          order += `\n${'='.repeat(50)}\n  SUPPLIER NOTES\n${'='.repeat(50)}\n\n`;
           order += d.job.supplierNotes + '\n\n';
         }
         // Per-run breakdown
-        order += `\n${'═'.repeat(50)}\n  RUN BREAKDOWN\n${'═'.repeat(50)}\n\n`;
+        order += `\n${'='.repeat(50)}\n  RUN BREAKDOWN\n${'='.repeat(50)}\n\n`;
         d.runDetails.forEach(r => {
+          const runColourText = this._runColourText(d, r);
           order += `${r.name}: ${r.panelCount} panels, ${r.length}m\n`;
-          if (r.plinths > 0) order += `    Plinths: ${r.plinths}\n`;
+          if (runColourText) order += `    Colour: ${runColourText}\n`;
+          if (r.plinths > 0) {
+            if (r.plinthsLong > 0) order += `    Plinths: ${r.plinths} (${r.plinthsStandard || 0} standard, ${r.plinthsLong} long)\n`;
+            else order += `    Plinths: ${r.plinths}\n`;
+          }
           if (r.patioTubes > 0) order += `    Patio tubes: ${r.patioTubes}\n`;
           order += '\n';
         });
-        order += `${'─'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks Group\nfencing@secureworkswa.com.au | 0489 267 772`;
+        order += `${'-'.repeat(50)}\n\nPlease confirm. Thanks!\n\nSecureWorks Group\nfencing@secureworkswa.com.au | 0489 267 772`;
+
+        return order;
+      },
+
+      _generateMaterialOrderHTML(d) {
+        const order = this._buildMaterialOrderText(d);
+        // What the supplier may see. The visible order above stays cost-bearing
+        // for internal reconciliation, so the operator needs a route to the
+        // cost-free body that is not the internal Copy button.
+        const supplierOrder = this._buildMaterialOrderText(d, { forEmail: true });
+        const routing = d.orderRouting || this.getMaterialOrderRouting();
+        const routingBar = `<div class="no-print" style="margin:0 0 10px;padding:10px 12px;background:#F3F6F7;border:1px solid #D6DEE1;border-radius:6px;font-size:12px;color:#293C46;">
+            <strong>Email to:</strong> ${this._esc(routing.to || '— no address on file')}
+            &nbsp;|&nbsp; <strong>CC:</strong> ${this._esc(routing.cc.join(', '))}
+            ${routing.known ? '' : '<div style="margin-top:4px;color:#B45309;">No routing on file for this supplier — add the address in Outlook before sending.</div>'}
+          </div>`;
 
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${this._outputCSS()}</style></head><body>
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
@@ -10883,10 +11629,20 @@
             <h1>MATERIAL ORDER</h1>
           </div>
           <div class="section">
-            <pre>${order}</pre>
+            ${routingBar}
+            <pre>${this._esc(order)}</pre>
             <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
-              Copy to Clipboard
+              Copy (internal — includes costs)
+            </button>
+            <pre id="supplierOrderBody" style="display:none;">${this._esc(supplierOrder)}</pre>
+            <button class="no-print" id="copySupplierOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#4C6A7C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
+              onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
+              Copy for supplier email
+            </button>
+            <button class="no-print" id="emailOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#F15A29;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
+              onclick="if(window.opener&&window.opener.app){window.opener.focus();window.opener.app.emailMaterialOrder();}else{alert('Reopen the material order from the app to draft the email.');}">
+              ✉ Draft Email in Outlook
             </button>
           </div>
         </body></html>`;
@@ -10898,7 +11654,8 @@
         // Run breakdown
         let runsHtml = '';
         d.runDetails.forEach(r => {
-          runsHtml += `<div class="section"><h2>${r.name} (${r.panelCount} panels, ${r.length}m)${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
+          const runColourText = this._runColourText(d, r);
+          runsHtml += `<div class="section"><h2>${this._esc(r.name)} (${r.panelCount} panels, ${r.length}m)${runColourText ? ` — ${this._esc(runColourText)}` : ''}${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
           if (r.hasRetaining) {
             runsHtml += '<table><thead><tr><th>Panel</th><th>Fence</th><th>Ret.</th><th>Total</th><th>Post</th><th>Notes</th></tr></thead><tbody>';
             r.panels.forEach(p => {
@@ -10928,8 +11685,8 @@
         scopeChecklist += '<li>Set all posts in concrete (2 bags/post)</li>';
         if (d.totalPlinths > 0) scopeChecklist += `<li>Install ${d.totalPlinths} retaining plinths</li>`;
         if (d.totalPatioTubes > 0) scopeChecklist += `<li>Install ${d.totalPatioTubes} patio tubes at retained sections</li>`;
-        d.removalItems.forEach(r => { scopeChecklist += `<li>${r.desc} (${r.qty} ${r.unit})</li>`; });
-        d.gateLineItems.forEach(g => { scopeChecklist += `<li>${g.desc}</li>`; });
+        d.removalItems.forEach(r => { scopeChecklist += `<li>${this._esc(r.desc)} (${r.qty} ${r.unit})</li>`; });
+        d.gateLineItems.forEach(g => { scopeChecklist += `<li>${this._esc(g.desc)}</li>`; });
         if (d.groundFinishDesc) scopeChecklist += `<li>${d.groundFinishDesc}</li>`;
         const inst = d.job.installation || {};
         if (inst.coreDrill && inst.coreDrillHoles > 0) scopeChecklist += `<li>Core drill ${inst.coreDrillHoles} holes</li>`;
@@ -10942,7 +11699,7 @@
         if (d.internalRemovalCost > 0) costHtml += `<tr><td>Removal cost</td><td class="text-right">$${this._fmt(d.internalRemovalCost)}</td></tr>`;
         costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
         if (d.addonsTotal > 0) {
-          d.addonItems.forEach(a => { costHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
+          d.addonItems.forEach(a => { costHtml += `<tr><td>${this._esc(a.desc)}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         }
         costHtml += `<tr><td>Delivery</td><td class="text-right">$${this._fmt(d.deliveryFee)}</td></tr>`;
         costHtml += `<tr class="total-row"><td>Total cost</td><td class="text-right">$${this._fmt(d.internalCost + d.internalLabour + d.deliveryFee)}</td></tr>`;
@@ -10954,17 +11711,17 @@
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
             <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
-            <h1>WORK ORDER \u2014 ${d.job.ref || '\u2014'}</h1>
+            <h1>WORK ORDER \u2014 ${this._esc(d.job.ref) || '\u2014'}</h1>
           </div>
           <div class="section">
             <div class="info-grid">
-              <div><span class="label">Client:</span> <span class="value">${d.job.client || '\u2014'}</span></div>
-              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '\u2014'}</span></div>
-              <div><span class="label">Address:</span> <span class="value">${d.job.address || '\u2014'}</span></div>
+              <div><span class="label">Client:</span> <span class="value">${this._esc(d.job.client) || '\u2014'}</span></div>
+              <div><span class="label">Job Ref:</span> <span class="value">${this._esc(d.job.ref) || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${this._esc(d.job.address) || '\u2014'}</span></div>
               <div><span class="label">Date:</span> <span class="value">${date}</span></div>
-              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '\u2014'}</span></div>
-              <div><span class="label">Email:</span> <span class="value">${d.job.email || '\u2014'}</span></div>
-              <div><span class="label">Scoper:</span> <span class="value">${d.job.scoper || '\u2014'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${this._esc(d.job.phone) || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${this._esc(d.job.email) || '\u2014'}</span></div>
+              <div><span class="label">Scoper:</span> <span class="value">${this._esc(d.job.scoper) || '\u2014'}</span></div>
               <div><span class="label">Access:</span> <span class="value">${d.js.access}</span></div>
               <div><span class="label">Urgency:</span> <span class="value">${d.js.urgency}</span></div>
             </div>
@@ -10978,25 +11735,34 @@
           ${((d.job.neighbours || []).filter(n => n.firstName || n.lastName).length > 0) ? `<div class="section">
             <h2>Neighbour Details</h2>
             ${d.job.neighbours.filter(n => n.firstName || n.lastName).map(n => `<div class="info-grid" style="margin-bottom:8px;">
-              <div><span class="label">Name:</span> <span class="value">${[n.firstName, n.lastName].filter(Boolean).join(' ') || '\u2014'}</span></div>
-              <div><span class="label">Phone:</span> <span class="value">${n.phone || '\u2014'}</span></div>
-              <div><span class="label">Address:</span> <span class="value">${n.address || '\u2014'}</span></div>
-              <div><span class="label">Email:</span> <span class="value">${n.email || '\u2014'}</span></div>
+              <div><span class="label">Name:</span> <span class="value">${this._esc([n.firstName, n.lastName].filter(Boolean).join(' ')) || '\u2014'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${this._esc(n.phone) || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${this._esc(n.address) || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${this._esc(n.email) || '\u2014'}</span></div>
             </div>`).join('')}
           </div>` : ''}
           <div class="section">
             <h2>Fence Specification</h2>
             <div class="info-grid">
-              <div><span class="label">Supplier:</span> <span class="value">${d.supplier}</span></div>
-              <div><span class="label">Profile:</span> <span class="value">${d.profile}</span></div>
-              <div><span class="label">Colour:</span> <span class="value">${d.colour}</span></div>
+              <div><span class="label">Panel system:</span> <span class="value">${this._esc(d.supplier)}</span></div>
+              <div><span class="label">Supplied by:</span> <span class="value">${this._esc(d.supplierSource) || '\u2014'}</span></div>
+              <div><span class="label">Profile:</span> <span class="value">${this._esc(d.profile)}</span></div>
+              ${(() => {
+                // One colour for the whole job renders exactly as it always did.
+                const cc = d.componentColours;
+                if (!cc || cc.uniform) {
+                  const sheets = (cc && cc.sheets) ? cc.sheets : [];
+                  return `<div><span class="label">Colour:</span> <span class="value">${this._esc(sheets.length ? sheets.join(' / ') : d.colour)}</span></div>`;
+                }
+                return FENCE_COMPONENTS.map(c => `<div><span class="label">${FENCE_COMPONENT_LABELS[c]}:</span> <span class="value">${this._esc((cc[c] || []).join(' / ') || '\u2014')}</span></div>`).join('');
+              })()}
               <div><span class="label">Panel width:</span> <span class="value">${(() => { const ws = new Set(Object.values(d.postGroups).map(g => g.panelW)); if (ws.size === 0) ws.add(d.panelWidthMm); return ws.size > 1 ? [...ws].join('/') + 'mm (mixed)' : [...ws][0] + 'mm'; })()}</span></div>
             </div>
           </div>
           ${runsHtml}
           <div class="section">
             <h2>Gates</h2>
-            ${d.gateLineItems.length > 0 || (d.job.gates && d.job.gates.length > 0) ? d.gateLineItems.map(g => `<p>${g.desc}${g.qty > 1 ? ' \u00D7 ' + g.qty : ''} \u2014 90x90mm SHS gate posts</p>`).join('') : '<p>None</p>'}
+            ${d.gateLineItems.length > 0 || (d.job.gates && d.job.gates.length > 0) ? d.gateLineItems.map(g => `<p>${this._esc(g.desc)}${g.qty > 1 ? ' \u00D7 ' + g.qty : ''} \u2014 90x90mm SHS gate posts</p>`).join('') : '<p>None</p>'}
           </div>
           <div class="section">
             <h2>Summary</h2>
@@ -11020,7 +11786,7 @@
             if (items.length === 0) return '';
             return '<div class="section" style="border:2px solid #F59E0B;background:#FEF3C7;border-radius:6px;padding:12px 16px;">' +
               '<h2 style="color:#92400E;margin-top:0;">\u26A0 Scoper Manual Adjustments</h2>' +
-              '<p style="font-size:13px;color:#92400E;">The following quantities were manually adjusted by ' + (mv.verifier || 'scoper') + ' on ' + (mv.timestamp ? new Date(mv.timestamp).toLocaleDateString('en-AU') : 'unknown date') + ':</p>' +
+              '<p style="font-size:13px;color:#92400E;">The following quantities were manually adjusted by ' + this._esc(mv.verifier || 'scoper') + ' on ' + (mv.timestamp ? new Date(mv.timestamp).toLocaleDateString('en-AU') : 'unknown date') + ':</p>' +
               '<ul style="color:#92400E;">' + items.map(i => '<li><strong>' + i + '</strong></li>').join('') + '</ul>' +
             '</div>';
           })()}
@@ -11047,13 +11813,13 @@
               <li>All rubbish removed from site</li>
             </ul>
           </div>
-          ${d.js.notes ? `<div class="section"><h2>Site Notes</h2><p>${d.js.notes.replace(/\n/g, '<br>')}</p></div>` : ''}
+          ${d.js.notes ? `<div class="section"><h2>Site Notes</h2><p>${this._esc(d.js.notes).replace(/\n/g, '<br>')}</p></div>` : ''}
           ${(() => {
             const photos = (d.job.checklist && d.job.checklist.photos) || [];
             if (photos.length === 0) return '';
             return '<div class="section"><h2>Site Photos</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
               photos.map(p => '<div style="text-align:center;"><img src="' + p.dataUrl + '" style="max-width:100%;max-height:200px;border-radius:4px;border:1px solid #e5e7eb;">' +
-                '<div style="font-size:10px;color:#4C6A70;margin-top:2px;">' + (p.name || '') + '</div></div>').join('') +
+                '<div style="font-size:10px;color:#4C6A70;margin-top:2px;">' + this._esc(p.name || '') + '</div></div>').join('') +
               '</div></div>';
           })()}
           <div class="section" style="border-top:2px solid #293C46;padding-top:16px;">
@@ -11619,7 +12385,8 @@
           }).join('; ');
           panelItems.push('Set out ' + runs.length + ' fence run' + (runs.length > 1 ? 's' : '') + ' to boundary: ' + runList);
         }
-        var profileLabel = (d.colour ? 'COLORBOND® ' + d.colour : '') + (d.profile ? ((d.colour ? ', ' : '') + d.profile + ' profile') : '');
+        var scopeSheetColour = this.resolvedSheetColour(d);
+        var profileLabel = (scopeSheetColour ? 'COLORBOND® ' + scopeSheetColour : '') + (d.profile ? ((scopeSheetColour ? ', ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = 'COLORBOND® steel';
         var panelCount = d.totalPanels || 0;
         // Unique panel heights across all runs
@@ -11727,16 +12494,39 @@
         heights.forEach(function(h) { if (uniqHeights.indexOf(h) < 0) uniqHeights.push(h); });
         var heightStr = uniqHeights.length ? uniqHeights.sort(function(a,b){return a-b;}).map(function(h){return h+'mm';}).join(' / ') : '—';
 
-        var profileLabel = (d.colour ? ('COLORBOND® ' + d.colour) : '') + (d.profile ? ((d.colour ? ' · ' : '') + d.profile + ' profile') : '');
+        var quotedSheetColour = this.resolvedSheetColour(d);
+        var profileLabel = (quotedSheetColour ? ('COLORBOND® ' + quotedSheetColour) : '') + (d.profile ? ((quotedSheetColour ? ' · ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = (d.profile || 'Colorbond fence');
 
         var totalPosts = (d.allPosts != null) ? d.allPosts : (d.totalPosts || 0);
+
+        // --- COMPONENT COLOURS (Section 9.2) ---
+        // `d.colour` is and stays the SHEET colour. Rails/posts/plinths only earn
+        // a mention when they actually differ from it; an all-matching job
+        // produces an empty breakdown and the quote reads exactly as before.
+        var cc = d.componentColours;
+        var colourBreakdown = '';
+        // A run can override the SHEET colour alone. That leaves every trim list
+        // equal to the sheet list (so the breakdown below is empty) while the
+        // order legitimately buys two sheet colours — so the Colour row itself
+        // must name them all, or the quote states a colour we are not buying.
+        var sheetColours = (cc && cc.sheets) ? cc.sheets : [];
+        if (cc && !cc.uniform) {
+          var sheetList = sheetColours.join(' / ');
+          colourBreakdown = ['rails', 'posts', 'plinths'].map(function(k) {
+            var list = (cc[k] || []).join(' / ');
+            return list && list !== sheetList ? FENCE_COMPONENT_LABELS[k] + ' ' + list : '';
+          }).filter(Boolean).join(' · ');
+        }
 
         var specs = [];
         specs.push(['Total Length', (Number(d.totalMetres) || 0).toFixed(1) + ' lineal metres']);
         specs.push(['Height', heightStr]);
         if (d.profile) specs.push(['Profile', d.profile]);
-        if (d.colour) specs.push(['Colour', 'COLORBOND® ' + d.colour]);
+        if (quotedSheetColour) specs.push(['Colour', 'COLORBOND® ' + quotedSheetColour + (colourBreakdown ? ' (sheets)' : '')]);
+        // Only when a component genuinely differs — one extra row, so the fixed
+        // PDF page budget is unaffected in the common all-matching case.
+        if (colourBreakdown) specs.push(['Trim Colours', colourBreakdown]);
         specs.push(['Panels', (d.totalPanels || 0) + ' panels']);
         specs.push(['Posts', totalPosts + ' × SHS, set in concrete']);
         if (d.totalPlinths > 0) specs.push(['Retaining Plinths', d.totalPlinths + ' × 150mm']);
@@ -11780,7 +12570,7 @@
         var isGateOnly = (d.scopeType === 'gate-only');
         if (!isGateOnly && (Number(d.fencingTotal) || 0) > 0) {
           priceLineItems.push({
-            label: ('COLORBOND® ' + (d.colour || '') + (d.profile ? ' ' + d.profile : '')).replace(/\s+/g, ' ').trim() + ' fencing',
+            label: ('COLORBOND® ' + (quotedSheetColour || '') + (d.profile ? ' ' + d.profile : '')).replace(/\s+/g, ' ').trim() + ' fencing',
             detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm · ' + (d.totalPanels || 0) + ' panels',
             amtStr: money(d.fencingTotal)
           });
@@ -11791,7 +12581,7 @@
         (d.removalItems || []).forEach(function(r) { priceLineItems.push({ label: r.desc, detail: (r.qty ? r.qty + ' ' + (r.unit || '') : '').trim(), amtStr: money(r.total) }); });
         if ((Number(d.groundFinishTotal) || 0) > 0) priceLineItems.push({ label: d.groundFinishDesc || 'Ground finish', detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm', amtStr: money(d.groundFinishTotal) });
         (d.addonItems || []).forEach(function(a) { priceLineItems.push({ label: a.desc, detail: '', amtStr: money(a.total) }); });
-        (d.customItems || []).forEach(function(c) { priceLineItems.push({ label: c.desc, detail: (c.qty ? c.qty + ' ' + (c.unit || '') : '').trim(), amtStr: money(c.total) }); });
+        this._sellableCustomItems(d).forEach(function(c) { priceLineItems.push({ label: c.desc, detail: (c.qty ? c.qty + ' ' + (c.unit || '') : '').trim(), amtStr: money(c.total) }); });
         if ((Number(d.accessSurcharge) || 0) > 0) priceLineItems.push({ label: 'Access difficulty', detail: Math.round((d.accessRate || 0) * 100) + '%', amtStr: money(d.accessSurcharge) });
         if ((Number(d.urgencySurcharge) || 0) > 0) priceLineItems.push({ label: 'Urgency', detail: Math.round((d.urgencyRate || 0) * 100) + '%', amtStr: money(d.urgencySurcharge) });
         if ((Number(d.deliveryFee) || 0) > 0) priceLineItems.push({ label: 'Delivery', detail: '', amtStr: money(d.deliveryFee) });
@@ -11960,16 +12750,6 @@
 
         var runRows = d.runSummary.map(function(r) {
           return '<div class="runitem"><span class="rname">' + E(r.name) + '</span><span class="rspec">' + E(r.spec) + '</span><span class="rlen">' + E(r.length) + '</span></div>';
-        }).join('');
-
-        var includeItems = [
-          'Professional installation by our licensed crew',
-          'All posts set in concrete footings',
-          'COLORBOND® steel, colour-matched throughout',
-          'Full site cleanup on completion',
-          '12-month workmanship warranty'
-        ].map(function(t) {
-          return '<div class="incitem"><span class="tick">' + TICK + '</span><span class="itxt">' + E(t) + '</span></div>';
         }).join('');
 
         var schedItems = d.schedule.map(function(s) {
@@ -12739,7 +13519,7 @@
       },
 
       async generateQuotePDF() {
-        const missing = this._validateRequired();
+        const missing = this._validateRequired({ forQuote: true });
         if (missing.length > 0) {
           this.showToast('Missing required fields — run QA Check first', 'error');
           return;
@@ -12912,7 +13692,7 @@
         }
 
         // Material selection
-        const colourHex = this._getColourHex(d.colour);
+        const colourHex = this._getColourHex(this.primarySheetColour(d));
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(41, 60, 70);
@@ -12929,7 +13709,7 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.setTextColor(41, 60, 70);
-        doc.text('COLORBOND ' + d.colour, mx + 14, y + 1);
+        doc.text('COLORBOND ' + this.resolvedSheetColour(d), mx + 14, y + 1);
         doc.text('Profile: ' + d.profile, mx + 14, y + 6);
         y += 14;
 
@@ -12944,7 +13724,7 @@
         doc.setFontSize(9);
         const theirRuns = costs.runs || [];
         const runDescs = theirRuns.map(r => {
-          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour;
+          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + (r.sheetColour || this.resolvedSheetColour(d));
           if (r.plinths > 0) desc += ' (' + r.plinths + ' retaining plinths)';
           return desc;
         });
@@ -13156,7 +13936,7 @@
         y += 6;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.text('COLORBOND ' + (d.colour || '') + '  |  Profile: ' + (d.profile || ''), mx, y);
+        doc.text('COLORBOND ' + (run.sheet_colour || this.resolvedSheetColour(d)) + '  |  Profile: ' + (d.profile || ''), mx, y);
         y += 8;
 
         // Line items table
@@ -13309,6 +14089,106 @@
         this.showToast('Material order generated', 'success');
       },
 
+      // ── Material order email: ALWAYS an Outlook DRAFT, never an auto-send ──
+      // This app has no mail transport of its own (no backend mail command, no
+      // Graph credentials in the browser — see the branch report). A mailto: URL
+      // is the one mechanism a static GitHub Pages page has to hand an order to
+      // the operator's own Outlook: it opens a COMPOSE window, Outlook inserts
+      // the signed-in user's own default signature, and a HUMAN presses Send.
+      // Nothing in this file sends mail. Do not add an automatic send path.
+      // Deliberately no signature text here — Outlook adds Shaun's own; writing
+      // one would give every draft two.
+      _materialOrderEmail(d) {
+        const routing = d.orderRouting || this.getMaterialOrderRouting();
+        const client = d.job.client || [d.job.clientFirstName, d.job.clientLastName].filter(Boolean).join(' ');
+        const subject = ['Material Order', d.job.ref, client, d.job.address].filter(Boolean).join(' \u2014 ');
+        return { to: routing.to, cc: routing.cc, subject: subject, body: this._buildMaterialOrderText(d, { forEmail: true }), routing: routing };
+      },
+
+      // A mailto: URL is handed to the OS, which caps its length. A routine order
+      // encodes to roughly 2,800 characters, comfortably inside what Chrome/Edge
+      // plus Outlook desktop and Outlook for iPad accept; a very large order can
+      // still outgrow it, and a SILENTLY truncated material order is worse than
+      // no order. So past this ceiling the draft carries a short covering note
+      // instead, and either way the full order goes to the clipboard so a paste
+      // always recovers it. Confirm the real ceiling on the Captain's own
+      // Outlook build before relying on a larger number here.
+      _MAILTO_SAFE_LEN: 6000,
+
+      // The single point where this app hands anything to a mail client. It opens
+      // a compose window and nothing else — there is no send path behind it.
+      // Kept as its own seam so tests can prove that without opening real mail.
+      _openMailDraft(url) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      },
+
+      _buildMailtoUrl(mail) {
+        // Addresses stay readable: Outlook desktop mishandles a percent-encoded
+        // '@' in the recipient, and RFC 6068 allows both unencoded.
+        const addr = (v) => encodeURIComponent(v || '').replace(/%40/g, '@').replace(/%2C/g, ',');
+        const q = [];
+        if (mail.cc && mail.cc.length) q.push('cc=' + addr(mail.cc.join(',')));
+        q.push('subject=' + encodeURIComponent(mail.subject));
+        q.push('body=' + encodeURIComponent(mail.body));
+        return 'mailto:' + addr(mail.to) + '?' + q.join('&');
+      },
+
+      async emailMaterialOrder() {
+        const missing = this._validateRequired();
+        if (missing.length > 0) {
+          this.showToast('Missing: ' + missing.join(', '), 'error');
+          return;
+        }
+        if (this.isCustomSupplierPending()) {
+          this.showToast('Name the custom supplier before drafting the order', 'error');
+          return;
+        }
+        this.job.client = [this.job.clientFirstName, this.job.clientLastName].filter(Boolean).join(' ');
+        const d = this._collectOutputData();
+        const mail = this._materialOrderEmail(d);
+
+        // Record where this order was addressed. The registry stays the single
+        // source of truth for routing; this is an audit stamp, never read back.
+        // It must not touch supplierSource: opening a draft is not the operator
+        // choosing a supplier, and writing the resolved name back over their
+        // stored choice is how a deliberate selection got lost.
+        if (!this.job.installation) this.job.installation = {};
+        this.job.installation.supplierRouting = { to: mail.routing.to, cc: mail.routing.cc.slice(), at: new Date().toISOString() };
+        this.save();
+
+        // Always put the full order on the clipboard: if the OS trims a long
+        // mailto anyway, one paste recovers the order in full.
+        let copied = false;
+        try { await navigator.clipboard.writeText(mail.body); copied = true; } catch (e) { copied = false; }
+
+        let url = this._buildMailtoUrl(mail);
+        let clipped = false;
+        if (url.length > this._MAILTO_SAFE_LEN) {
+          const note = 'Hi team,\n\nMaterial order for ' + (d.job.ref || d.job.address || 'the job below') + '.\n\n'
+            + (copied ? 'Full order is on the clipboard \u2014 paste it here before sending.'
+                      : 'Full order: generate the Material Order, press "Copy for supplier email", then paste it here before sending.')
+            + '\n';
+          url = this._buildMailtoUrl({ to: mail.to, cc: mail.cc, subject: mail.subject, body: note });
+          clipped = true;
+        }
+        // Opens a DRAFT for a human to check and send. It does not send.
+        this._openMailDraft(url);
+        if (!mail.routing.known) {
+          this.showToast('Draft opened \u2014 no address on file for this supplier, add it in Outlook', 'error');
+        } else if (clipped) {
+          this.showToast(copied
+            ? 'Draft opened \u2014 order too long for the link, paste it from the clipboard'
+            : 'Draft opened \u2014 order too long for the link, generate the Material Order and use "Copy for supplier email"', 'info');
+        } else {
+          this.showToast('Outlook draft opened \u2014 check it and press Send yourself', 'success');
+        }
+      },
+
       // ── Generate Work Order ──
       generateWorkOrder() {
         const missing = this._validateRequired();
@@ -13344,7 +14224,12 @@
       },
 
       // ── Validation helper ──
-      _validateRequired() {
+      // `opts.forQuote` adds the rules that only make sense for a CLIENT-facing
+      // quote. The material order and work order are internal documents — the
+      // crew routinely has to order stock before a neighbour's cost share is
+      // settled — so they call this bare and stay reachable.
+      _validateRequired(opts) {
+        const forQuote = !!(opts && opts.forQuote);
         const missing = [];
         if (!this.job.clientFirstName) missing.push('Client first name');
         if (!this.job.clientLastName) missing.push('Client last name');
@@ -13359,6 +14244,20 @@
             if (!n.lastName) missing.push('Neighbour last name' + label);
             if (!n.address) missing.push('Neighbour address' + label);
             if (!n.email) missing.push('Neighbour email' + label);
+            // Cost share % is mandatory before a CLIENT QUOTE is generated or
+            // sent — it decides who is billed what, so it has no bearing on an
+            // internal material or work order and must not block those.
+            // The input renders EMPTY with the even split shown only as a
+            // placeholder, and no creation site seeds a share, so an untouched
+            // neighbour reaches the quote with no share at all. Everything
+            // downstream then silently
+            // substitutes its own default (`n.sharePercent || ...`), which also
+            // swallows a literal 0 — so 0 is treated as missing here too rather
+            // than accepted and then ignored.
+            if (forQuote) {
+              const pct = Number(n.sharePercent);
+              if (!Number.isFinite(pct) || pct <= 0 || pct > 100) missing.push('Neighbour cost share %' + label);
+            }
           });
         }
         return missing;
@@ -13730,8 +14629,8 @@
                 deliveryFee: js.delivery || 200,
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
-                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0 }))
-                  : [{}, {}, {}]
+                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: app.customItemKind(c), costPrice: c.costPrice || 0 }))
+                  : this._blankCustomItems()
               };
             }
             // Migration: ensure addon fields exist
@@ -13817,8 +14716,8 @@
       (d.addonItems || []).forEach(function(a) {
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
       });
-      (d.customItems || []).forEach(function(c) {
-        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, total_sell: c.total, category: 'custom' });
+      app._sellableCustomItems(d).forEach(function(c) {
+        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: app.customItemKind(c) });
       });
       if (d.accessSurcharge > 0) {
         lineItems.push({ description: 'Access surcharge (' + (d.accessRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.accessSurcharge, category: 'surcharges' });
@@ -13850,7 +14749,7 @@
       } else {
         job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
           + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
-          + (d.colour ? ' ' + d.colour : '')
+          + (app.resolvedSheetColour(d) ? ' ' + app.resolvedSheetColour(d) : '')
           + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
       }
 
@@ -13976,7 +14875,7 @@
         // Fencing
         if (rd.length > 0) {
           addItem(
-            (d.colour || '') + ' ' + (d.profile || 'Colorbond') + ' fencing — ' + rd.length.toFixed(1) + 'm',
+            (rd.sheetColour || app.resolvedSheetColour(d)) + ' ' + (d.profile || 'Colorbond') + ' fencing — ' + rd.length.toFixed(1) + 'm',
             rd.length, 'm', d.pricePerMetre, rd.runFencing, 'fencing'
           );
         }
@@ -14023,6 +14922,7 @@
         runs.push({
           run_label: runLabel,
           run_name: rd.name || runLabel,
+          sheet_colour: rd.sheetColour || app.resolvedSheetColour(d),
           neighbour_id: rd.neighbourId || null,
           neighbour_name: nb ? [nb.firstName, nb.lastName].filter(Boolean).join(' ') : null,
           neighbour_address: nb ? (nb.address || '') : null,
@@ -14083,6 +14983,17 @@
       }
       var photos = (j.checklist && j.checklist.photos) || [];
       if (photos.length < 1) errors.push('• At least 1 site photo required');
+      // Neighbour cost share % is mandatory — kept in step with the live
+      // _validateRequired rule so the two cannot drift. NOTE: this whole
+      // function currently has NO call site (see CLAUDE.md); the enforcing
+      // copy of this rule is the one in app._validateRequired.
+      if (j.neighboursRequired === true) {
+        (j.neighbours || []).forEach(function(n, i) {
+          var lbl = (j.neighbours.length > 1 ? ' (neighbour ' + (i + 1) + ')' : '');
+          var pct = Number(n.sharePercent);
+          if (!isFinite(pct) || pct <= 0 || pct > 100) errors.push('• Neighbour cost share % is required' + lbl);
+        });
+      }
       // Check pricing
       try {
         var d = app._collectOutputData();
@@ -14205,6 +15116,10 @@
             if (!n.lastName) flag('Job Details', 'red', 'Neighbour last name missing' + label, 'neighbours');
             if (!n.address) flag('Job Details', 'red', 'Neighbour address missing' + label, 'neighbours');
             if (!n.email) flag('Job Details', 'red', 'Neighbour email missing' + label, 'neighbours');
+            // RED, matching app._validateRequired: an empty (or 0) share % hard-blocks
+            // quote generation and send, so QA must not let it through as an amber.
+            const pct = Number(n.sharePercent);
+            if (!isFinite(pct) || pct <= 0 || pct > 100) flag('Job Details', 'red', 'Neighbour cost share % missing' + label, 'neighbours');
           });
         }
 
@@ -14223,7 +15138,8 @@
         if (!isGateOnly) {
           if (!j.colour) flag('Colours & Profile', 'red', 'No fence colour selected');
           if (!j.profile) flag('Colours & Profile', 'amber', 'No sheet profile selected');
-          if (!j.supplier) flag('Colours & Profile', 'amber', 'No supplier selected');
+          if (!j.supplier) flag('Colours & Profile', 'amber', 'No panel system selected');
+          if (!app.getSupplierSource()) flag('Colours & Profile', 'amber', 'No supplier (buy from) selected');
         }
 
         // Gates
@@ -14312,10 +15228,8 @@
       var checkIdx = 0;
 
       // ── Section 1: Panels & Posts ──
-      var panelRows = [];
-      Object.values(d.postGroups).forEach(function(g) {
-        var desc = g.count + ' &times; ' + g.sheetH + 'H &times; ' + (g.panelW || d.panelWidthMm) + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + (d.colour || 'Shale Grey');
-        panelRows.push({ idx: checkIdx++, desc: desc, matQty: g.count });
+      var panelRows = app._materialVerifyPanelRows(d).map(function(r) {
+        return { idx: checkIdx++, desc: r.desc, matQty: r.matQty };
       });
       // Cross-check total panels vs pricing fencing line
       var pricingFencing = pricingQty('fencing');
@@ -14328,10 +15242,9 @@
       });
 
       // ── Section 2: Plinths & Tubing ──
-      var plinthRows = [];
-      if (d.totalPlinths > 0) {
-        plinthRows.push({ idx: checkIdx++, desc: d.totalPlinths + ' &times; 150mm Plinths &mdash; ' + (d.colour || 'Shale Grey'), matQty: d.totalPlinths });
-      }
+      var plinthRows = app._materialVerifyPlinthRows(d).map(function(r) {
+        return { idx: checkIdx++, desc: r.desc, matQty: r.matQty };
+      });
       if (d.totalPatioTubes > 0) {
         var tubeBreakdown = (d.runDetails || []).filter(function(r) { return r.patioTubes > 0; }).map(function(r) { return r.name + ': ' + r.patioTubes; }).join(', ');
         plinthRows.push({ idx: checkIdx++, desc: d.totalPatioTubes + ' &times; 76&times;38 RHS Patio Tube @ 3000mm' + (tubeBreakdown ? ' (' + tubeBreakdown + ')' : ''), matQty: d.totalPatioTubes });
@@ -14359,7 +15272,7 @@
       (app.job.gates || []).forEach(function(g) {
         var typeLabel = g.type === 'pedestrian' ? 'Pedestrian gate kit' : 'Double swing gate kit';
         var panelH = (app.job.runs && app.job.runs[0] && app.job.runs[0].panels[0]) ? app.job.runs[0].panels[0].height : 1800;
-        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (d.colour || 'Shale Grey'), matQty: 1 });
+        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (app.gateSheetColour(d) || 'Shale Grey'), matQty: 1 });
       });
       // Cross-check gates
       var pricingGates = pricingQty('gates');
@@ -14397,7 +15310,8 @@
       // ── Build quote preview summary ──
       var f = function(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
       var quoteLines = '';
-      var mvFencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? (d.totalMetres.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour) : '';
+      var mvSheetColour = app.resolvedSheetColour(d);
+      var mvFencingDetail = (d.totalMetres > 0 && d.profile && mvSheetColour) ? (d.totalMetres.toFixed(1) + 'm ' + d.profile + ' in ' + mvSheetColour) : '';
       var mvGatesDetail = (d.gateLineItems || []).map(function(g){ return (g.qty > 1 ? g.qty + ' × ' : '') + g.desc; }).join(' | ');
       var mvCategoryRows = [
         { label: 'COLORBOND Fencing', detail: mvFencingDetail, amount: d.fencingTotal },
@@ -14616,8 +15530,8 @@
         return;
       }
 
-      // Step 1: Validate required fields
-      var missing = app._validateRequired();
+      // Step 1: Validate required fields (client-quote rules apply — this is the send door)
+      var missing = app._validateRequired({ forQuote: true });
       if (missing.length > 0) {
         app.showToast('Missing: ' + missing.join(', '), 'error');
         return;
@@ -16013,7 +16927,8 @@
       // Video
       if (!(j.checklist && j.checklist.videoWalkthrough)) tips.push({ severity: 'amber', message: 'Video walkthrough not marked done' });
       // Supplier
-      if (!j.supplier) tips.push({ severity: 'amber', message: 'No supplier selected — needed for lead times' });
+      if (!j.supplier) tips.push({ severity: 'amber', message: 'No panel system selected — needed for panel width and profiles' });
+      if (!app.getSupplierSource()) tips.push({ severity: 'amber', message: 'No supplier (buy from) selected — needed for lead times and the order email' });
       var html = '';
       if (tips.length === 0) html += '<div style="padding:20px;text-align:center;color:#065F46;font-weight:600;font-size:15px;">No blind spots found ✓</div>';
       tips.forEach(function(tip) {
@@ -16454,6 +17369,8 @@
         html += '<button class="gen-btn gen-btn-quote" onclick="app.generateFenceWebPreview()" title="Open quote as full-width web page">👁 Preview</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateQuotePDF()">📄 Quote PDF</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateMaterialOrder()">📄 Material PDF</button>';
+        // Opens an Outlook DRAFT addressed to the buy-from supplier. Never sends.
+        html += '<button class="gen-btn gen-btn-ops" onclick="app.emailMaterialOrder()">✉ Draft Order Email</button>';
         html += '<button class="gen-btn gen-btn-ops" onclick="app.generateWorkOrder()">📄 Work Order PDF</button>';
         html += '<button class="gen-btn gen-btn-send" id="fenceSendQuoteBtn" onclick="showSendQuoteModal()">Send Quote ✉</button>';
       }
