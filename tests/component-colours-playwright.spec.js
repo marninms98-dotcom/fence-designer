@@ -1093,3 +1093,88 @@ test('a job colour change refreshes the run block without any explicit re-render
   expect(res.optionValues).toContain("Bob's Grey");
   expect(res.selectValue).toBe("Bob's Grey");
 });
+
+// ── A run only earns a colour once it puts stock on the order ──────────────
+// postGroups/plinthGroups are built inside run.panels.forEach, so a run with no
+// panels drawn yet contributes nothing to the material order. Counting its
+// colour in the job summary made every quote surface name a colour we are not
+// buying — the same invariant the colour sweep exists to hold.
+test('a run with no panels yet does not put its colour on any quote surface', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, collectSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    // Exactly what '+ Add Run' then 'Override for this run' produces.
+    job.runs.push({ id: 'run-future', name: 'Stage 2', length: 0, sheetHeight: 1800, panels: [], colours: { sheets: 'Basalt' } });
+    // A neighbour so the neighbour quote is a real surface here too.
+    job.neighboursRequired = true;
+    job.neighbours = [{ id: 'nb-1', firstName: 'Grace', lastName: 'Hopper', phone: '0400111222',
+      email: 'grace@example.com', address: '14 Analytical Way, Perth WA 6000', sharePercent: 50 }];
+    job.runs[0].neighbourId = 'nb-1';
+    app.job = Object.assign(app.job, job);
+    // eslint-disable-next-line no-eval
+    const out = eval('(' + collectSrc + ')')();
+    const raw = app._collectOutputData();
+    const pricing = app.buildPricingJson();
+    out.summarySheets = raw.componentColours.sheets;
+    out.resolved = app.resolvedSheetColour(raw);
+    out.jobDescription = pricing.job_description;
+    out.flatLineDescriptions = (pricing.line_items || []).map((li) => li.description).join(' | ');
+    out.runItemDescriptions = (pricing.runs || [])
+      .map((r) => (r.items || []).map((i) => i.description).join(' | ')).join(' | ');
+    out.runSheetColours = (pricing.runs || []).map((r) => [r.run_name, r.sheet_colour]);
+    return out;
+  }, [buildPreChangeJob.toString(), collectEveryColourSurface.toString()]);
+
+  // The order buys only Monument, because no Basalt panel exists.
+  expect(res.materialOrder).toContain('Colour: Monument');
+  expect(res.materialOrder.includes('Basalt')).toBeFalsy();
+  // The summary is derived from the same runs, so it agrees.
+  expect(res.summarySheets).toEqual(['Monument']);
+  expect(res.resolved).toBe('Monument');
+  // No rendered surface names the colour of the panel-less run.
+  ['workOrder', 'clientQuote', 'legacyQuote', 'neighbourQuote', 'quoteScopeDesc',
+   'lede', 'scopeText', 'poCard', 'costBreakdown', 'materialVerify',
+   'jobDescription', 'flatLineDescriptions', 'runItemDescriptions']
+    .forEach((name) => {
+      expect(res[name], name + ' is non-empty').toBeTruthy();
+      expect(res[name].includes('Basalt'), name + ' names the panel-less run colour').toBeFalsy();
+    });
+  expect(JSON.stringify(res.specs).includes('Basalt')).toBeFalsy();
+  expect(JSON.stringify(res.priceLineLabels).includes('Basalt')).toBeFalsy();
+  expect(res.specs).toContainEqual(['Colour', 'COLORBOND® Monument']);
+
+  // The per-run pricing record is the ONE place the panel-less run's own colour
+  // may appear: it is that run's setting, feeding only that run's own quote,
+  // and it bills nothing because the run has no items.
+  expect(res.runSheetColours).toContainEqual(['Stage 2', 'Basalt']);
+  expect(res.runSheetColours).toContainEqual(['Rear', 'Monument']);
+});
+
+test('a gate-only job takes the job colour, ignoring any run overrides', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobSrc) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    job.scopeType = 'gate-only';
+    job.gates = [{ id: 'g1', type: 'pedestrian', width: 900, height: 1800 }];
+    job.runs[0].colours = { sheets: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    const raw = app._collectOutputData();
+    return {
+      summarySheets: raw.componentColours.sheets,
+      resolved: app.resolvedSheetColour(raw),
+      order: app._buildMaterialOrderText(raw),
+      specs: app._gatherFenceQuoteData(raw).specs,
+    };
+  }, buildPreChangeJob.toString());
+
+  // The engine skips the runs loop entirely for gate-only, so the summary must too.
+  expect(res.summarySheets).toEqual(['Monument']);
+  expect(res.resolved).toBe('Monument');
+  expect(res.order).toContain('gate kit');
+  expect(res.order.includes('Basalt')).toBeFalsy();
+  expect(JSON.stringify(res.specs).includes('Basalt')).toBeFalsy();
+});

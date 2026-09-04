@@ -238,3 +238,58 @@ test('Task A — material custom items reach the order; labour ones do not; cost
   expect(res.internalCostDelta).toBe(189);
   expect(res.marginDelta).toBe(189);
 });
+
+// ── The outbound email must not disclose our internal costs ────────────────
+// The order body is ONE builder shared by the on-screen <pre>, the clipboard
+// copy and the mailto body. The internal cost annotations are useful on screen
+// (base commit d652b48 added them for reconciliation) but that same body now
+// goes to the supplier we buy from, so the email path omits them.
+test('Task A — the emailed order carries no cost figures, while the on-screen order keeps them', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+    // Long-panel plinths (plinthLong cost note) AND a custom material with a
+    // cost price (the operator-entered note) — both disclosure sites at once.
+    app.job = Object.assign(app.job, build({ matCost: 4, labCost: 55 }));
+    app.job.installation = { supplierSource: 'Stratco' };
+
+    const d = app._collectOutputData();
+    const screen = app._buildMaterialOrderText(d);
+    const mail = app._materialOrderEmail(d);
+    return {
+      screen,
+      email: mail.body,
+      subject: mail.subject,
+      totalPlinthsLong: d.totalPlinthsLong,
+      customMaterials: (d.customItems || []).filter((c) => c.kind === 'material').map((c) => c.desc),
+      plinthLongCost: d.plinthLongCost,
+    };
+  }, buildJob.toString());
+
+  // The fixture really does exercise both disclosure sites.
+  expect(res.totalPlinthsLong).toBeGreaterThan(0);
+  expect(res.customMaterials.length).toBeGreaterThan(0);
+  expect(res.plinthLongCost).toBeGreaterThan(0);
+
+  // (a) The EMAIL body names no money and no cost/margin wording at all.
+  //     Asserted generally: the order has no legitimate reason to carry a
+  //     dollar figure, so any '$' is a leak regardless of where it came from.
+  expect(res.email.match(/\$/g)).toBeNull();
+  expect(res.email).not.toMatch(/\bcosts?\b/i);
+  expect(res.email).not.toMatch(/\bmargin\b/i);
+  expect(res.subject).not.toMatch(/\$|\bcost\b|\bmargin\b/i);
+
+  // (b) The on-screen order still carries both annotations.
+  expect(res.screen).toMatch(/supplier long plinth @ \$\d+\.\d{2} ea cost/);
+  expect(res.screen).toMatch(/\(cost \$\d+\.\d{2} ea\)/);
+
+  // (c) Nothing else was dropped: strip only the cost annotations from the
+  //     on-screen body and the two must be identical, line for line.
+  const stripped = res.screen
+    .split('\n')
+    .filter((l) => !/supplier long plinth @ \$/.test(l) && !/^\s*\(cost \$/.test(l))
+    .join('\n');
+  expect(res.email).toBe(stripped);
+});

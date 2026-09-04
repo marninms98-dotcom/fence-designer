@@ -6575,7 +6575,14 @@
       // whether the whole job is one colour (the common case, which must render
       // exactly as it always did).
       _summariseComponentColours(job) {
-        const runs = ((job || this.job).runs || []);
+        const j = job || this.job;
+        // Only runs that actually put stock on the order may contribute a
+        // colour. A run with no panels yet (or any run at all on a gate-only
+        // job) reaches postGroups/plinthGroups with nothing, so counting its
+        // colour here would name a colour the material order never buys.
+        const runs = j.scopeType === 'gate-only'
+          ? []
+          : (j.runs || []).filter(r => r && r.panels && r.panels.length > 0);
         const out = {};
         FENCE_COMPONENTS.forEach(c => { out[c] = []; });
         const sources = runs.length ? runs : [null];
@@ -11429,7 +11436,8 @@
       // clipboard copy and the Outlook draft all render from ONE source — an
       // order the supplier reads on screen must be byte-identical to the one
       // that lands in their inbox.
-      _buildMaterialOrderText(d) {
+      _buildMaterialOrderText(d, opts) {
+        const showInternalCosts = !(opts && opts.forEmail);
         const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
         // One line per DISTINCT panel spec. Component colours are part of the
@@ -11483,7 +11491,10 @@
           order += `PLINTHS (standard):\n${row.count} \u00D7 150mm Plinths @ ${row.widthMm}mm \u2014 ${row.colour}\n\n`;
         });
         _plRows.filter(r => r.widthClass === 'long').forEach(row => {
-          order += `PLINTHS (long):\n${row.count} \u00D7 150mm Long Plinths @ ${row.widthMm}mm \u2014 ${row.colour}\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)\n\n`;
+          const longCostNote = showInternalCosts
+            ? `\n    (long-panel plinths \u2014 supplier long plinth @ $${(d.plinthLongCost || 0).toFixed(2)} ea cost)`
+            : '';
+          order += `PLINTHS (long):\n${row.count} \u00D7 150mm Long Plinths @ ${row.widthMm}mm \u2014 ${row.colour}${longCostNote}\n\n`;
         });
         if (d.totalPatioTubes > 0) {
           const patioCalcParts = d.runDetails.filter(r => r.patioTubes > 0).map(r => `${r.name}: ${r.panelsWithPatio} panels + 1 = ${r.patioTubes}`);
@@ -11495,7 +11506,7 @@
         if (customMaterials.length) {
           order += `CUSTOM MATERIALS:\n`;
           customMaterials.forEach(c => {
-            order += `${c.qty} \u00D7 ${c.desc}${c.unit ? ` (${c.unit})` : ''}${c.costPrice > 0 ? `\n    (cost $${(c.costPrice).toFixed(2)} ea)` : ''}\n`;
+            order += `${c.qty} \u00D7 ${c.desc}${c.unit ? ` (${c.unit})` : ''}${showInternalCosts && c.costPrice > 0 ? `\n    (cost $${(c.costPrice).toFixed(2)} ea)` : ''}\n`;
           });
           order += `\n`;
         }
@@ -14026,7 +14037,7 @@
         const routing = d.orderRouting || this.getMaterialOrderRouting();
         const client = d.job.client || [d.job.clientFirstName, d.job.clientLastName].filter(Boolean).join(' ');
         const subject = ['Material Order', d.job.ref, client, d.job.address].filter(Boolean).join(' \u2014 ');
-        return { to: routing.to, cc: routing.cc, subject: subject, body: this._buildMaterialOrderText(d), routing: routing };
+        return { to: routing.to, cc: routing.cc, subject: subject, body: this._buildMaterialOrderText(d, { forEmail: true }), routing: routing };
       },
 
       // A mailto: URL is handed to the OS, which caps its length. A routine order
