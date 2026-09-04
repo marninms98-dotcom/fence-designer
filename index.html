@@ -4422,7 +4422,7 @@
       // common case looks exactly as it did before this existed.
       _renderRunColourBlock(run) {
         const resolved = this.getRunColourSet(run);
-        const has = this.runHasColourOverride(run);
+        const has = this.runHasColourOverride(run) || this._runColourOpenId === run.id;
         if (!has) {
           return `<div style="margin-top:10px;font-size:12px;color:#8899A6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <span>Colours: follows the job (${this._esc(resolved.sheets || '\u2014')}${resolved.uniform ? '' : ' + trim'})</span>
@@ -4497,6 +4497,7 @@
       overrideRunColours(runId) {
         const run = (this.job.runs || []).find(r => r.id === runId);
         if (!run) return;
+        this._runColourOpenId = runId;
         this.updateRunColour(runId, 'sheets', this.getRunColourSet(run).sheets || '');
       },
 
@@ -4516,6 +4517,7 @@
       clearRunColours(runId) {
         const run = (this.job.runs || []).find(r => r.id === runId);
         if (!run) return;
+        if (this._runColourOpenId === runId) this._runColourOpenId = null;
         delete run.colours;
         this.save();
         this.render();

@@ -1399,3 +1399,89 @@ test('a run whose only difference is its plinth colour is named on both crew doc
   expect(res.beforeHeadings).toEqual(['Rear (4 panels, 12m)', 'Left (3 panels, 9m)']);
   expect(res.beforeBreakdown).not.toContain('Colour:');
 });
+
+// ── A visible control must never respond to a tap with nothing ─────────────
+// A new job starts with colour: '', so the click-time resolver hands
+// updateRunColour an empty value, which deletes the key it was about to write.
+// The operator taps "Override for this run" and the block does not open.
+test('the run override opens even before a job sheet colour has been chosen', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + window.__buildJob + ')')();
+    // A job the operator has not opened Installation on yet.
+    job.colour = '';
+    app.job = Object.assign(app.job, job);
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+
+    const overrideBtn = () => Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Override for this run/i.test(b.textContent));
+    const componentSelects = () => Array.from(document.querySelectorAll('#runContent select'))
+      .filter((s) => {
+        const g = s.closest('.form-group');
+        const l = g && g.querySelector('label');
+        return !!l && /^(Sheets|Rails|Posts|Plinths)$/i.test(l.textContent.trim());
+      })
+      .map((s) => ({
+        label: s.closest('.form-group').querySelector('label').textContent.trim(),
+        value: s.value,
+        selectedText: s.options[s.selectedIndex] ? s.options[s.selectedIndex].textContent.trim() : null,
+      }));
+    const backBtn = () => Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Back to job colours/i.test(b.textContent));
+
+    const beforeClick = { hasOverrideBtn: !!overrideBtn(), selects: componentSelects().length };
+    if (overrideBtn()) overrideBtn().click();
+    const afterClick = {
+      selects: componentSelects(),
+      hasBackBtn: !!backBtn(),
+      stored: app.job.runs[0].colours || null,
+    };
+
+    // "Back to job colours" must not become the next inert control.
+    if (backBtn()) backBtn().click();
+    const afterBack = { hasOverrideBtn: !!overrideBtn(), selects: componentSelects().length };
+
+    return { beforeClick, afterClick, afterBack };
+  });
+
+  // It was collapsed, the tap opened it, and the block is genuinely usable.
+  expect(res.beforeClick).toEqual({ hasOverrideBtn: true, selects: 0 });
+  expect(res.afterClick.selects.map((s) => s.label)).toEqual(['Sheets', 'Rails', 'Posts', 'Plinths']);
+  expect(res.afterClick.hasBackBtn).toBeTruthy();
+  // Nothing was invented on the job: every select still reads "follow the job".
+  expect(res.afterClick.stored).toBeNull();
+  res.afterClick.selects.forEach((s) => {
+    expect(s.value).toBe('');
+    expect(s.selectedText).toContain('Follow job');
+  });
+  // And it closes again.
+  expect(res.afterBack).toEqual({ hasOverrideBtn: true, selects: 0 });
+});
+
+// The same control on a job that HAS a colour behaves exactly as it did:
+// the tap pins that colour as a real override.
+test('the run override still pins the job colour when one is set', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + window.__buildJob + ')')());
+    app.currentRunId = 'run-a';
+    if (!app._openSections.runs) app.toggleSection('runs');
+    app.render();
+    const btn = Array.from(document.querySelectorAll('#runContent button'))
+      .find((b) => /Override for this run/i.test(b.textContent));
+    if (btn) btn.click();
+    return {
+      stored: app.job.runs[0].colours || null,
+      order: app._buildMaterialOrderText(app._collectOutputData()),
+    };
+  });
+
+  expect(res.stored).toEqual({ sheets: 'Monument' });
+  expect(res.order).toContain('Colour: Monument');
+});
