@@ -6540,11 +6540,16 @@
         return sheets.length ? sheets.join(' / ') : ((d && d.colour) || '');
       },
 
-      // Gates are job-level: nothing attaches them to a run, so the job sheet
-      // colour is the only one the data model defines for them. They must never
-      // resolve through the job-wide summary, which JOINS every run's colour —
-      // a supplier order line naming two colours cannot be fulfilled.
+      // Gates are job-level: nothing attaches them to a run. When the ORDER
+      // carries exactly one sheet colour that is what a gate is made in, even
+      // if a run override moved the job away from `d.colour`. Only when runs
+      // genuinely differ does it fall back to the job colour, because the
+      // job-wide summary JOINS colours and a supplier line naming two of them
+      // cannot be fulfilled. It never returns a joined value.
       gateSheetColour(d) {
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        if (sheets.length === 1) return sheets[0];
         return (d && d.colour) || '';
       },
 

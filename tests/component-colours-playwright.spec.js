@@ -767,21 +767,21 @@ test('no rendered surface names the job colour once a component colour overrides
   expect(res.materialOrder).toContain('Sheets: Basalt');
   expect(res.materialOrder).toContain('Pedestrian gate kit');
 
-  // Every human-rendered surface. None may say Monument — nothing is bought in it.
-  // Gates are the one documented exception: nothing attaches them to a run, so
-  // they resolve to the job colour on purpose. They are scanned separately.
-  const orderWithoutGates = res.materialOrder.split('\n').filter((l) => !/gate kit \|/i.test(l)).join('\n');
+  // Every human-rendered surface. None may say Monument — nothing is bought in
+  // it, and that now includes the GATE: this job's order carries exactly one
+  // sheet colour, so the gate is made in it rather than in the abandoned job
+  // default. Gates only fall back to the job colour when runs genuinely differ.
   const gateKitLines = res.materialOrder.split('\n').filter((l) => /gate kit \|/i.test(l));
   expect(gateKitLines.length).toBeGreaterThan(0);
   gateKitLines.forEach((l) => {
-    expect(l).toContain('Monument');
-    expect(l.includes('Basalt')).toBeFalsy();
+    expect(l).toContain('Basalt');
+    expect(l.includes('Monument')).toBeFalsy();
   });
-  expect(res.materialVerifyGate).toContain('Monument');
-  expect(res.materialVerifyGate.includes('Basalt')).toBeFalsy();
+  expect(res.materialVerifyGate).toContain('Basalt');
+  expect(res.materialVerifyGate.includes('Monument')).toBeFalsy();
 
   const surfaces = {
-    materialOrder: orderWithoutGates,
+    materialOrder: res.materialOrder,
     workOrder: res.workOrder,
     clientQuote: res.clientQuote,
     legacyQuote: res.legacyQuote,
@@ -884,10 +884,12 @@ test('no material order line ever names two colours at once', async ({ page }) =
   // No order line joins any two of them.
   expect(res.offending, 'order lines naming two colours: ' + JSON.stringify(res.offending)).toEqual([]);
 
-  // The gate line exists and names exactly one colour — the job's.
+  // The gate line exists and names exactly one colour — the single sheet
+  // colour this order actually buys, never a joined value.
   expect(res.gateLines.length).toBeGreaterThan(0);
   res.gateLines.forEach((line) => {
-    expect(line).toContain(res.jobColour);
+    expect(line).toContain('Basalt');
+    expect(line.includes(res.jobColour)).toBeFalsy();
     expect(line.includes(' / ')).toBeFalsy();
   });
   // ...and so does the confirm-before-order gate row for it.
@@ -1484,4 +1486,83 @@ test('the run override still pins the job colour when one is set', async ({ page
 
   expect(res.stored).toEqual({ sheets: 'Monument' });
   expect(res.order).toContain('Colour: Monument');
+});
+
+// ── A gate is made to order, so its colour is a physical delivery ──────────
+// Gates are job-level: nothing attaches one to a run. When the ORDER buys a
+// single sheet colour that is what the gate must be made in, even if a run
+// override moved the whole job off job.colour — otherwise the supplier builds
+// a gate in a colour that appears nowhere else on the job. Only when runs
+// genuinely differ does it fall back to the job colour, because a joined
+// "A / B" value on a supplier line cannot be filled.
+test('a gate is ordered in the colour the order actually buys, and never two', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const app = window.app;
+    const gate = { id: 'g1', type: 'pedestrian', width: 900, height: 1800, runIndex: 0 };
+    const read = () => {
+      const raw = app._collectOutputData();
+      const order = app._buildMaterialOrderText(raw);
+      const lines = order.split('\n');
+      window.showMaterialVerificationModal(raw);
+      const modal = document.getElementById('materialVerifyModal');
+      const mvGate = modal
+        ? Array.from(modal.querySelectorAll('*')).map((el) => el.textContent)
+            .filter((t) => /gate kit/i.test(t) && t.length < 200)
+        : [];
+      if (modal) modal.remove();
+      const cc = raw.componentColours || {};
+      const all = Array.from(new Set(
+        [].concat(cc.sheets || [], cc.rails || [], cc.posts || [], cc.plinths || []).filter(Boolean)
+      ));
+      const joined = [];
+      all.forEach((a) => all.forEach((b) => { if (a !== b) joined.push(a + ' / ' + b); }));
+      return {
+        sheets: cc.sheets || [],
+        gateLines: lines.filter((l) => /gate kit \|/i.test(l)),
+        panelColourLines: lines.filter((l) => /^ {4}Colour: /.test(l)),
+        mvGate,
+        joinedOnAnyLine: lines.filter((l) => joined.some((p) => l.includes(p))),
+      };
+    };
+
+    // (a) THE REPRODUCED FAILURE: one run, overridden away from the job colour.
+    const single = window.__snapshot((a, job) => {
+      job.runs = [job.runs[0]];
+      job.runs[0].colours = { sheets: 'Basalt' };
+      job.gates = [gate];
+    });
+    const singleRun = read();
+
+    // (b) Runs that genuinely differ: no single colour exists to make it in.
+    const mixed = window.__snapshot((a, job) => {
+      job.runs[1].colours = { sheets: 'Basalt' };
+      job.gates = [gate];
+    });
+    const mixedRuns = read();
+
+    return { singleRun, mixedRuns, singleOrder: single.order, mixedOrder: mixed.order };
+  });
+
+  // (a) The order buys one sheet colour, so the gate is made in it — on the
+  // supplier line AND on the confirm-before-order checklist row.
+  expect(res.singleRun.sheets).toEqual(['Basalt']);
+  expect(res.singleRun.panelColourLines).toContain('    Colour: Basalt');
+  expect(res.singleRun.gateLines.length).toBe(1);
+  expect(res.singleRun.gateLines[0]).toContain('Basalt');
+  expect(res.singleRun.gateLines[0].includes('Monument')).toBeFalsy();
+  expect(res.singleRun.mvGate.length).toBeGreaterThan(0);
+  res.singleRun.mvGate.forEach((t) => {
+    expect(t).toContain('Basalt');
+    expect(t.includes('Monument')).toBeFalsy();
+  });
+
+  // (b) Runs genuinely differ, so the gate falls back to the job colour —
+  // exactly one colour, never a joined value, on either surface.
+  expect(res.mixedRuns.sheets.slice().sort()).toEqual(['Basalt', 'Monument']);
+  expect(res.mixedRuns.gateLines.length).toBe(1);
+  expect(res.mixedRuns.gateLines[0]).toContain('Monument');
+  expect(res.mixedRuns.gateLines[0].includes('Basalt')).toBeFalsy();
+  res.mixedRuns.mvGate.forEach((t) => expect(t.includes(' / ')).toBeFalsy());
+  expect(res.mixedRuns.joinedOnAnyLine).toEqual([]);
 });
