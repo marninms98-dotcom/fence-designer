@@ -786,3 +786,110 @@ test('cost, margin and internal fields never reach the client quote HTML', async
   expect(res.scannable).toContain('Powder-coated post caps');
   expect(res.scannable).toContain('90.00');          // 6 x $15 sell
 });
+
+// ── The cost-share gate must bite EVERY neighbour, not just the first ──
+// `addNeighbour()` used to persist an even-split default, so on a two-neighbour
+// job the operator was forced to enter a share for neighbour 1 while neighbour 2
+// sailed through on a 33% nobody chose — exactly the failure the rule exists to
+// prevent.
+test('a SECOND neighbour added with no share also blocks the quote', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.neighboursRequired = true;
+    app.job.neighbours = [];
+
+    // Both neighbours come in through the real button handler.
+    app.addNeighbour();
+    app.addNeighbour();
+    const seededShares = app.job.neighbours.map((n) => n.sharePercent);
+
+    app.job.neighbours.forEach((n, i) => {
+      n.firstName = 'N' + i; n.lastName = 'Surname' + i;
+      n.email = 'n' + i + '@example.com'; n.address = String(i) + ' Boundary St';
+    });
+
+    // Only the FIRST gets a deliberate share.
+    app.job.neighbours[0].sharePercent = 50;
+    const missingSecondUnset = app._validateRequired({ forQuote: true });
+
+    // Internal documents stay reachable throughout — this is a billing rule.
+    const internal = app._validateRequired();
+
+    app.job.neighbours[1].sharePercent = 25;
+    const missingBothSet = app._validateRequired({ forQuote: true });
+    return { seededShares, missingSecondUnset, internal, missingBothSet };
+  }, buildLegacyJob.toString());
+
+  // Nothing was auto-seeded, so there is no unchosen number to sail through on.
+  expect(res.seededShares).toEqual([undefined, undefined]);
+  // The second neighbour's missing share blocks the quote, and names itself.
+  expect(res.missingSecondUnset).toContain('Neighbour cost share % (neighbour 2)');
+  expect(res.missingSecondUnset).not.toContain('Neighbour cost share % (neighbour 1)');
+  // Internal orders are unaffected.
+  expect(res.internal.some((m) => m.includes('cost share'))).toBeFalsy();
+  // Once both are chosen the gate opens.
+  expect(res.missingBothSet.some((m) => m.includes('cost share'))).toBeFalsy();
+});
+
+// ── A cost-only custom item is stock we buy, not a line we bill ──
+// Admitting it on cost alone is deliberate (it must reach the order and the
+// margin), but it has no sell price, so printing it to the client as a $0.00
+// line item is not something we are charging for.
+test('a cost-only custom item reaches the order and margin but never the client price table', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    app.job.quote.customLineItems = [
+      { desc: 'Zinc post caps', qty: 6, unit: 'each', price: 0, costPrice: 12, kind: 'material' },
+      { desc: 'Gate hardware upgrade', qty: 1, unit: 'lot', price: 340, costPrice: 120, kind: 'material' },
+    ];
+    app.job.quote.priceDisplay = 'itemized';   // the mode that prints line items
+
+    const raw = app._collectOutputData();
+    const d = app._gatherFenceQuoteData(raw);
+    const quoteHtml = app._buildFenceQuoteHTML(d, {}, { forPDF: false });
+    const legacyHtml = app._generateQuoteHTML(raw);
+    const order = app._buildMaterialOrderText(raw);
+    const pricing = app.buildPricingJson();
+
+    // Same job with the cost-only item removed — the margin delta proves its
+    // cost is still being captured.
+    const withItem = raw.internalCost;
+    app.job.quote.customLineItems = [app.job.quote.customLineItems[1]];
+    const without = app._collectOutputData().internalCost;
+
+    const strip = (h) => h.replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]+/gi, 'data:[BINARY]');
+    return {
+      priceLineLabels: (d.priceLineItems || []).map((li) => li.label),
+      quoteScannable: strip(quoteHtml),
+      legacyHtml,
+      order,
+      customLineDescs: (pricing.line_items || []).filter((li) => li.category === 'custom').map((li) => li.description),
+      internalCostDelta: Math.round((withItem - without) * 100) / 100,
+      customItemDescs: raw.customItems.map((c) => c.desc),
+    };
+  }, buildLegacyJob.toString());
+
+  // The engine still admits it, still orders it, and still costs it.
+  expect(res.customItemDescs).toContain('Zinc post caps');
+  expect(res.order).toContain('Zinc post caps');
+  expect(res.internalCostDelta).toBe(72);           // 6 x $12
+
+  // But the client never sees a $0.00 line for it, on either quote renderer
+  // or in the pricing payload's line items.
+  expect(res.priceLineLabels).not.toContain('Zinc post caps');
+  expect(res.quoteScannable).not.toContain('Zinc post caps');
+  expect(res.legacyHtml).not.toContain('Zinc post caps');
+  expect(res.customLineDescs).not.toContain('Zinc post caps');
+
+  // The item that IS being charged for still prints everywhere.
+  expect(res.priceLineLabels).toContain('Gate hardware upgrade');
+  expect(res.quoteScannable).toContain('Gate hardware upgrade');
+  expect(res.legacyHtml).toContain('Gate hardware upgrade');
+  expect(res.customLineDescs).toContain('Gate hardware upgrade');
+});

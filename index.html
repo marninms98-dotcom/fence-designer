@@ -3552,6 +3552,7 @@
 
         // ── Material & Removal PO Card ──
         let matRows = '';
+        const matMultiColour = this._postGroupsAreMultiColour(d.postGroups);
         Object.values(d.postGroups).forEach(g => {
           let unitCost = 0;
           if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
@@ -3563,7 +3564,7 @@
           } else if (g.sheetH === 2100) {
             unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
           } else unitCost = COST_PRICES.panelKit1800_2400;
-          matRows += `<tr><td>${g.sheetH}H panels + ${g.postH}H posts</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
+          matRows += `<tr><td>${g.sheetH}H panels + ${g.postH}H posts${matMultiColour ? ' — ' + this._esc(this._postGroupColourText(g, d.colour)) : ''}</td><td class="r">${g.count} × $${f(unitCost)}</td><td class="r">$${f(g.count * unitCost)}</td></tr>`;
         });
         if (d.totalPlinths > 0) matRows += `<tr><td>Retaining plinths</td><td class="r">${d.totalPlinths} × $${f(COST_PRICES.plinth)}</td><td class="r">$${f(d.totalPlinths * COST_PRICES.plinth)}</td></tr>`;
         if (d.totalPatioTubes > 0) matRows += `<tr><td>Patio tubes (76×38 RHS)</td><td class="r">${d.totalPatioTubes} × $${f(COST_PRICES.patioTube)}</td><td class="r">$${f(d.totalPatioTubes * COST_PRICES.patioTube)}</td></tr>`;
@@ -3990,7 +3991,7 @@
                 </div>
                 <div class="form-group" style="max-width:110px">
                   <label>Cost Share % *</label>
-                  <input type="number" value="${Number(nb.sharePercent) > 0 ? nb.sharePercent : ''}" min="1" max="100" step="5"
+                  <input type="number" value="${Number(nb.sharePercent) > 0 ? nb.sharePercent : ''}" min="0" max="100" step="5"
                     placeholder="${Math.round(100 / (nbs.length + 1))}"
                     oninput="app.updateNeighbour('${nb.id}', 'sharePercent', parseFloat(this.value)||0)"
                     style="text-align:center">
@@ -4083,12 +4084,12 @@
 
       addNeighbour() {
         if (!this.job.neighbours) this.job.neighbours = [];
-        var totalParties = this.job.neighbours.length + 2; // +1 for new nb, +1 for client
-        var defaultShare = Math.round(100 / totalParties);
+        // No seeded share: an even split nobody chose is exactly what the
+        // mandatory cost-share gate exists to stop, and seeding here would let
+        // every neighbour after the first sail through it.
         this.job.neighbours.push({
           id: 'nb-' + Date.now(),
-          firstName: '', lastName: '', phone: '', email: '', address: '',
-          sharePercent: defaultShare
+          firstName: '', lastName: '', phone: '', email: '', address: ''
         });
         this.save();
         this.renderSiteInfo();
@@ -4805,7 +4806,10 @@
         // Source: index.html line 8685 (_collectOutputData), lines 8967-8997 (internalCost build)
         const rows = [];
 
-        // Panel kits — from d.postGroups (engine-built, line 8770)
+        // Panel kits — from d.postGroups (engine-built, line 8770). Colour is
+        // part of the grouping key, so a mixed-colour job would otherwise show
+        // two rows with the same label; only then does the label name a colour.
+        const multiColour = this._postGroupsAreMultiColour(d.postGroups);
         Object.values(d.postGroups).forEach(g => {
           let unitCost = COST_PRICES.panelKit1800_2400;
           if (g.sheetH === 1200) unitCost = COST_PRICES.panelKit1200_2400;
@@ -4818,7 +4822,7 @@
             unitCost = g.postH <= 2700 ? COST_PRICES.panelKit2100_2700 : COST_PRICES.panelKit2100_3000;
           }
           rows.push({
-            label: `Panel kit ${g.sheetH}H + ${g.postH}H post (${g.panelW}mm wide)`,
+            label: `Panel kit ${g.sheetH}H + ${g.postH}H post (${g.panelW}mm wide)` + (multiColour ? ` — ${this._postGroupColourText(g, d.colour)}` : ''),
             category: 'panels',
             qty: g.count,
             unitCost: unitCost,
@@ -6502,6 +6506,45 @@
         return out;
       },
 
+      // How ONE postGroups row's colours read. Sheets/rails/posts are part of
+      // the grouping key, so two rows can be identical apart from colour — a
+      // row that names no colour is then unidentifiable stock.
+      _postGroupColourText(g, fallback) {
+        const sheetC = g.sheetColour != null ? g.sheetColour : fallback;
+        if (g.uniformColour === false) {
+          return 'Sheets ' + sheetC + ' / Rails ' + g.railColour + ' / Posts ' + g.postColour;
+        }
+        return String(sheetC == null ? '' : sheetC);
+      },
+
+      // The panel lines of the Material Verification checklist — the gate the
+      // scoper confirms before we order. Each line names THIS group's colour,
+      // not the job's: colour is part of the grouping, so a Basalt group titled
+      // Monument is a line ticked off against stock we are not buying.
+      _materialVerifyPanelRows(d) {
+        return Object.values(d.postGroups).map(g => {
+          const groupColour = this._postGroupColourText(g, d.colour) || (d.colour || 'Shale Grey');
+          return {
+            desc: g.count + ' &times; ' + g.sheetH + 'H &times; ' + (g.panelW || d.panelWidthMm)
+              + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + groupColour,
+            matQty: g.count
+          };
+        });
+      },
+
+      // True when the panel groups as a whole involve more than one colour.
+      // An all-one-colour job answers false, so labels that never carried a
+      // colour keep reading exactly as they always did.
+      _postGroupsAreMultiColour(groups) {
+        const seen = [];
+        Object.values(groups || {}).forEach(g => {
+          [g.sheetColour, g.railColour, g.postColour].forEach(c => {
+            if (c != null && seen.indexOf(c) === -1) seen.push(c);
+          });
+        });
+        return seen.length > 1;
+      },
+
       // True when this run carries any explicit colour of its own.
       runHasColourOverride(run) {
         const rc = (run && run.colours) || {};
@@ -6545,6 +6588,14 @@
         this.renderQuote();
         this.updateStats();
         this.renderQuoteAndOrders();
+      },
+
+      // A custom item is admitted on a sell price OR a cost price, so a
+      // cost-only material still reaches the order and the margin. It must not
+      // reach the client's price table though: a $0.00 line item is not a thing
+      // we are charging for. Every client-facing list goes through here.
+      _sellableCustomItems(d) {
+        return ((d && d.customItems) || []).filter(function(c) { return (Number(c.total) || 0) > 0; });
       },
 
       deleteCustomItem(idx) {
@@ -11130,8 +11181,11 @@
                   </td>
                   <td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(r.amount)}</td>
                 </tr>`).join('')}
-                ${d.customItems.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
-                  d.customItems.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : ''}
+                ${(() => {
+                  const sellable = this._sellableCustomItems(d);
+                  return sellable.length > 0 ? `<tr><td colspan="2" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A7C;padding-top:10px;border-bottom:none;">Additional Items</td></tr>` +
+                    sellable.map(c => `<tr><td style="line-height:1.5;">${this._esc(c.desc)}${c.qty > 1 || c.unit ? '<br><span style="font-size:11px;color:#4C6A7C;">' + c.qty + ' ' + this._esc(c.unit) + '</span>' : ''}</td><td class="text-right" style="vertical-align:top;font-weight:600;">$${this._fmt(c.total)}</td></tr>`).join('') : '';
+                })()}
               </tbody>
               <tfoot>
                 <tr class="total-row"><td>Subtotal (excl. GST)</td><td class="text-right">$${this._fmt(d.subtotal)}</td></tr>
@@ -12246,8 +12300,14 @@
         // produces an empty breakdown and the quote reads exactly as before.
         var cc = d.componentColours;
         var colourBreakdown = '';
+        // A run can override the SHEET colour alone. That leaves every trim list
+        // equal to the sheet list (so the breakdown below is empty) while the
+        // order legitimately buys two sheet colours — so the Colour row itself
+        // must name them all, or the quote states a colour we are not buying.
+        var sheetColours = (cc && cc.sheets) ? cc.sheets : [];
+        var quotedSheetColour = sheetColours.length > 1 ? sheetColours.join(' / ') : d.colour;
         if (cc && !cc.uniform) {
-          var sheetList = (cc.sheets || []).join(' / ');
+          var sheetList = sheetColours.join(' / ');
           colourBreakdown = ['rails', 'posts', 'plinths'].map(function(k) {
             var list = (cc[k] || []).join(' / ');
             return list && list !== sheetList ? FENCE_COMPONENT_LABELS[k] + ' ' + list : '';
@@ -12258,7 +12318,7 @@
         specs.push(['Total Length', (Number(d.totalMetres) || 0).toFixed(1) + ' lineal metres']);
         specs.push(['Height', heightStr]);
         if (d.profile) specs.push(['Profile', d.profile]);
-        if (d.colour) specs.push(['Colour', 'COLORBOND® ' + d.colour + (colourBreakdown ? ' (sheets)' : '')]);
+        if (d.colour) specs.push(['Colour', 'COLORBOND® ' + quotedSheetColour + (colourBreakdown ? ' (sheets)' : '')]);
         // Only when a component genuinely differs — one extra row, so the fixed
         // PDF page budget is unaffected in the common all-matching case.
         if (colourBreakdown) specs.push(['Trim Colours', colourBreakdown]);
@@ -12316,7 +12376,7 @@
         (d.removalItems || []).forEach(function(r) { priceLineItems.push({ label: r.desc, detail: (r.qty ? r.qty + ' ' + (r.unit || '') : '').trim(), amtStr: money(r.total) }); });
         if ((Number(d.groundFinishTotal) || 0) > 0) priceLineItems.push({ label: d.groundFinishDesc || 'Ground finish', detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm', amtStr: money(d.groundFinishTotal) });
         (d.addonItems || []).forEach(function(a) { priceLineItems.push({ label: a.desc, detail: '', amtStr: money(a.total) }); });
-        (d.customItems || []).forEach(function(c) { priceLineItems.push({ label: c.desc, detail: (c.qty ? c.qty + ' ' + (c.unit || '') : '').trim(), amtStr: money(c.total) }); });
+        this._sellableCustomItems(d).forEach(function(c) { priceLineItems.push({ label: c.desc, detail: (c.qty ? c.qty + ' ' + (c.unit || '') : '').trim(), amtStr: money(c.total) }); });
         if ((Number(d.accessSurcharge) || 0) > 0) priceLineItems.push({ label: 'Access difficulty', detail: Math.round((d.accessRate || 0) * 100) + '%', amtStr: money(d.accessSurcharge) });
         if ((Number(d.urgencySurcharge) || 0) > 0) priceLineItems.push({ label: 'Urgency', detail: Math.round((d.urgencyRate || 0) * 100) + '%', amtStr: money(d.urgencySurcharge) });
         if ((Number(d.deliveryFee) || 0) > 0) priceLineItems.push({ label: 'Delivery', detail: '', amtStr: money(d.deliveryFee) });
@@ -14454,7 +14514,7 @@
       (d.addonItems || []).forEach(function(a) {
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
       });
-      (d.customItems || []).forEach(function(c) {
+      app._sellableCustomItems(d).forEach(function(c) {
         lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: c.kind || 'material' });
       });
       if (d.accessSurcharge > 0) {
@@ -14965,10 +15025,8 @@
       var checkIdx = 0;
 
       // ── Section 1: Panels & Posts ──
-      var panelRows = [];
-      Object.values(d.postGroups).forEach(function(g) {
-        var desc = g.count + ' &times; ' + g.sheetH + 'H &times; ' + (g.panelW || d.panelWidthMm) + 'W panels W/ ' + g.postH + 'H posts | ' + (d.profile || 'Trimclad') + ' | ' + (d.colour || 'Shale Grey');
-        panelRows.push({ idx: checkIdx++, desc: desc, matQty: g.count });
+      var panelRows = app._materialVerifyPanelRows(d).map(function(r) {
+        return { idx: checkIdx++, desc: r.desc, matQty: r.matQty };
       });
       // Cross-check total panels vs pricing fencing line
       var pricingFencing = pricingQty('fencing');

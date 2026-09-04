@@ -288,6 +288,34 @@ test('a per-run override beats the job default and splits the order by run', asy
   expect((res.order.match(/PLINTHS \(standard\)/g) || []).length).toBe(2);
   // The quote reports both sheet colours.
   expect(res.componentColours.sheets.sort()).toEqual(['Basalt', 'Monument']);
+  // And RENDERS both on the Colour row. Asserting the raw array is not enough:
+  // the row is what the client reads, and it must not name one colour while the
+  // order buys two. Rails/posts still differ, so the row keeps its (sheets) tag
+  // and the Trim Colours row still appears.
+  expect(res.specs).toContainEqual(['Colour', 'COLORBOND® Monument / Basalt (sheets)']);
+  expect(res.specs).toContainEqual(['Trim Colours', 'Rails Surfmist · Posts Surfmist']);
+});
+
+// The exact leak: only the SHEETS are overridden on one run. Every trim list
+// then equals the sheet list, so the Trim Colours breakdown is legitimately
+// empty — which used to leave the Colour row naming the job colour alone while
+// the material order bought two.
+test('a per-run SHEET override alone is still named on the quote Colour row', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => window.__snapshot((app, job) => {
+    job.runs[1].colours = { sheets: 'Basalt' };
+  }));
+
+  // The order genuinely buys both.
+  expect(res.order).toContain('    Colour: Monument');
+  expect(res.order).toContain('    Colour: Basalt');
+  // Nothing differs from the sheets, so there is no Trim Colours row...
+  expect(res.colourBreakdown).toBe('');
+  expect(res.specs.map((s) => s[0])).not.toContain('Trim Colours');
+  // ...but the Colour row itself must name both, with no misleading "(sheets)"
+  // qualifier pointing at a breakdown that is not there.
+  expect(res.specs).toContainEqual(['Colour', 'COLORBOND® Monument / Basalt']);
+  expect(res.specs).not.toContainEqual(['Colour', 'COLORBOND® Monument']);
 });
 
 test('a run override can be applied and then cleared back to the job colours', async ({ page }) => {
@@ -429,4 +457,95 @@ test('a run override names what each blank field will actually inherit', async (
   expect(res.resolved.plinths).toBe('Basalt');
   // Sheets fall back to the job colour.
   expect(res.byLabel.Sheets).toBe('Follow job (Monument)');
+});
+
+// ── Colour is part of the postGroups key, so every consumer that groups by it
+// must say which colour, or two rows read identically. The Material
+// Verification checklist is the one that matters: it is the confirm-before-order
+// gate, and a Basalt group listed as Monument is a line ticked against stock we
+// are not buying.
+function readPostGroupLabels() {
+  const app = window.app;
+  const d = app._collectOutputData();
+  app.renderQuoteAndOrders();
+  app.renderCostBreakdown();
+  const poCard = document.getElementById('bodyQuoteOrders').textContent;
+  const costBreakdown = document.getElementById('bodyCostBreakdown').textContent;
+  return {
+    mvRows: app._materialVerifyPanelRows(d).map((r) => r.desc),
+    poCard,
+    costBreakdown,
+    panelKitLabels: (costBreakdown.match(/Panel kit [^$\n]*/g) || []).map((s) => s.trim()),
+  };
+}
+
+test('an all-one-colour job keeps every panel-group label exactly as it was', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, readSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobSrc + ')')());
+    // eslint-disable-next-line no-eval
+    return eval('(' + readSrc + ')')();
+  }, [buildPreChangeJob.toString(), readPostGroupLabels.toString()]);
+
+  // The checklist names the one job colour, plain — no Sheets/Rails/Posts form.
+  res.mvRows.forEach((desc) => {
+    expect(desc).toContain('| Monument');
+    expect(desc).not.toContain('Sheets ');
+  });
+  // The cost breakdown and PO card labels carry NO colour at all, as before.
+  res.panelKitLabels.forEach((label) => expect(label).not.toContain('Monument'));
+  expect(res.costBreakdown).not.toContain('— Monument');
+  expect(res.poCard).not.toContain('H posts — Monument');
+});
+
+test('a mixed-colour job never shows two panel rows that read identically', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, readSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    // Run B is Basalt throughout. Its panels are the same height/width/post as
+    // run A's standard panels, so before this fix the two groups produced
+    // byte-identical rows on every surface below.
+    job.runs[1].colours = { sheets: 'Basalt', rails: 'Basalt', posts: 'Basalt', plinths: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    // eslint-disable-next-line no-eval
+    return eval('(' + readSrc + ')')();
+  }, [buildPreChangeJob.toString(), readPostGroupLabels.toString()]);
+
+  // The engine really did split them, and no two checklist lines read alike.
+  expect(res.mvRows.length).toBeGreaterThan(1);
+  expect(new Set(res.mvRows).size).toBe(res.mvRows.length);
+  expect(res.mvRows.some((d) => d.includes('| Monument'))).toBeTruthy();
+  expect(res.mvRows.some((d) => d.includes('| Basalt'))).toBeTruthy();
+  // The cost breakdown labels disambiguate too, and stay unique.
+  expect(new Set(res.panelKitLabels).size).toBe(res.panelKitLabels.length);
+  expect(res.panelKitLabels.some((l) => l.endsWith('Monument'))).toBeTruthy();
+  expect(res.panelKitLabels.some((l) => l.endsWith('Basalt'))).toBeTruthy();
+  // And so does the PO card.
+  expect(res.poCard).toContain('H posts — Monument');
+  expect(res.poCard).toContain('H posts — Basalt');
+});
+
+test('a job whose rails and posts differ names all three on the checklist line', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, readSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    job.componentColours = { rails: 'Surfmist', posts: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    // eslint-disable-next-line no-eval
+    return eval('(' + readSrc + ')')();
+  }, [buildPreChangeJob.toString(), readPostGroupLabels.toString()]);
+
+  res.mvRows.forEach((desc) => {
+    expect(desc).toContain('Sheets Monument / Rails Surfmist / Posts Basalt');
+  });
+  res.panelKitLabels.forEach((label) => {
+    expect(label).toContain('Sheets Monument / Rails Surfmist / Posts Basalt');
+  });
+  expect(res.poCard).toContain('Sheets Monument / Rails Surfmist / Posts Basalt');
 });
