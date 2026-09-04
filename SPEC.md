@@ -76,15 +76,19 @@ job = {
   ref: "SW9248",           // auto-generated or manual
   client: "",              // client name
   address: "",             // property address
-  supplier: "RNR",         // "RNR" | "Metroll" | "Lysaght" | "Stratco"
-  profile: "Trimclad",    // supplier-specific product name — see Section 4B
-  colour: "Shale Grey",   // Colorbond colour name (with hex code — see Section 9)
+  supplier: "RNR",         // PANEL SYSTEM: "RNR" | "Metroll" | "Lysaght" | "Stratco"
+  profile: "Trimclad",    // panel-system product name — see Section 4B
+  colour: "Shale Grey",   // SHEET colour — Colorbond colour name (with hex code — see Section 9)
   pricePerMetre: 115,      // $/metre for quick estimate
   runs: [],                // array of Run objects
   gates: [],               // array of Gate objects
   date: "2026-02-06"       // today's date
 }
 ```
+
+**`supplier` is the panel system, not who we buy from.** It keys the profile list and panel width (Section 3.5). The supplier the material order is actually emailed to is a separate field, `installation.supplierSource` (Section 8.1) — do not conflate the two.
+
+**`colour` is the SHEET colour.** Rails, posts and plinths may carry their own optional colours, stored separately at job and run level; see `AGENTS.md` → "Per-component fence colours" for the field shapes, precedence and how differing colours split the material order.
 
 ### 3.2 Run
 
@@ -144,16 +148,18 @@ gate = {
 }
 ```
 
-### 3.5 Supplier Panel Widths
+### 3.5 Panel System Widths
 
-| Supplier | Panel Width (mm) | Code | Available Profiles |
+| Panel system | Panel Width (mm) | Code | Available Profiles |
 |---|---|---|---|
 | RnR Fencing | 2380 | `RNR` | Ridgeside, Sameside |
 | Metroll | 2365 | `Metroll` | Trimclad, Harmony |
 | Lysaght | 2360 | `Lysaght` | Neetascreen, Smartascreen |
-| Stratco | 2350 | `Stratco` | Superdek, Good Neighbour |
+| Stratco | 2350 | `Stratco` | Superdek, CGI Corrugated, Wavelok, CGI Mini |
 
-**NEVER mix suppliers on the same job.** Supplier is set at job level. Sheets, posts, and rails from different manufacturers CANNOT be mixed — different panel widths and proprietary locking mechanisms. Mixing voids BlueScope's 15-year fencing warranty.
+Widths are deliberately APPROXIMATE: standard panels are counted as 2.4m and long panels as 3.1m, so there are no per-profile widths.
+
+**NEVER mix panel systems on the same job.** The panel system is set at job level. Sheets, posts, and rails from different manufacturers CANNOT be mixed — different panel widths and proprietary locking mechanisms. Mixing voids BlueScope's 15-year fencing warranty.
 
 ---
 
@@ -201,6 +207,7 @@ The left panel is the **workspace**. This is where all input happens.
 - Total Length: number input in metres, step 0.5 (e.g., 19.0, 19.5, 20.0)
 - Sheet Height: dropdown — 1200 | 1500 | 1800 (default) | 2100 (mm) — default sheet height for all panels in run
 - Extension: dropdown — None | Slat | Solid Fill | Lattice
+- Colours: one line stating what the run inherits from the job, plus an "Override for this run" button that reveals per-run sheet / rail / post / plinth dropdowns ("Back to job colours" clears them). Optional — a run that follows the job needs no extra input.
 - "Apply Height to All" button
 - "Delete Run" button (red text)
 
@@ -284,18 +291,20 @@ The left panel is the **workspace**. This is where all input happens.
 
 ## 4B. FENCE PROFILES
 
-Each supplier has their own sheet profiles. They are **separate products with distinct geometry** — NOT interchangeable, NOT equivalents. The profile dropdown shows only the products available from the selected supplier.
+Each panel system has its own sheet profiles. They are **separate products with distinct geometry** — NOT interchangeable, NOT equivalents. The profile dropdown shows only the products available from the selected panel system.
 
-### Supplier Profile Lists
+### Panel System Profile Lists
 
-| Supplier | Standard Profile | Same-Both-Sides Profile |
+| Panel system | Standard Profile | Same-Both-Sides Profile |
 |---|---|---|
 | RNR | Ridgeside | Sameside |
 | Metroll | Trimclad | Harmony |
 | Lysaght | Neetascreen | Smartascreen |
-| Stratco | Superdek | Good Neighbour |
+| Stratco | Superdek | — (no same-both-sides pair; see note) |
 
-When supplier changes: the profile dropdown updates to show only that supplier's two options. Default: the standard (first) option.
+**Stratco note.** Stratco offers four profiles — Superdek, CGI Corrugated, Wavelok, CGI Mini — with no same-both-sides pair. "Good Neighbour" is Stratco's fencing RANGE name, not a profile, and is not offered. Smartspan is deliberately excluded: its real width is 2170mm, which does not round safely to the 2.4m standard.
+
+When the panel system changes: the profile dropdown updates to show only that system's profiles. Default: the standard (first) option.
 
 ### Data Model
 
@@ -305,13 +314,13 @@ The `profile` field stores the actual product name as selected:
 profile: "Trimclad"  // stores the exact supplier product name shown in dropdown
 ```
 
-Valid values depend on supplier:
+Valid values depend on the panel system:
 - RNR: `"Ridgeside"` | `"Sameside"`
 - Metroll: `"Trimclad"` | `"Harmony"`
 - Lysaght: `"Neetascreen"` | `"Smartascreen"`
-- Stratco: `"Superdek"` | `"Good Neighbour"`
+- Stratco: `"Superdek"` | `"CGI Corrugated"` | `"Wavelok"` | `"CGI Mini"`
 
-When supplier changes, reset profile to that supplier's default (standard profile).
+When the panel system changes, reset profile to that system's default (standard profile).
 
 ### Rendering
 
@@ -322,7 +331,7 @@ Each product has distinct geometry in reality. For V1 rendering, use a generic r
 - Different appearance front vs back
 - Cover width: 762 mm, BMT: 0.35 mm
 
-**Same-both-sides profiles** (Sameside, Harmony, Smartascreen, Good Neighbour):
+**Same-both-sides profiles** (Sameside, Harmony, Smartascreen):
 - Narrower pans, more frequent ribs, symmetric cross-section
 - Identical appearance both sides
 - Cover width: ~762 mm, BMT: 0.35 mm
@@ -381,10 +390,11 @@ For each panel in the active run:
 panelCount = Math.ceil(runLength / panelWidth)
 ```
 
-Panel widths by supplier:
+Panel widths by panel system:
 - RNR: 2380mm (2.380m)
 - Metroll: 2365mm (2.365m)
 - Lysaght: 2360mm (2.360m)
+- Stratco: 2350mm (2.350m)
 
 Example: 19.04m run with RNR → 19040 / 2380 = 8.0 → 8 panels
 
@@ -570,7 +580,7 @@ All three outputs are displayed in a modal dialog with tabs. Each has a "Copy" b
 
 ### 8.1 Material Order
 
-This is an email to the supplier. Format must match what RnR/Metroll/Fencing Warehouse expect.
+This is an email to the buy-from supplier. Format must match what RnR/Metroll/Fencing Warehouse expect. The body below is built by `_buildMaterialOrderText` in `index.html`, which is authoritative for the exact separators and wording.
 
 ```
 SECUREWORKS WA PTY LTD
@@ -581,7 +591,8 @@ Customer: {job.client}
 Delivery Address: {job.address}
 Site Contact: 0489 267 772
 Delivery Date: {tomorrow's date} | Time: 8-10am
-Supplier: {supplierName}
+Order To: {buy-from supplier} <{their email}>
+Panel System: {job.supplier}
 
 ────────────────────────────────────────
 ORDER DETAILS:
@@ -592,7 +603,13 @@ PANELS & POSTS:
 
 {count} × {height}H × {panelWidth}W panels W/ {postHeight}H posts
     Profile: {profile}
-    Colour: {colour}
+    Colour: {sheetColour}
+
+{If sheets, rails and posts do not all share one colour, that line expands:}
+    Profile: {profile}
+    Sheets: {sheetColour}
+    Rails: {railColour}
+    Posts: {postColour}
 
 {If different post heights exist, separate lines:}
 {count} × 1800H × 2380W panels W/ 2400H posts
@@ -603,13 +620,21 @@ PANELS & POSTS:
     Profile: Ridgeside
     Colour: Shale Grey
 
-PLINTHS:
-{totalPlinths} × 150mm Plinths — {colour}
+PLINTHS (standard):
+{count} × 150mm Plinths @ {panelWidth}mm — {plinthColour}
+
+{If any plinth sits under a long panel, a separate long line:}
+PLINTHS (long):
+{count} × 150mm Long Plinths @ {longPanelWidth}mm — {plinthColour}
 
 {If patio tubes needed:}
 PATIO TUBING:
 {patioTubeQty} × 76x38 RHS Patio Tube @ 3000mm
     (Calculation: {panelsWith3to5plinths} panels with 3+ plinths + 1 = {qty} tubes)
+
+{If any custom line item is flagged Material — labour-flagged ones never reach the supplier:}
+CUSTOM MATERIALS:
+{qty} × {description} ({unit})
 
 {If gates:}
 GATE POSTS:
@@ -632,11 +657,13 @@ SecureWorks WA
 fencing@secureworkswa.com.au | 0489 267 772
 ```
 
-**Grouping rule:** Panels are grouped by post height. If a run has 6 panels with 2400mm posts and 2 panels with 3000mm posts, show two separate line items. Standard C-channel posts are INCLUDED with panel kits — do not list them separately.
+**Grouping rule:** Panels are grouped by post height AND by colour — two colours must never share one line or we buy the wrong stock. If a run has 6 panels with 2400mm posts and 2 panels with 3000mm posts, show two separate line items. Standard C-channel posts are INCLUDED with panel kits — do not list them separately. Plinths are tallied by colour × panel width the same way.
+
+**Emailing the order.** The order is DRAFTED, never sent: it opens as a `mailto:` addressed to the buy-from supplier, always CC'ing `fencing@secureworkswa.com.au`, and the operator's own signature comes from Outlook. An unknown or not-yet-named custom supplier resolves with an empty To rather than a guessed address. The emailed body drops the internal cost annotations the on-screen body keeps, so the Material Order page carries two copy buttons — one internal (with costs) and one for the supplier email. Addresses, CC rules and the length fallback live in `AGENTS.md` → "Material order + work order engine".
 
 ### 8.2 Work Order
 
-This goes to the installation crew. Must contain everything they need on site.
+This goes to the installation crew. Must contain everything they need on site. When the job carries more than one colour on the order, each run heading also names that run's sheet/rail/post/plinth colours; a single-colour job prints exactly as it always did.
 
 ```
 ═══════════════════════════════════════
@@ -792,6 +819,7 @@ These are available from some suppliers but not stock for fencing:
 - For 3D material: use `MeshStandardMaterial` with `metalness: 0.5, roughness: 0.5` — this approximates the Classic COLORBOND® painted steel finish
 - For posts: same colour hex but multiply by 0.85 for slightly darker shade
 - For the colour swatch in the dropdown: use the hex as a flat CSS background-color
+- This palette is the SHEET colour picker. Rails, posts and plinths draw from the same palette as optional overrides (job-level, or per run); colour never affects price. The Profile View and 3D View render the job's sheet colour only — trim colours and per-run sheet overrides are not visualised. See `AGENTS.md` → "Per-component fence colours".
 
 ### 9.4 Hex Source
 
@@ -843,7 +871,8 @@ When retaining changes on any panel:
 - Click "Generate Outputs" button
 - Opens modal with three tabs: Material Order | Work Order | Quote
 - Each tab shows the formatted text
-- "Copy" button copies plain text to clipboard
+- "Copy" button copies plain text to clipboard — the Material Order carries two: "Copy (internal — includes costs)" and "Copy for supplier email"
+- The Material Order also offers "Draft Email in Outlook", which opens an addressed draft (Section 8.1); it never sends
 - "Close" button dismisses modal
 
 ---
