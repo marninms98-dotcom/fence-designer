@@ -377,3 +377,62 @@ test('Unit 4 — with the clipboard denied, the over-length fallback names a cos
   expect(res.internalBody).toMatch(/supplier long plinth @ \$\d+\.\d{2} ea cost/);
   expect(res.internalBody).toMatch(/\(cost \$\d+\.\d{2} ea\)/);
 });
+
+// The Material Order page is opened as a SEPARATE tab, so its "Draft Email in
+// Outlook" button runs emailMaterialOrder in the OPENER's realm — where the
+// toast container lives and where the clipboard write needs focus. Without
+// focusing the opener first the operator sees nothing at all, including the
+// "no address on file for this supplier" error.
+test('the order page email button focuses the app tab, so its outcome is visible', async ({ page, context }) => {
+  await openApp(page);
+  await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+    app.job = Object.assign(app.job, build({ matCost: 4, labCost: 55 }));
+    Object.assign(app.job, {
+      clientFirstName: 'Ada', clientLastName: 'Lovelace', client: 'Ada Lovelace',
+      address: '12 Analytical Way, Perth WA 6000', phone: '0400000000', email: 'ada@example.com',
+      ref: 'FEN-1001', neighboursRequired: false, neighbours: [],
+    });
+    // A one-off supplier with no address on file: the case whose ERROR toast
+    // must be seen. It still drafts (only the unnamed '__custom__' refuses).
+    app.job.installation = { supplierSource: 'Bobs Steel' };
+
+    window.__order = [];
+    const realFocus = window.focus.bind(window);
+    window.focus = () => { window.__order.push('focus'); realFocus(); };
+    app._openMailDraft = () => { window.__order.push('draft'); };
+    const realToast = app.showToast;
+    window.__toasts = [];
+    app.showToast = (msg, kind) => { window.__toasts.push({ msg, kind }); realToast.call(app, msg, kind); };
+  }, buildJob.toString());
+
+  const [popup] = await Promise.all([
+    context.waitForEvent('page'),
+    page.evaluate(() => {
+      const app = window.app;
+      app._openOutputTab('Material Order', app._generateMaterialOrderHTML(app._collectOutputData()));
+    }),
+  ]);
+  await popup.waitForSelector('#emailOrderBtn');
+  await popup.click('#emailOrderBtn');
+  await page.waitForFunction(() => window.__order.includes('draft'));
+
+  const res = await page.evaluate(() => ({
+    order: window.__order,
+    toasts: window.__toasts,
+    // The toast really landed in the app document, which is the one the
+    // operator is now looking at.
+    rendered: Array.from(document.querySelectorAll('#toastContainer .toast')).map((t) => t.textContent),
+  }));
+  await popup.close();
+
+  // The opener was focused BEFORE the draft was built, so the clipboard write
+  // and the toast both happen in a focused, visible tab.
+  expect(res.order[0]).toBe('focus');
+  expect(res.order).toContain('draft');
+  // The message the operator must not miss actually reached them.
+  expect(res.toasts.some((t) => t.kind === 'error' && /no address on file/i.test(t.msg))).toBeTruthy();
+  expect(res.rendered.some((t) => /no address on file/i.test(t))).toBeTruthy();
+});

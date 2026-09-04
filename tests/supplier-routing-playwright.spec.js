@@ -1081,3 +1081,94 @@ test('a supplier or profile name containing angle brackets renders verbatim in t
   expect(res.colour).toBe('Monument');
   expect(res.panelWidth).toContain('mm');
 });
+
+// The work order is the crew's document and it interpolated operator free text
+// straight into markup. An apostrophe is harmless; a LESS-THAN sign is not — a
+// surname of `Steel <WA>` was parsed as a start tag and swallowed the markup
+// after it, truncating the name to "Mary Steel".
+test('operator text with angle brackets renders verbatim on the work order, once-escaped', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    Object.assign(job, {
+      clientFirstName: 'Mary', clientLastName: 'Steel <WA>', client: 'Mary Steel <WA>',
+      address: '12 "Analytical" Way & Sons <Perth>',
+      ref: 'FEN-<2001> & "B"',
+      phone: "0400 000 000 (Bob's)",
+      email: 'mary+<wa>@example.com',
+      scoper: "O'Brien <Sam> & Co",
+      neighboursRequired: true,
+      neighbours: [{
+        id: 'nb-1', firstName: 'Grace', lastName: 'Hopper <QLD>',
+        phone: "0400 111 222 (Gran's)", address: '14 "Analytical" Way & Co <Perth>',
+        email: 'grace+<q>@example.com', sharePercent: 50,
+      }],
+    });
+    job.runs[0].name = 'Rear <north> & "side"';
+    job.installation = { supplierSource: 'Fencing Warehouse' };
+    job.siteNotes = 'Gate on <east> side & "locked"\nSecond line';
+    app.job = Object.assign(app.job, job);
+
+    const d = app._collectOutputData();
+    const html = app._generateWorkOrderHTML(d);
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frame.contentDocument.open(); frame.contentDocument.write(html); frame.contentDocument.close();
+    const doc = frame.contentDocument;
+    const rowText = (label) => {
+      const el = Array.from(doc.querySelectorAll('.info-grid div'))
+        .find((n) => n.querySelector('.label') && n.querySelector('.label').textContent.trim() === label);
+      return el ? el.querySelector('.value').textContent : null;
+    };
+    const notesSection = Array.from(doc.querySelectorAll('.section'))
+      .find((n) => n.querySelector('h2') && /Site Notes/.test(n.querySelector('h2').textContent));
+    const out = {
+      h1: doc.querySelector('h1').textContent,
+      client: rowText('Client:'), jobRef: rowText('Job Ref:'), address: rowText('Address:'),
+      phone: rowText('Phone:'), email: rowText('Email:'), scoper: rowText('Scoper:'),
+      nbName: rowText('Name:'),
+      neighbourBlock: (Array.from(doc.querySelectorAll('.section'))
+        .find((n) => n.querySelector('h2') && /Neighbour Details/.test(n.querySelector('h2').textContent)) || {}).textContent || '',
+      runHeadings: Array.from(doc.querySelectorAll('h2')).map((h) => h.textContent).filter((t) => /panels,/.test(t)),
+      notesText: notesSection ? notesSection.querySelector('p').textContent : null,
+      notesBrCount: notesSection ? notesSection.querySelectorAll('br').length : 0,
+      bodyText: doc.body.textContent,
+      // The last section must still exist: if any value swallowed the markup
+      // after it, this heading is gone.
+      lastHeading: Array.from(doc.querySelectorAll('h2')).map((h) => h.textContent).pop(),
+    };
+    frame.remove();
+    return out;
+  }, buildLegacyJob.toString());
+
+  // Every operator value survives literally — nothing truncated, nothing swallowed.
+  expect(res.client).toBe('Mary Steel <WA>');
+  expect(res.phone).toBe("0400 000 000 (Bob's)");
+  expect(res.nbName).toBe('Grace Hopper <QLD>');
+  expect(res.jobRef).toBe('FEN-<2001> & "B"');
+  expect(res.h1).toContain('FEN-<2001> & "B"');
+  expect(res.address).toBe('12 "Analytical" Way & Sons <Perth>');
+  expect(res.email).toBe('mary+<wa>@example.com');
+  expect(res.scoper).toBe("O'Brien <Sam> & Co");
+  expect(res.runHeadings[0]).toContain('Rear <north> & "side"');
+  expect(res.neighbourBlock).toContain('Grace Hopper <QLD>');
+  expect(res.neighbourBlock).toContain('14 "Analytical" Way & Co <Perth>');
+  expect(res.neighbourBlock).toContain('grace+<q>@example.com');
+  expect(res.neighbourBlock).toContain("0400 111 222 (Gran's)");
+
+  // Site notes: the operator's text is escaped AND its newlines are still real
+  // line breaks, so escaping did not happen after the <br> substitution.
+  expect(res.notesText).toContain('Gate on <east> side & "locked"');
+  expect(res.notesText).toContain('Second line');
+  expect(res.notesBrCount).toBe(1);
+
+  // Nothing is double-escaped: the crew must never read a literal entity.
+  expect(res.bodyText).not.toContain('&amp;');
+  expect(res.bodyText).not.toContain('&lt;');
+  expect(res.bodyText).not.toContain('&quot;');
+
+  // The document is intact all the way to its final section.
+  expect(res.lastHeading).toContain('Internal Cost Breakdown');
+});

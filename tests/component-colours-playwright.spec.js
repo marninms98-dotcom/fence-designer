@@ -1332,3 +1332,70 @@ test('the work order and the order run breakdown name each run its own colour', 
   expect(res.afterBreakdown).toContain('Front: 0 panels, 0m\n\n');
   expect(res.afterOrder).not.toContain('Surfmist');
 });
+
+// Plinths are per-run overridable and plinthGroups is keyed by that colour, so
+// a job whose runs differ ONLY in plinth colour genuinely orders two plinth
+// stocks — and the two crew documents must say which run takes which. The
+// run-level notion of "uniform" therefore has to include plinths, unlike a
+// postGroups row's, where plinths are a separate order line entirely.
+test('a run whose only difference is its plinth colour is named on both crew documents', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const headings = (html) => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      return Array.from(doc.querySelectorAll('h2'))
+        .map((h) => h.textContent.replace(/\s+/g, ' ').trim())
+        .filter((t) => /panels,/.test(t));
+    };
+    const breakdown = (order) => {
+      const i = order.indexOf('RUN BREAKDOWN');
+      return i === -1 ? '' : order.slice(i);
+    };
+    const before = window.__snapshot(null);
+    const after = window.__snapshot((app, job) => {
+      // Sheets, rails and posts are identical on every run. ONLY the plinths
+      // differ, which is the case a three-component uniform test cannot see.
+      job.runs[1].colours = { plinths: 'Basalt' };
+      // A run with panels but NO retaining: it buys no plinths, so it must
+      // name no plinth colour even though one is set on it.
+      job.runs.push({
+        id: 'run-c', name: 'Front', length: 6, sheetHeight: 1800,
+        colours: { plinths: 'Surfmist' },
+        panels: [
+          { id: 'c1', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+          { id: 'c2', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        ],
+      });
+    });
+    return {
+      beforeHeadings: headings(before.workOrder),
+      afterHeadings: headings(after.workOrder),
+      beforeBreakdown: breakdown(before.order),
+      afterBreakdown: breakdown(after.order),
+      afterOrder: after.order,
+      afterPlinthGroups: after.plinthGroups,
+    };
+  });
+
+  // The order genuinely buys two plinth colours...
+  expect(res.afterPlinthGroups.map((g) => g.colour).sort()).toEqual(['Basalt', 'Monument', 'Monument']);
+  expect(res.afterOrder).toContain('— Monument');
+  expect(res.afterOrder).toContain('— Basalt');
+
+  // ...so the run that takes the Basalt plinths says so, on both documents.
+  expect(res.afterHeadings).toContain('Left (3 panels, 9m) — Sheets Monument / Rails Monument / Posts Monument / Plinths Basalt');
+  expect(res.afterBreakdown).toContain('Left: 3 panels, 9m\n    Colour: Sheets Monument / Rails Monument / Posts Monument / Plinths Basalt\n');
+
+  // The run that takes Monument plinths names its one colour, not four.
+  expect(res.afterHeadings).toContain('Rear (4 panels, 12m) — Monument');
+  expect(res.afterBreakdown).toContain('Rear: 4 panels, 12m\n    Colour: Monument\n');
+
+  // The run with no retaining buys no plinths, so it names none — and its
+  // unused override never reaches the order.
+  expect(res.afterHeadings).toContain('Front (2 panels, 6m) — Monument');
+  expect(res.afterOrder).not.toContain('Surfmist');
+
+  // A single-colour job still adds nothing to either document.
+  expect(res.beforeHeadings).toEqual(['Rear (4 panels, 12m)', 'Left (3 panels, 9m)']);
+  expect(res.beforeBreakdown).not.toContain('Colour:');
+});

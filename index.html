@@ -3600,7 +3600,7 @@
         if (d.removalItems.length > 0) {
           matRows += `<tr><td colspan="3" style="padding-top:8px;font-weight:700;font-size:11px;text-transform:uppercase;color:#4C6A70;border-top:1px solid #e5e7eb;">Removal</td></tr>`;
           d.removalItems.forEach(r => {
-            if (r.costPrice) matRows += `<tr><td>${r.desc}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)}</td><td class="r">$${f(r.qty * r.costPrice)}</td></tr>`;
+            if (r.costPrice) matRows += `<tr><td>${this._esc(r.desc)}</td><td class="r">${r.qty} ${r.unit} × $${f(r.costPrice)}</td><td class="r">$${f(r.qty * r.costPrice)}</td></tr>`;
           });
         }
         matRows += `<tr class="po-total"><td colspan="2">Total Cost (materials + removal)</td><td class="r">$${f(d.internalCost)}</td></tr>`;
@@ -4617,7 +4617,7 @@
                 <label>Run / After Panel</label>
                 <div style="display:flex;gap:8px;align-items:center;">
                   <select style="flex:1;" onchange="app.updateGate('${gate.id}', 'runIndex', this.value)">
-                    ${j.runs.map((r, ri) => `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${r.name || 'Unnamed'}</option>`).join('')}
+                    ${j.runs.map((r, ri) => `<option value="${ri}" ${gate.runIndex === ri ? 'selected' : ''}>${this._esc(r.name) || 'Unnamed'}</option>`).join('')}
                   </select>
                   <span style="font-weight:700;">P</span>
                   <input type="number" value="${gate.afterPanel}" min="1" style="width:70px;"
@@ -6627,7 +6627,13 @@
         const cc = d && d.componentColours;
         if (!cc || cc.uniform !== false) return '';
         if (!r || !(r.panelCount > 0)) return '';
-        return this._postGroupColourText(r, d.colour);
+        const sheetC = r.sheetColour != null ? r.sheetColour : d.colour;
+        if (r.uniformColour === false) {
+          let txt = 'Sheets ' + sheetC + ' / Rails ' + r.railColour + ' / Posts ' + r.postColour;
+          if (r.plinths > 0) txt += ' / Plinths ' + r.plinthColour;
+          return txt;
+        }
+        return String(sheetC == null ? '' : sheetC);
       },
 
       // The plinth stock this job orders, one row per colour x width class, in
@@ -10472,7 +10478,9 @@
             sheetColour: runColours.sheets,
             railColour: runColours.rails,
             postColour: runColours.posts,
-            uniformColour: runColours.rails === runColours.sheets && runColours.posts === runColours.sheets,
+            plinthColour: runColours.plinths,
+            uniformColour: runColours.rails === runColours.sheets && runColours.posts === runColours.sheets
+              && (runPlinths === 0 || runColours.plinths === runColours.sheets),
             panels: panelDetails,
             runSubtotal,
             runFencing,
@@ -11612,7 +11620,7 @@
               Copy for supplier email
             </button>
             <button class="no-print" id="emailOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#F15A29;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
-              onclick="if(window.opener&&window.opener.app){window.opener.app.emailMaterialOrder();}else{alert('Reopen the material order from the app to draft the email.');}">
+              onclick="if(window.opener&&window.opener.app){window.opener.focus();window.opener.app.emailMaterialOrder();}else{alert('Reopen the material order from the app to draft the email.');}">
               ✉ Draft Email in Outlook
             </button>
           </div>
@@ -11626,7 +11634,7 @@
         let runsHtml = '';
         d.runDetails.forEach(r => {
           const runColourText = this._runColourText(d, r);
-          runsHtml += `<div class="section"><h2>${r.name} (${r.panelCount} panels, ${r.length}m)${runColourText ? ` — ${this._esc(runColourText)}` : ''}${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
+          runsHtml += `<div class="section"><h2>${this._esc(r.name)} (${r.panelCount} panels, ${r.length}m)${runColourText ? ` — ${this._esc(runColourText)}` : ''}${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
           if (r.hasRetaining) {
             runsHtml += '<table><thead><tr><th>Panel</th><th>Fence</th><th>Ret.</th><th>Total</th><th>Post</th><th>Notes</th></tr></thead><tbody>';
             r.panels.forEach(p => {
@@ -11656,8 +11664,8 @@
         scopeChecklist += '<li>Set all posts in concrete (2 bags/post)</li>';
         if (d.totalPlinths > 0) scopeChecklist += `<li>Install ${d.totalPlinths} retaining plinths</li>`;
         if (d.totalPatioTubes > 0) scopeChecklist += `<li>Install ${d.totalPatioTubes} patio tubes at retained sections</li>`;
-        d.removalItems.forEach(r => { scopeChecklist += `<li>${r.desc} (${r.qty} ${r.unit})</li>`; });
-        d.gateLineItems.forEach(g => { scopeChecklist += `<li>${g.desc}</li>`; });
+        d.removalItems.forEach(r => { scopeChecklist += `<li>${this._esc(r.desc)} (${r.qty} ${r.unit})</li>`; });
+        d.gateLineItems.forEach(g => { scopeChecklist += `<li>${this._esc(g.desc)}</li>`; });
         if (d.groundFinishDesc) scopeChecklist += `<li>${d.groundFinishDesc}</li>`;
         const inst = d.job.installation || {};
         if (inst.coreDrill && inst.coreDrillHoles > 0) scopeChecklist += `<li>Core drill ${inst.coreDrillHoles} holes</li>`;
@@ -11670,7 +11678,7 @@
         if (d.internalRemovalCost > 0) costHtml += `<tr><td>Removal cost</td><td class="text-right">$${this._fmt(d.internalRemovalCost)}</td></tr>`;
         costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
         if (d.addonsTotal > 0) {
-          d.addonItems.forEach(a => { costHtml += `<tr><td>${a.desc}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
+          d.addonItems.forEach(a => { costHtml += `<tr><td>${this._esc(a.desc)}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         }
         costHtml += `<tr><td>Delivery</td><td class="text-right">$${this._fmt(d.deliveryFee)}</td></tr>`;
         costHtml += `<tr class="total-row"><td>Total cost</td><td class="text-right">$${this._fmt(d.internalCost + d.internalLabour + d.deliveryFee)}</td></tr>`;
@@ -11682,17 +11690,17 @@
           <button class="print-btn no-print" onclick="window.print()">Print / PDF</button>
           <div class="header">
             <img src="${this._logoUrl()}" alt="SecureWorks Group" class="header-logo">
-            <h1>WORK ORDER \u2014 ${d.job.ref || '\u2014'}</h1>
+            <h1>WORK ORDER \u2014 ${this._esc(d.job.ref) || '\u2014'}</h1>
           </div>
           <div class="section">
             <div class="info-grid">
-              <div><span class="label">Client:</span> <span class="value">${d.job.client || '\u2014'}</span></div>
-              <div><span class="label">Job Ref:</span> <span class="value">${d.job.ref || '\u2014'}</span></div>
-              <div><span class="label">Address:</span> <span class="value">${d.job.address || '\u2014'}</span></div>
+              <div><span class="label">Client:</span> <span class="value">${this._esc(d.job.client) || '\u2014'}</span></div>
+              <div><span class="label">Job Ref:</span> <span class="value">${this._esc(d.job.ref) || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${this._esc(d.job.address) || '\u2014'}</span></div>
               <div><span class="label">Date:</span> <span class="value">${date}</span></div>
-              <div><span class="label">Phone:</span> <span class="value">${d.job.phone || '\u2014'}</span></div>
-              <div><span class="label">Email:</span> <span class="value">${d.job.email || '\u2014'}</span></div>
-              <div><span class="label">Scoper:</span> <span class="value">${d.job.scoper || '\u2014'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${this._esc(d.job.phone) || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${this._esc(d.job.email) || '\u2014'}</span></div>
+              <div><span class="label">Scoper:</span> <span class="value">${this._esc(d.job.scoper) || '\u2014'}</span></div>
               <div><span class="label">Access:</span> <span class="value">${d.js.access}</span></div>
               <div><span class="label">Urgency:</span> <span class="value">${d.js.urgency}</span></div>
             </div>
@@ -11706,10 +11714,10 @@
           ${((d.job.neighbours || []).filter(n => n.firstName || n.lastName).length > 0) ? `<div class="section">
             <h2>Neighbour Details</h2>
             ${d.job.neighbours.filter(n => n.firstName || n.lastName).map(n => `<div class="info-grid" style="margin-bottom:8px;">
-              <div><span class="label">Name:</span> <span class="value">${[n.firstName, n.lastName].filter(Boolean).join(' ') || '\u2014'}</span></div>
-              <div><span class="label">Phone:</span> <span class="value">${n.phone || '\u2014'}</span></div>
-              <div><span class="label">Address:</span> <span class="value">${n.address || '\u2014'}</span></div>
-              <div><span class="label">Email:</span> <span class="value">${n.email || '\u2014'}</span></div>
+              <div><span class="label">Name:</span> <span class="value">${this._esc([n.firstName, n.lastName].filter(Boolean).join(' ')) || '\u2014'}</span></div>
+              <div><span class="label">Phone:</span> <span class="value">${this._esc(n.phone) || '\u2014'}</span></div>
+              <div><span class="label">Address:</span> <span class="value">${this._esc(n.address) || '\u2014'}</span></div>
+              <div><span class="label">Email:</span> <span class="value">${this._esc(n.email) || '\u2014'}</span></div>
             </div>`).join('')}
           </div>` : ''}
           <div class="section">
@@ -11733,7 +11741,7 @@
           ${runsHtml}
           <div class="section">
             <h2>Gates</h2>
-            ${d.gateLineItems.length > 0 || (d.job.gates && d.job.gates.length > 0) ? d.gateLineItems.map(g => `<p>${g.desc}${g.qty > 1 ? ' \u00D7 ' + g.qty : ''} \u2014 90x90mm SHS gate posts</p>`).join('') : '<p>None</p>'}
+            ${d.gateLineItems.length > 0 || (d.job.gates && d.job.gates.length > 0) ? d.gateLineItems.map(g => `<p>${this._esc(g.desc)}${g.qty > 1 ? ' \u00D7 ' + g.qty : ''} \u2014 90x90mm SHS gate posts</p>`).join('') : '<p>None</p>'}
           </div>
           <div class="section">
             <h2>Summary</h2>
@@ -11757,7 +11765,7 @@
             if (items.length === 0) return '';
             return '<div class="section" style="border:2px solid #F59E0B;background:#FEF3C7;border-radius:6px;padding:12px 16px;">' +
               '<h2 style="color:#92400E;margin-top:0;">\u26A0 Scoper Manual Adjustments</h2>' +
-              '<p style="font-size:13px;color:#92400E;">The following quantities were manually adjusted by ' + (mv.verifier || 'scoper') + ' on ' + (mv.timestamp ? new Date(mv.timestamp).toLocaleDateString('en-AU') : 'unknown date') + ':</p>' +
+              '<p style="font-size:13px;color:#92400E;">The following quantities were manually adjusted by ' + this._esc(mv.verifier || 'scoper') + ' on ' + (mv.timestamp ? new Date(mv.timestamp).toLocaleDateString('en-AU') : 'unknown date') + ':</p>' +
               '<ul style="color:#92400E;">' + items.map(i => '<li><strong>' + i + '</strong></li>').join('') + '</ul>' +
             '</div>';
           })()}
@@ -11784,13 +11792,13 @@
               <li>All rubbish removed from site</li>
             </ul>
           </div>
-          ${d.js.notes ? `<div class="section"><h2>Site Notes</h2><p>${d.js.notes.replace(/\n/g, '<br>')}</p></div>` : ''}
+          ${d.js.notes ? `<div class="section"><h2>Site Notes</h2><p>${this._esc(d.js.notes).replace(/\n/g, '<br>')}</p></div>` : ''}
           ${(() => {
             const photos = (d.job.checklist && d.job.checklist.photos) || [];
             if (photos.length === 0) return '';
             return '<div class="section"><h2>Site Photos</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
               photos.map(p => '<div style="text-align:center;"><img src="' + p.dataUrl + '" style="max-width:100%;max-height:200px;border-radius:4px;border:1px solid #e5e7eb;">' +
-                '<div style="font-size:10px;color:#4C6A70;margin-top:2px;">' + (p.name || '') + '</div></div>').join('') +
+                '<div style="font-size:10px;color:#4C6A70;margin-top:2px;">' + this._esc(p.name || '') + '</div></div>').join('') +
               '</div></div>';
           })()}
           <div class="section" style="border-top:2px solid #293C46;padding-top:16px;">
