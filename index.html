@@ -3396,7 +3396,7 @@
         // Fencing (suppressed in gate-only mode)
         if (!isGateOnly) {
           rows += `<tr class="qb-cat"><td colspan="3">Fencing</td></tr>`;
-          rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(d.colour || '')} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
+          rows += `<tr><td>COLORBOND ${this._esc(d.profile || '')} — ${this._esc(this.resolvedSheetColour(d))} (${d.totalMetres.toFixed(1)}m @ $${d.pricePerMetre}/m)</td><td class="r">${d.totalPanels} panels</td><td class="r">$${f(d.fencingTotal)}</td></tr>`;
           if (d.totalPlinths > 0)
             rows += `<tr><td>Retaining plinths (150mm COLORBOND)</td><td class="r">${d.totalPlinths} × $${d.plinthSell}</td><td class="r">$${f(d.plinthsTotal)}</td></tr>`;
           if (d.totalPatioTubes > 0)
@@ -3489,7 +3489,7 @@
 
             // Build per-run allocation items
             const items = [];
-            if (rd.length > 0) items.push({ key: 'fencing', desc: `${d.colour || ''} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
+            if (rd.length > 0) items.push({ key: 'fencing', desc: `${rd.sheetColour || this.resolvedSheetColour(d)} ${d.profile || 'Fencing'}, ${rd.length.toFixed(1)}m`, total: rd.runFencing });
             if (rd.plinths > 0) items.push({ key: 'plinths', desc: `Retaining plinths ×${rd.plinths}`, total: rd.runPlinthsCost });
             if (rd.patioTubes > 0) items.push({ key: 'patio_tubes', desc: `Patio tubes ×${rd.patioTubes}`, total: rd.runPatioCost });
             // Pro-rated delivery
@@ -6480,6 +6480,29 @@
         const sheet = rc.sheets || this.job.colour || '';
         if (component === 'sheets') return sheet;
         return rc[component] || jc[component] || sheet;
+      },
+
+      // THE sheet colour to show a human for a whole job. Every rendered
+      // surface — quote, order, work order, PO card, checklist, pricing
+      // descriptions — must go through here rather than reading `d.colour`,
+      // because `d.colour` is the job DEFAULT and a run can override it. Naming
+      // the default on a document while the order buys the override is how the
+      // quote came to contradict the material order.
+      resolvedSheetColour(d) {
+        if (d && d.sheetColourResolved) return d.sheetColourResolved;
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        return sheets.length ? sheets.join(' / ') : ((d && d.colour) || '');
+      },
+
+      // A swatch can only paint one colour. Where a job resolves to several
+      // sheet colours this takes the first RESOLVED one, never the job default.
+      primarySheetColour(d) {
+        const cc = d && d.componentColours;
+        const sheets = (cc && cc.sheets) ? cc.sheets : [];
+        if (sheets.length) return sheets[0];
+        if (d && d.sheetColourResolved) return String(d.sheetColourResolved).split(' / ')[0];
+        return (d && d.colour) || '';
       },
 
       // The four colours for one run, plus `uniform` — true when they are all
@@ -10358,6 +10381,7 @@
             patioTubes,
             panelsWithPatio,
             hasRetaining,
+            sheetColour: runColours.sheets,
             panels: panelDetails,
             runSubtotal,
             runFencing,
@@ -10663,6 +10687,11 @@
           }
         }
 
+        const _componentColours = this._summariseComponentColours(job);
+        const _sheetColourResolved = (_componentColours.sheets || []).length
+          ? _componentColours.sheets.join(' / ')
+          : (job.colour || '');
+
         return {
           job, js, scopeType: job.scopeType || 'fence-and-gate',
           // `supplier` is the PANEL SYSTEM (job.supplier keys SUPPLIER_PROFILES).
@@ -10677,7 +10706,8 @@
           totalPlinthsStandard, totalPlinthsLong,
           plinthLongWidthMm: supplier.longPanelWidth || 3150,
           plinthLongCost: COST_PRICES.plinthLong,
-          postGroups, plinthGroups, componentColours: this._summariseComponentColours(job),
+          postGroups, plinthGroups, componentColours: _componentColours,
+          sheetColourResolved: _sheetColourResolved,
           runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
@@ -11072,7 +11102,7 @@
           const heights = [...new Set(d.runDetails.map(r => r.panels.length > 0 ? r.panels[0].height : d.job.runs[0].sheetHeight))];
           const heightStr = heights.length === 1 ? heights[0] + 'mm' : heights.map(h => h + 'mm').join(' / ');
 
-          parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${d.colour} (${heightStr} height)`);
+          parts.push(`Supply and professional installation of ${d.totalMetres.toFixed(1)} lineal metres of COLORBOND\u00AE ${d.profile} fencing in ${this.resolvedSheetColour(d)} (${heightStr} height)`);
           if (d.totalPlinths > 0) parts.push(`including retaining plinths (${d.totalPlinths} \u00D7 150mm)`);
           if (d.totalPatioTubes > 0) parts.push('with structural bracing where required');
           parts.push('All posts set in concrete');
@@ -11115,7 +11145,8 @@
         const date = d.job.date || new Date().toISOString().slice(0, 10);
         const validUntil = new Date(new Date(date).getTime() + 30 * 86400000).toISOString().slice(0, 10);
         const scopeDesc = this._buildQuoteScopeDesc(d);
-        const colourHex = this._getColourHex(d.colour);
+        const quoteSheetColour = this.resolvedSheetColour(d);
+        const colourHex = this._getColourHex(this.primarySheetColour(d));
 
         // Profile image URL
         const imgBase = 'https://steelselect.com.au/sites/default/files/images/products/main/';
@@ -11135,7 +11166,7 @@
         // Itemised category rows for the Pricing table (one row per non-zero category)
         const isGateOnlyHtml = d.scopeType === 'gate-only';
         const fencingLabel = isGateOnlyHtml ? '' : 'COLORBOND\u00AE Fencing';
-        const fencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${d.colour}` : '';
+        const fencingDetail = (d.totalMetres > 0 && d.profile && quoteSheetColour) ? `${d.totalMetres.toFixed(1)}m ${d.profile} in ${quoteSheetColour}` : '';
         const gatesDetail = (d.gateLineItems || []).map(g => (g.qty > 1 ? g.qty + ' \u00D7 ' : '') + g.desc).join(' | ');
         const categoryRows = [
           { label: fencingLabel,        detail: fencingDetail, amount: d.fencingTotal },
@@ -11199,7 +11230,7 @@
               <div class="spec-card">
                 <div style="font-size:11px;font-weight:700;color:#4C6A7C;text-transform:uppercase;margin-bottom:6px;">Colour</div>
                 <div class="colour-swatch" style="background:${colourHex};"></div>
-                <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(d.colour)}</div>
+                <div style="font-size:13px;font-weight:700;color:#293C46;margin-top:6px;">COLORBOND\u00AE ${this._esc(quoteSheetColour)}</div>
               </div>
             </div>
           </div>`}
@@ -11295,7 +11326,7 @@
         <div class="section">
           <div class="section-title">Fence Specification</div>
           <table>
-            <tr><td><strong>Profile:</strong></td><td>${this._esc(d.profile || '')} — ${this._esc(d.colour || '')}</td></tr>
+            <tr><td><strong>Profile:</strong></td><td>${this._esc(d.profile || '')} — ${this._esc(this.resolvedSheetColour(d))}</td></tr>
             <tr><td><strong>Shared boundary:</strong></td><td>${totalM.toFixed(1)}m across ${nbRuns.length} run${nbRuns.length > 1 ? 's' : ''}</td></tr>`;
 
         nbRuns.forEach(r => {
@@ -11412,10 +11443,11 @@
           order += `\n${'='.repeat(50)}\n  SECTION 2: GATES & GATE POSTS\n${'='.repeat(50)}\n\n`;
           order += `GATE POSTS:\n${d.gatePosts} \u00D7 90x90mm SHS Gate Posts\n\n`;
           const allGates = [];
+          const gateColour = this.resolvedSheetColour(d);
           (d.job.gates || []).forEach(g => {
             const h = g.height || 1800;
-            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
-            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${h}mm H | ${d.colour}`);
+            if (g.type === 'pedestrian') allGates.push(`1 \u00D7 Pedestrian gate kit | ${g.width}mm W | ${h}mm H | ${gateColour}`);
+            else if (g.type === 'double') allGates.push(`1 \u00D7 Double swing gate kit | ${g.width}mm W | ${h}mm H | ${gateColour}`);
           });
           if (allGates.length) order += `GATE KITS:\n${allGates.join('\n')}\n\n`;
         }
@@ -12217,7 +12249,8 @@
           }).join('; ');
           panelItems.push('Set out ' + runs.length + ' fence run' + (runs.length > 1 ? 's' : '') + ' to boundary: ' + runList);
         }
-        var profileLabel = (d.colour ? 'COLORBOND® ' + d.colour : '') + (d.profile ? ((d.colour ? ', ' : '') + d.profile + ' profile') : '');
+        var scopeSheetColour = d.sheetColourResolved || d.colour;
+        var profileLabel = (scopeSheetColour ? 'COLORBOND® ' + scopeSheetColour : '') + (d.profile ? ((scopeSheetColour ? ', ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = 'COLORBOND® steel';
         var panelCount = d.totalPanels || 0;
         // Unique panel heights across all runs
@@ -12325,7 +12358,8 @@
         heights.forEach(function(h) { if (uniqHeights.indexOf(h) < 0) uniqHeights.push(h); });
         var heightStr = uniqHeights.length ? uniqHeights.sort(function(a,b){return a-b;}).map(function(h){return h+'mm';}).join(' / ') : '—';
 
-        var profileLabel = (d.colour ? ('COLORBOND® ' + d.colour) : '') + (d.profile ? ((d.colour ? ' · ' : '') + d.profile + ' profile') : '');
+        var quotedSheetColour = this.resolvedSheetColour(d);
+        var profileLabel = (quotedSheetColour ? ('COLORBOND® ' + quotedSheetColour) : '') + (d.profile ? ((quotedSheetColour ? ' · ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = (d.profile || 'Colorbond fence');
 
         var totalPosts = (d.allPosts != null) ? d.allPosts : (d.totalPosts || 0);
@@ -12341,7 +12375,6 @@
         // order legitimately buys two sheet colours — so the Colour row itself
         // must name them all, or the quote states a colour we are not buying.
         var sheetColours = (cc && cc.sheets) ? cc.sheets : [];
-        var quotedSheetColour = sheetColours.length ? sheetColours.join(' / ') : d.colour;
         if (cc && !cc.uniform) {
           var sheetList = sheetColours.join(' / ');
           colourBreakdown = ['rails', 'posts', 'plinths'].map(function(k) {
@@ -12354,7 +12387,7 @@
         specs.push(['Total Length', (Number(d.totalMetres) || 0).toFixed(1) + ' lineal metres']);
         specs.push(['Height', heightStr]);
         if (d.profile) specs.push(['Profile', d.profile]);
-        if (d.colour) specs.push(['Colour', 'COLORBOND® ' + quotedSheetColour + (colourBreakdown ? ' (sheets)' : '')]);
+        if (quotedSheetColour) specs.push(['Colour', 'COLORBOND® ' + quotedSheetColour + (colourBreakdown ? ' (sheets)' : '')]);
         // Only when a component genuinely differs — one extra row, so the fixed
         // PDF page budget is unaffected in the common all-matching case.
         if (colourBreakdown) specs.push(['Trim Colours', colourBreakdown]);
@@ -12401,7 +12434,7 @@
         var isGateOnly = (d.scopeType === 'gate-only');
         if (!isGateOnly && (Number(d.fencingTotal) || 0) > 0) {
           priceLineItems.push({
-            label: ('COLORBOND® ' + (d.colour || '') + (d.profile ? ' ' + d.profile : '')).replace(/\s+/g, ' ').trim() + ' fencing',
+            label: ('COLORBOND® ' + (quotedSheetColour || '') + (d.profile ? ' ' + d.profile : '')).replace(/\s+/g, ' ').trim() + ' fencing',
             detail: (Number(d.totalMetres) || 0).toFixed(1) + 'm · ' + (d.totalPanels || 0) + ' panels',
             amtStr: money(d.fencingTotal)
           });
@@ -12585,13 +12618,14 @@
           return '<div class="runitem"><span class="rname">' + E(r.name) + '</span><span class="rspec">' + E(r.spec) + '</span><span class="rlen">' + E(r.length) + '</span></div>';
         }).join('');
 
+        var coloursUniform = !d.componentColours || d.componentColours.uniform !== false;
         var includeItems = [
           'Professional installation by our licensed crew',
           'All posts set in concrete footings',
-          'COLORBOND® steel, colour-matched throughout',
+          coloursUniform ? 'COLORBOND® steel, colour-matched throughout' : '',
           'Full site cleanup on completion',
           '12-month workmanship warranty'
-        ].map(function(t) {
+        ].filter(Boolean).map(function(t) {
           return '<div class="incitem"><span class="tick">' + TICK + '</span><span class="itxt">' + E(t) + '</span></div>';
         }).join('');
 
@@ -13535,7 +13569,7 @@
         }
 
         // Material selection
-        const colourHex = this._getColourHex(d.colour);
+        const colourHex = this._getColourHex(this.primarySheetColour(d));
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(41, 60, 70);
@@ -13552,7 +13586,7 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.setTextColor(41, 60, 70);
-        doc.text('COLORBOND ' + d.colour, mx + 14, y + 1);
+        doc.text('COLORBOND ' + this.resolvedSheetColour(d), mx + 14, y + 1);
         doc.text('Profile: ' + d.profile, mx + 14, y + 6);
         y += 14;
 
@@ -13567,7 +13601,7 @@
         doc.setFontSize(9);
         const theirRuns = costs.runs || [];
         const runDescs = theirRuns.map(r => {
-          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour;
+          let desc = (r.name || 'Run') + ': ' + r.length.toFixed(1) + 'm ' + d.profile + ' in ' + (r.sheetColour || this.resolvedSheetColour(d));
           if (r.plinths > 0) desc += ' (' + r.plinths + ' retaining plinths)';
           return desc;
         });
@@ -13779,7 +13813,7 @@
         y += 6;
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.text('COLORBOND ' + (d.colour || '') + '  |  Profile: ' + (d.profile || ''), mx, y);
+        doc.text('COLORBOND ' + (run.sheet_colour || this.resolvedSheetColour(d)) + '  |  Profile: ' + (d.profile || ''), mx, y);
         y += 8;
 
         // Line items table
@@ -14088,9 +14122,10 @@
             // Cost share % is mandatory before a CLIENT QUOTE is generated or
             // sent — it decides who is billed what, so it has no bearing on an
             // internal material or work order and must not block those.
-            // The input RENDERS an even-split default but only PERSISTS it when
-            // the operator touches it, so an untouched neighbour reaches the
-            // quote with no share at all. Everything downstream then silently
+            // The input renders EMPTY with the even split shown only as a
+            // placeholder, and no creation site seeds a share, so an untouched
+            // neighbour reaches the quote with no share at all. Everything
+            // downstream then silently
             // substitutes its own default (`n.sharePercent || ...`), which also
             // swallows a literal 0 — so 0 is treated as missing here too rather
             // than accepted and then ignored.
@@ -14589,7 +14624,7 @@
       } else {
         job_description = d.totalMetres.toFixed(0) + 'm Colorbond Fencing'
           + (dominantHeight ? ' — ' + dominantHeight + 'mm' : '')
-          + (d.colour ? ' ' + d.colour : '')
+          + (app.resolvedSheetColour(d) ? ' ' + app.resolvedSheetColour(d) : '')
           + (d.job && d.job.suburb ? ' — ' + d.job.suburb : '');
       }
 
@@ -14715,7 +14750,7 @@
         // Fencing
         if (rd.length > 0) {
           addItem(
-            (d.colour || '') + ' ' + (d.profile || 'Colorbond') + ' fencing — ' + rd.length.toFixed(1) + 'm',
+            (rd.sheetColour || app.resolvedSheetColour(d)) + ' ' + (d.profile || 'Colorbond') + ' fencing — ' + rd.length.toFixed(1) + 'm',
             rd.length, 'm', d.pricePerMetre, rd.runFencing, 'fencing'
           );
         }
@@ -14762,6 +14797,7 @@
         runs.push({
           run_label: runLabel,
           run_name: rd.name || runLabel,
+          sheet_colour: rd.sheetColour || app.resolvedSheetColour(d),
           neighbour_id: rd.neighbourId || null,
           neighbour_name: nb ? [nb.firstName, nb.lastName].filter(Boolean).join(' ') : null,
           neighbour_address: nb ? (nb.address || '') : null,
@@ -15111,7 +15147,7 @@
       (app.job.gates || []).forEach(function(g) {
         var typeLabel = g.type === 'pedestrian' ? 'Pedestrian gate kit' : 'Double swing gate kit';
         var panelH = (app.job.runs && app.job.runs[0] && app.job.runs[0].panels[0]) ? app.job.runs[0].panels[0].height : 1800;
-        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (d.colour || 'Shale Grey'), matQty: 1 });
+        gateRows.push({ idx: checkIdx++, desc: typeLabel + ' | ' + (g.width || 900) + 'mm W | ' + panelH + 'mm H | ' + (app.resolvedSheetColour(d) || 'Shale Grey'), matQty: 1 });
       });
       // Cross-check gates
       var pricingGates = pricingQty('gates');
@@ -15149,7 +15185,8 @@
       // ── Build quote preview summary ──
       var f = function(n) { return n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
       var quoteLines = '';
-      var mvFencingDetail = (d.totalMetres > 0 && d.profile && d.colour) ? (d.totalMetres.toFixed(1) + 'm ' + d.profile + ' in ' + d.colour) : '';
+      var mvSheetColour = app.resolvedSheetColour(d);
+      var mvFencingDetail = (d.totalMetres > 0 && d.profile && mvSheetColour) ? (d.totalMetres.toFixed(1) + 'm ' + d.profile + ' in ' + mvSheetColour) : '';
       var mvGatesDetail = (d.gateLineItems || []).map(function(g){ return (g.qty > 1 ? g.qty + ' × ' : '') + g.desc; }).join(' | ');
       var mvCategoryRows = [
         { label: 'COLORBOND Fencing', detail: mvFencingDetail, amount: d.fencingTotal },

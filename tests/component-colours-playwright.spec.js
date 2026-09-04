@@ -656,3 +656,174 @@ test('the checklist plinth rows mirror the order, colour by colour and width by 
   expect(res.split.rows.some((r) => r.includes('Surfmist'))).toBeTruthy();
   expect(res.split.order).toContain('— Surfmist');
 });
+
+// ── THE CLASS TEST ──────────────────────────────────────────────────────────
+// `job.colour` is the job DEFAULT sheet colour; a run can override it. Three
+// rounds of this defect all had the same shape: one more surface printing the
+// default while the material order buys the override. Rather than assert one
+// more site, this walks EVERY human-rendered surface at once and asserts that
+// none of them names the job colour once a component colour applies.
+//
+// Not covered here, deliberately and explicitly: generateNeighbourPDF and
+// generateRunQuotePDF draw into jsPDF, whose CDN script is blocked in these
+// tests and whose output is a binary PDF, not assertable text. What those two
+// paths READ is asserted instead — runDetails[].sheetColour and the
+// pricing_json run's sheet_colour — which is the data they render from.
+function collectEveryColourSurface() {
+  const app = window.app;
+  const raw = app._collectOutputData();
+  const quote = app._gatherFenceQuoteData(raw);
+  const nb = (app.job.neighbours || [])[0];
+
+  app.renderQuoteAndOrders();
+  app.renderCostBreakdown();
+
+  // The confirm-before-order gate, rendered for real and read from the DOM.
+  window.showMaterialVerificationModal(raw);
+  const modal = document.getElementById('materialVerifyModal');
+  const mvText = modal ? modal.textContent : '';
+  if (modal) modal.remove();
+
+  const pricing = app.buildPricingJson();
+  const stripB64 = (h) => h.replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]+/gi, 'data:[BINARY]');
+
+  return {
+    materialOrder: raw.job ? app._buildMaterialOrderText(raw) : '',
+    workOrder: app._generateWorkOrderHTML(raw),
+    clientQuote: stripB64(app._buildFenceQuoteHTML(quote, {}, { forPDF: false })),
+    legacyQuote: stripB64(app._generateQuoteHTML(raw)),
+    neighbourQuote: nb ? stripB64(app._generateNeighbourQuoteHTML(raw, nb, (raw.neighbourCosts || {})[nb.id] || { runs: [] })) : '',
+    quoteScopeDesc: app._buildQuoteScopeDesc(raw),
+    specs: quote.specs,
+    lede: quote.lede,
+    scopeText: JSON.stringify(quote.scopeGroups || []),
+    priceLineLabels: (quote.priceLineItems || []).map((li) => li.label),
+    poCard: document.getElementById('bodyQuoteOrders').textContent,
+    costBreakdown: document.getElementById('bodyCostBreakdown').textContent,
+    materialVerify: mvText,
+    pricingDescriptions: JSON.stringify([
+      pricing.job_description,
+      (pricing.line_items || []).map((li) => li.description),
+      (pricing.runs || []).map((r) => [r.sheet_colour, (r.items || []).map((i) => i.description)]),
+    ]),
+    runDetailSheetColours: (raw.runDetails || []).map((r) => r.sheetColour),
+    pricingRunSheetColours: (pricing.runs || []).map((r) => r.sheet_colour),
+    colourMatchedClaim: /colour-matched throughout/.test(stripB64(app._buildFenceQuoteHTML(quote, {}, { forPDF: false }))),
+    includedStripLive: /COLORBOND® steel throughout/.test(stripB64(app._buildFenceQuoteHTML(quote, {}, { forPDF: false }))),
+  };
+}
+
+// A shared-boundary job so the neighbour quote and the per-run pricing runs are
+// both populated, with the sheet colour overridden on its only run.
+function buildMixedColourJob() {
+  return {
+    clientFirstName: 'Ada', clientLastName: 'Lovelace', client: 'Ada Lovelace',
+    address: '12 Analytical Way, Perth WA 6000', phone: '0400000000', email: 'ada@example.com',
+    ref: 'FEN-4001',
+    supplier: 'Metroll', profile: 'Trimclad',
+    colour: 'Monument',
+    scopeType: 'fence-and-gate', pricePerMetre: 125,
+    gates: [{ id: 'g1', type: 'pedestrian', width: 900, height: 1800 }],
+    neighboursRequired: true,
+    neighbours: [{
+      id: 'nb-1', firstName: 'Grace', lastName: 'Hopper', phone: '0400111222',
+      email: 'grace@example.com', address: '14 Analytical Way, Perth WA 6000', sharePercent: 50,
+    }],
+    installation: { supplierSource: 'Fencing Warehouse' },
+    runs: [{
+      id: 'run-a', name: 'Rear', length: 12, sheetHeight: 1800, neighbourId: 'nb-1',
+      colours: { sheets: 'Basalt' },
+      panels: [
+        { id: 'p1', height: 1800, retaining: 150, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        { id: 'p2', height: 1800, retaining: 300, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'long' },
+        { id: 'p3', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+      ],
+    }],
+    quote: { urgency: 'standard', deliveryFee: 200, groundFinish: 'none', addons: {}, priceDisplay: 'itemized', customLineItems: [] },
+  };
+}
+
+test('no rendered surface names the job colour once a component colour overrides it', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, collectSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    // Job-level trim overrides on top of the run's sheet override, so every
+    // component resolves away from the job colour.
+    job.componentColours = { rails: 'Surfmist', posts: 'Surfmist', plinths: 'Basalt' };
+    app.job = Object.assign(app.job, job);
+    // eslint-disable-next-line no-eval
+    return eval('(' + collectSrc + ')')();
+  }, [buildMixedColourJob.toString(), collectEveryColourSurface.toString()]);
+
+  // The order is the source of truth for what we buy: Basalt sheets.
+  expect(res.materialOrder).toContain('Sheets: Basalt');
+  expect(res.materialOrder).toContain('Pedestrian gate kit');
+
+  // Every human-rendered surface. None may say Monument — nothing is bought in it.
+  const surfaces = {
+    materialOrder: res.materialOrder,
+    workOrder: res.workOrder,
+    clientQuote: res.clientQuote,
+    legacyQuote: res.legacyQuote,
+    neighbourQuote: res.neighbourQuote,
+    quoteScopeDesc: res.quoteScopeDesc,
+    specs: JSON.stringify(res.specs),
+    lede: res.lede,
+    scopeText: res.scopeText,
+    priceLineLabels: JSON.stringify(res.priceLineLabels),
+    poCard: res.poCard,
+    costBreakdown: res.costBreakdown,
+    materialVerify: res.materialVerify,
+    pricingDescriptions: res.pricingDescriptions,
+  };
+  Object.entries(surfaces).forEach(([name, text]) => {
+    expect(text, name + ' is non-empty').toBeTruthy();
+    expect(text.includes('Monument'), name + ' names the job colour "Monument"').toBeFalsy();
+  });
+  // ...and each names the colour actually being bought.
+  ['clientQuote', 'legacyQuote', 'neighbourQuote', 'quoteScopeDesc', 'lede', 'scopeText',
+   'priceLineLabels', 'poCard', 'materialVerify', 'pricingDescriptions', 'specs', 'workOrder']
+    .forEach((name) => expect(surfaces[name].includes('Basalt'), name + ' should name Basalt').toBeTruthy());
+
+  // The two jsPDF paths are not assertable as text; the data they read is.
+  expect(res.runDetailSheetColours).toEqual(['Basalt']);
+  expect(res.pricingRunSheetColours).toEqual(['Basalt']);
+
+  // The Included strip must not claim colour-matching on a three-colour job.
+  // It never does: the live strip reads 'COLORBOND® steel throughout', which
+  // asserts the material and not the colour.
+  expect(res.colourMatchedClaim).toBeFalsy();
+  expect(res.includedStripLive).toBeTruthy();
+});
+
+test('a job with no colour overrides still renders every surface as it does today', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, collectSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobSrc + ')')();
+    delete job.runs[0].colours;            // no overrides anywhere
+    app.job = Object.assign(app.job, job);
+    // eslint-disable-next-line no-eval
+    return eval('(' + collectSrc + ')')();
+  }, [buildMixedColourJob.toString(), collectEveryColourSurface.toString()]);
+
+  // Every surface reads the one job colour, exactly as before the feature.
+  ['materialOrder', 'workOrder', 'clientQuote', 'legacyQuote', 'neighbourQuote', 'quoteScopeDesc',
+   'lede', 'scopeText', 'poCard', 'materialVerify', 'pricingDescriptions']
+    .forEach((name) => expect(res[name].includes('Monument'), name).toBeTruthy());
+  expect(JSON.stringify(res.specs)).toContain('Monument');
+  expect(JSON.stringify(res.priceLineLabels)).toContain('Monument');
+  expect(res.specs).toContainEqual(['Colour', 'COLORBOND® Monument']);
+  expect(res.specs.map((s) => s[0])).not.toContain('Trim Colours');
+  expect(res.runDetailSheetColours).toEqual(['Monument']);
+  expect(res.pricingRunSheetColours).toEqual(['Monument']);
+  // The live Included strip is unchanged for a single-colour job.
+  expect(res.includedStripLive).toBeTruthy();
+  expect(res.colourMatchedClaim).toBeFalsy();
+  // And nothing accidentally names a colour nobody chose.
+  expect(res.materialOrder.includes('Basalt')).toBeFalsy();
+  expect(res.clientQuote.includes('Basalt')).toBeFalsy();
+});
