@@ -361,6 +361,9 @@ test('Unit 4 — with the clipboard denied, the over-length fallback names a cos
   expect(res.note).toContain('Material order for');
   expect(res.note).not.toMatch(/copy it across/i);
   expect(res.note).toContain('Copy for supplier email');
+  // ...and does not assume that tab is already open: emailMaterialOrder is
+  // reachable without it ever having been generated.
+  expect(res.note).toMatch(/generate the Material Order/i);
   // The toast does not claim a clipboard that was denied.
   expect(res.toasts.some((t) => /paste it from the clipboard/i.test(t.msg))).toBeFalsy();
   expect(res.toasts.some((t) => /Copy for supplier email/i.test(t.msg))).toBeTruthy();

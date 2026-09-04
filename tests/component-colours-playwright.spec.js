@@ -1276,3 +1276,59 @@ test('a colour set for stock the job does not carry never reaches the quote', as
   expect(res.mixed.order).toContain('Rails: Surfmist');
   expect(res.mixed.order).toContain('— Basalt');
 });
+
+// The two documents a person PHYSICALLY handling the job carries: the work
+// order the crew takes to site, and the RUN BREAKDOWN ops reconcile a delivery
+// against. The panel lines split by colour, but a postGroups key is spec +
+// colour and NEVER run, so without a per-run colour nothing maps the Basalt
+// stock to Run B and the crew can install either colour on either run.
+test('the work order and the order run breakdown name each run its own colour', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const headings = (html) => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      return Array.from(doc.querySelectorAll('h2'))
+        .map((h) => h.textContent.replace(/\s+/g, ' ').trim())
+        .filter((t) => /panels,/.test(t));
+    };
+    const breakdown = (order) => {
+      const i = order.indexOf('RUN BREAKDOWN');
+      return i === -1 ? '' : order.slice(i);
+    };
+    const before = window.__snapshot(null);
+    const after = window.__snapshot((app, job) => {
+      job.runs[1].colours = { sheets: 'Basalt' };
+      // A run the operator added for a later stage but has not drawn panels on
+      // yet. It puts nothing on the order, so it must name no colour either.
+      job.runs.push({
+        id: 'run-c', name: 'Front', length: 0, sheetHeight: 1800,
+        colours: { sheets: 'Surfmist' }, panels: [],
+      });
+    });
+    return {
+      beforeHeadings: headings(before.workOrder),
+      afterHeadings: headings(after.workOrder),
+      beforeBreakdown: breakdown(before.order),
+      afterBreakdown: breakdown(after.order),
+      beforeWorkOrder: before.workOrder,
+      beforeOrder: before.order,
+      afterOrder: after.order,
+    };
+  });
+
+  // A single-colour job adds nothing: both documents read exactly as before.
+  expect(res.beforeHeadings).toEqual(['Rear (4 panels, 12m)', 'Left (3 panels, 9m)']);
+  expect(res.beforeBreakdown).toContain('Rear: 4 panels, 12m');
+  expect(res.beforeBreakdown).not.toContain('Colour:');
+
+  // A genuine difference maps each run to the colour that goes on it.
+  expect(res.afterHeadings).toContain('Rear (4 panels, 12m) — Monument');
+  expect(res.afterHeadings).toContain('Left (3 panels, 9m) — Basalt');
+  expect(res.afterBreakdown).toContain('Rear: 4 panels, 12m\n    Colour: Monument\n');
+  expect(res.afterBreakdown).toContain('Left: 3 panels, 9m\n    Colour: Basalt\n');
+
+  // The panel-less run buys nothing, so it names nothing — on either document.
+  expect(res.afterHeadings).toContain('Front (0 panels, 0m)');
+  expect(res.afterBreakdown).toContain('Front: 0 panels, 0m\n\n');
+  expect(res.afterOrder).not.toContain('Surfmist');
+});

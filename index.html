@@ -6614,6 +6614,22 @@
         return String(sheetC == null ? '' : sheetC);
       },
 
+      // How ONE run's colours read on the two documents a person physically
+      // handling the job carries (work order, material order run breakdown).
+      // The panel lines split by colour but a group is keyed by spec + colour,
+      // never by run, so without this nothing maps the Basalt stock to Run B and
+      // the crew can put either colour on either run.
+      // Empty unless the job genuinely carries more than one colour ON THE ORDER
+      // (`componentColours` is derived from the order's own groups), and unless
+      // this run actually put panels on it — so a single-colour job renders both
+      // documents byte-identically, and a run carrying no stock names no colour.
+      _runColourText(d, r) {
+        const cc = d && d.componentColours;
+        if (!cc || cc.uniform !== false) return '';
+        if (!r || !(r.panelCount > 0)) return '';
+        return this._postGroupColourText(r, d.colour);
+      },
+
       // The plinth stock this job orders, one row per colour x width class, in
       // the order the supplier reads them. The material order and the Material
       // Verification checklist BOTH render from this, so the line the scoper
@@ -10454,6 +10470,9 @@
             panelsWithPatio,
             hasRetaining,
             sheetColour: runColours.sheets,
+            railColour: runColours.rails,
+            postColour: runColours.posts,
+            uniformColour: runColours.rails === runColours.sheets && runColours.posts === runColours.sheets,
             panels: panelDetails,
             runSubtotal,
             runFencing,
@@ -11545,7 +11564,9 @@
         // Per-run breakdown
         order += `\n${'='.repeat(50)}\n  RUN BREAKDOWN\n${'='.repeat(50)}\n\n`;
         d.runDetails.forEach(r => {
+          const runColourText = this._runColourText(d, r);
           order += `${r.name}: ${r.panelCount} panels, ${r.length}m\n`;
+          if (runColourText) order += `    Colour: ${runColourText}\n`;
           if (r.plinths > 0) {
             if (r.plinthsLong > 0) order += `    Plinths: ${r.plinths} (${r.plinthsStandard || 0} standard, ${r.plinthsLong} long)\n`;
             else order += `    Plinths: ${r.plinths}\n`;
@@ -11604,7 +11625,8 @@
         // Run breakdown
         let runsHtml = '';
         d.runDetails.forEach(r => {
-          runsHtml += `<div class="section"><h2>${r.name} (${r.panelCount} panels, ${r.length}m)${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
+          const runColourText = this._runColourText(d, r);
+          runsHtml += `<div class="section"><h2>${r.name} (${r.panelCount} panels, ${r.length}m)${runColourText ? ` — ${this._esc(runColourText)}` : ''}${r.patioTubes > 0 ? ` <span class="patio-flag">[${r.patioTubes} patio tubes]</span>` : ''}</h2>`;
           if (r.hasRetaining) {
             runsHtml += '<table><thead><tr><th>Panel</th><th>Fence</th><th>Ret.</th><th>Total</th><th>Post</th><th>Notes</th></tr></thead><tbody>';
             r.panels.forEach(p => {
@@ -14120,7 +14142,7 @@
         if (url.length > this._MAILTO_SAFE_LEN) {
           const note = 'Hi team,\n\nMaterial order for ' + (d.job.ref || d.job.address || 'the job below') + '.\n\n'
             + (copied ? 'Full order is on the clipboard \u2014 paste it here before sending.'
-                      : 'Full order: press "Copy for supplier email" on the Material Order tab, then paste it here before sending.')
+                      : 'Full order: generate the Material Order, press "Copy for supplier email", then paste it here before sending.')
             + '\n';
           url = this._buildMailtoUrl({ to: mail.to, cc: mail.cc, subject: mail.subject, body: note });
           clipped = true;
@@ -14132,7 +14154,7 @@
         } else if (clipped) {
           this.showToast(copied
             ? 'Draft opened \u2014 order too long for the link, paste it from the clipboard'
-            : 'Draft opened \u2014 order too long for the link, use "Copy for supplier email" on the Material Order tab', 'info');
+            : 'Draft opened \u2014 order too long for the link, generate the Material Order and use "Copy for supplier email"', 'info');
         } else {
           this.showToast('Outlook draft opened \u2014 check it and press Send yourself', 'success');
         }
