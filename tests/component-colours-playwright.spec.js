@@ -919,18 +919,32 @@ test('a custom colour containing an apostrophe still leaves the run override wor
       .find((b) => /Override for this run/i.test(b.textContent));
     const before = app.job.runs[0].colours;
     if (btn) btn.click();
+    const componentSelects = Array.from(document.querySelectorAll('#runContent select'))
+      .filter((sel) => {
+        const g = sel.closest('.form-group');
+        const l = g && g.querySelector('label');
+        return !!l && /^(Sheets|Rails|Posts|Plinths)$/i.test(l.textContent.trim());
+      });
     return {
       found: !!btn,
       before: before || null,
       after: app.job.runs[0].colours || null,
+      openedSelects: componentSelects.length,
+      sheetsOptions: componentSelects.length
+        ? Array.from(componentSelects[0].options).map((o) => o.value)
+        : [],
       resolved: app.getRunColourSet(app.job.runs[0]).sheets,
     };
   }, buildPreChangeJob.toString());
 
   expect(res.found).toBeTruthy();
   expect(res.before).toBeNull();
-  // The click actually ran: the override was written, with the apostrophe intact.
-  expect(res.after).toEqual({ sheets: "Bob's Grey" });
+  // The click actually ran — a broken handler would leave the block collapsed.
+  expect(res.openedSelects).toBe(4);
+  // The apostrophe survived into the option list the operator picks from.
+  expect(res.sheetsOptions).toContain("Bob's Grey");
+  // Opening stores nothing; the run still follows the job.
+  expect(res.after).toBeNull();
   expect(res.resolved).toBe("Bob's Grey");
 });
 
@@ -953,6 +967,8 @@ test('a run override on a custom colour is the selected option, not a fallback',
     const btn = Array.from(document.querySelectorAll('#runContent button'))
       .find((b) => /Override for this run/i.test(b.textContent));
     if (btn) btn.click();
+    // Opening reveals the pickers; choosing is what stores the colour.
+    app.updateRunColour('run-a', 'sheets', "Bob's Grey");
 
     // Now change the JOB colour. The run must keep — and keep showing — its own.
     app.updateColour('Monument');
@@ -1017,8 +1033,9 @@ test('a palette-colour job renders the run colour options exactly as before', as
 // It used to bake the resolved colour into its onclick at render time, and
 // nothing re-rendered the run block when the job colour changed. An operator
 // who switched the job to Basalt and then tapped Override pinned that run to
-// Monument — and the material order then bought Monument panels for it.
-test('overriding a run after a job colour change stores the NEW colour, not the stale one', async ({ page }) => {
+// Monument — and the material order then bought Monument panels for it. The
+// control now stores nothing at all, so no snapshot exists to go stale.
+test('overriding a run after a job colour change pins nothing stale', async ({ page }) => {
   await openApp(page);
   const res = await page.evaluate((jobSrc) => {
     const app = window.app;
@@ -1049,8 +1066,8 @@ test('overriding a run after a job colour change stores the NEW colour, not the 
     };
   }, buildPreChangeJob.toString());
 
-  // The override pins the colour the job actually has now.
-  expect(res.stored).toBe('Basalt');
+  // Nothing is pinned, so the run simply follows the job's current colour.
+  expect(res.stored).toBeNull();
   expect(res.resolved).toBe('Basalt');
   expect(res.runASheetColour).toBe('Basalt');
   // ...so the order buys Basalt, and never the abandoned colour.
@@ -1464,9 +1481,9 @@ test('the run override opens even before a job sheet colour has been chosen', as
   expect(res.afterBack).toEqual({ hasOverrideBtn: true, selects: 0 });
 });
 
-// The same control on a job that HAS a colour behaves exactly as it did:
-// the tap pins that colour as a real override.
-test('the run override still pins the job colour when one is set', async ({ page }) => {
+// The same control on a job that HAS a colour: it reveals the pickers and
+// stores nothing, so the job stays on the one colour it had.
+test('the run override on a job with a colour reveals the pickers and stores nothing', async ({ page }) => {
   await openApp(page);
   const res = await withApp(page, () => {
     const app = window.app;
@@ -1480,11 +1497,17 @@ test('the run override still pins the job colour when one is set', async ({ page
     if (btn) btn.click();
     return {
       stored: app.job.runs[0].colours || null,
+      selects: Array.from(document.querySelectorAll('#runContent select')).filter((sel) => {
+        const g = sel.closest('.form-group');
+        const l = g && g.querySelector('label');
+        return !!l && /^(Sheets|Rails|Posts|Plinths)$/i.test(l.textContent.trim());
+      }).length,
       order: app._buildMaterialOrderText(app._collectOutputData()),
     };
   });
 
-  expect(res.stored).toEqual({ sheets: 'Monument' });
+  expect(res.selects).toBe(4);
+  expect(res.stored).toBeNull();
   expect(res.order).toContain('Colour: Monument');
 });
 
@@ -1565,4 +1588,76 @@ test('a gate is ordered in the colour the order actually buys, and never two', a
   expect(res.mixedRuns.gateLines[0].includes('Basalt')).toBeFalsy();
   res.mixedRuns.mvGate.forEach((t) => expect(t.includes(' / ')).toBeFalsy());
   expect(res.mixedRuns.joinedOnAnyLine).toEqual([]);
+});
+
+// ── Opening the pickers is not a choice ────────────────────────────────────
+// Tapping "Override for this run" used to write the run's resolved SHEET
+// colour, which is the only way to reach the per-run PLINTH select. A later
+// job-colour change then left that run on the abandoned colour and the order
+// bought two colours from a sequence containing no mistake. Both halves matter:
+// opening must store nothing, and a colour the operator DID pick must stick.
+test('opening a run override stores nothing, but a picked colour still sticks', async ({ page }) => {
+  await openApp(page);
+  const res = await withApp(page, () => {
+    const app = window.app;
+    const open = (runId) => {
+      const btn = Array.from(document.querySelectorAll('#runContent button'))
+        .find((b) => /Override for this run/i.test(b.textContent));
+      if (btn) btn.click();
+      return !!btn;
+    };
+    const read = () => {
+      const raw = app._collectOutputData();
+      const order = app._buildMaterialOrderText(raw);
+      return {
+        stored: app.job.runs[0].colours || null,
+        resolved: app.getRunColourSet(app.job.runs[0]).sheets,
+        panelColourLines: order.split('\n').filter((l) => /^ {4}Colour: /.test(l)),
+        sheetColours: (raw.componentColours || {}).sheets || [],
+      };
+    };
+    const setUp = () => {
+      // The two cases share one app instance, and this fixture reuses run ids
+      // that a real job never would (production ids are 'run-' + Date.now()).
+      app._runColourOpenId = null;
+      // eslint-disable-next-line no-eval
+      app.job = Object.assign(app.job, eval('(' + window.__buildJob + ')')());
+      app.currentRunId = 'run-a';
+      if (!app._openSections.runs) app.toggleSection('runs');
+      app.render();
+    };
+
+    // (a) Open, pick NOTHING, then change the job colour.
+    setUp();
+    const openedA = open('run-a');
+    app.updateColour('Surfmist');
+    const pickedNothing = read();
+
+    // (b) Open, PICK a colour, then change the job colour.
+    setUp();
+    const openedB = open('run-a');
+    app.updateRunColour('run-a', 'sheets', 'Basalt');
+    app.updateColour('Surfmist');
+    const pickedOne = read();
+
+    return { openedA, openedB, pickedNothing, pickedOne };
+  });
+
+  expect(res.openedA).toBeTruthy();
+  expect(res.openedB).toBeTruthy();
+
+  // (a) Nothing was chosen, so the run follows the job and the order buys ONE
+  // colour — the operator never asked for a two-colour fence.
+  expect(res.pickedNothing.stored).toBeNull();
+  expect(res.pickedNothing.resolved).toBe('Surfmist');
+  expect(res.pickedNothing.sheetColours).toEqual(['Surfmist']);
+  expect(new Set(res.pickedNothing.panelColourLines)).toEqual(new Set(['    Colour: Surfmist']));
+
+  // (b) A deliberate pick survives the job-colour change, and the order
+  // correctly buys both — because that IS what was chosen.
+  expect(res.pickedOne.stored).toEqual({ sheets: 'Basalt' });
+  expect(res.pickedOne.resolved).toBe('Basalt');
+  expect(res.pickedOne.sheetColours.slice().sort()).toEqual(['Basalt', 'Surfmist']);
+  expect(res.pickedOne.panelColourLines).toContain('    Colour: Basalt');
+  expect(res.pickedOne.panelColourLines).toContain('    Colour: Surfmist');
 });

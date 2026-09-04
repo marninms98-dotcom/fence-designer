@@ -4490,15 +4490,16 @@
         this.renderRunContent();
       },
 
-      // Start overriding a run at the colour it resolves to RIGHT NOW. The
-      // button must not carry a colour baked in at render time: the job colour
-      // can change after this block was last drawn, and pinning the abandoned
-      // colour makes the material order buy stock the operator moved away from.
+      // REVEALS the per-component pickers and stores NOTHING. Writing the
+      // resolved sheet colour here would pin it on a run the operator only
+      // opened to set a plinth: a later job-colour change then leaves that run
+      // behind and the order buys two colours nobody asked for. A colour is
+      // stored only when the operator actually picks one.
       overrideRunColours(runId) {
         const run = (this.job.runs || []).find(r => r.id === runId);
         if (!run) return;
         this._runColourOpenId = runId;
-        this.updateRunColour(runId, 'sheets', this.getRunColourSet(run).sheets || '');
+        this.render();
       },
 
       updateRunColour(runId, component, value) {
