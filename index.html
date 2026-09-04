@@ -4802,8 +4802,8 @@
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <select title="Material items appear on the material order" style="min-height:44px;font-size:15px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
                   onchange="app.updateCustomItem(${i}, 'kind', this.value)">
-                  <option value="material" ${(c.kind || 'material') === 'material' ? 'selected' : ''}>Material</option>
-                  <option value="labour" ${c.kind === 'labour' ? 'selected' : ''}>Labour</option>
+                  <option value="material" ${this.customItemKind(c) === 'material' ? 'selected' : ''}>Material</option>
+                  <option value="labour" ${this.customItemKind(c) === 'labour' ? 'selected' : ''}>Labour</option>
                 </select>
                 <span style="font-weight:700;">Sell $</span>
                 <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Sell/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
@@ -6535,7 +6535,6 @@
       // the default on a document while the order buys the override is how the
       // quote came to contradict the material order.
       resolvedSheetColour(d) {
-        if (d && d.sheetColourResolved) return d.sheetColourResolved;
         const cc = d && d.componentColours;
         const sheets = (cc && cc.sheets) ? cc.sheets : [];
         return sheets.length ? sheets.join(' / ') : ((d && d.colour) || '');
@@ -6560,7 +6559,6 @@
         const cc = d && d.componentColours;
         const sheets = (cc && cc.sheets) ? cc.sheets : [];
         if (sheets.length) return sheets[0];
-        if (d && d.sheetColourResolved) return String(d.sheetColourResolved).split(' / ')[0];
         return (d && d.colour) || '';
       },
 
@@ -6751,6 +6749,17 @@
       // cost-only material still reaches the order and the margin. It must not
       // reach the client's price table though: a $0.00 line item is not a thing
       // we are charging for. Every client-facing list goes through here.
+      // A custom item reaches the SUPPLIER only when it is explicitly material.
+      // A missing `kind` is not missing data: main carries no `kind` field and
+      // no CUSTOM MATERIALS block, so an item without one was created when
+      // custom lines could not reach a supplier at all — and the old input
+      // prompted for "Extra labour, skip bin, etc.". One rule, every site,
+      // including the picker, so the control can never claim Material for an
+      // item the order will treat as labour.
+      customItemKind(c) {
+        return (c && c.kind === 'material') ? 'material' : 'labour';
+      },
+
       _sellableCustomItems(d) {
         return ((d && d.customItems) || []).filter(function(c) { return (Number(c.total) || 0) > 0; });
       },
@@ -10346,7 +10355,7 @@
           removeAsbestosQty: removalActive && rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: removalActive && rem.vegetation,
           groundFinish: q.groundFinish || 'none',
-          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: c.kind || 'material', costPrice: c.costPrice || 0 })),
+          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: this.customItemKind(c), costPrice: c.costPrice || 0 })),
           notes: job.siteNotes || '',
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
@@ -10656,7 +10665,7 @@
           // so a cost-only material still reaches the order and the margin.
           if (c.desc && c.qty > 0 && (c.price > 0 || cost > 0)) {
             const t = c.qty * (c.price || 0);
-            const kind = c.kind === 'labour' ? 'labour' : 'material';
+            const kind = this.customItemKind(c);
             customTotal += t;
             customCostTotal += c.qty * cost;
             customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price || 0, costPrice: cost, kind, total: t });
@@ -10795,9 +10804,6 @@
         }
 
         const _componentColours = this._summariseComponentColours(job, postGroups, plinthGroups);
-        const _sheetColourResolved = (_componentColours.sheets || []).length
-          ? _componentColours.sheets.join(' / ')
-          : (job.colour || '');
 
         return {
           job, js, scopeType: job.scopeType || 'fence-and-gate',
@@ -10814,7 +10820,6 @@
           plinthLongWidthMm: supplier.longPanelWidth || 3150,
           plinthLongCost: COST_PRICES.plinthLong,
           postGroups, plinthGroups, componentColours: _componentColours,
-          sheetColourResolved: _sheetColourResolved,
           runDetails, gatePosts, gateDetails, gateLineItems,
           concreteBags, tekBoxes, allPosts,
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
@@ -12372,7 +12377,7 @@
           }).join('; ');
           panelItems.push('Set out ' + runs.length + ' fence run' + (runs.length > 1 ? 's' : '') + ' to boundary: ' + runList);
         }
-        var scopeSheetColour = d.sheetColourResolved || d.colour;
+        var scopeSheetColour = this.resolvedSheetColour(d);
         var profileLabel = (scopeSheetColour ? 'COLORBOND® ' + scopeSheetColour : '') + (d.profile ? ((scopeSheetColour ? ', ' : '') + d.profile + ' profile') : '');
         if (!profileLabel) profileLabel = 'COLORBOND® steel';
         var panelCount = d.totalPanels || 0;
@@ -14616,7 +14621,7 @@
                 deliveryFee: js.delivery || 200,
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
-                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: c.kind || 'material', costPrice: c.costPrice || 0 }))
+                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: app.customItemKind(c), costPrice: c.costPrice || 0 }))
                   : [{}, {}, {}]
               };
             }
@@ -14704,7 +14709,7 @@
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
       });
       app._sellableCustomItems(d).forEach(function(c) {
-        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: c.kind || 'material' });
+        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: app.customItemKind(c) });
       });
       if (d.accessSurcharge > 0) {
         lineItems.push({ description: 'Access surcharge (' + (d.accessRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.accessSurcharge, category: 'surcharges' });

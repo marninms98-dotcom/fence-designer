@@ -436,3 +436,110 @@ test('the order page email button focuses the app tab, so its outcome is visible
   expect(res.toasts.some((t) => t.kind === 'error' && /no address on file/i.test(t.msg))).toBeTruthy();
   expect(res.rendered.some((t) => /no address on file/i.test(t))).toBeTruthy();
 });
+
+// ── A custom item reaches a SUPPLIER only when it says so ──────────────────
+// main carries no `kind` field and no CUSTOM MATERIALS block, so a custom line
+// item saved before this branch could not reach a supplier by any path. A
+// missing `kind` is therefore evidence the item predates the feature — and the
+// old input prompted for "Extra labour, skip bin, etc.". Defaulting it to
+// material emailed the panel supplier a request to supply labour.
+test('a legacy custom item with no kind never reaches the supplier order', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+
+    const read = () => {
+      const d = app._collectOutputData();
+      return {
+        order: app._buildMaterialOrderText(d),
+        email: app._buildMaterialOrderText(d, { forEmail: true }),
+        kinds: (d.customItems || []).map((c) => ({ desc: c.desc, kind: c.kind })),
+        internalCost: Math.round(d.internalCost * 100) / 100,
+        customTotal: Math.round(d.customTotal * 100) / 100,
+        // Client-facing rows are filtered on sell price, never on kind.
+        clientRows: (app._gatherFenceQuoteData(d).priceLineItems || []).map((li) => li.label),
+      };
+    };
+
+    // A job exactly as it was saved before this branch: no `kind` anywhere.
+    const legacyJob = build({ matCost: 4, labCost: 55 });
+    legacyJob.quote.customLineItems = [
+      { desc: 'Extra site labour', qty: 3, unit: 'hrs', price: 80, costPrice: 55 },
+      { desc: 'Skip bin', qty: 1, unit: 'job', price: 500, costPrice: 300 },
+    ];
+    app.job = Object.assign(app.job, legacyJob);
+    const legacy = read();
+
+    // The same job once an operator explicitly marks one line Material.
+    app.job.quote.customLineItems[1].kind = 'material';
+    const oneMarkedMaterial = read();
+
+    // And the explicit-labour case, which never went to the order.
+    app.job = Object.assign(app.job, build({ matCost: 4, labCost: 55 }));
+    const explicit = read();
+
+    return { legacy, oneMarkedMaterial, explicit };
+  }, buildJob.toString());
+
+  // LEGACY: nothing a panel supplier is asked to supply — no block at all,
+  // which is exactly what main produces for this job.
+  expect(res.legacy.kinds).toEqual([
+    { desc: 'Extra site labour', kind: 'labour' },
+    { desc: 'Skip bin', kind: 'labour' },
+  ]);
+  expect(res.legacy.order).not.toContain('CUSTOM MATERIALS');
+  expect(res.legacy.order).not.toContain('Extra site labour');
+  expect(res.legacy.order).not.toContain('Skip bin');
+  expect(res.legacy.email).not.toContain('CUSTOM MATERIALS');
+  // ...while cost and margin still see them, and the client still bills them.
+  expect(res.legacy.customTotal).toBe(3 * 80 + 500);
+  expect(res.legacy.internalCost).toBeGreaterThan(0);
+  expect(res.legacy.clientRows).toContain('Extra site labour');
+  expect(res.legacy.clientRows).toContain('Skip bin');
+
+  // EXPLICIT material still goes to the supplier, on one tap of the existing
+  // control — so the fix costs the operator nothing.
+  expect(res.oneMarkedMaterial.order).toContain('CUSTOM MATERIALS');
+  expect(res.oneMarkedMaterial.order).toContain('Skip bin');
+  expect(res.oneMarkedMaterial.order).not.toContain('Extra site labour');
+
+  // EXPLICIT labour is unchanged: still off the order, material still on it.
+  expect(res.explicit.kinds).toEqual([
+    { desc: 'Powder-coated post caps', kind: 'material' },
+    { desc: 'Extra site labour', kind: 'labour' },
+  ]);
+  expect(res.explicit.order).toContain('Powder-coated post caps');
+  expect(res.explicit.order).not.toContain('Extra site labour');
+});
+
+// The kind picker must never claim Material for an item the order treats as
+// labour — the same control-lies-about-stored-state class closed elsewhere.
+test('the kind picker shows what the order will actually do with the item', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')({ matCost: 4, labCost: 55 });
+    job.quote.customLineItems = [
+      { desc: 'Extra site labour', qty: 3, unit: 'hrs', price: 80 },
+      { desc: 'Post caps', qty: 6, unit: 'each', price: 15, kind: 'material' },
+      { desc: 'Skip bin', qty: 1, unit: 'job', price: 500, kind: 'labour' },
+    ];
+    app.job = Object.assign(app.job, job);
+    if (!app._openSections.quote) app.toggleSection('quote');
+    app.render();
+
+    const picked = Array.from(document.querySelectorAll('#bodyQuote select'))
+      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'material,labour')
+      .map((s) => s.options[s.selectedIndex].value);
+
+    const d = app._collectOutputData();
+    return { picked, engineKinds: (d.customItems || []).map((c) => c.kind) };
+  }, buildJob.toString());
+
+  // Legacy (no kind) reads Labour, and every picker agrees with the engine.
+  expect(res.picked.slice(0, 3)).toEqual(['labour', 'material', 'labour']);
+  expect(res.engineKinds).toEqual(res.picked.slice(0, 3));
+});
