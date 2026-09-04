@@ -293,3 +293,84 @@ test('Task A — the emailed order carries no cost figures, while the on-screen 
     .join('\n');
   expect(res.email).toBe(stripped);
 });
+
+// ── The over-length fallback must not route around the cost strip ──────────
+// The emailed body is cost-free. If the clipboard write ALSO fails, the covering
+// note has to name a cost-free route — pointing the operator at the Material
+// Order tab's internal Copy button would hand the supplier the cost-bearing
+// body and undo the strip.
+test('Unit 4 — with the clipboard denied, the over-length fallback names a cost-free route', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(async (jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobFactory + ')');
+    app.job = Object.assign(app.job, build({ matCost: 4, labCost: 55 }));
+    // emailMaterialOrder runs _validateRequired first, so the job needs the
+    // client fields the material-order fixture omits.
+    Object.assign(app.job, {
+      clientFirstName: 'Ada', clientLastName: 'Lovelace', client: 'Ada Lovelace',
+      address: '12 Analytical Way, Perth WA 6000', phone: '0400000000', email: 'ada@example.com',
+      ref: 'FEN-1001', neighboursRequired: false, neighbours: [],
+    });
+    app.job.installation = { supplierSource: 'Stratco' };
+    app._MAILTO_SAFE_LEN = 200;
+
+    // Deny the clipboard, exactly as a locked-down browser does.
+    const realClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+
+    const captured = [];
+    const realOpen = app._openMailDraft;
+    app._openMailDraft = (url) => { captured.push(String(url)); };
+    const toasts = [];
+    const realToast = app.showToast;
+    app.showToast = (msg, kind) => { toasts.push({ msg, kind }); };
+
+    await app.emailMaterialOrder();
+
+    app._openMailDraft = realOpen;
+    app.showToast = realToast;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: realClipboard });
+
+    const d = app._collectOutputData();
+    const html = app._generateMaterialOrderHTML(d);
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frame.contentDocument.open(); frame.contentDocument.write(html); frame.contentDocument.close();
+    const doc = frame.contentDocument;
+    const btn = Array.from(doc.querySelectorAll('button')).find((b) => /Copy for supplier email/i.test(b.textContent));
+    // What that button would actually put on the clipboard.
+    const supplierBody = btn ? btn.previousElementSibling.textContent : null;
+    const internalBody = doc.querySelector('pre').textContent;
+    frame.remove();
+
+    return {
+      note: new URL(captured[0]).searchParams.get('body') || '',
+      toasts,
+      supplierBody,
+      internalBody,
+      emailBody: app._materialOrderEmail(d).body,
+    };
+  }, buildJob.toString());
+
+  // The fallback fired and did not point at the internal, cost-bearing copy.
+  expect(res.note).toContain('Material order for');
+  expect(res.note).not.toMatch(/copy it across/i);
+  expect(res.note).toContain('Copy for supplier email');
+  // The toast does not claim a clipboard that was denied.
+  expect(res.toasts.some((t) => /paste it from the clipboard/i.test(t.msg))).toBeFalsy();
+  expect(res.toasts.some((t) => /Copy for supplier email/i.test(t.msg))).toBeTruthy();
+
+  // The route it names yields the cost-free body...
+  expect(res.supplierBody).toBeTruthy();
+  expect(res.supplierBody.match(/\$/g)).toBeNull();
+  expect(res.supplierBody).not.toMatch(/\bcosts?\b/i);
+  expect(res.supplierBody).toBe(res.emailBody);
+  // ...while the internal copy on the same page still carries the annotations.
+  expect(res.internalBody).toMatch(/supplier long plinth @ \$\d+\.\d{2} ea cost/);
+  expect(res.internalBody).toMatch(/\(cost \$\d+\.\d{2} ea\)/);
+});

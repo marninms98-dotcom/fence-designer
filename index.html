@@ -6574,24 +6574,29 @@
       // colours each component actually resolves to across every run, and
       // whether the whole job is one colour (the common case, which must render
       // exactly as it always did).
-      _summariseComponentColours(job) {
+      // Derived from the ORDER'S OWN GROUPS, never from the job model, so the
+      // quote cannot name a colour the material order does not buy. Every case
+      // that used to need its own filter falls out of that: a run with no panels
+      // never entered postGroups, a gate-only job has none, a job with no
+      // retaining has no plinthGroups, and a component overridden on a job that
+      // carries none of that component contributes nothing.
+      _summariseComponentColours(job, postGroups, plinthGroups) {
         const j = job || this.job;
-        // Only runs that actually put stock on the order may contribute a
-        // colour. A run with no panels yet (or any run at all on a gate-only
-        // job) reaches postGroups/plinthGroups with nothing, so counting its
-        // colour here would name a colour the material order never buys.
-        const runs = j.scopeType === 'gate-only'
-          ? []
-          : (j.runs || []).filter(r => r && r.panels && r.panels.length > 0);
         const out = {};
         FENCE_COMPONENTS.forEach(c => { out[c] = []; });
-        const sources = runs.length ? runs : [null];
-        sources.forEach(run => {
-          FENCE_COMPONENTS.forEach(c => {
-            const v = this.getComponentColour(c, run);
-            if (v && out[c].indexOf(v) === -1) out[c].push(v);
-          });
+        const add = (c, v) => { if (v && out[c].indexOf(v) === -1) out[c].push(v); };
+        Object.values(postGroups || {}).forEach(g => {
+          add('sheets', g.sheetColour);
+          add('rails', g.railColour);
+          add('posts', g.postColour);
         });
+        Object.values(plinthGroups || {}).forEach(g => { if (g.count > 0) add('plinths', g.colour); });
+        // Nothing on the order at all — fall back to the job sheet colour so the
+        // quote is not blank, and stays uniform rather than naming trim that
+        // does not exist.
+        if (!FENCE_COMPONENTS.some(c => out[c].length)) {
+          FENCE_COMPONENTS.forEach(c => add(c, j.colour));
+        }
         const all = [];
         FENCE_COMPONENTS.forEach(c => out[c].forEach(v => { if (all.indexOf(v) === -1) all.push(v); }));
         out.uniform = all.length <= 1;
@@ -10754,7 +10759,7 @@
           }
         }
 
-        const _componentColours = this._summariseComponentColours(job);
+        const _componentColours = this._summariseComponentColours(job, postGroups, plinthGroups);
         const _sheetColourResolved = (_componentColours.sheets || []).length
           ? _componentColours.sheets.join(' / ')
           : (job.colour || '');
@@ -11555,6 +11560,10 @@
 
       _generateMaterialOrderHTML(d) {
         const order = this._buildMaterialOrderText(d);
+        // What the supplier may see. The visible order above stays cost-bearing
+        // for internal reconciliation, so the operator needs a route to the
+        // cost-free body that is not the internal Copy button.
+        const supplierOrder = this._buildMaterialOrderText(d, { forEmail: true });
         const routing = d.orderRouting || this.getMaterialOrderRouting();
         const routingBar = `<div class="no-print" style="margin:0 0 10px;padding:10px 12px;background:#F3F6F7;border:1px solid #D6DEE1;border-radius:6px;font-size:12px;color:#293C46;">
             <strong>Email to:</strong> ${this._esc(routing.to || '— no address on file')}
@@ -11575,6 +11584,11 @@
             <button class="no-print" style="margin-top:10px;padding:8px 16px;background:#293C46;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
               Copy to Clipboard
+            </button>
+            <pre id="supplierOrderBody" style="display:none;">${this._esc(supplierOrder)}</pre>
+            <button class="no-print" id="copySupplierOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#4C6A7C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
+              onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>this.textContent='Copied!').catch(()=>alert('Copy failed'))">
+              Copy for supplier email
             </button>
             <button class="no-print" id="emailOrderBtn" style="margin-top:10px;margin-left:8px;padding:8px 16px;background:#F15A29;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;"
               onclick="if(window.opener&&window.opener.app){window.opener.app.emailMaterialOrder();}else{alert('Reopen the material order from the app to draft the email.');}">
@@ -14106,7 +14120,7 @@
         if (url.length > this._MAILTO_SAFE_LEN) {
           const note = 'Hi team,\n\nMaterial order for ' + (d.job.ref || d.job.address || 'the job below') + '.\n\n'
             + (copied ? 'Full order is on the clipboard \u2014 paste it here before sending.'
-                      : 'Full order is in the Material Order tab \u2014 copy it across before sending.')
+                      : 'Full order: press "Copy for supplier email" on the Material Order tab, then paste it here before sending.')
             + '\n';
           url = this._buildMailtoUrl({ to: mail.to, cc: mail.cc, subject: mail.subject, body: note });
           clipped = true;
@@ -14116,7 +14130,9 @@
         if (!mail.routing.known) {
           this.showToast('Draft opened \u2014 no address on file for this supplier, add it in Outlook', 'error');
         } else if (clipped) {
-          this.showToast('Draft opened \u2014 order too long for the link, paste it from the clipboard', 'info');
+          this.showToast(copied
+            ? 'Draft opened \u2014 order too long for the link, paste it from the clipboard'
+            : 'Draft opened \u2014 order too long for the link, use "Copy for supplier email" on the Material Order tab', 'info');
         } else {
           this.showToast('Outlook draft opened \u2014 check it and press Send yourself', 'success');
         }

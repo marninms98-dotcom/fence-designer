@@ -448,7 +448,7 @@ test('Unit 4 — an order too long for a mailto: falls back to a covering note, 
   expect(parsed.searchParams.get('cc')).toBe('fencing@secureworkswa.com.au');
   // ...and the body is a deliberate covering note, NOT a half-order.
   expect(body).toContain('Material order for FEN-1001');
-  expect(body).toMatch(/Full order is (on the clipboard|in the Material Order tab)/);
+  expect(body).toMatch(/Full order(?: is on the clipboard|: press "Copy for supplier email")/);
   expect(body).not.toContain('SECTION 1');
   expect(res.full.startsWith(body)).toBeFalsy();
 });

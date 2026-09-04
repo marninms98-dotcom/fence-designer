@@ -1178,3 +1178,101 @@ test('a gate-only job takes the job colour, ignoring any run overrides', async (
   expect(res.order.includes('Basalt')).toBeFalsy();
   expect(JSON.stringify(res.specs).includes('Basalt')).toBeFalsy();
 });
+
+// ── THE RULE: the quote never names a colour the order does not buy ────────
+// The summary is derived from postGroups/plinthGroups — the order's own
+// structures — so a component or run that puts no stock on the order cannot
+// reach the quote. This walks the combinations that each used to need their
+// own special case, plus a mixed job where components genuinely do contribute.
+function summariseColourRule() {
+  const app = window.app;
+  const raw = app._collectOutputData();
+  const quote = app._gatherFenceQuoteData(raw);
+  const cc = raw.componentColours;
+  return {
+    cc: { sheets: cc.sheets, rails: cc.rails, posts: cc.posts, plinths: cc.plinths, uniform: cc.uniform },
+    order: app._buildMaterialOrderText(raw),
+    workOrder: app._generateWorkOrderHTML(raw),
+    specs: quote.specs,
+    lede: quote.lede,
+    resolved: app.resolvedSheetColour(raw),
+    totalPlinths: raw.totalPlinths,
+    postGroupCount: Object.keys(raw.postGroups).length,
+    plinthGroupCount: Object.keys(raw.plinthGroups || {}).length,
+  };
+}
+
+test('a colour set for stock the job does not carry never reaches the quote', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate(([jobSrc, readSrc]) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const build = eval('(' + jobSrc + ')');
+    // eslint-disable-next-line no-eval
+    const read = eval('(' + readSrc + ')');
+    const load = (mutate) => {
+      delete app.job.componentColours;
+      const job = build();
+      job.runs.forEach((r) => { delete r.colours; });
+      mutate(job);
+      app.job = Object.assign(app.job, job);
+      return read();
+    };
+
+    return {
+      // (a) No retaining anywhere, yet a plinth colour is set.
+      noPlinths: load((job) => {
+        job.runs.forEach((r) => r.panels.forEach((p) => { p.retaining = 0; p.slopePlinths = 0; }));
+        job.componentColours = { plinths: 'Basalt' };
+      }),
+      // (b) Gate-only, with a job-level rails override.
+      gateOnly: load((job) => {
+        job.scopeType = 'gate-only';
+        job.gates = [{ id: 'g1', type: 'pedestrian', width: 900, height: 1800 }];
+        job.componentColours = { rails: 'Surfmist' };
+      }),
+      // (c) A run with zero panels carrying its own override.
+      panelLessRun: load((job) => {
+        job.runs.push({ id: 'run-x', name: 'Stage 2', length: 0, sheetHeight: 1800, panels: [], colours: { sheets: 'Basalt', posts: 'Surfmist' } });
+      }),
+      // (d) Components that DO contribute still reach the quote.
+      mixed: load((job) => {
+        job.componentColours = { rails: 'Surfmist', plinths: 'Basalt' };
+      }),
+    };
+  }, [buildPreChangeJob.toString(), summariseColourRule.toString()]);
+
+  // (a) No plinths on the order, so no plinth colour anywhere on the quote.
+  expect(res.noPlinths.totalPlinths).toBe(0);
+  expect(res.noPlinths.plinthGroupCount).toBe(0);
+  expect(res.noPlinths.cc.plinths).toEqual([]);
+  expect(res.noPlinths.cc.uniform).toBeTruthy();
+  expect(res.noPlinths.specs.map((s) => s[0])).not.toContain('Trim Colours');
+  expect(res.noPlinths.specs).toContainEqual(['Colour', 'COLORBOND® Monument']);
+  expect(res.noPlinths.order.includes('Basalt')).toBeFalsy();
+  expect(res.noPlinths.workOrder.includes('Basalt')).toBeFalsy();
+
+  // (b) Gate-only buys no panels, so no rail colour reaches the quote.
+  expect(res.gateOnly.postGroupCount).toBe(0);
+  expect(res.gateOnly.cc.uniform).toBeTruthy();
+  expect(res.gateOnly.resolved).toBe('Monument');
+  expect(res.gateOnly.specs.map((s) => s[0])).not.toContain('Trim Colours');
+  expect(res.gateOnly.order.includes('Surfmist')).toBeFalsy();
+  expect(res.gateOnly.workOrder.includes('Surfmist')).toBeFalsy();
+
+  // (c) The panel-less run contributes neither of its two overrides.
+  expect(res.panelLessRun.cc.sheets).toEqual(['Monument']);
+  expect(res.panelLessRun.cc.posts).toEqual(['Monument']);
+  expect(res.panelLessRun.cc.uniform).toBeTruthy();
+  expect(res.panelLessRun.order.includes('Basalt')).toBeFalsy();
+  expect(res.panelLessRun.order.includes('Surfmist')).toBeFalsy();
+  expect(res.panelLessRun.lede.includes('Basalt')).toBeFalsy();
+
+  // (d) ...but real contributing components are still named, on quote AND order.
+  expect(res.mixed.cc.rails).toEqual(['Surfmist']);
+  expect(res.mixed.cc.plinths).toEqual(['Basalt']);
+  expect(res.mixed.cc.uniform).toBeFalsy();
+  expect(res.mixed.specs).toContainEqual(['Trim Colours', 'Rails Surfmist · Plinths Basalt']);
+  expect(res.mixed.order).toContain('Rails: Surfmist');
+  expect(res.mixed.order).toContain('— Basalt');
+});
