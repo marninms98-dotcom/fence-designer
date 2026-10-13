@@ -1963,6 +1963,7 @@
     if (!scopeJson || !scopeJson.job || !window.app) return false;
     try {
       window.app.job = scopeJson.job;
+      window.app._normaliseEmptyCustomSlots(window.app.job);
       if (scopeJson.verification && window.fenceQA) { try { window.fenceQA._verificationState = scopeJson.verification; if (typeof window.fenceQA._saveState === 'function') window.fenceQA._saveState(); } catch(e) {} }
       if (window.app.currentRunId && window.app.job.runs.length > 0) {
         window.app.currentRunId = window.app.job.runs[0].id;

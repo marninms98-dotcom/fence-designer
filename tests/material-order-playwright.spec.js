@@ -847,6 +847,44 @@ test('a custom line with no quantity is flagged rather than silently dropped', a
   expect(res.woAfter).toContain('Root removal (1 job, 2 hrs)');
 });
 
+// A job saved while blank slots were stamped Material reopens with those
+// empty slots unclassified, so filling one still has to be marked Labour or
+// Material; a slot the scoper actually filled keeps its kind.
+test('an empty Material slot saved before kinds were required reopens unclassified', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [
+      { desc: 'Post caps', qty: 6, unit: 'each', price: 15, costPrice: 4, kind: 'material' },
+      { kind: 'material' },
+      { kind: 'material' },
+    ];
+    localStorage.setItem('fenceJob', JSON.stringify(job));
+    app.loadFromStorage();
+    const out = { kinds: app.job.quote.customLineItems.map((c) => app.customItemKind(c)) };
+    app.updateCustomItem(1, 'desc', 'Root removal');
+    app.updateCustomItem(1, 'qty', '1');
+    app.updateCustomItem(1, 'price', '260');
+    const custom = (m) => /Custom line/.test(m);
+    out.blocked = app._validateRequired().filter(custom);
+    out.order = app._buildMaterialOrderText(app._collectOutputData());
+    app.updateCustomItem(1, 'kind', 'labour');
+    out.afterPick = app._validateRequired({ forQuote: true }).filter(custom);
+    return out;
+  }, labourJob.toString());
+
+  expect(res.kinds).toEqual(['material', 'unset', 'unset']);
+  expect(res.blocked).toEqual(['Custom line 2 (Root removal): choose Labour or Material']);
+  expect(res.order).toContain('Post caps');
+  expect(res.order).not.toContain('Root removal');
+  expect(res.afterPick).toEqual([
+    'Custom line 2 (Root removal): hours for this labour',
+    'Custom line 2 (Root removal): labour cost per hour',
+  ]);
+});
+
 // The row warnings follow every edit, not just a Labour/Material or unit
 // change, and re-marking a row does not rebuild it under the scoper's finger.
 test('a custom line row re-marks itself as the scoper fills it in', async ({ page }) => {

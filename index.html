@@ -5598,6 +5598,7 @@
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0 && !localDraftWins) {
               // Load cloud scope data only when there is no dirty local iPad draft.
               window.app.job = existingJob.scope_json.job || window.app.job;
+              window.app._normaliseEmptyCustomSlots(window.app.job);
               if (!window.app.job.scopeType) window.app.job.scopeType = 'fence-and-gate';
               if (window.app.job.runs && window.app.job.runs.length > 0) {
                 window.app.currentRunId = window.app.job.runs[0].id;
@@ -6769,6 +6770,17 @@
 
       _blankCustomItems() {
         return [this._blankCustomItem(), this._blankCustomItem(), this._blankCustomItem()];
+      },
+
+      // A job saved while blank slots were stamped Material reopens with those
+      // EMPTY slots unclassified, so filling one still asks Labour or Material.
+      // A slot with any content keeps its kind. Called on load; never saves.
+      _normaliseEmptyCustomSlots(job) {
+        const items = job && job.quote && job.quote.customLineItems;
+        if (!Array.isArray(items)) return;
+        items.forEach(c => {
+          if (c && c.kind === 'material' && !this._customItemHasContent(c)) c.kind = 'unset';
+        });
       },
 
       _customItemHasContent(c) {
@@ -14789,6 +14801,7 @@
             }
             // Migration: ensure addon fields exist
             if (!this.job.quote.addons) this.job.quote.addons = {};
+            this._normaliseEmptyCustomSlots(this.job);
 
             if (!this.job.checklist) {
               this.job.checklist = { photosTaken: 0, photos: [], videoWalkthrough: false, finalNotes: '' };
