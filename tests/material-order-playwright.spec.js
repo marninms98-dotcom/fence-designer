@@ -892,6 +892,35 @@ test('an empty Material slot saved before kinds were required reopens unclassifi
   expect(res.bareBlocked).toEqual(['Custom line 3 (Colorbond capping): choose Labour or Material']);
 });
 
+// A jobSettings-era draft (no `quote` yet) migrates its filled legacy lines
+// with their resolved kind, but its blank entries become unclassified slots.
+test('a jobSettings-era draft migrates its blank custom entries unclassified', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    delete job.quote;
+    job.jobSettings = { urgency: 'standard', delivery: 200, groundFinish: 'none', custom: [
+      { desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, costPrice: 55 },
+      {},
+      {},
+    ] };
+    localStorage.setItem('fenceJob', JSON.stringify(job));
+    app.loadFromStorage();
+    const items = app.job.quote.customLineItems;
+    const out = { kinds: items.map((c) => app.customItemKind(c)), first: items[0] };
+    app.updateCustomItem(1, 'desc', 'Colorbond capping');
+    app.updateCustomItem(1, 'qty', '10');
+    out.blocked = app._validateRequired().filter((m) => /Custom line/.test(m));
+    return out;
+  }, labourJob.toString());
+
+  expect(res.kinds).toEqual(['labour', 'unset', 'unset']);
+  expect(res.first).toEqual({ desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, kind: 'labour', costPrice: 55 });
+  expect(res.blocked).toEqual(['Custom line 2 (Colorbond capping): choose Labour or Material']);
+});
+
 // The row warnings follow every edit, not just a Labour/Material or unit
 // change, and re-marking a row does not rebuild it under the scoper's finger.
 test('a custom line row re-marks itself as the scoper fills it in', async ({ page }) => {
