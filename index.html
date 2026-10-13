@@ -4763,9 +4763,8 @@
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
           <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Mark each item <b>Material</b> (appears on the material order) or <b>Labour</b> (goes to the trades' work order — give its hours and cost per hour). Cost feeds the job margin.</div>
           ${items.map((c, i) => {
-            const kind = this.customItemKind(c);
-            const lab = kind === 'labour' ? this.customItemLabour(c) : null;
-            const filled = this._customItemHasContent(c);
+            const lab = this.customItemLabour(c);
+            const w = this._customItemRowWarnings(c);
             const inputStyle = 'width:90px;min-height:44px;font-size:16px;padding:10px 8px;border-radius:6px;';
             const warn = (cond) => 'border:' + (cond ? '2px solid #dc2626' : '1px solid #4C6A70') + ';';
             let costInputs;
@@ -4773,30 +4772,27 @@
               const hoursInput = c.unit === 'hrs'
                 ? ''
                 : `<span style="font-weight:700;">Hours</span>
-                <input type="number" value="${c.hours || ''}" min="0" step="0.25" placeholder="Total hrs" title="Total hours for this line" style="${inputStyle}${warn(filled && !(lab.hours > 0))}"
+                <input type="number" data-ci="hours" value="${c.hours || ''}" min="0" step="0.25" placeholder="Total hrs" title="Total hours for this line" style="${inputStyle}${warn(w.hours)}"
                   onchange="app.updateCustomItem(${i}, 'hours', this.value)">`;
               costInputs = `${hoursInput}
                 <span style="font-weight:700;">Cost $/hr</span>
-                <input type="number" value="${lab.costPerHour || ''}" min="0" step="1" placeholder="Cost/hr" style="${inputStyle}${warn(filled && !(lab.costPerHour > 0))}"
+                <input type="number" data-ci="rate" value="${lab.costPerHour || ''}" min="0" step="1" placeholder="Cost/hr" style="${inputStyle}${warn(w.rate)}"
                   onchange="app.updateCustomItem(${i}, 'costPerHour', this.value)">`;
             } else {
               costInputs = `<span style="font-weight:700;">Cost $</span>
                 <input type="number" value="${c.costPrice || ''}" min="0" step="1" placeholder="Cost/ea" style="${inputStyle}border:1px solid #4C6A70;"
                   onchange="app.updateCustomItem(${i}, 'costPrice', this.value)">`;
             }
-            let note = '';
-            if (filled && kind === 'unset') note = 'Choose Labour or Material for this line.';
-            else if (lab && filled && !(lab.hours > 0)) note = c.unit === 'hrs' ? 'Enter the hours as the quantity.' : 'How many hours does this take? A "' + (c.unit || 'item') + '" line still needs its hours for the work order.';
-            else if (lab && filled && !lab.fromHours && (Number(c.costPrice) || 0) > 0) note = 'Entered as $' + c.costPrice + ' per ' + (c.unit || 'item') + ' — add the cost per hour.';
+            const kind = this.customItemKind(c);
             return `
-            <div style="border:1px solid ${filled && note ? '#dc2626' : '#e3e8ec'};border-radius:8px;padding:8px;margin-bottom:8px;">
+            <div data-ci-row="${i}" style="border:1px solid ${w.note ? '#dc2626' : '#e3e8ec'};border-radius:8px;padding:8px;margin-bottom:8px;">
               <div class="form-row" style="margin-bottom:6px;">
                 <div class="form-group" style="flex:1;">
                   <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra panel, skip bin, root removal"
                     onchange="app.updateCustomItem(${i}, 'desc', this.value)">
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
-                  <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  <input type="number" data-ci="qty" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border-radius:6px;${warn(w.qty)}"
                     onchange="app.updateCustomItem(${i}, 'qty', this.value)">
                   <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
                     onchange="app.updateCustomItem(${i}, 'unit', this.value)">
@@ -4805,7 +4801,7 @@
                 </div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <select title="Material items appear on the material order; labour items go to the trades' work order" style="min-height:44px;font-size:15px;padding:10px 8px;border-radius:6px;${warn(filled && kind === 'unset')}"
+                <select data-ci="kind" title="Material items appear on the material order; labour items go to the trades' work order" style="min-height:44px;font-size:15px;padding:10px 8px;border-radius:6px;${warn(w.kind)}"
                   onchange="app.updateCustomItem(${i}, 'kind', this.value)">
                   <option value="unset" ${kind === 'unset' ? 'selected' : ''} disabled>Labour or Material?</option>
                   <option value="material" ${kind === 'material' ? 'selected' : ''}>Material</option>
@@ -4817,7 +4813,7 @@
                 ${costInputs}
                 <button class="btn-delete" style="min-height:44px;" onclick="app.deleteCustomItem(${i})">Remove</button>
               </div>
-              ${note ? `<div style="font-size:12px;color:#dc2626;margin-top:6px;">${this._esc(note)}</div>` : ''}
+              <div data-ci="note" style="font-size:12px;color:#dc2626;margin-top:6px;${w.note ? '' : 'display:none;'}">${this._esc(w.note)}</div>
             </div>`;
           }).join('')}
           <button class="btn-orange" onclick="app.addCustomItem()">+ Add Custom Item</button>
@@ -6727,8 +6723,10 @@
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
         // Kind and unit decide which cost inputs the row shows (a labour line
-        // asks for hours and $/hr), so those two redraw the section.
+        // asks for hours and $/hr), so those two redraw the section; any other
+        // field only re-marks that row, keeping focus where the scoper tapped.
         if (field === 'kind' || field === 'unit') this.renderQuote();
+        else this._refreshCustomItemRow(idx);
         this.updateStats();
         this.renderQuoteAndOrders();
       },
@@ -6777,6 +6775,43 @@
         if (!c) return false;
         return !!String(c.desc || '').trim()
           || ['qty', 'price', 'costPrice', 'hours', 'costPerHour'].some(k => (Number(c[k]) || 0) > 0);
+      },
+
+      // Which controls on one custom-line editor row are flagged, and the note
+      // under it — the row-level face of _customItemProblems().
+      _customItemRowWarnings(c) {
+        const out = { kind: false, qty: false, hours: false, rate: false, note: '' };
+        if (!this._customItemHasContent(c)) return out;
+        const kind = this.customItemKind(c);
+        const lab = this.customItemLabour(c);
+        if (kind === 'unset') {
+          out.kind = true;
+          out.note = 'Choose Labour or Material for this line.';
+          return out;
+        }
+        if (lab) {
+          out.hours = !(lab.hours > 0);
+          out.rate = !(lab.costPerHour > 0);
+        }
+        out.qty = !((Number(c.qty) || 0) > 0) && !(lab && c.unit === 'hrs');
+        if (out.qty) out.note = 'Enter a quantity — a line with no quantity is left off the quote.';
+        else if (out.hours) out.note = c.unit === 'hrs' ? 'Enter the hours as the quantity.' : 'How many hours does this take? A "' + (c.unit || 'item') + '" line still needs its hours for the work order.';
+        else if (lab && !lab.fromHours && (Number(c.costPrice) || 0) > 0) out.note = 'Entered as $' + c.costPrice + ' per ' + (c.unit || 'item') + ' — add the cost per hour.';
+        return out;
+      },
+
+      _refreshCustomItemRow(idx) {
+        const row = document.querySelector('#bodyQuote [data-ci-row="' + idx + '"]');
+        if (!row) return;
+        const w = this._customItemRowWarnings(this.job.quote.customLineItems[idx]);
+        row.style.borderColor = w.note ? '#dc2626' : '#e3e8ec';
+        ['kind', 'qty', 'hours', 'rate'].forEach(k => {
+          const el = row.querySelector('[data-ci="' + k + '"]');
+          if (el) el.style.border = w[k] ? '2px solid #dc2626' : '1px solid #4C6A70';
+        });
+        const noteEl = row.querySelector('[data-ci="note"]');
+        noteEl.textContent = w.note;
+        noteEl.style.display = w.note ? '' : 'none';
       },
 
       // Hours and cost for a LABOUR custom line, or null for any other kind.
@@ -11807,8 +11842,7 @@
         let costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
         costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost - d.internalRemovalCost)}</td></tr>`;
         if (d.internalRemovalCost > 0) costHtml += `<tr><td>Removal cost</td><td class="text-right">$${this._fmt(d.internalRemovalCost)}</td></tr>`;
-        const fenceLabour = d.internalLabour - (d.customLabourCost || 0);
-        costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(fenceLabour)}</td></tr>`;
+        costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
         if (d.addonsTotal > 0) {
           d.addonItems.forEach(a => { costHtml += `<tr><td>${this._esc(a.desc)}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         }

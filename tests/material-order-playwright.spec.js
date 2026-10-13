@@ -847,6 +847,80 @@ test('a custom line with no quantity is flagged rather than silently dropped', a
   expect(res.woAfter).toContain('Root removal (1 job, 2 hrs)');
 });
 
+// The row warnings follow every edit, not just a Labour/Material or unit
+// change, and re-marking a row does not rebuild it under the scoper's finger.
+test('a custom line row re-marks itself as the scoper fills it in', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [{ desc: 'Root removal', qty: 1, unit: 'job', price: 260, kind: 'labour' }, { kind: 'unset' }, { kind: 'unset' }];
+    app.job = Object.assign(app.job, job);
+    if (!app._openSections.quote) app.toggleSection('quote');
+    app.render();
+    const row = (i) => document.querySelector('#bodyQuote [data-ci-row="' + i + '"]');
+    const note = (i) => {
+      const el = row(i).querySelector('[data-ci="note"]');
+      return el.offsetParent === null ? '' : el.textContent;
+    };
+    const red = (el) => /220, 38, 38/.test(getComputedStyle(el).borderTopColor);
+    const hoursInput = () => row(0).querySelector('input[placeholder="Total hrs"]');
+    const out = { before: note(0), hoursRedBefore: red(hoursInput()) };
+    const first = row(0);
+    app.updateCustomItem(0, 'hours', '2');
+    out.afterHours = note(0);
+    out.hoursRedAfter = red(hoursInput());
+    app.updateCustomItem(0, 'costPerHour', '80');
+    out.afterRate = note(0);
+    out.rowRedAfter = red(row(0));
+    out.sameRow = first === row(0);
+    out.freshBefore = note(1);
+    app.updateCustomItem(1, 'desc', 'Skip bin');
+    out.freshAfter = note(1);
+    return out;
+  }, labourJob.toString());
+
+  expect(res.before).toContain('How many hours does this take?');
+  expect(res.hoursRedBefore).toBe(true);
+  expect(res.afterHours).toBe('');
+  expect(res.hoursRedAfter).toBe(false);
+  expect(res.afterRate).toBe('');
+  expect(res.rowRedAfter).toBe(false);
+  expect(res.sameRow).toBe(true);
+  expect(res.freshBefore).toBe('');
+  expect(res.freshAfter).toBe('Choose Labour or Material for this line.');
+});
+
+// The work order's Internal Cost Breakdown foots to its total with custom
+// labour inside the labour figure, and names no extra in a dollar row.
+test('the work order cost table foots, with no dollar row per extra', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    const d = app._collectOutputData();
+    const doc = new DOMParser().parseFromString(app._generateWorkOrderHTML(d), 'text/html');
+    const table = Array.from(doc.querySelectorAll('table')).find((t) => Array.from(t.querySelectorAll('tr')).some((r) => /^Total cost/.test(r.cells[0] && r.cells[0].textContent)));
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const rows = Array.from(table.querySelectorAll('tbody tr')).map((r) => ({ label: r.cells[0].textContent, amount: money(r.cells[1].textContent) }));
+    const totalAt = rows.findIndex((r) => /^Total cost/.test(r.label));
+    return {
+      customLabourCost: d.customLabourCost,
+      rows: rows.slice(0, totalAt),
+      total: rows[totalAt].amount,
+    };
+  }, labourJob.toString());
+
+  expect(res.customLabourCost).toBe(385);
+  const sum = Math.round(res.rows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+  expect(sum).toBe(res.total);
+  for (const name of ['Root removal', 'Hard digging', 'Spoil haul']) {
+    expect(res.rows.some((r) => r.label.includes(name))).toBe(false);
+  }
+});
+
 // The scoper's Cost Breakdown reads the same labour table as the Labour PO
 // card, so custom labour and the access loading on plinth and gate labour
 // show there too.
