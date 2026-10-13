@@ -6772,14 +6772,15 @@
         return [this._blankCustomItem(), this._blankCustomItem(), this._blankCustomItem()];
       },
 
-      // A job saved while blank slots were stamped Material reopens with those
-      // EMPTY slots unclassified, so filling one still asks Labour or Material.
-      // A slot with any content keeps its kind. Called on load; never saves.
+      // A job saved while blank slots were stamped Material, or were bare {}
+      // with no kind, reopens with those EMPTY slots unclassified, so filling
+      // one still asks Labour or Material. A slot with any content keeps its
+      // kind (a filled kind-less line stays labour). Called on load; never saves.
       _normaliseEmptyCustomSlots(job) {
         const items = job && job.quote && job.quote.customLineItems;
         if (!Array.isArray(items)) return;
         items.forEach(c => {
-          if (c && c.kind === 'material' && !this._customItemHasContent(c)) c.kind = 'unset';
+          if (c && (!c.kind || c.kind === 'material') && !this._customItemHasContent(c)) c.kind = 'unset';
         });
       },
 

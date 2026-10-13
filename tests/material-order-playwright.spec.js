@@ -859,7 +859,8 @@ test('an empty Material slot saved before kinds were required reopens unclassifi
     job.quote.customLineItems = [
       { desc: 'Post caps', qty: 6, unit: 'each', price: 15, costPrice: 4, kind: 'material' },
       { kind: 'material' },
-      { kind: 'material' },
+      {},
+      { desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, costPrice: 55 },
     ];
     localStorage.setItem('fenceJob', JSON.stringify(job));
     app.loadFromStorage();
@@ -872,10 +873,15 @@ test('an empty Material slot saved before kinds were required reopens unclassifi
     out.order = app._buildMaterialOrderText(app._collectOutputData());
     app.updateCustomItem(1, 'kind', 'labour');
     out.afterPick = app._validateRequired({ forQuote: true }).filter(custom);
+    // A bare {} slot from before kinds existed asks too.
+    app.updateCustomItem(2, 'desc', 'Colorbond capping');
+    app.updateCustomItem(2, 'qty', '10');
+    out.bareBlocked = app._validateRequired().filter(custom);
     return out;
   }, labourJob.toString());
 
-  expect(res.kinds).toEqual(['material', 'unset', 'unset']);
+  // The filled kind-less legacy line still resolves to labour.
+  expect(res.kinds).toEqual(['material', 'unset', 'unset', 'labour']);
   expect(res.blocked).toEqual(['Custom line 2 (Root removal): choose Labour or Material']);
   expect(res.order).toContain('Post caps');
   expect(res.order).not.toContain('Root removal');
@@ -883,6 +889,7 @@ test('an empty Material slot saved before kinds were required reopens unclassifi
     'Custom line 2 (Root removal): hours for this labour',
     'Custom line 2 (Root removal): labour cost per hour',
   ]);
+  expect(res.bareBlocked).toEqual(['Custom line 3 (Colorbond capping): choose Labour or Material']);
 });
 
 // The row warnings follow every edit, not just a Labour/Material or unit
