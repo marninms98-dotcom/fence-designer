@@ -752,6 +752,9 @@ test('a labour line carries hours and $/hr into the labour figure, the work orde
   expect(res.wo).toContain('Root removal (1 job, 2 hrs)');
   expect(res.wo).toContain('Hard digging (3 hrs)');
   expect(res.wo).toContain('Spoil haul (absorbed) (1 job, 1.5 hrs)');
+  // Hours only: the crew-carried work order names no per-extra dollar rate.
+  expect(res.wo).not.toContain('/hr');
+  expect(res.wo).not.toContain('$385.00');
 
   // pricing_json.line_items: sellable custom lines with kind, hours, $/hr.
   expect(res.custom).toEqual([
@@ -804,6 +807,79 @@ test('a labour line without hours blocks the quote and send, but not the materia
   expect(res.qa).toEqual(res.forQuote);
   expect(res.forQuoteAfter).toEqual([]);
   expect(res.hoursInputsOnHrs).toBe(0);
+});
+
+// A labour line with hours but no quantity is dropped by the engine, so it
+// must stop the quote rather than vanish from the work order. A material line
+// with no quantity would leave the order short, so it stops every output.
+test('a custom line with no quantity is flagged rather than silently dropped', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [
+      { desc: 'Root removal', unit: 'job', price: 260, kind: 'labour', hours: 2, costPerHour: 80 },
+      { desc: 'Post caps', unit: 'each', price: 15, costPrice: 4, kind: 'material' },
+      { kind: 'unset' },
+    ];
+    app.job = Object.assign(app.job, job);
+    const custom = (m) => /Custom line/.test(m);
+    const out = {
+      bare: app._validateRequired().filter(custom),
+      forQuote: app._validateRequired({ forQuote: true }).filter(custom),
+      qa: window.fenceQA.runScopeChecks().filter((f) => f.severity === 'red' && custom(f.message)).map((f) => f.message),
+    };
+    app.updateCustomItem(0, 'qty', '1');
+    app.updateCustomItem(1, 'qty', '6');
+    out.forQuoteAfter = app._validateRequired({ forQuote: true }).filter(custom);
+    out.woAfter = app._generateWorkOrderHTML(app._collectOutputData());
+    return out;
+  }, labourJob.toString());
+
+  expect(res.bare).toEqual(['Custom line 2 (Post caps): quantity']);
+  expect(res.forQuote).toEqual([
+    'Custom line 1 (Root removal): quantity',
+    'Custom line 2 (Post caps): quantity',
+  ]);
+  expect(res.qa).toEqual(res.forQuote);
+  expect(res.forQuoteAfter).toEqual([]);
+  expect(res.woAfter).toContain('Root removal (1 job, 2 hrs)');
+});
+
+// The scoper's Cost Breakdown reads the same labour table as the Labour PO
+// card, so custom labour and the access loading on plinth and gate labour
+// show there too.
+test('the Cost Breakdown labour rows are the quote labour table and add up to it', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.removal = { removalRequired: false, access: 'moderate' };
+    app.job = Object.assign(app.job, job);
+    app.renderCostBreakdown();
+    const d = app._collectOutputData();
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const rows = Array.from(document.querySelectorAll('#bodyCostBreakdown tbody tr'));
+    const head = rows.findIndex((r) => r.cells.length === 1 && r.textContent.trim() === 'Labour');
+    const labour = rows.slice(head + 1).filter((r) => r.cells.length === 5);
+    return {
+      accessRate: d.accessRate,
+      internalLabour: Math.round(d.internalLabour * 100) / 100,
+      labourSum: Math.round(labour.reduce((s, r) => s + money(r.cells[3].textContent), 0) * 100) / 100,
+      labels: labour.map((r) => r.cells[0].textContent),
+    };
+  }, labourJob.toString());
+
+  expect(res.accessRate).toBeGreaterThan(0);
+  expect(res.labourSum).toBe(res.internalLabour);
+  expect(res.labels).toEqual(expect.arrayContaining([
+    'Root removal (2 hrs × $80.00/hr)',
+    'Hard digging (3 hrs × $45.00/hr)',
+    'Spoil haul (absorbed) (1.5 hrs × $60.00/hr)',
+    'Pedestrian gate 1 install',
+  ]));
 });
 
 // The Labour PO card used to add plinth and gate labour to a total that
