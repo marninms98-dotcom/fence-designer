@@ -2,7 +2,8 @@
 
 // Behavioral coverage for the three material-order fixes (local tester build):
 //   Task A — custom line items reach the material order (material-flagged only)
-//            and capture a cost price that feeds the job margin.
+//            and capture a cost price that feeds the job margin; labour-flagged
+//            lines carry hours and $/hr and count as LABOUR, not materials.
 //   Task B — plinths on long panels auto-generate a SEPARATE long-plinth order
 //            line that reads COST_PRICES.plinthLong ($48), tracked by width.
 //   Task C — Stratco supplier profile (panel width 2350, no 2380 fallback).
@@ -205,7 +206,7 @@ test('Task B — long plinths cost plinthLong ($48) not plinth ($41) in the marg
   expect(res.premium).toBe(14);
 });
 
-test('Task A — material custom items reach the order; labour ones do not; cost feeds margin', async ({ page }) => {
+test('Task A — material custom items reach the order; labour ones do not; cost feeds margin and the right lane', async ({ page }) => {
   await openApp(page);
   const res = await page.evaluate((jobFactory) => {
     const app = window.app;
@@ -226,6 +227,7 @@ test('Task A — material custom items reach the order; labour ones do not; cost
       hasMaterialItem: /Powder-coated post caps/.test(order),
       hasLabourItem: /Extra site labour/.test(order),
       internalCostDelta: Math.round((dCost.internalCost - dNoCost.internalCost) * 100) / 100,
+      internalLabourDelta: Math.round((dCost.internalLabour - dNoCost.internalLabour) * 100) / 100,
       marginDelta: Math.round((dNoCost.materialMargin - dCost.materialMargin) * 100) / 100,
     };
   }, buildJob.toString());
@@ -235,7 +237,9 @@ test('Task A — material custom items reach the order; labour ones do not; cost
   expect(res.hasCustomSection).toBeTruthy();
   expect(res.hasMaterialItem).toBeTruthy();
   expect(res.hasLabourItem).toBeFalsy();
-  expect(res.internalCostDelta).toBe(189);
+  // The material cost is materials; the labour line's cost is labour.
+  expect(res.internalCostDelta).toBe(24);
+  expect(res.internalLabourDelta).toBe(165);
   expect(res.marginDelta).toBe(189);
 });
 
@@ -532,7 +536,7 @@ test('the kind picker shows what the order will actually do with the item', asyn
     app.render();
 
     const picked = Array.from(document.querySelectorAll('#bodyQuote select'))
-      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'material,labour')
+      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'unset,material,labour')
       .map((s) => s.options[s.selectedIndex].value);
 
     const d = app._collectOutputData();
@@ -546,21 +550,26 @@ test('the kind picker shows what the order will actually do with the item', asyn
 
 // The legacy rule ("no kind means labour") only holds if a slot the app itself
 // created carries an explicit kind. A fresh job seeds three custom-item slots,
-// and an operator who types a material into slot 1 without touching the kind
-// picker must still have it ordered — otherwise stock is silently short.
-test('a default custom slot on a fresh job reaches the supplier order untouched', async ({ page }) => {
+// and they start UNCLASSIFIED: a silent default once sent labour ("Root
+// removal, 2 hrs") to the panel supplier and counted it as materials. An
+// operator who fills a slot without choosing must be stopped, never defaulted
+// — the material order is blocked rather than silently short a material.
+test('a fresh custom slot must be marked Labour or Material before any output', async ({ page }) => {
   await openApp(page);
   const res = await page.evaluate((jobFactory) => {
     const app = window.app;
     // eslint-disable-next-line no-eval
     const build = eval('(' + jobFactory + ')');
     const job = build({ matCost: 4, labCost: 55 });
+    Object.assign(job, { clientFirstName: 'Pat', clientLastName: 'Lee', address: '1 Test St', phone: '0400000000', neighboursRequired: false });
     // Keep the slots app.init() created for this fresh job; the fixture's own
     // explicitly-kinded items would hide the default entirely.
     const freshSlots = app.job.quote.customLineItems;
     app.job = Object.assign(app.job, job);
     app.job.quote.customLineItems = freshSlots;
     app.job.installation = { supplierSource: 'Stratco' };
+    const blankKinds = freshSlots.map((c) => c.kind);
+    const blankProblems = app._validateRequired();
 
     // The operator fills slot 1 through the real input path and never opens
     // the kind picker.
@@ -568,7 +577,6 @@ test('a default custom slot on a fresh job reaches the supplier order untouched'
     app.updateCustomItem(0, 'qty', '6');
     app.updateCustomItem(0, 'unit', 'each');
     app.updateCustomItem(0, 'price', '15');
-
     // ...and adds a fourth row with the + button, filling that one too.
     app.addCustomItem();
     app.updateCustomItem(3, 'desc', 'Gate drop bolt');
@@ -578,13 +586,33 @@ test('a default custom slot on a fresh job reaches the supplier order untouched'
 
     if (!app._openSections.quote) app.toggleSection('quote');
     app.render();
-    const picked = Array.from(document.querySelectorAll('#bodyQuote select'))
-      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'material,labour')
+    const pickedBefore = Array.from(document.querySelectorAll('#bodyQuote select'))
+      .filter((s) => Array.from(s.options).map((o) => o.value).join(',') === 'unset,material,labour')
       .map((s) => s.options[s.selectedIndex].value);
 
+    const dBefore = app._collectOutputData();
+    const orderBefore = app._buildMaterialOrderText(dBefore);
+    const missingBefore = app._validateRequired();
+    const qaBefore = window.fenceQA.runScopeChecks().filter((f) => f.severity === 'red').map((f) => f.message);
+    const toasts = [];
+    const realToast = app.showToast;
+    app.showToast = (msg, kind) => { toasts.push({ msg, kind }); };
+    let opened = 0;
+    const realOpen = app._openOutputTab;
+    app._openOutputTab = () => { opened += 1; };
+    app.generateMaterialOrder();
+    app.generateWorkOrder();
+    app.showToast = realToast;
+
+    // One tap each on the picker, and both are ordered.
+    app.updateCustomItem(0, 'kind', 'material');
+    app.updateCustomItem(3, 'kind', 'material');
     const d = app._collectOutputData();
     const order = app._buildMaterialOrderText(d);
     const email = app._materialOrderEmail(d).body;
+    const missingAfter = app._validateRequired();
+    app.generateMaterialOrder();
+    app._openOutputTab = realOpen;
 
     // The same job as it would have been SAVED before this branch: the slot
     // carries no kind at all.
@@ -598,32 +626,506 @@ test('a default custom slot on a fresh job reaches the supplier order untouched'
     const legacyOrder = app._buildMaterialOrderText(app._collectOutputData());
 
     return {
-      picked: picked.slice(0, 4),
+      blankKinds, blankProblems,
+      pickedBefore: pickedBefore.slice(0, 4),
+      kindsBefore: (dBefore.customItems || []).map((c) => ({ desc: c.desc, kind: c.kind })),
+      orderBefore, missingBefore, qaBefore, toasts, opened,
       kinds: (d.customItems || []).map((c) => ({ desc: c.desc, kind: c.kind })),
-      order,
-      email,
-      legacyOrder,
+      order, email, missingAfter, legacyOrder,
     };
   }, buildJob.toString());
 
-  // (a) The default slot behaves exactly like the + Add row: both ordered.
+  // Fresh slots are explicitly unclassified, and an empty slot asks nothing.
+  expect(res.blankKinds).toEqual(['unset', 'unset', 'unset']);
+  expect(res.blankProblems.filter((m) => /Custom line/.test(m))).toEqual([]);
+
+  // (a) Filled but never classified: not ordered, and every output door stops.
+  expect(res.pickedBefore).toEqual(['unset', 'unset', 'unset', 'unset']);
+  expect(res.kindsBefore).toEqual([
+    { desc: 'Powder-coated post caps', kind: 'unset' },
+    { desc: 'Gate drop bolt', kind: 'unset' },
+  ]);
+  expect(res.orderBefore).not.toContain('Powder-coated post caps');
+  expect(res.missingBefore).toContain('Custom line 1 (Powder-coated post caps): choose Labour or Material');
+  expect(res.missingBefore).toContain('Custom line 4 (Gate drop bolt): choose Labour or Material');
+  expect(res.qaBefore).toContain('Custom line 1 (Powder-coated post caps): choose Labour or Material');
+  expect(res.toasts.filter((t) => t.kind === 'error').length).toBe(2);
+
+  // (b) Once marked Material, both reach the order and the email.
   expect(res.kinds).toEqual([
     { desc: 'Powder-coated post caps', kind: 'material' },
     { desc: 'Gate drop bolt', kind: 'material' },
   ]);
+  expect(res.missingAfter.filter((m) => /Custom line/.test(m))).toEqual([]);
+  expect(res.opened).toBe(1);
   expect(res.order).toContain('CUSTOM MATERIALS');
   expect(res.order).toContain('Powder-coated post caps');
   expect(res.order).toContain('Gate drop bolt');
   expect(res.email).toContain('Powder-coated post caps');
   expect(res.email).toContain('Gate drop bolt');
-  // The picker agrees with the engine on every row, filled or blank.
-  expect(res.picked).toEqual(['material', 'material', 'material', 'material']);
 
-  // (b) The legacy half still holds: strip the kind the app stamped and the
-  // same items drop off the supplier order.
+  // (c) The legacy half still holds: strip the kind and the same items drop
+  // off the supplier order.
   expect(res.legacyOrder).not.toContain('CUSTOM MATERIALS');
   expect(res.legacyOrder).not.toContain('Powder-coated post caps');
   expect(res.legacyOrder).not.toContain('Gate drop bolt');
+});
+
+// "Root removal — 1 job" tells a trade nothing about time. A labour line
+// carries its hours and cost per hour; its cost is LABOUR, it never reaches the
+// supplier, and the hours ride pricing_json so a work order can be built.
+function labourJob() {
+  return {
+    clientFirstName: 'Pat', clientLastName: 'Lee', address: '1 Test St', phone: '0400000000',
+    neighboursRequired: false,
+    supplier: 'Stratco', profile: 'Superdek', colour: 'Monument', scopeType: 'fence-and-gate',
+    pricePerMetre: 125,
+    installation: { supplierSource: 'Stratco' },
+    gatesRequired: true,
+    gates: [{ id: 'g1', type: 'pedestrian', width: 900 }, { id: 'g2', type: 'double', width: 3000 }],
+    runs: [{
+      name: 'Rear', length: 10, sheetHeight: 1800,
+      panels: [
+        { id: 'p1', height: 1800, retaining: 150, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        { id: 'p2', height: 1800, retaining: 150, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        { id: 'p3', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+        { id: 'p4', height: 1800, retaining: 0, step: 'level', stepMm: 0, slopePlinths: 0, panelWidth: 'standard' },
+      ],
+    }],
+    quote: {
+      urgency: 'standard', deliveryFee: 200, groundFinish: 'none', addons: {},
+      customLineItems: [
+        { desc: 'Root removal', qty: 1, unit: 'job', price: 260, kind: 'labour', hours: 2, costPerHour: 80 },
+        { desc: 'Hard digging', qty: 3, unit: 'hrs', price: 130, kind: 'labour', costPerHour: 45 },
+        { desc: 'Post caps', qty: 6, unit: 'each', price: 15, costPrice: 4, kind: 'material' },
+        { desc: 'Spoil haul (absorbed)', qty: 1, unit: 'job', price: 0, kind: 'labour', hours: 1.5, costPerHour: 60 },
+      ],
+    },
+  };
+}
+
+test('a labour line carries hours and $/hr into the labour figure, the work order and pricing_json', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    const d = app._collectOutputData();
+    const pj = app.buildPricingJson();
+    const order = app._buildMaterialOrderText(d);
+    const wo = app._generateWorkOrderHTML(d);
+
+    // The same job with no custom lines, for the labour delta.
+    const bare = JSON.parse(JSON.stringify(app.job));
+    bare.quote.customLineItems = [];
+    app.job = bare;
+    const d0 = app._collectOutputData();
+
+    const r2 = (n) => Math.round(n * 100) / 100;
+    return {
+      labourDelta: r2(d.internalLabour - d0.internalLabour),
+      costDelta: r2(d.internalCost - d0.internalCost),
+      subtotalDelta: r2(d.subtotal - d0.subtotal),
+      order,
+      wo,
+      custom: pj.line_items.filter((li) => li.category === 'custom'),
+      labourLines: pj.internal.labour_lines,
+      labourLinesSum: r2(pj.internal.labour_lines.reduce((s, l) => s + l.total_cost, 0)),
+      internalLabour: r2(pj.internal.labour),
+      labourCostEstimate: r2(pj.labourCostEstimate),
+    };
+  }, labourJob.toString());
+
+  // 2h × $80 + 3h × $45 + 1.5h × $60 = $160 + $135 + $90 = $385 of labour;
+  // only the $24 of post caps is materials. Sell is untouched by kind.
+  expect(res.labourDelta).toBe(385);
+  expect(res.costDelta).toBe(24);
+  expect(res.subtotalDelta).toBe(260 + 390 + 90);
+
+  // Labour never reaches the supplier.
+  expect(res.order).toContain('Post caps');
+  expect(res.order).not.toContain('Root removal');
+  expect(res.order).not.toContain('Hard digging');
+  expect(res.order).not.toContain('Spoil haul');
+
+  // The work order says how long each extra takes.
+  expect(res.wo).toContain('Root removal (1 job, 2 hrs)');
+  expect(res.wo).toContain('Hard digging (3 hrs)');
+  expect(res.wo).toContain('Spoil haul (absorbed) (1 job, 1.5 hrs)');
+  // Hours only: the crew-carried work order names no per-extra dollar rate.
+  expect(res.wo).not.toContain('/hr');
+  expect(res.wo).not.toContain('$385.00');
+
+  // pricing_json.line_items: sellable custom lines with kind, hours, $/hr.
+  expect(res.custom).toEqual([
+    expect.objectContaining({ description: 'Root removal', quantity: 1, unit: 'job', kind: 'labour', hours: 2, cost_per_hour: 80, total_cost: 160, cost_price: 160, total_sell: 260 }),
+    expect.objectContaining({ description: 'Hard digging', quantity: 3, unit: 'hrs', kind: 'labour', hours: 3, cost_per_hour: 45, total_cost: 135, cost_price: 45 }),
+    expect.objectContaining({ description: 'Post caps', kind: 'material', total_cost: 24, cost_price: 4 }),
+  ]);
+  expect(res.custom[2]).not.toHaveProperty('hours');
+
+  // internal.labour_lines is the whole labour cost table, reconciling to the
+  // labour figure, including the cost-only labour line the client never sees.
+  expect(res.labourLinesSum).toBe(res.internalLabour);
+  expect(res.labourCostEstimate).toBe(res.internalLabour);
+  expect(res.labourLines.map((l) => l.source)).toEqual(['base', 'plinth', 'gate', 'gate', 'custom', 'custom', 'custom']);
+  expect(res.labourLines[res.labourLines.length - 1]).toEqual(expect.objectContaining({ task: 'Spoil haul (absorbed)', hours: 1.5, cost_per_hour: 60, total_cost: 90 }));
+});
+
+test('a labour line without hours blocks the quote and send, but not the material or work order', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [{ desc: 'Root removal', qty: 1, unit: 'job', price: 260, kind: 'labour' }, { kind: 'unset' }, { kind: 'unset' }];
+    app.job = Object.assign(app.job, job);
+    if (!app._openSections.quote) app.toggleSection('quote');
+    app.render();
+    const hoursInputs = Array.from(document.querySelectorAll('#bodyQuote input[placeholder="Total hrs"]')).length;
+    const out = {
+      hoursInputs,
+      bare: app._validateRequired().filter((m) => /Custom line/.test(m)),
+      forQuote: app._validateRequired({ forQuote: true }).filter((m) => /Custom line/.test(m)),
+      qa: window.fenceQA.runScopeChecks().filter((f) => f.severity === 'red' && /Custom line/.test(f.message)).map((f) => f.message),
+    };
+    app.updateCustomItem(0, 'hours', '2');
+    app.updateCustomItem(0, 'costPerHour', '80');
+    out.forQuoteAfter = app._validateRequired({ forQuote: true }).filter((m) => /Custom line/.test(m));
+    // An 'hrs' line takes its hours from the quantity, so asks for no extra field.
+    app.updateCustomItem(0, 'unit', 'hrs');
+    out.hoursInputsOnHrs = Array.from(document.querySelectorAll('#bodyQuote input[placeholder="Total hrs"]')).length;
+    return out;
+  }, labourJob.toString());
+
+  expect(res.hoursInputs).toBe(1);
+  expect(res.bare).toEqual([]);
+  expect(res.forQuote).toEqual([
+    'Custom line 1 (Root removal): hours for this labour',
+    'Custom line 1 (Root removal): labour cost per hour',
+  ]);
+  expect(res.qa).toEqual(res.forQuote);
+  expect(res.forQuoteAfter).toEqual([]);
+  expect(res.hoursInputsOnHrs).toBe(0);
+});
+
+// A labour line with hours but no quantity is dropped by the engine, so it
+// must stop the quote rather than vanish from the work order. A material line
+// with no quantity would leave the order short, so it stops every output.
+test('a custom line with no quantity is flagged rather than silently dropped', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [
+      { desc: 'Root removal', unit: 'job', price: 260, kind: 'labour', hours: 2, costPerHour: 80 },
+      { desc: 'Post caps', unit: 'each', price: 15, costPrice: 4, kind: 'material' },
+      { kind: 'unset' },
+    ];
+    app.job = Object.assign(app.job, job);
+    const custom = (m) => /Custom line/.test(m);
+    const out = {
+      bare: app._validateRequired().filter(custom),
+      forQuote: app._validateRequired({ forQuote: true }).filter(custom),
+      qa: window.fenceQA.runScopeChecks().filter((f) => f.severity === 'red' && custom(f.message)).map((f) => f.message),
+    };
+    app.updateCustomItem(0, 'qty', '1');
+    app.updateCustomItem(1, 'qty', '6');
+    out.forQuoteAfter = app._validateRequired({ forQuote: true }).filter(custom);
+    out.woAfter = app._generateWorkOrderHTML(app._collectOutputData());
+    return out;
+  }, labourJob.toString());
+
+  expect(res.bare).toEqual(['Custom line 2 (Post caps): quantity']);
+  expect(res.forQuote).toEqual([
+    'Custom line 1 (Root removal): quantity',
+    'Custom line 2 (Post caps): quantity',
+  ]);
+  expect(res.qa).toEqual(res.forQuote);
+  expect(res.forQuoteAfter).toEqual([]);
+  expect(res.woAfter).toContain('Root removal (1 job, 2 hrs)');
+});
+
+// A job saved while blank slots were stamped Material reopens with those
+// empty slots unclassified, so filling one still has to be marked Labour or
+// Material; a slot the scoper actually filled keeps its kind.
+test('an empty Material slot saved before kinds were required reopens unclassified', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [
+      { desc: 'Post caps', qty: 6, unit: 'each', price: 15, costPrice: 4, kind: 'material' },
+      { kind: 'material' },
+      {},
+      { desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, costPrice: 55 },
+    ];
+    localStorage.setItem('fenceJob', JSON.stringify(job));
+    app.loadFromStorage();
+    const out = { kinds: app.job.quote.customLineItems.map((c) => app.customItemKind(c)) };
+    app.updateCustomItem(1, 'desc', 'Root removal');
+    app.updateCustomItem(1, 'qty', '1');
+    app.updateCustomItem(1, 'price', '260');
+    const custom = (m) => /Custom line/.test(m);
+    out.blocked = app._validateRequired().filter(custom);
+    out.order = app._buildMaterialOrderText(app._collectOutputData());
+    app.updateCustomItem(1, 'kind', 'labour');
+    out.afterPick = app._validateRequired({ forQuote: true }).filter(custom);
+    // A bare {} slot from before kinds existed asks too.
+    app.updateCustomItem(2, 'desc', 'Colorbond capping');
+    app.updateCustomItem(2, 'qty', '10');
+    out.bareBlocked = app._validateRequired().filter(custom);
+    return out;
+  }, labourJob.toString());
+
+  // The filled kind-less legacy line still resolves to labour.
+  expect(res.kinds).toEqual(['material', 'unset', 'unset', 'labour']);
+  expect(res.blocked).toEqual(['Custom line 2 (Root removal): choose Labour or Material']);
+  expect(res.order).toContain('Post caps');
+  expect(res.order).not.toContain('Root removal');
+  expect(res.afterPick).toEqual([
+    'Custom line 2 (Root removal): hours for this labour',
+    'Custom line 2 (Root removal): labour cost per hour',
+  ]);
+  expect(res.bareBlocked).toEqual(['Custom line 3 (Colorbond capping): choose Labour or Material']);
+});
+
+// A jobSettings-era draft (no `quote` yet) migrates its filled legacy lines
+// with their resolved kind, but its blank entries become unclassified slots.
+test('a jobSettings-era draft migrates its blank custom entries unclassified', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    delete job.quote;
+    job.jobSettings = { urgency: 'standard', delivery: 200, groundFinish: 'none', custom: [
+      { desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, costPrice: 55 },
+      {},
+      {},
+    ] };
+    localStorage.setItem('fenceJob', JSON.stringify(job));
+    app.loadFromStorage();
+    const items = app.job.quote.customLineItems;
+    const out = { kinds: items.map((c) => app.customItemKind(c)), first: items[0] };
+    app.updateCustomItem(1, 'desc', 'Colorbond capping');
+    app.updateCustomItem(1, 'qty', '10');
+    out.blocked = app._validateRequired().filter((m) => /Custom line/.test(m));
+    return out;
+  }, labourJob.toString());
+
+  expect(res.kinds).toEqual(['labour', 'unset', 'unset']);
+  expect(res.first).toEqual({ desc: 'Extra labour', qty: 2, unit: 'hrs', price: 80, kind: 'labour', costPrice: 55 });
+  expect(res.blocked).toEqual(['Custom line 2 (Colorbond capping): choose Labour or Material']);
+});
+
+// The row warnings follow every edit, not just a Labour/Material or unit
+// change, and re-marking a row does not rebuild it under the scoper's finger.
+test('a custom line row re-marks itself as the scoper fills it in', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [{ desc: 'Root removal', qty: 1, unit: 'job', price: 260, kind: 'labour' }, { kind: 'unset' }, { kind: 'unset' }];
+    app.job = Object.assign(app.job, job);
+    if (!app._openSections.quote) app.toggleSection('quote');
+    app.render();
+    const row = (i) => document.querySelector('#bodyQuote [data-ci-row="' + i + '"]');
+    const note = (i) => {
+      const el = row(i).querySelector('[data-ci="note"]');
+      return el.offsetParent === null ? '' : el.textContent;
+    };
+    const red = (el) => /220, 38, 38/.test(getComputedStyle(el).borderTopColor);
+    const hoursInput = () => row(0).querySelector('input[placeholder="Total hrs"]');
+    const out = { before: note(0), hoursRedBefore: red(hoursInput()) };
+    const first = row(0);
+    app.updateCustomItem(0, 'hours', '2');
+    out.afterHours = note(0);
+    out.hoursRedAfter = red(hoursInput());
+    app.updateCustomItem(0, 'costPerHour', '80');
+    out.afterRate = note(0);
+    out.rowRedAfter = red(row(0));
+    out.sameRow = first === row(0);
+    out.freshBefore = note(1);
+    app.updateCustomItem(1, 'desc', 'Skip bin');
+    out.freshAfter = note(1);
+    // An 'hrs' line takes its hours from the quantity, so that box is the one
+    // flagged when the hours are missing.
+    app.updateCustomItem(2, 'kind', 'labour');
+    app.updateCustomItem(2, 'unit', 'hrs');
+    app.updateCustomItem(2, 'desc', 'Hard digging');
+    out.hrsNote = note(2);
+    out.hrsQtyRed = red(row(2).querySelector('[data-ci="qty"]'));
+    out.hrsProblems = app._validateRequired({ forQuote: true }).filter((m) => /Custom line 3/.test(m));
+    return out;
+  }, labourJob.toString());
+
+  expect(res.before).toContain('How many hours does this take?');
+  expect(res.hoursRedBefore).toBe(true);
+  // Hours are in but the line still has no $/hr, so it still says so.
+  expect(res.afterHours).toBe('Enter the cost per hour.');
+  expect(res.hoursRedAfter).toBe(false);
+  expect(res.afterRate).toBe('');
+  expect(res.rowRedAfter).toBe(false);
+  expect(res.sameRow).toBe(true);
+  expect(res.freshBefore).toBe('');
+  expect(res.freshAfter).toBe('Choose Labour or Material for this line.');
+  expect(res.hrsNote).toBe('Enter the hours as the quantity.');
+  expect(res.hrsQtyRed).toBe(true);
+  expect(res.hrsProblems).toEqual([
+    'Custom line 3 (Hard digging): hours for this labour',
+    'Custom line 3 (Hard digging): labour cost per hour',
+  ]);
+});
+
+// The work order's Internal Cost Breakdown foots to its total with custom
+// labour inside the labour figure, and names no extra in a dollar row.
+test('the work order cost table foots, with no dollar row per extra', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    app.job = Object.assign(app.job, eval('(' + jobFactory + ')')());
+    const d = app._collectOutputData();
+    const doc = new DOMParser().parseFromString(app._generateWorkOrderHTML(d), 'text/html');
+    const table = Array.from(doc.querySelectorAll('table')).find((t) => Array.from(t.querySelectorAll('tr')).some((r) => /^Total cost/.test(r.cells[0] && r.cells[0].textContent)));
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const rows = Array.from(table.querySelectorAll('tbody tr')).map((r) => ({ label: r.cells[0].textContent, amount: money(r.cells[1].textContent) }));
+    const totalAt = rows.findIndex((r) => /^Total cost/.test(r.label));
+    return {
+      customLabourCost: d.customLabourCost,
+      rows: rows.slice(0, totalAt),
+      total: rows[totalAt].amount,
+    };
+  }, labourJob.toString());
+
+  expect(res.customLabourCost).toBe(385);
+  const sum = Math.round(res.rows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+  expect(sum).toBe(res.total);
+  for (const name of ['Root removal', 'Hard digging', 'Spoil haul']) {
+    expect(res.rows.some((r) => r.label.includes(name))).toBe(false);
+  }
+  // The one labour row carries the extras, and says so.
+  expect(res.rows.find((r) => /^Labour base/.test(r.label)).label).toContain('+ extra labour');
+});
+
+// The scoper's Cost Breakdown reads the same labour table as the Labour PO
+// card, so custom labour and the access loading on plinth and gate labour
+// show there too.
+test('the Cost Breakdown labour rows are the quote labour table and add up to it', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.removal = { removalRequired: false, access: 'moderate' };
+    app.job = Object.assign(app.job, job);
+    app.renderCostBreakdown();
+    const d = app._collectOutputData();
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const rows = Array.from(document.querySelectorAll('#bodyCostBreakdown tbody tr'));
+    const head = rows.findIndex((r) => r.cells.length === 1 && r.textContent.trim() === 'Labour');
+    const labour = rows.slice(head + 1).filter((r) => r.cells.length === 5);
+    return {
+      accessRate: d.accessRate,
+      internalLabour: Math.round(d.internalLabour * 100) / 100,
+      labourSum: Math.round(labour.reduce((s, r) => s + money(r.cells[3].textContent), 0) * 100) / 100,
+      labels: labour.map((r) => r.cells[0].textContent),
+    };
+  }, labourJob.toString());
+
+  expect(res.accessRate).toBeGreaterThan(0);
+  expect(res.labourSum).toBe(res.internalLabour);
+  expect(res.labels).toEqual(expect.arrayContaining([
+    'Root removal (2 hrs × $80.00/hr)',
+    'Hard digging (3 hrs × $45.00/hr)',
+    'Spoil haul (absorbed) (1.5 hrs × $60.00/hr)',
+    'Pedestrian gate 1 install',
+  ]));
+});
+
+// The Labour PO card used to add plinth and gate labour to a total that
+// already contained them.
+test('the Labour PO card totals the labour figure once, and its rows add up to it', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.removal = { removalRequired: false, access: 'moderate' };
+    app.job = Object.assign(app.job, job);
+    app.renderQuoteAndOrders();
+    const d = app._collectOutputData();
+    const card = Array.from(document.querySelectorAll('#bodyQuoteOrders .po-card'))
+      .find((c) => /Draft Labour Purchase Order/.test(c.textContent));
+    const money = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+    const rows = Array.from(card.querySelectorAll('tbody tr'));
+    const total = rows.find((r) => r.classList.contains('po-total'));
+    return {
+      internalLabour: Math.round(d.internalLabour * 100) / 100,
+      accessRate: d.accessRate,
+      total: money(total.querySelector('.r').textContent),
+      rowSum: Math.round(rows.filter((r) => r !== total).reduce((s, r) => s + money(r.querySelector('.r').textContent), 0) * 100) / 100,
+      text: card.textContent,
+    };
+  }, labourJob.toString());
+
+  expect(res.total).toBe(res.internalLabour);
+  expect(res.rowSum).toBe(res.internalLabour);
+  expect(res.text).toContain('Root removal (2 hrs');
+  expect(res.text).toContain('Pedestrian gate 1 install');
+});
+
+// A job saved before labour lines carried hours prices and costs exactly as it
+// did: a labour line keeps qty × cost/ea, and a job with no custom labour has
+// the identical labour figure.
+test('a quote saved before hours existed loads and prices exactly as before', async ({ page }) => {
+  await openApp(page);
+  const res = await page.evaluate((jobFactory) => {
+    const app = window.app;
+    // eslint-disable-next-line no-eval
+    const job = eval('(' + jobFactory + ')')();
+    job.quote.customLineItems = [
+      { desc: 'Root removal', qty: 1, unit: 'job', price: 260, costPrice: 250 },
+      { desc: 'Hard digging', qty: 2, unit: 'hrs', price: 130, costPrice: 80, kind: 'material' },
+      { desc: 'Extra labour', qty: 3, unit: 'hrs', price: 80, costPrice: 55, kind: 'labour' },
+    ];
+    app.job = Object.assign(app.job, job);
+    const before = JSON.stringify(app.job.quote.customLineItems);
+    const d = app._collectOutputData();
+    const noCustom = JSON.parse(JSON.stringify(app.job));
+    noCustom.quote.customLineItems = [];
+    app.job = noCustom;
+    const d0 = app._collectOutputData();
+    // The pre-change labour formula, verbatim.
+    const plinth = d0.totalPlinths * 10;
+    const gates = 250 + 500;
+    const oldLabour = (d0.totalMetres * 35 + plinth + gates) * (1 + d0.accessRate);
+    return {
+      untouched: before === JSON.stringify(job.quote.customLineItems),
+      subtotal: d.subtotal, customTotal: d.customTotal,
+      customCostTotal: d.customCostTotal,
+      totalCost: Math.round((d.internalCost + d.internalLabour) * 100) / 100,
+      totalCost0: Math.round((d0.internalCost + d0.internalLabour) * 100) / 100,
+      labourMove: Math.round((d.internalLabour - d0.internalLabour) * 100) / 100,
+      kinds: d.customItems.map((c) => c.kind),
+      sameLabour: d0.internalLabour === oldLabour,
+    };
+  }, labourJob.toString());
+
+  expect(res.untouched).toBe(true);
+  expect(res.customTotal).toBe(260 + 260 + 240);
+  // Every line costs what it did: 250 + 160 + 165.
+  expect(res.customCostTotal).toBe(575);
+  expect(Math.round((res.totalCost - res.totalCost0) * 100) / 100).toBe(575);
+  // Only the labour lines' cost moved into the labour lane; the material
+  // (even one that reads like labour) stays materials until someone re-marks it.
+  expect(res.kinds).toEqual(['labour', 'material', 'labour']);
+  expect(res.labourMove).toBe(250 + 165);
+  expect(res.sameLabour).toBe(true);
 });
 
 // Two clipboard buttons sit side by side on the Material Order page and copy

@@ -3622,35 +3622,14 @@
         </div>`;
 
         // ── Labour PO Card ──
-        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
-        const accessPct = d.accessRate || 0;
-        const accessAmt = labBase * accessPct;
-        const plinthLabour = d.totalPlinths * (COST_PRICES.plinthInstall || 10);
+        // Rows come from the engine's labour cost table (d.labourLines), which
+        // sums to d.internalLabour — so the total is never re-added to.
         let labRows = '';
-        labRows += `<tr><td>Base labour (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m)</td><td class="r">$${f(labBase)}</td></tr>`;
-        if (d.totalPlinths > 0) {
-          labRows += `<tr><td>Plinth install (${d.totalPlinths} × $${f(COST_PRICES.plinthInstall || 10)})</td><td class="r">$${f(plinthLabour)}</td></tr>`;
-        }
-        if (accessPct > 0) {
-          labRows += `<tr><td>Access surcharge (${(accessPct * 100).toFixed(0)}%)</td><td class="r">$${f(accessAmt)}</td></tr>`;
-        }
-        (d.job.gates || []).forEach((g, gi) => {
-          if (g.type === 'pedestrian') {
-            labRows += `<tr><td>Pedestrian gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourPedestrian)}</td></tr>`;
-          } else if (g.type === 'double') {
-            labRows += `<tr><td>Double gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourDouble)}</td></tr>`;
-          } else if (g.type === 'sliding') {
-            labRows += `<tr><td>Sliding gate ${gi + 1} install</td><td class="r">$${f(COST_PRICES.gateLabourDouble)}</td></tr>`;
-          }
+        (d.labourLines || []).forEach(l => {
+          labRows += `<tr><td>${this._esc(this._labourLineLabel(l, f))}</td><td class="r">$${f(l.totalCost)}</td></tr>`;
         });
         // Removal costs are in Material PO only — not double-counted here
-        let totalGateLabour = 0;
-        (d.job.gates || []).forEach(g => {
-          if (g.type === 'pedestrian') totalGateLabour += COST_PRICES.gateLabourPedestrian;
-          else if (g.type === 'double') totalGateLabour += COST_PRICES.gateLabourDouble;
-          else if (g.type === 'sliding') totalGateLabour += COST_PRICES.gateLabourDouble;
-        });
-        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour + plinthLabour + totalGateLabour)}</td></tr>`;
+        labRows += `<tr class="po-total"><td>Total Labour Cost</td><td class="r">$${f(d.internalLabour)}</td></tr>`;
 
         const labApproved = this._poApproved.labour;
         html += `<div class="po-card" style="margin-top:8px;">
@@ -3731,7 +3710,7 @@
           <table style="width:100%;font-size:12px;">
             <tr><td>Materials: sell $${f(matSell)}, cost $${f(d.internalCost - d.internalRemovalCost)}</td><td class="r" style="color:${matMCol};font-weight:700;">GP $${f(matSell - (d.internalCost - d.internalRemovalCost))} (${(matSell > 0 ? ((matSell - (d.internalCost - d.internalRemovalCost)) / matSell * 100) : 0).toFixed(0)}%)</td></tr>
             ${d.removalTotal > 0 ? `<tr><td>Removal: sell $${f(d.removalTotal)}, cost $${f(d.internalRemovalCost)}</td><td class="r" style="color:${remMCol};font-weight:700;">GP $${f(removalMargin)} (${removalMarginPct.toFixed(0)}%)</td></tr>` : ''}
-            <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
+            <tr><td>Labour cost (${d.totalMetres.toFixed(1)}m × $${f(COST_PRICES.labourPerMetre)}/m${d.accessRate > 0 ? ' + access' : ''}${d.customLabourCost > 0 ? ' + extra labour' : ''})</td><td class="r">$${f(d.internalLabour)}</td></tr>
             <tr><td>Sales commission (15% of GP)</td><td class="r">$${f(commissionAmount)}</td></tr>
             <tr><td>Other (addons, surcharges, custom)</td><td class="r" style="font-weight:700;">$${f(d.addonsTotal + d.customTotal + d.accessSurcharge + d.urgencySurcharge + d.groundFinishTotal)}</td></tr>
             <tr style="border-top:1px solid #e5e7eb;"><td style="padding-top:6px;font-weight:700;">True GP</td><td class="r" style="padding-top:6px;font-weight:700;font-size:14px;color:${gpCol};">$${f(trueGP)} (${trueGPPct.toFixed(1)}%)</td></tr>
@@ -4782,16 +4761,38 @@
           </div>
 
           <div class="section-label" style="margin-top:16px;">Custom Line Items</div>
-          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Flag each item as <b>Material</b> (appears on the material order) or <b>Labour</b>. Cost price feeds the job margin.</div>
-          ${items.map((c, i) => `
-            <div style="border:1px solid #e3e8ec;border-radius:8px;padding:8px;margin-bottom:8px;">
+          <div style="font-size:12px;color:#4C6A70;margin-bottom:8px;">Mark each item <b>Material</b> (appears on the material order) or <b>Labour</b> (goes to the trades' work order — give its hours and cost per hour). Cost feeds the job margin.</div>
+          ${items.map((c, i) => {
+            const lab = this.customItemLabour(c);
+            const w = this._customItemRowWarnings(c);
+            const inputStyle = 'width:90px;min-height:44px;font-size:16px;padding:10px 8px;border-radius:6px;';
+            const warn = (cond) => 'border:' + (cond ? '2px solid #dc2626' : '1px solid #4C6A70') + ';';
+            let costInputs;
+            if (lab) {
+              const hoursInput = c.unit === 'hrs'
+                ? ''
+                : `<span style="font-weight:700;">Hours</span>
+                <input type="number" data-ci="hours" value="${c.hours || ''}" min="0" step="0.25" placeholder="Total hrs" title="Total hours for this line" style="${inputStyle}${warn(w.hours)}"
+                  onchange="app.updateCustomItem(${i}, 'hours', this.value)">`;
+              costInputs = `${hoursInput}
+                <span style="font-weight:700;">Cost $/hr</span>
+                <input type="number" data-ci="rate" value="${lab.costPerHour || ''}" min="0" step="1" placeholder="Cost/hr" style="${inputStyle}${warn(w.rate)}"
+                  onchange="app.updateCustomItem(${i}, 'costPerHour', this.value)">`;
+            } else {
+              costInputs = `<span style="font-weight:700;">Cost $</span>
+                <input type="number" value="${c.costPrice || ''}" min="0" step="1" placeholder="Cost/ea" style="${inputStyle}border:1px solid #4C6A70;"
+                  onchange="app.updateCustomItem(${i}, 'costPrice', this.value)">`;
+            }
+            const kind = this.customItemKind(c);
+            return `
+            <div data-ci-row="${i}" style="border:1px solid ${w.note ? '#dc2626' : '#e3e8ec'};border-radius:8px;padding:8px;margin-bottom:8px;">
               <div class="form-row" style="margin-bottom:6px;">
                 <div class="form-group" style="flex:1;">
-                  <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra panel, skip bin, extra labour"
+                  <input type="text" value="${this._esc(c.desc)}" placeholder="e.g. Extra panel, skip bin, root removal"
                     onchange="app.updateCustomItem(${i}, 'desc', this.value)">
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
-                  <input type="number" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                  <input type="number" data-ci="qty" value="${c.qty || ''}" min="0" placeholder="Qty" style="width:70px;min-height:44px;font-size:16px;padding:10px 8px;border-radius:6px;${warn(w.qty)}"
                     onchange="app.updateCustomItem(${i}, 'qty', this.value)">
                   <select style="width:80px;min-height:44px;font-size:16px;padding:10px 4px;border:1px solid #4C6A70;border-radius:6px;"
                     onchange="app.updateCustomItem(${i}, 'unit', this.value)">
@@ -4800,21 +4801,21 @@
                 </div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <select title="Material items appear on the material order" style="min-height:44px;font-size:15px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                <select data-ci="kind" title="Material items appear on the material order; labour items go to the trades' work order" style="min-height:44px;font-size:15px;padding:10px 8px;border-radius:6px;${warn(w.kind)}"
                   onchange="app.updateCustomItem(${i}, 'kind', this.value)">
-                  <option value="material" ${this.customItemKind(c) === 'material' ? 'selected' : ''}>Material</option>
-                  <option value="labour" ${this.customItemKind(c) === 'labour' ? 'selected' : ''}>Labour</option>
+                  <option value="unset" ${kind === 'unset' ? 'selected' : ''} disabled>Labour or Material?</option>
+                  <option value="material" ${kind === 'material' ? 'selected' : ''}>Material</option>
+                  <option value="labour" ${kind === 'labour' ? 'selected' : ''}>Labour</option>
                 </select>
                 <span style="font-weight:700;">Sell $</span>
-                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Sell/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
+                <input type="number" value="${c.price || ''}" min="0" step="1" placeholder="Sell/ea" style="${inputStyle}border:1px solid #4C6A70;"
                   onchange="app.updateCustomItem(${i}, 'price', this.value)">
-                <span style="font-weight:700;">Cost $</span>
-                <input type="number" value="${c.costPrice || ''}" min="0" step="1" placeholder="Cost/ea" style="width:90px;min-height:44px;font-size:16px;padding:10px 8px;border:1px solid #4C6A70;border-radius:6px;"
-                  onchange="app.updateCustomItem(${i}, 'costPrice', this.value)">
+                ${costInputs}
                 <button class="btn-delete" style="min-height:44px;" onclick="app.deleteCustomItem(${i})">Remove</button>
               </div>
-            </div>
-          `).join('')}
+              <div data-ci="note" style="font-size:12px;color:#dc2626;margin-top:6px;${w.note ? '' : 'display:none;'}">${this._esc(w.note)}</div>
+            </div>`;
+          }).join('')}
           <button class="btn-orange" onclick="app.addCustomItem()">+ Add Custom Item</button>
         `;
       },
@@ -4968,27 +4969,17 @@
           lineSell: COST_PRICES.delivery * markupMult
         });
 
-        // Labour — base + plinth install + gate labour (engine lines 8999-9007)
-        const labBase = d.totalMetres * COST_PRICES.labourPerMetre;
-        const labAccess = labBase * (d.accessRate || 0);
-        const labPlinth = d.totalPlinths * (COST_PRICES.plinthInstall || 10);
-        let labGate = 0;
-        (d.job.gates || []).forEach(g => {
-          if (g.type === 'pedestrian') labGate += COST_PRICES.gateLabourPedestrian;
-          else if (g.type === 'double') labGate += COST_PRICES.gateLabourDouble;
-          else if (g.type === 'sliding') labGate += COST_PRICES.gateLabourDouble;
-        });
-        const totalLabourCost = labBase + labAccess + labPlinth + labGate;
-        rows.push({
-          label: `Labour — ${d.totalMetres.toFixed(1)}m × $${COST_PRICES.labourPerMetre}/m` +
-                 (labAccess > 0 ? ` + ${Math.round((d.accessRate||0)*100)}% access` : '') +
-                 (labPlinth > 0 ? ` + plinth install` : '') +
-                 (labGate > 0 ? ` + gate labour` : ''),
-          category: 'labour',
-          qty: 1,
-          unitCost: totalLabourCost,
-          lineCost: totalLabourCost,
-          lineSell: totalLabourCost * markupMult
+        // Labour — the engine's labour cost table (d.labourLines), which sums
+        // to d.internalLabour, custom labour included.
+        (d.labourLines || []).forEach(l => {
+          rows.push({
+            label: this._labourLineLabel(l, f2),
+            category: 'labour',
+            qty: 1,
+            unitCost: l.totalCost,
+            lineCost: l.totalCost,
+            lineSell: l.totalCost * markupMult
+          });
         });
 
         // ── Totals ──
@@ -5607,6 +5598,7 @@
             if (existingJob && existingJob.scope_json && Object.keys(existingJob.scope_json).length > 0 && !localDraftWins) {
               // Load cloud scope data only when there is no dirty local iPad draft.
               window.app.job = existingJob.scope_json.job || window.app.job;
+              window.app._normaliseEmptyCustomSlots(window.app.job);
               if (!window.app.job.scopeType) window.app.job.scopeType = 'fence-and-gate';
               if (window.app.job.runs && window.app.job.runs.length > 0) {
                 window.app.currentRunId = window.app.job.runs[0].id;
@@ -6728,9 +6720,14 @@
         if (!this.job.quote) this.job.quote = {};
         if (!this.job.quote.customLineItems) this.job.quote.customLineItems = this._blankCustomItems();
         while (this.job.quote.customLineItems.length <= idx) this.job.quote.customLineItems.push(this._blankCustomItem());
-        if (field === 'qty' || field === 'price' || field === 'costPrice') value = parseFloat(value) || 0;
+        if (field === 'qty' || field === 'price' || field === 'costPrice' || field === 'hours' || field === 'costPerHour') value = parseFloat(value) || 0;
         this.job.quote.customLineItems[idx][field] = value;
         this.save();
+        // Kind and unit decide which cost inputs the row shows (a labour line
+        // asks for hours and $/hr), so those two redraw the section; any other
+        // field only re-marks that row, keeping focus where the scoper tapped.
+        if (field === 'kind' || field === 'unit') this.renderQuote();
+        else this._refreshCustomItemRow(idx);
         this.updateStats();
         this.renderQuoteAndOrders();
       },
@@ -6756,16 +6753,138 @@
       // prompted for "Extra labour, skip bin, etc.". One rule, every site,
       // including the picker, so the control can never claim Material for an
       // item the order will treat as labour.
+      // 'unset' is a line the scoper has not classified yet: every slot the app
+      // creates starts there, because a silent default sent labour to the
+      // supplier order and counted its cost as materials. An unset line reaches
+      // neither the order nor the labour figure, and _customItemProblems()
+      // blocks the order, work order and quote until the scoper picks one.
       customItemKind(c) {
-        return (c && c.kind === 'material') ? 'material' : 'labour';
+        if (c && c.kind === 'material') return 'material';
+        if (c && c.kind === 'unset') return 'unset';
+        return 'labour';
       },
 
       _blankCustomItem() {
-        return { kind: 'material' };
+        return { kind: 'unset' };
       },
 
       _blankCustomItems() {
         return [this._blankCustomItem(), this._blankCustomItem(), this._blankCustomItem()];
+      },
+
+      // A job saved while blank slots were stamped Material, or were bare {}
+      // with no kind, reopens with those EMPTY slots unclassified, so filling
+      // one still asks Labour or Material. A slot with any content keeps its
+      // kind (a filled kind-less line stays labour). Called on load; never saves.
+      _normaliseEmptyCustomSlots(job) {
+        const items = job && job.quote && job.quote.customLineItems;
+        if (!Array.isArray(items)) return;
+        items.forEach(c => {
+          if (c && (!c.kind || c.kind === 'material') && !this._customItemHasContent(c)) c.kind = 'unset';
+        });
+      },
+
+      _customItemHasContent(c) {
+        if (!c) return false;
+        return !!String(c.desc || '').trim()
+          || ['qty', 'price', 'costPrice', 'hours', 'costPerHour'].some(k => (Number(c[k]) || 0) > 0);
+      },
+
+      // What stops one custom line being used, one entry per problem: the
+      // editor control it belongs to (`field`), whether it blocks every output
+      // or only the quote and send (`severity`), the validation wording
+      // (`problem`) and the note shown under the row. An unclassified line, or
+      // a material line with no quantity, blocks every output (the material
+      // order could be short a material it does not know about); a labour line
+      // without a quantity, hours or $/hr blocks the client quote and send,
+      // since the engine drops a line with no quantity and the work order is
+      // built from those hours. On an 'hrs' line the quantity IS the hours.
+      _customItemIssues(c) {
+        if (!this._customItemHasContent(c)) return [];
+        const kind = this.customItemKind(c);
+        if (kind === 'unset') return [{ field: 'kind', severity: 'all', problem: 'choose Labour or Material', note: 'Choose Labour or Material for this line.' }];
+        const lab = this.customItemLabour(c);
+        const out = [];
+        if (!((Number(c.qty) || 0) > 0) && !(lab && c.unit === 'hrs')) {
+          out.push({ field: 'qty', severity: lab ? 'quote' : 'all', problem: 'quantity', note: 'Enter a quantity — a line with no quantity is left off the quote.' });
+        }
+        if (!lab) return out;
+        if (!(lab.hours > 0)) {
+          out.push(c.unit === 'hrs'
+            ? { field: 'qty', severity: 'quote', problem: 'hours for this labour', note: 'Enter the hours as the quantity.' }
+            : { field: 'hours', severity: 'quote', problem: 'hours for this labour', note: 'How many hours does this take? A "' + (c.unit || 'item') + '" line still needs its hours for the work order.' });
+        }
+        if (!(lab.costPerHour > 0)) {
+          const perUnit = Number(c.costPrice) || 0;
+          out.push({ field: 'rate', severity: 'quote', problem: 'labour cost per hour', note: perUnit > 0 ? 'Entered as $' + perUnit + ' per ' + (c.unit || 'item') + ' — add the cost per hour.' : 'Enter the cost per hour.' });
+        }
+        return out;
+      },
+
+      // Which controls on one custom-line editor row are flagged, and the note
+      // under it, from the same issues validation blocks on.
+      _customItemRowWarnings(c) {
+        const issues = this._customItemIssues(c);
+        const out = { kind: false, qty: false, hours: false, rate: false, note: issues.length ? issues[0].note : '' };
+        issues.forEach(p => { out[p.field] = true; });
+        return out;
+      },
+
+      _refreshCustomItemRow(idx) {
+        const row = document.querySelector('#bodyQuote [data-ci-row="' + idx + '"]');
+        if (!row) return;
+        const w = this._customItemRowWarnings(this.job.quote.customLineItems[idx]);
+        row.style.borderColor = w.note ? '#dc2626' : '#e3e8ec';
+        ['kind', 'qty', 'hours', 'rate'].forEach(k => {
+          const el = row.querySelector('[data-ci="' + k + '"]');
+          if (el) el.style.border = w[k] ? '2px solid #dc2626' : '1px solid #4C6A70';
+        });
+        const noteEl = row.querySelector('[data-ci="note"]');
+        noteEl.textContent = w.note;
+        noteEl.style.display = w.note ? '' : 'none';
+      },
+
+      // Hours and cost for a LABOUR custom line, or null for any other kind.
+      // `hours` is the line's TOTAL hours. On an 'hrs' line the quantity IS the
+      // hours; any other unit ('job', 'each', ...) carries its own `hours`.
+      // `costPerHour` falls back to the per-unit cost on an 'hrs' line, which is
+      // what that cost always meant there. Cost is hours × $/hr once both are
+      // known; until then it stays qty × cost/ea, so a line saved before hours
+      // existed costs exactly what it did.
+      customItemLabour(c) {
+        if (this.customItemKind(c) !== 'labour') return null;
+        const qty = Number(c.qty) || 0;
+        const perUnit = Number(c.costPrice) || 0;
+        const hours = c.unit === 'hrs' ? qty : (Number(c.hours) || 0);
+        const costPerHour = (Number(c.costPerHour) || 0) || (c.unit === 'hrs' ? perUnit : 0);
+        const fromHours = hours > 0 && costPerHour > 0;
+        return { hours, costPerHour, fromHours, cost: fromHours ? hours * costPerHour : qty * perUnit };
+      },
+
+      // Every custom line's _customItemIssues() as validation messages; without
+      // `forQuote`, only the ones that block every output.
+      _customItemProblems(opts) {
+        const forQuote = !!(opts && opts.forQuote);
+        const out = [];
+        ((this.job && this.job.quote && this.job.quote.customLineItems) || []).forEach((c, i) => {
+          const label = 'Custom line ' + (i + 1) + (String(c && c.desc || '').trim() ? ' (' + String(c.desc).trim() + ')' : '');
+          this._customItemIssues(c).forEach(p => {
+            if (forQuote || p.severity === 'all') out.push(label + ': ' + p.problem);
+          });
+        });
+        return out;
+      },
+
+      // Plain-text label for one row of d.labourLines, e.g. "Root removal
+      // (2 hrs × $80.00/hr)" (internal cost views only — never a client or
+      // trade view). Callers escape it for their markup.
+      _labourLineLabel(l, money) {
+        if (l.source === 'base') return `Base labour (${l.quantity.toFixed(1)}m × $${money(l.rate)}/m)`;
+        if (l.source === 'plinth') return `Plinth install (${l.quantity} × $${money(l.rate)})`;
+        if (l.source !== 'custom') return l.task;
+        const hrs = l.hours ? `${+Number(l.hours).toFixed(2)} hrs` : 'hours not set';
+        if (l.costPerHour) return `${l.task} (${hrs} × $${money(l.costPerHour)}/hr)`;
+        return `${l.task} (${hrs}, ${l.quantity} ${l.unit || ''} × $${money(Number(l.rate) || 0)})`;
       },
 
       _sellableCustomItems(d) {
@@ -10363,7 +10482,7 @@
           removeAsbestosQty: removalActive && rem.existingFenceType === 'asbestos' ? (rem.asbestosSheetCount != null ? rem.asbestosSheetCount : Math.ceil(rem.existingFenceLength || 0)) : 0,
           vegClear: removalActive && rem.vegetation,
           groundFinish: q.groundFinish || 'none',
-          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: this.customItemKind(c), costPrice: c.costPrice || 0 })),
+          custom: (q.customLineItems || []).map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: this.customItemKind(c), costPrice: c.costPrice || 0, hours: c.hours || 0, costPerHour: c.costPerHour || 0 })),
           notes: job.siteNotes || '',
           pedGate: false, pedGateQty: 0,
           dblGate: false, dblGateQty: 0,
@@ -10661,22 +10780,36 @@
           groundFinishDesc = js.groundFinish.charAt(0).toUpperCase() + js.groundFinish.slice(1) + ' ground finish';
         }
 
-        // Custom items — each carries a material/labour kind and a cost price.
-        // Material-flagged items flow to the material order; every item's cost
-        // feeds the margin (customCostTotal), not just its sell price.
+        // Custom items — each carries a material/labour kind and a cost.
+        // Material-flagged items flow to the material order; labour-flagged
+        // items carry hours and $/hr and their cost is LABOUR (internalLabour),
+        // so the trades' allocation includes them. Every item's cost feeds the
+        // margin (customCostTotal), not just its sell price. An 'unset' line is
+        // blocked by validation; until then its cost stays with materials, as
+        // every custom cost did before labour lines were split out.
         let customTotal = 0;
         let customCostTotal = 0;
+        let customLabourCost = 0;
+        let customMaterialCost = 0;
         const customItems = [];
         (js.custom || []).forEach(c => {
-          const cost = c.costPrice || 0;
-          // Admit a line when it has a sell price OR (as a material) a cost price,
-          // so a cost-only material still reaches the order and the margin.
+          const kind = this.customItemKind(c);
+          const lab = this.customItemLabour(c);
+          const cost = lab ? lab.cost : (c.qty || 0) * (c.costPrice || 0);
+          // Admit a line when it has a sell price OR a cost, so a cost-only
+          // line still reaches the order, the labour figure and the margin.
           if (c.desc && c.qty > 0 && (c.price > 0 || cost > 0)) {
             const t = c.qty * (c.price || 0);
-            const kind = this.customItemKind(c);
             customTotal += t;
-            customCostTotal += c.qty * cost;
-            customItems.push({ desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price || 0, costPrice: cost, kind, total: t });
+            customCostTotal += cost;
+            if (lab) customLabourCost += cost; else customMaterialCost += cost;
+            customItems.push({
+              desc: c.desc, qty: c.qty, unit: c.unit, unitPrice: c.price || 0,
+              // Per-unit cost; an hours-priced labour line derives it.
+              costPrice: lab && lab.fromHours ? cost / c.qty : (c.costPrice || 0),
+              kind, total: t, totalCost: cost,
+              hours: lab ? lab.hours : null, costPerHour: lab ? lab.costPerHour : null,
+            });
           }
         });
 
@@ -10747,9 +10880,10 @@
           if (r.costPrice) internalRemovalCost += r.qty * r.costPrice;
         });
         internalCost += internalRemovalCost;
-        // Custom-item cost (material or labour) — so margin reflects what each
-        // custom line actually costs us, not just its sell price.
-        internalCost += customCostTotal;
+        // Custom MATERIAL (and not-yet-classified) cost — so margin reflects
+        // what each custom line actually costs us, not just its sell price.
+        // Custom labour joins internalLabour below.
+        internalCost += customMaterialCost;
         // Delivery cost (actual cost to us, not the sell price charged to client)
         internalCost += COST_PRICES.delivery;
 
@@ -10761,8 +10895,31 @@
           else if (g.type === 'sliding') gateLabourCost += COST_PRICES.gateLabourDouble;  // sliding labour ~ same as double
         });
         const labourCost = labourBase + plinthLabourCost + gateLabourCost;
-        const internalLabour = labourCost * (1 + accessRate);
+        // Kept as labourCost × (1 + access) so a job with no custom labour
+        // produces the identical figure it always did.
+        const accessedLabour = labourCost * (1 + accessRate);
+        const labourAccessCost = accessedLabour - labourCost;
+        const internalLabour = accessedLabour + customLabourCost;
         const materialMargin = subtotal - gst - internalCost - internalLabour;
+
+        // The quote's labour cost table, line by line. It sums to
+        // internalLabour exactly, and is the ONE source for every labour
+        // breakdown (Labour PO card, Cost Breakdown, pricing_json.internal), so
+        // they cannot disagree with the labour figure or each other.
+        const labourLines = [];
+        if (labourBase > 0) labourLines.push({ task: 'Fence install', source: 'base', quantity: totalMetres, unit: 'm', rate: COST_PRICES.labourPerMetre, hours: null, costPerHour: null, totalCost: labourBase });
+        if (plinthLabourCost > 0) labourLines.push({ task: 'Plinth install', source: 'plinth', quantity: totalPlinths, unit: 'each', rate: COST_PRICES.plinthInstall, hours: null, costPerHour: null, totalCost: plinthLabourCost });
+        (job.gates || []).forEach((g, gi) => {
+          const rate = g.type === 'pedestrian' ? COST_PRICES.gateLabourPedestrian
+            : (g.type === 'double' || g.type === 'sliding') ? COST_PRICES.gateLabourDouble : 0;
+          if (!rate) return;
+          const name = g.type === 'pedestrian' ? 'Pedestrian' : g.type === 'double' ? 'Double' : 'Sliding';
+          labourLines.push({ task: `${name} gate ${gi + 1} install`, source: 'gate', quantity: 1, unit: 'each', rate, hours: null, costPerHour: null, totalCost: rate });
+        });
+        if (labourAccessCost > 0) labourLines.push({ task: `Access surcharge (${Math.round(accessRate * 100)}%)`, source: 'access', quantity: null, unit: '%', rate: accessRate, hours: null, costPerHour: null, totalCost: labourAccessCost });
+        customItems.filter(c => c.kind === 'labour').forEach(c => {
+          labourLines.push({ task: c.desc, source: 'custom', quantity: c.qty, unit: c.unit || '', rate: c.costPrice, hours: c.hours > 0 ? c.hours : null, costPerHour: c.costPerHour > 0 ? c.costPerHour : null, totalCost: c.totalCost });
+        });
 
         // ── Per-neighbour cost calculation (from assigned runs) ──
         const neighbourCosts = {};
@@ -10833,6 +10990,7 @@
           fencingTotal, plinthsTotal, plinthSell, patioTotal, patioSell,
           gatesTotal, removalTotal, removalItems, internalRemovalCost,
           groundFinishTotal, groundFinishDesc, customTotal, customCostTotal, customItems,
+          customLabourCost, customMaterialCost, labourLines,
           addonsTotal, addonItems,
           accessSurcharge, accessRate, deliveryFee,
           urgencySurcharge, urgencyRate,
@@ -11688,6 +11846,12 @@
         d.removalItems.forEach(r => { scopeChecklist += `<li>${this._esc(r.desc)} (${r.qty} ${r.unit})</li>`; });
         d.gateLineItems.forEach(g => { scopeChecklist += `<li>${this._esc(g.desc)}</li>`; });
         if (d.groundFinishDesc) scopeChecklist += `<li>${d.groundFinishDesc}</li>`;
+        // Extra labour from the quote, with the hours it was priced on — a
+        // bare "Root removal (1 job)" tells the crew nothing about the time.
+        (d.labourLines || []).filter(l => l.source === 'custom').forEach(l => {
+          const qty = l.unit === 'hrs' ? '' : `${l.quantity}${l.unit ? ' ' + l.unit : ''}, `;
+          scopeChecklist += `<li>${this._esc(l.task)} (${this._esc(qty)}${l.hours ? `${+l.hours.toFixed(2)} hrs` : 'hours not set'})</li>`;
+        });
         const inst = d.job.installation || {};
         if (inst.coreDrill && inst.coreDrillHoles > 0) scopeChecklist += `<li>Core drill ${inst.coreDrillHoles} holes</li>`;
         scopeChecklist += '<li>Site clean-up and rubbish removal</li>';
@@ -11697,7 +11861,7 @@
         let costHtml = '<table><thead><tr><th>Item</th><th class="text-right">Cost</th></tr></thead><tbody>';
         costHtml += `<tr><td>Materials (panels, posts, plinths, concrete, fixings)</td><td class="text-right">$${this._fmt(d.internalCost - d.internalRemovalCost)}</td></tr>`;
         if (d.internalRemovalCost > 0) costHtml += `<tr><td>Removal cost</td><td class="text-right">$${this._fmt(d.internalRemovalCost)}</td></tr>`;
-        costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
+        costHtml += `<tr><td>Labour base (${d.totalMetres.toFixed(1)}m @ $${COST_PRICES.labourPerMetre}/m${d.accessRate > 0 ? ' + ' + (d.accessRate * 100) + '% access' : ''}${d.customLabourCost > 0 ? ' + extra labour' : ''})</td><td class="text-right">$${this._fmt(d.internalLabour)}</td></tr>`;
         if (d.addonsTotal > 0) {
           d.addonItems.forEach(a => { costHtml += `<tr><td>${this._esc(a.desc)}</td><td class="text-right">$${this._fmt(a.total)}</td></tr>`; });
         }
@@ -14260,6 +14424,9 @@
             }
           });
         }
+        // Custom lines: an unclassified line blocks everything; a labour line
+        // with no hours or $/hr blocks only the client quote and send.
+        this._customItemProblems({ forQuote }).forEach(m => missing.push(m));
         return missing;
       },
 
@@ -14629,12 +14796,15 @@
                 deliveryFee: js.delivery || 200,
                 groundFinish: js.groundFinish || 'none',
                 customLineItems: (js.custom || []).filter(c => c && c.desc).length > 0
-                  ? js.custom.map(c => ({ desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: app.customItemKind(c), costPrice: c.costPrice || 0 }))
+                  ? js.custom.map(c => this._customItemHasContent(c)
+                    ? { desc: c.desc || '', qty: c.qty || 0, unit: c.unit || '', price: c.price || 0, kind: app.customItemKind(c), costPrice: c.costPrice || 0 }
+                    : this._blankCustomItem())
                   : this._blankCustomItems()
               };
             }
             // Migration: ensure addon fields exist
             if (!this.job.quote.addons) this.job.quote.addons = {};
+            this._normaliseEmptyCustomSlots(this.job);
 
             if (!this.job.checklist) {
               this.job.checklist = { photosTaken: 0, photos: [], videoWalkthrough: false, finalNotes: '' };
@@ -14716,8 +14886,18 @@
       (d.addonItems || []).forEach(function(a) {
         lineItems.push({ description: a.desc, quantity: 1, unit: 'lot', total_sell: a.total, category: 'addon' });
       });
+      // Custom lines carry `kind` ('labour' | 'material' | 'unset') and their
+      // full cost. A labour line also carries `hours` (TOTAL hours for the
+      // line, whatever its unit) and `cost_per_hour`, so a work order can be
+      // built from the hours the quote was priced on.
       app._sellableCustomItems(d).forEach(function(c) {
-        lineItems.push({ description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: app.customItemKind(c) });
+        var li = { description: c.desc, quantity: c.qty, unit: c.unit, sell_price: c.unitPrice, cost_price: c.costPrice || 0, total_sell: c.total, category: 'custom', kind: app.customItemKind(c) };
+        li.total_cost = c.totalCost || 0;
+        if (li.kind === 'labour') {
+          li.hours = c.hours > 0 ? c.hours : null;
+          li.cost_per_hour = c.costPerHour > 0 ? c.costPerHour : null;
+        }
+        lineItems.push(li);
       });
       if (d.accessSurcharge > 0) {
         lineItems.push({ description: 'Access surcharge (' + (d.accessRate * 100) + '%)', quantity: 1, unit: 'lot', total_sell: d.accessSurcharge, category: 'surcharges' });
@@ -14950,7 +15130,17 @@
         commissionCostEstimate: commissionCostEstimate,
         margin_pct: margin_pct,
         job_description: job_description,
-        internal: { cost: d.internalCost, labour: d.internalLabour, commission: commissionCostEstimate, margin: d.materialMargin },
+        // `labour_lines` is the quote's labour cost table, one row per task,
+        // summing to `labour`: { task, source ('base'|'plinth'|'gate'|'access'
+        // |'custom'), quantity, unit, rate (cost per unit), hours,
+        // cost_per_hour, total_cost }. Custom labour rows are listed even when
+        // they carry no sell price, so the table always reconciles.
+        internal: {
+          cost: d.internalCost, labour: d.internalLabour, commission: commissionCostEstimate, margin: d.materialMargin,
+          labour_lines: (d.labourLines || []).map(function(l) {
+            return { task: l.task, source: l.source, quantity: l.quantity, unit: l.unit, rate: l.rate, hours: l.hours, cost_per_hour: l.costPerHour, total_cost: l.totalCost };
+          })
+        },
         deposit: {
           percent: depPercent,
           fixed_amount: null,
@@ -15167,6 +15357,11 @@
         } catch (e) {
           flag('Pricing', 'red', 'Cannot calculate pricing — check fence run data');
         }
+
+        // Custom lines — RED, matching app._validateRequired({ forQuote: true }):
+        // an unclassified line or a labour line without hours/$-per-hour
+        // hard-blocks quote generation and send.
+        app._customItemProblems({ forQuote: true }).forEach(m => flag('Pricing', 'red', m));
 
         // PO Approvals
         if (!app._poApproved.materials) flag('Pricing', 'red', 'Material PO not approved');
