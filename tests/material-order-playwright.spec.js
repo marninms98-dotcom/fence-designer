@@ -878,18 +878,33 @@ test('a custom line row re-marks itself as the scoper fills it in', async ({ pag
     out.freshBefore = note(1);
     app.updateCustomItem(1, 'desc', 'Skip bin');
     out.freshAfter = note(1);
+    // An 'hrs' line takes its hours from the quantity, so that box is the one
+    // flagged when the hours are missing.
+    app.updateCustomItem(2, 'kind', 'labour');
+    app.updateCustomItem(2, 'unit', 'hrs');
+    app.updateCustomItem(2, 'desc', 'Hard digging');
+    out.hrsNote = note(2);
+    out.hrsQtyRed = red(row(2).querySelector('[data-ci="qty"]'));
+    out.hrsProblems = app._validateRequired({ forQuote: true }).filter((m) => /Custom line 3/.test(m));
     return out;
   }, labourJob.toString());
 
   expect(res.before).toContain('How many hours does this take?');
   expect(res.hoursRedBefore).toBe(true);
-  expect(res.afterHours).toBe('');
+  // Hours are in but the line still has no $/hr, so it still says so.
+  expect(res.afterHours).toBe('Enter the cost per hour.');
   expect(res.hoursRedAfter).toBe(false);
   expect(res.afterRate).toBe('');
   expect(res.rowRedAfter).toBe(false);
   expect(res.sameRow).toBe(true);
   expect(res.freshBefore).toBe('');
   expect(res.freshAfter).toBe('Choose Labour or Material for this line.');
+  expect(res.hrsNote).toBe('Enter the hours as the quantity.');
+  expect(res.hrsQtyRed).toBe(true);
+  expect(res.hrsProblems).toEqual([
+    'Custom line 3 (Hard digging): hours for this labour',
+    'Custom line 3 (Hard digging): labour cost per hour',
+  ]);
 });
 
 // The work order's Internal Cost Breakdown foots to its total with custom

@@ -6777,26 +6777,43 @@
           || ['qty', 'price', 'costPrice', 'hours', 'costPerHour'].some(k => (Number(c[k]) || 0) > 0);
       },
 
-      // Which controls on one custom-line editor row are flagged, and the note
-      // under it — the row-level face of _customItemProblems().
-      _customItemRowWarnings(c) {
-        const out = { kind: false, qty: false, hours: false, rate: false, note: '' };
-        if (!this._customItemHasContent(c)) return out;
+      // What stops one custom line being used, one entry per problem: the
+      // editor control it belongs to (`field`), whether it blocks every output
+      // or only the quote and send (`severity`), the validation wording
+      // (`problem`) and the note shown under the row. An unclassified line, or
+      // a material line with no quantity, blocks every output (the material
+      // order could be short a material it does not know about); a labour line
+      // without a quantity, hours or $/hr blocks the client quote and send,
+      // since the engine drops a line with no quantity and the work order is
+      // built from those hours. On an 'hrs' line the quantity IS the hours.
+      _customItemIssues(c) {
+        if (!this._customItemHasContent(c)) return [];
         const kind = this.customItemKind(c);
+        if (kind === 'unset') return [{ field: 'kind', severity: 'all', problem: 'choose Labour or Material', note: 'Choose Labour or Material for this line.' }];
         const lab = this.customItemLabour(c);
-        if (kind === 'unset') {
-          out.kind = true;
-          out.note = 'Choose Labour or Material for this line.';
-          return out;
+        const out = [];
+        if (!((Number(c.qty) || 0) > 0) && !(lab && c.unit === 'hrs')) {
+          out.push({ field: 'qty', severity: lab ? 'quote' : 'all', problem: 'quantity', note: 'Enter a quantity — a line with no quantity is left off the quote.' });
         }
-        if (lab) {
-          out.hours = !(lab.hours > 0);
-          out.rate = !(lab.costPerHour > 0);
+        if (!lab) return out;
+        if (!(lab.hours > 0)) {
+          out.push(c.unit === 'hrs'
+            ? { field: 'qty', severity: 'quote', problem: 'hours for this labour', note: 'Enter the hours as the quantity.' }
+            : { field: 'hours', severity: 'quote', problem: 'hours for this labour', note: 'How many hours does this take? A "' + (c.unit || 'item') + '" line still needs its hours for the work order.' });
         }
-        out.qty = !((Number(c.qty) || 0) > 0) && !(lab && c.unit === 'hrs');
-        if (out.qty) out.note = 'Enter a quantity — a line with no quantity is left off the quote.';
-        else if (out.hours) out.note = c.unit === 'hrs' ? 'Enter the hours as the quantity.' : 'How many hours does this take? A "' + (c.unit || 'item') + '" line still needs its hours for the work order.';
-        else if (lab && !lab.fromHours && (Number(c.costPrice) || 0) > 0) out.note = 'Entered as $' + c.costPrice + ' per ' + (c.unit || 'item') + ' — add the cost per hour.';
+        if (!(lab.costPerHour > 0)) {
+          const perUnit = Number(c.costPrice) || 0;
+          out.push({ field: 'rate', severity: 'quote', problem: 'labour cost per hour', note: perUnit > 0 ? 'Entered as $' + perUnit + ' per ' + (c.unit || 'item') + ' — add the cost per hour.' : 'Enter the cost per hour.' });
+        }
+        return out;
+      },
+
+      // Which controls on one custom-line editor row are flagged, and the note
+      // under it, from the same issues validation blocks on.
+      _customItemRowWarnings(c) {
+        const issues = this._customItemIssues(c);
+        const out = { kind: false, qty: false, hours: false, rate: false, note: issues.length ? issues[0].note : '' };
+        issues.forEach(p => { out[p.field] = true; });
         return out;
       },
 
@@ -6831,29 +6848,18 @@
         return { hours, costPerHour, fromHours, cost: fromHours ? hours * costPerHour : qty * perUnit };
       },
 
-      // What stops a custom line being used. An unclassified line, or a material
-      // line with no quantity, blocks every output (the material order could be
-      // short a material it does not know about); a labour line without a
-      // quantity, hours or $/hr blocks the client quote and send, since the
-      // engine drops a line with no quantity and the work order is built from
-      // those hours.
+      // Every custom line's _customItemIssues() as validation messages; without
+      // `forQuote`, only the ones that block every output.
       _customItemProblems(opts) {
         const forQuote = !!(opts && opts.forQuote);
         const out = [];
         ((this.job && this.job.quote && this.job.quote.customLineItems) || []).forEach((c, i) => {
-          if (!this._customItemHasContent(c)) return;
-          const label = 'Custom line ' + (i + 1) + (String(c.desc || '').trim() ? ' (' + String(c.desc).trim() + ')' : '');
-          const kind = this.customItemKind(c);
-          if (kind === 'unset') { out.push({ label, severity: 'all', message: label + ': choose Labour or Material' }); return; }
-          if (!((Number(c.qty) || 0) > 0) && !(kind === 'labour' && c.unit === 'hrs')) {
-            out.push({ label, severity: kind === 'labour' ? 'quote' : 'all', message: label + ': quantity' });
-          }
-          if (kind !== 'labour') return;
-          const lab = this.customItemLabour(c);
-          if (!(lab.hours > 0)) out.push({ label, severity: 'quote', message: label + ': hours for this labour' });
-          if (!(lab.costPerHour > 0)) out.push({ label, severity: 'quote', message: label + ': labour cost per hour' });
+          const label = 'Custom line ' + (i + 1) + (String(c && c.desc || '').trim() ? ' (' + String(c.desc).trim() + ')' : '');
+          this._customItemIssues(c).forEach(p => {
+            if (forQuote || p.severity === 'all') out.push(label + ': ' + p.problem);
+          });
         });
-        return out.filter(p => forQuote || p.severity === 'all').map(p => p.message);
+        return out;
       },
 
       // Plain-text label for one row of d.labourLines, e.g. "Root removal
