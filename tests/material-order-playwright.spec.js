@@ -934,6 +934,8 @@ test('the work order cost table foots, with no dollar row per extra', async ({ p
   for (const name of ['Root removal', 'Hard digging', 'Spoil haul']) {
     expect(res.rows.some((r) => r.label.includes(name))).toBe(false);
   }
+  // The one labour row carries the extras, and says so.
+  expect(res.rows.find((r) => /^Labour base/.test(r.label)).label).toContain('+ extra labour');
 });
 
 // The scoper's Cost Breakdown reads the same labour table as the Labour PO
