@@ -756,24 +756,36 @@
   // when the server confirms it or refuses it for good (the job then stays a
   // separate job, and the scoper is told which).
   var _QUOTE_OPTION_PENDING_KEY = 'fenceQuoteOptionLinksPending';
-  var _pendingQuoteOptionLinksFallback = null;
+  // After a failed write the in-memory list is the truth until a write
+  // succeeds again, so an older copy on disk never hides a newer link.
+  var _pendingQuoteOptionLinksMemory = null;
+  var _pendingQuoteOptionLinksUnsaved = false;
+  var _pendingQuoteOptionLinksWarned = false;
 
   function _readPendingQuoteOptionLinks() {
+    if (_pendingQuoteOptionLinksUnsaved && _pendingQuoteOptionLinksMemory) return _pendingQuoteOptionLinksMemory.slice();
     try {
       var raw = localStorage.getItem(_QUOTE_OPTION_PENDING_KEY);
-      var list = raw ? JSON.parse(raw) : (_pendingQuoteOptionLinksFallback || []);
+      var list = raw ? JSON.parse(raw) : [];
       return Array.isArray(list) ? list.filter(function(l) { return l && l.jobId && l.optionOfJobId; }) : [];
     } catch (_readError) {
-      return _pendingQuoteOptionLinksFallback || [];
+      return (_pendingQuoteOptionLinksMemory || []).slice();
     }
   }
 
   function _writePendingQuoteOptionLinks(list) {
-    _pendingQuoteOptionLinksFallback = list.slice();
+    _pendingQuoteOptionLinksMemory = list.slice();
     try {
       if (list.length) localStorage.setItem(_QUOTE_OPTION_PENDING_KEY, JSON.stringify(list));
       else localStorage.removeItem(_QUOTE_OPTION_PENDING_KEY);
-    } catch (_writeError) {}
+      _pendingQuoteOptionLinksUnsaved = false;
+    } catch (_writeError) {
+      _pendingQuoteOptionLinksUnsaved = true;
+      if (list.length && !_pendingQuoteOptionLinksWarned) {
+        _pendingQuoteOptionLinksWarned = true;
+        try { window.alert('This iPad could not save an unfinished quote option link. It will be retried while this page stays open; if the page is closed, add the option again from New job for existing client.'); } catch (_w) {}
+      }
+    }
   }
 
   function _queueQuoteOptionLink(link) {
@@ -799,7 +811,14 @@
       var isNew = justMintedJobId && String(link.jobId) === String(justMintedJobId);
       var linkResult;
       try {
-        var linked = await cloud.ghl.linkQuoteOption(link.jobId, link.optionOfJobId, link.label);
+        var linkAbort = new AbortController();
+        var linkTimer = setTimeout(function() { try { linkAbort.abort(); } catch (_ab) {} }, 10000);
+        var linked;
+        try {
+          linked = await cloud.ghl.linkQuoteOption(link.jobId, link.optionOfJobId, link.label, { signal: linkAbort.signal });
+        } finally {
+          clearTimeout(linkTimer);
+        }
         _dropPendingQuoteOptionLink(link.jobId);
         linkResult = Object.assign({ linked: true }, linked || {});
       } catch (linkError) {
@@ -833,10 +852,10 @@
       return nonFencePermit;
     }
 
-    // SQ-23: quote option links left over from earlier mints are retried
-    // first, whichever job is open. It never blocks this entry.
+    // SQ-23: quote option links left over from earlier mints are retried in
+    // the background, whichever job is open. The entry does not wait for it.
     if (_readPendingQuoteOptionLinks().length) {
-      try { await _retryPendingQuoteOptionLinks(null); } catch (_pendingLinkError) {}
+      _retryPendingQuoteOptionLinks(null).catch(function(_pendingLinkError) {});
     }
 
     if (intent === 'ghl_context') {

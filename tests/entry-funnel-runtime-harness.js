@@ -294,6 +294,8 @@ async function runtimeContract() {
   // is still retried on the next entry.
   app.job = { _fieldSync: { localDraftId: 'local-other' } };
   await integration.enterJob('existing_job', { jobId: 'job-direct' });
+  // The retry runs in the background; let it finish.
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(getLinks().length, 2, 'the next entry retries the link, whichever job is open');
   assert.deepStrictEqual(getLinks()[1], ['job-repeat', 'job-existing']);
   assert.ok(!storage.fenceQuoteOptionLinksPending, 'a confirmed link clears the pending intent');

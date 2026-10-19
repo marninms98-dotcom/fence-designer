@@ -14579,7 +14579,7 @@
         // downgraded to the shared key while the badge still said "signed in" —
         // which is what broke job creation with "requires an authenticated
         // Supabase user" on 2026-08-07. Never drop it from this list.
-        var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue', 'sw_offline_job_id_map', 'sw_offline_journal'];
+        var keep = ['fenceJob', 'fenceQA_verification', 'sw_offline_queue', 'sw_offline_job_id_map', 'sw_offline_journal', 'fenceQuoteOptionLinksPending'];
         var keepPrefixes = ['fenceJob_checkpoint_', 'sw_job_', 'sw_media_manifest_', 'sb-'];
         var toRemove = [];
         for (var i = 0; i < localStorage.length; i++) {
