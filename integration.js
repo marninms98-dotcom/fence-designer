@@ -803,7 +803,11 @@
   // of the last one tried). Only the link just made, or a final refusal,
   // alerts the scoper; a still-pending older link retries quietly.
   async function _retryPendingQuoteOptionLinks(justMintedJobId) {
-    var pending = _readPendingQuoteOptionLinks();
+    // Right after a mint, only the new job's link is tried here; older ones
+    // are left to the background retry so the scoper is not kept waiting.
+    var pending = _readPendingQuoteOptionLinks().filter(function(l) {
+      return !justMintedJobId || String(l.jobId) === String(justMintedJobId);
+    });
     var state = { linked: false, code: 'quote_option_link_pending', pending: true };
     if (!pending.length || !cloud || !cloud.ghl || typeof cloud.ghl.linkQuoteOption !== 'function') return state;
     for (var i = 0; i < pending.length; i++) {

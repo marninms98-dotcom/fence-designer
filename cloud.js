@@ -1184,6 +1184,14 @@
         err.httpStatus = res.status;
         throw err;
       }
+      // SQ-23: only an explicit confirmation counts. An unreadable or
+      // aborted body is not a link, so the pending link is kept.
+      if (data.linked !== true || !data.groupId) {
+        var unconfirmed = new Error('The quote option link was not confirmed');
+        unconfirmed.code = 'quote_option_link_unconfirmed';
+        unconfirmed.httpStatus = res.status;
+        throw unconfirmed;
+      }
       return data;
     },
 
