@@ -610,7 +610,13 @@
       address: row.address || row.siteAddress || row.contactAddress || '',
       suburb: row.suburb || row.siteSuburb || '',
       expectedExistingJobIds: expected,
-      repeatReason: repeatReason ? String(repeatReason).trim() : null
+      repeatReason: repeatReason ? String(repeatReason).trim() : null,
+      // SQ-23: another option of an existing job's quote, never new work. The
+      // server only accepts one of the jobs this client already has.
+      quoteOptionOfJobId: intent === 'DELIBERATE_REPEAT' && target.quoteOptionOfJobId &&
+        expected.indexOf(String(target.quoteOptionOfJobId)) !== -1 ? String(target.quoteOptionOfJobId) : null,
+      optionLabel: intent === 'DELIBERATE_REPEAT' && target.quoteOptionOfJobId && target.optionLabel
+        ? String(target.optionLabel).trim().slice(0, 120) : null
     };
   }
 
@@ -621,7 +627,8 @@
       email: String(input.email || '').trim().toLowerCase(),
       phone: String(input.phone || '').replace(/\D/g, ''),
       expectedExistingJobIds: input.expectedExistingJobIds || [],
-      repeatReason: input.repeatReason || null
+      repeatReason: input.repeatReason || null,
+      quoteOptionOfJobId: input.quoteOptionOfJobId || null
     });
   }
 
@@ -634,9 +641,11 @@
     }
     var fs = window.app.job._fieldSync || (window.app.job._fieldSync = {});
     if (intent === 'DELIBERATE_REPEAT' && String(target.repeatReason || '').trim().length < 3) {
-      var collectedReason = await _collectRepeatReason(row);
-      if (collectedReason == null) throw _entryError('cancelled', 'The current fence draft was kept. Nothing was created.');
-      target.repeatReason = collectedReason;
+      var collected = await _collectRepeatReason(row, resolvedJob);
+      if (collected == null) throw _entryError('cancelled', 'The current fence draft was kept. Nothing was created.');
+      target.repeatReason = collected.reason;
+      target.quoteOptionOfJobId = collected.quoteOptionOfJobId || null;
+      target.optionLabel = collected.optionLabel || null;
     }
     var input = _fenceMintInput(target, row, intent, resolvedJob);
     var fingerprint = _mintFingerprint(input);
@@ -720,6 +729,18 @@
     delete fs.pendingMintIntent;
     delete fs.pendingMintStartedAt;
     if (typeof window.app.save === 'function') window.app.save();
+    // SQ-23: the new job exists; if its option link did not land, try the
+    // link once more. A link that still fails leaves an ordinary repeat job
+    // (as before this change) and says so, never blocks the scoper.
+    if (result.quoteOption && result.quoteOption.linked === false && cloud.ghl.linkQuoteOption) {
+      try {
+        var relinked = await cloud.ghl.linkQuoteOption(result.jobId, result.quoteOption.optionOfJobId, input.optionLabel);
+        result.quoteOption = Object.assign({}, result.quoteOption, relinked, { linked: !!(relinked && relinked.linked) });
+      } catch (linkError) {
+        console.warn('[Integration] Quote option link failed; the job is a separate repeat for now:', linkError && linkError.code);
+      }
+    }
+    target.quoteOption = result.quoteOption || null;
     target.mintResult = result;
     target.jobId = result.jobId;
     row.supabaseJobId = result.jobId;
@@ -858,20 +879,33 @@
     }
   }
 
-  function _collectRepeatReason(row) {
+  // Before a second fencing job for this client: is it another option of the
+  // quote they already have (SQ-23: grouped, and the options not taken close
+  // when one is accepted), or new work (a separate job, as before)? The scoper
+  // must pick one; nothing is assumed. Resolves { reason, quoteOptionOfJobId,
+  // optionLabel } or null on cancel.
+  function _collectRepeatReason(row, resolvedJob) {
     var label = (row && (row.contactName || row.name)) || 'this client';
     if (typeof document === 'undefined' || !document.body) return Promise.resolve(null);
-    var safeLabel = String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    var esc = function(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var safeLabel = esc(label);
+    var existingJobId = resolvedJob && resolvedJob.id ? String(resolvedJob.id) : null;
+    var existingNumber = resolvedJob && (resolvedJob.job_number || resolvedJob.jobNumber) ? esc(resolvedJob.job_number || resolvedJob.jobNumber) : 'their current quote';
     return new Promise(function(resolve) {
       var existing = document.getElementById('fenceRepeatReasonModal');
       if (existing) existing.remove();
       var overlay = document.createElement('div');
       overlay.id = 'fenceRepeatReasonModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(41,60,70,0.74);z-index:10075;display:flex;align-items:center;justify-content:center;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;';
+      var choiceStyle = 'display:flex;gap:10px;align-items:flex-start;border:1px solid #D4DEE4;border-radius:10px;padding:12px;cursor:pointer;font-size:15px;color:#293C46;';
       overlay.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 70px rgba(0,0,0,0.35);overflow:hidden;">' +
-        '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:19px;font-weight:800;">Another fencing job</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">Why does ' + safeLabel + ' need a second fencing job?</div></div>' +
+        '<div style="background:#293C46;color:#fff;padding:18px 22px;"><div style="font-size:19px;font-weight:800;">Another fencing job</div><div style="font-size:13px;color:rgba(255,255,255,0.72);margin-top:4px;">What is this for ' + safeLabel + '?</div></div>' +
         '<div style="padding:18px 22px;display:grid;gap:12px;">' +
-          '<textarea id="fenceRepeatReasonInput" rows="3" placeholder="e.g. second property boundary" style="width:100%;box-sizing:border-box;border:1px solid #D4DEE4;border-radius:10px;padding:12px;font-size:15px;resize:vertical;"></textarea>' +
+          (existingJobId
+            ? '<label style="' + choiceStyle + '"><input type="radio" name="fenceRepeatKind" id="fenceRepeatKindOption" value="option" style="margin-top:3px;"><span><b>Another option for ' + existingNumber + '</b><br><span style="font-size:13px;color:#5B6B75;">Same fence, a different design or price. When the client accepts one option, the others close.</span></span></label>'
+            : '') +
+          '<label style="' + choiceStyle + '"><input type="radio" name="fenceRepeatKind" id="fenceRepeatKindNew" value="new" style="margin-top:3px;"' + (existingJobId ? '' : ' checked') + '><span><b>New work</b><br><span style="font-size:13px;color:#5B6B75;">A separate job, e.g. another boundary or another property.</span></span></label>' +
+          '<textarea id="fenceRepeatReasonInput" rows="3" placeholder="e.g. second property boundary, or Option B: Colorbond instead of timber" style="width:100%;box-sizing:border-box;border:1px solid #D4DEE4;border-radius:10px;padding:12px;font-size:15px;resize:vertical;"></textarea>' +
           '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
             '<button id="fenceRepeatReasonCancel" style="border:1px solid #D1D5DB;background:#fff;border-radius:10px;padding:12px 16px;cursor:pointer;font-size:14px;color:#374151;">Cancel</button>' +
             '<button id="fenceRepeatReasonConfirm" disabled style="border:1px solid #F15A29;background:#F15A29;border-radius:10px;padding:12px 16px;cursor:not-allowed;font-size:14px;color:#fff;font-weight:700;opacity:0.5;">Start job</button>' +
@@ -881,22 +915,35 @@
       document.body.appendChild(overlay);
       var input = document.getElementById('fenceRepeatReasonInput');
       var confirmBtn = document.getElementById('fenceRepeatReasonConfirm');
+      var optionRadio = document.getElementById('fenceRepeatKindOption');
+      var newRadio = document.getElementById('fenceRepeatKindNew');
+      var kind = function() {
+        if (optionRadio && optionRadio.checked) return 'option';
+        if (newRadio && newRadio.checked) return 'new';
+        return null;
+      };
       var done = function(value) {
         var el = document.getElementById('fenceRepeatReasonModal');
         if (el) el.remove();
         resolve(value);
       };
       var sync = function() {
-        var ok = String(input.value || '').trim().length >= 3;
+        var ok = !!kind() && String(input.value || '').trim().length >= 3;
         confirmBtn.disabled = !ok;
         confirmBtn.style.opacity = ok ? '1' : '0.5';
         confirmBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+        confirmBtn.textContent = kind() === 'option' ? 'Add option' : 'Start job';
       };
       input.addEventListener('input', sync);
+      if (optionRadio) optionRadio.addEventListener('change', sync);
+      if (newRadio) newRadio.addEventListener('change', sync);
       confirmBtn.onclick = function() {
         var v = String(input.value || '').trim();
-        if (v.length < 3) return;
-        done(v);
+        var k = kind();
+        if (v.length < 3 || !k) return;
+        done(k === 'option'
+          ? { reason: 'Quote option: ' + v, quoteOptionOfJobId: existingJobId, optionLabel: v.slice(0, 120) }
+          : { reason: v, quoteOptionOfJobId: null, optionLabel: null });
       };
       document.getElementById('fenceRepeatReasonCancel').onclick = function() { done(null); };
       setTimeout(function() { try { input.focus(); } catch(_) {} }, 0);

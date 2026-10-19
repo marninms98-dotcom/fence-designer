@@ -38,7 +38,7 @@
         search: _noopPromise, getContact: _noopPromise, loadJob: _noopPromise,
         saveScope: _noopPromise, findJobByOpportunity: _noopPromise, listMedia: _noopPromise,
         searchJobs: _noopPromise, linkScope: _noopPromise, createJobForOpportunity: _noopPromise,
-        createContactAndOpportunity: _noopPromise, mintFenceJob: _noopPromise, uploadPhoto: _noopPromise,
+        createContactAndOpportunity: _noopPromise, mintFenceJob: _noopPromise, linkQuoteOption: _noopPromise, uploadPhoto: _noopPromise,
       },
       ui: { showGHLPicker: _noop, showJobPicker: _noop, showLoginModal: _noop, showSaveStatus: _noop },
       supabase: null,
@@ -1157,6 +1157,23 @@
         contractError.requestId = body.requestId;
         contractError.details = data;
         throw contractError;
+      }
+      return data;
+    },
+
+    // SQ-23: link a minted fence job as another option of an existing job's
+    // quote. Idempotent on the server; staff sign-in only.
+    async linkQuoteOption(jobId, optionOfJobId, label, opts) {
+      var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=link_quote_option', _signalOpts(opts, {
+        method: 'POST',
+        body: JSON.stringify({ jobId: jobId, optionOfJobId: optionOfJobId, label: label || null })
+      }));
+      var data = await _safeJson(res) || {};
+      if (!res.ok) {
+        var err = new Error(data.error || 'Could not link the quote option');
+        err.code = data.code || 'quote_option_link_failed';
+        err.httpStatus = res.status;
+        throw err;
       }
       return data;
     },

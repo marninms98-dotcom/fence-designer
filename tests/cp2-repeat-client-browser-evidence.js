@@ -333,6 +333,8 @@ async function run() {
     record('repeat-reason modal replaces window.prompt and gates on a real reason',
       reasonDisabledAtStart, 'confirm disabled before input=' + reasonDisabledAtStart);
     await evalIn("(function(){var i=document.getElementById('fenceRepeatReasonInput');i.value='Second property boundary';i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    // SQ-23: choose new work (not another option of the existing quote).
+    await evalIn("(function(){var r=document.getElementById('fenceRepeatKindNew');r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));})()");
     await waitFor(() => evalIn("document.getElementById('fenceRepeatReasonConfirm').disabled === false"), 3000, 'reason enables confirm');
     await evalIn("document.getElementById('fenceRepeatReasonConfirm').click()");
     await waitFor(() => evalIn("window._swIntegration.getSyncState().jobId === 'job-2299'"), 8000, 'canonical server mint');

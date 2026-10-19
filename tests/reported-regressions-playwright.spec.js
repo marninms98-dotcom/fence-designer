@@ -215,6 +215,10 @@ test('repeat-client mint collects its reason in-app, never via window.prompt', a
   await expect(reasonInput).toBeVisible();
   await expect(page.locator('#fenceRepeatReasonConfirm')).toBeDisabled();
   await reasonInput.fill('Second boundary fence');
+  // SQ-23: a reason alone is not enough; the scoper must say new work or
+  // another option of the existing quote.
+  await expect(page.locator('#fenceRepeatReasonConfirm')).toBeDisabled();
+  await page.locator('#fenceRepeatKindNew').check();
   await expect(page.locator('#fenceRepeatReasonConfirm')).toBeEnabled();
   await page.locator('#fenceRepeatReasonConfirm').click();
 
@@ -225,6 +229,7 @@ test('repeat-client mint collects its reason in-app, never via window.prompt', a
   expect(mint).toBeTruthy();
   expect(mint.body.intent).toBe('DELIBERATE_REPEAT');
   expect(mint.body.repeatReason).toBe('Second boundary fence');
+  expect(mint.body.quoteOptionOfJobId).toBeNull();
   expect(calls.some((call) => ['create_contact_and_opportunity', 'create_job'].includes(call.action))).toBeFalsy();
 });
 

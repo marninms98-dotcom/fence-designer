@@ -260,6 +260,28 @@ async function runtimeContract() {
   assert.strictEqual(getMints()[3].opportunityId, null, 'repeat work never reuses the completed source opportunity');
   assert.deepStrictEqual(getMints()[3].expectedExistingJobIds, ['job-existing']);
 
+  // SQ-23: another option of the existing quote rides on the repeat mint,
+  // only for one of the client's existing jobs; plain new work carries none.
+  const option = await integration.enterJob('ghl_context', {
+    row: { id: 'opp-existing', contactId: 'contact-1', contactName: 'Repeat Client' },
+    requestNew: true,
+    repeatReason: 'Quote option: Colorbond instead of timber',
+    quoteOptionOfJobId: 'job-existing',
+    optionLabel: 'Colorbond instead of timber'
+  });
+  assert.strictEqual(option.target.jobId, 'job-repeat');
+  assert.strictEqual(getMints()[4].quoteOptionOfJobId, 'job-existing');
+  assert.strictEqual(getMints()[4].optionLabel, 'Colorbond instead of timber');
+  assert.strictEqual(getMints()[3].quoteOptionOfJobId, null, 'new work is never an option');
+  const stray = await integration.enterJob('ghl_context', {
+    row: { id: 'opp-existing', contactId: 'contact-1', contactName: 'Repeat Client' },
+    requestNew: true,
+    repeatReason: 'Quote option: something',
+    quoteOptionOfJobId: 'job-of-someone-else'
+  });
+  assert.strictEqual(stray.target.jobId, 'job-repeat');
+  assert.strictEqual(getMints()[5].quoteOptionOfJobId, null, 'an option of a job this client does not have is dropped');
+
   app._listLocalDraftCheckpoints = () => [
     { id: 'one', job: { email: 'same@example.com' } },
     { id: 'two', job: { email: 'same@example.com' } }
@@ -283,4 +305,5 @@ async function runtimeContract() {
   console.log('PASS unresolved contexts use server mint and lost responses replay one request UUID');
   console.log('PASS direct/editable/frozen/amendment intents are runtime-audited');
   console.log('PASS stale ref/cursor scrub and immutable amendment contracts are wired');
+  console.log('PASS SQ-23 quote options ride only on a repeat of one of the client\'s own jobs');
 })().catch((error) => { console.error(error); process.exit(1); });
