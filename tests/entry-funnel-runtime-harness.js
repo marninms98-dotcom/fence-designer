@@ -147,6 +147,7 @@ function makeRuntime() {
   let readyCallback = null;
   let networkLookups = 0;
   const mintCalls = [];
+  const linkCalls = [];
   const cloud = {
     auth: { isLoggedIn: () => false },
     on: () => {},
@@ -156,6 +157,11 @@ function makeRuntime() {
         if (id === 'opp-existing') return { id: 'job-existing' };
         if (id === 'opp-duplicate') return [{ id: 'job-a' }, { id: 'job-b' }];
         return null;
+      },
+      linkQuoteOption: async (jobId, optionOfJobId) => {
+        linkCalls.push([jobId, optionOfJobId]);
+        if (linkCalls.length === 1) { const e = new Error('lost'); e.code = 'quote_option_link_failed'; throw e; }
+        return { linked: true, groupId: optionOfJobId };
       },
       mintFenceJob: async (input) => {
         mintCalls.push(JSON.parse(JSON.stringify(input)));
@@ -213,11 +219,11 @@ function makeRuntime() {
   vm.runInContext(integrationSource, context, { filename: 'integration.js' });
   assert(readyCallback, 'integration init callback registered');
   readyCallback();
-  return { integration: window._swIntegration, app, getLookups: () => networkLookups, getMints: () => mintCalls };
+  return { integration: window._swIntegration, app, getLookups: () => networkLookups, getMints: () => mintCalls, getLinks: () => linkCalls };
 }
 
 async function runtimeContract() {
-  const { integration, app, getLookups, getMints } = makeRuntime();
+  const { integration, app, getLookups, getMints, getLinks } = makeRuntime();
 
   const before = getLookups();
   await integration.enterJob('new_local', { localDraftId: 'local-new', source: 'option3' });
@@ -273,6 +279,13 @@ async function runtimeContract() {
   assert.strictEqual(getMints()[4].quoteOptionOfJobId, 'job-existing');
   assert.strictEqual(getMints()[4].optionLabel, 'Colorbond instead of timber');
   assert.strictEqual(getMints()[3].quoteOptionOfJobId, null, 'new work is never an option');
+  // The mint reply carried no confirmed link and the first retry failed: the
+  // intent is kept on this iPad, and the next entry links it.
+  assert.deepStrictEqual(getLinks()[0], ['job-repeat', 'job-existing']);
+  assert.ok(app.job._fieldSync.pendingQuoteOptionLink, 'an unconfirmed link is kept on the iPad');
+  await integration.enterJob('existing_job', { jobId: 'job-direct' });
+  assert.strictEqual(getLinks().length, 2, 'the next entry retries the link');
+  assert.ok(!app.job._fieldSync.pendingQuoteOptionLink, 'a confirmed link clears the pending intent');
   const stray = await integration.enterJob('ghl_context', {
     row: { id: 'opp-existing', contactId: 'contact-1', contactName: 'Repeat Client' },
     requestNew: true,

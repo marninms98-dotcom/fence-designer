@@ -1084,13 +1084,22 @@
       // Repeat-client path: caller already knows the contact — skip dedup/creation
       // on the backend and just spin up a NEW opportunity for this contact.
       if (contact.contactId) body.contactId = contact.contactId;
+      // SQ-23: the scoper confirmed new work beside an open fence job here.
+      if (opts && opts.repeatConfirmed === true) body.repeatConfirmed = true;
       var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_contact_and_opportunity', _signalOpts(opts, {
         method: 'POST',
         body: JSON.stringify(body)
       }));
       var data = await res.json();
       console.log('[Cloud] createContactAndOpportunity result:', data);
-      if (!res.ok) throw new Error(data.error || 'Failed to create contact/opportunity');
+      if (!res.ok) {
+        var createErr = new Error(data.error || 'Failed to create contact/opportunity');
+        createErr.code = data.code || null;
+        createErr.jobs = data.jobs || null;
+        createErr.contactId = data.contactId || null;
+        createErr.httpStatus = res.status;
+        throw createErr;
+      }
       return data;
     },
 
@@ -1191,13 +1200,20 @@
       };
       if (opportunityId) payload.opportunityId = opportunityId;
       if (contact.contactId) payload.contactId = contact.contactId;
+      if (opts && opts.repeatConfirmed === true) payload.repeatConfirmed = true;
       var res = await authorizedFetch(SUPABASE_URL + '/functions/v1/ghl-proxy?action=create_job', _signalOpts(opts, {
         method: 'POST',
         body: JSON.stringify(payload)
       }));
       var data = await res.json();
       console.log('[Cloud] createJobForOpportunity result:', data);
-      if (!res.ok) throw new Error(data.error || 'Failed to create job');
+      if (!res.ok) {
+        var jobErr = new Error(data.error || 'Failed to create job');
+        jobErr.code = data.code || null;
+        jobErr.jobs = data.jobs || null;
+        jobErr.httpStatus = res.status;
+        throw jobErr;
+      }
       return data.job;
     }
   };
