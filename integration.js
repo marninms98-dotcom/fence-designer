@@ -730,15 +730,15 @@
     delete fs.pendingMintStartedAt;
     if (typeof window.app.save === 'function') window.app.save();
     // SQ-23: the new job exists. If its option link did not land, the intent
-    // is kept on this iPad (pendingQuoteOptionLink) and retried now and on
-    // every later entry until it lands or is refused; the scoper is told. It
-    // never blocks the scoper.
+    // is queued on this iPad apart from whichever job is open
+    // (fenceQuoteOptionLinksPending) and retried now and on every later fence
+    // entry until it lands or is refused; the scoper is told. It never
+    // blocks the scoper.
     if (input.quoteOptionOfJobId) {
       var linkState = result.quoteOption || { linked: false, code: 'quote_option_link_missing' };
       if (!linkState.linked) {
-        fs.pendingQuoteOptionLink = { jobId: result.jobId, jobNumber: result.jobNumber, optionOfJobId: input.quoteOptionOfJobId, label: input.optionLabel || null };
-        if (typeof window.app.save === 'function') window.app.save();
-        linkState = await _retryPendingQuoteOptionLink();
+        _queueQuoteOptionLink({ jobId: result.jobId, jobNumber: result.jobNumber, optionOfJobId: input.quoteOptionOfJobId, label: input.optionLabel || null });
+        linkState = await _retryPendingQuoteOptionLinks(result.jobId);
       }
       result.quoteOption = linkState;
     }
@@ -750,32 +750,72 @@
     return result;
   }
 
-  // SQ-23: retry a quote option link the server has not confirmed. Kept on
-  // this iPad until it lands, or the server refuses it for good (the job then
-  // stays a separate job, and the scoper is told which).
-  async function _retryPendingQuoteOptionLink() {
-    var fs = window.app && window.app.job && window.app.job._fieldSync;
-    var pending = fs && fs.pendingQuoteOptionLink;
-    if (!pending || !cloud || !cloud.ghl || typeof cloud.ghl.linkQuoteOption !== 'function') {
-      return { linked: false, code: 'quote_option_link_pending' };
-    }
+  // SQ-23: quote option links the server has not confirmed. They are kept
+  // in their own localStorage key, never on the open job's _fieldSync, so
+  // opening another job neither loses nor carries them. One is removed only
+  // when the server confirms it or refuses it for good (the job then stays a
+  // separate job, and the scoper is told which).
+  var _QUOTE_OPTION_PENDING_KEY = 'fenceQuoteOptionLinksPending';
+  var _pendingQuoteOptionLinksFallback = null;
+
+  function _readPendingQuoteOptionLinks() {
     try {
-      var linked = await cloud.ghl.linkQuoteOption(pending.jobId, pending.optionOfJobId, pending.label);
-      delete fs.pendingQuoteOptionLink;
-      if (typeof window.app.save === 'function') window.app.save();
-      return Object.assign({ linked: true }, linked || {});
-    } catch (linkError) {
-      var code = (linkError && linkError.code) || 'quote_option_link_failed';
-      var final = /^quote_option_(not_same_customer|not_open|other_group|group_decided|invalid|job_missing)$/.test(code) || code === 'job_not_found';
-      if (final) {
-        delete fs.pendingQuoteOptionLink;
-        if (typeof window.app.save === 'function') window.app.save();
-        try { window.alert((pending.jobNumber || 'The new job') + ' could not be added as an option of the existing quote (' + code + '). It is a separate job.'); } catch (_a) {}
-      } else {
-        try { window.alert((pending.jobNumber || 'The new job') + ' was made, but linking it as an option did not finish. It will be retried next time you open a job on this iPad.'); } catch (_b) {}
-      }
-      return { linked: false, code: code, pending: !final };
+      var raw = localStorage.getItem(_QUOTE_OPTION_PENDING_KEY);
+      var list = raw ? JSON.parse(raw) : (_pendingQuoteOptionLinksFallback || []);
+      return Array.isArray(list) ? list.filter(function(l) { return l && l.jobId && l.optionOfJobId; }) : [];
+    } catch (_readError) {
+      return _pendingQuoteOptionLinksFallback || [];
     }
+  }
+
+  function _writePendingQuoteOptionLinks(list) {
+    _pendingQuoteOptionLinksFallback = list.slice();
+    try {
+      if (list.length) localStorage.setItem(_QUOTE_OPTION_PENDING_KEY, JSON.stringify(list));
+      else localStorage.removeItem(_QUOTE_OPTION_PENDING_KEY);
+    } catch (_writeError) {}
+  }
+
+  function _queueQuoteOptionLink(link) {
+    var list = _readPendingQuoteOptionLinks().filter(function(l) { return String(l.jobId) !== String(link.jobId); });
+    list.push({ jobId: String(link.jobId), jobNumber: link.jobNumber || null, optionOfJobId: String(link.optionOfJobId),
+      label: link.label || null, queuedAt: new Date().toISOString() });
+    _writePendingQuoteOptionLinks(list);
+  }
+
+  function _dropPendingQuoteOptionLink(jobId) {
+    _writePendingQuoteOptionLinks(_readPendingQuoteOptionLinks().filter(function(l) { return String(l.jobId) !== String(jobId); }));
+  }
+
+  // Retry every queued link. Returns the state of justMintedJobId's link (or
+  // of the last one tried). Only the link just made, or a final refusal,
+  // alerts the scoper; a still-pending older link retries quietly.
+  async function _retryPendingQuoteOptionLinks(justMintedJobId) {
+    var pending = _readPendingQuoteOptionLinks();
+    var state = { linked: false, code: 'quote_option_link_pending', pending: true };
+    if (!pending.length || !cloud || !cloud.ghl || typeof cloud.ghl.linkQuoteOption !== 'function') return state;
+    for (var i = 0; i < pending.length; i++) {
+      var link = pending[i];
+      var isNew = justMintedJobId && String(link.jobId) === String(justMintedJobId);
+      var linkResult;
+      try {
+        var linked = await cloud.ghl.linkQuoteOption(link.jobId, link.optionOfJobId, link.label);
+        _dropPendingQuoteOptionLink(link.jobId);
+        linkResult = Object.assign({ linked: true }, linked || {});
+      } catch (linkError) {
+        var code = (linkError && linkError.code) || 'quote_option_link_failed';
+        var final = /^quote_option_(not_same_customer|not_open|other_group|group_decided|invalid|job_missing)$/.test(code) || code === 'job_not_found';
+        if (final) {
+          _dropPendingQuoteOptionLink(link.jobId);
+          try { window.alert((link.jobNumber || 'The new job') + ' could not be added as an option of the existing quote (' + code + '). It is a separate job.'); } catch (_a) {}
+        } else if (isNew) {
+          try { window.alert((link.jobNumber || 'The new job') + ' was made, but linking it as an option did not finish. It will be retried next time you open a fence job on this iPad.'); } catch (_b) {}
+        }
+        linkResult = { linked: false, code: code, pending: !final };
+      }
+      if (isNew || !justMintedJobId) state = linkResult;
+    }
+    return state;
   }
 
   // The guarded fencing entry owner. It resolves GHL/Supabase/local history
@@ -793,10 +833,10 @@
       return nonFencePermit;
     }
 
-    // SQ-23: a quote option link left over from an earlier mint is retried
-    // first. It never blocks this entry.
-    if (window.app && window.app.job && window.app.job._fieldSync && window.app.job._fieldSync.pendingQuoteOptionLink) {
-      try { await _retryPendingQuoteOptionLink(); } catch (_pendingLinkError) {}
+    // SQ-23: quote option links left over from earlier mints are retried
+    // first, whichever job is open. It never blocks this entry.
+    if (_readPendingQuoteOptionLinks().length) {
+      try { await _retryPendingQuoteOptionLinks(null); } catch (_pendingLinkError) {}
     }
 
     if (intent === 'ghl_context') {

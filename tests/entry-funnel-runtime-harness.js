@@ -191,6 +191,7 @@ function makeRuntime() {
     createElement() { return { style: {}, dataset: {}, appendChild() {}, remove() {}, classList: { add() {}, remove() {} } }; }
   };
   let savedFenceJob = null;
+  const storage = {};
   const app = {
     job: { _fieldSync: { localDraftId: 'local-current' } },
     _hasMeaningfulLocalDraft: () => false,
@@ -210,8 +211,11 @@ function makeRuntime() {
     window, document, console, URL, URLSearchParams, AbortController,
     localStorage: {
       length: 0,
-      getItem: (key) => key === 'fenceJob' && savedFenceJob ? JSON.stringify(savedFenceJob) : null,
-      setItem() {}, removeItem() {}, key: () => null
+      getItem: (key) => key === 'fenceJob'
+        ? (savedFenceJob ? JSON.stringify(savedFenceJob) : null)
+        : (Object.prototype.hasOwnProperty.call(storage, key) ? storage[key] : null),
+      setItem(key, value) { if (key !== 'fenceJob') storage[key] = String(value); },
+      removeItem(key) { delete storage[key]; }, key: () => null
     },
     setTimeout: (fn, ms) => { if ((ms || 0) < 45000) fn(); return 1; }, clearTimeout() {}, setInterval() {}, clearInterval() {},
     Event: function Event() {}, fetch: async () => { throw new Error('unexpected fetch'); }
@@ -219,11 +223,11 @@ function makeRuntime() {
   vm.runInContext(integrationSource, context, { filename: 'integration.js' });
   assert(readyCallback, 'integration init callback registered');
   readyCallback();
-  return { integration: window._swIntegration, app, getLookups: () => networkLookups, getMints: () => mintCalls, getLinks: () => linkCalls };
+  return { integration: window._swIntegration, app, storage, getLookups: () => networkLookups, getMints: () => mintCalls, getLinks: () => linkCalls };
 }
 
 async function runtimeContract() {
-  const { integration, app, getLookups, getMints, getLinks } = makeRuntime();
+  const { integration, app, storage, getLookups, getMints, getLinks } = makeRuntime();
 
   const before = getLookups();
   await integration.enterJob('new_local', { localDraftId: 'local-new', source: 'option3' });
@@ -282,10 +286,17 @@ async function runtimeContract() {
   // The mint reply carried no confirmed link and the first retry failed: the
   // intent is kept on this iPad, and the next entry links it.
   assert.deepStrictEqual(getLinks()[0], ['job-repeat', 'job-existing']);
-  assert.ok(app.job._fieldSync.pendingQuoteOptionLink, 'an unconfirmed link is kept on the iPad');
+  const queued = JSON.parse(storage.fenceQuoteOptionLinksPending || '[]');
+  assert.deepStrictEqual(queued.map((l) => [l.jobId, l.optionOfJobId]), [['job-repeat', 'job-existing']],
+    'an unconfirmed link is kept on the iPad, apart from the open job');
+  assert.ok(!('pendingQuoteOptionLink' in app.job._fieldSync), 'the open job carries no link intent');
+  // The scoper opens another job (the open job object is replaced): the link
+  // is still retried on the next entry.
+  app.job = { _fieldSync: { localDraftId: 'local-other' } };
   await integration.enterJob('existing_job', { jobId: 'job-direct' });
-  assert.strictEqual(getLinks().length, 2, 'the next entry retries the link');
-  assert.ok(!app.job._fieldSync.pendingQuoteOptionLink, 'a confirmed link clears the pending intent');
+  assert.strictEqual(getLinks().length, 2, 'the next entry retries the link, whichever job is open');
+  assert.deepStrictEqual(getLinks()[1], ['job-repeat', 'job-existing']);
+  assert.ok(!storage.fenceQuoteOptionLinksPending, 'a confirmed link clears the pending intent');
   const stray = await integration.enterJob('ghl_context', {
     row: { id: 'opp-existing', contactId: 'contact-1', contactName: 'Repeat Client' },
     requestNew: true,
