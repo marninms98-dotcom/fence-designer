@@ -396,9 +396,9 @@ async function testCursorAdvancesLegacyDuplicateQueue() {
 }
 
 async function testUnauthenticatedSaveFallsBackToSharedKey() {
-  // ba5d37e contract: a logged-in-but-session-evicted field user is never
-  // hard-blocked. With no session but a healthy (200) backend, saveScope now
-  // legitimately SUCCEEDS via the shared x-api-key fallback rather than queuing.
+  // With no session the save goes out unsigned, never with a shared key. In
+  // production the server answers 401 and the sign-in box shows; this stub
+  // backend answers 200, so the save shape is still checked end to end.
   const { cloud, localStorage, fetchCalls } = makeVm({ online: true, session: null });
   const saved = await cloud.ghl.saveScope('job-1', { rev: 1 }, { baseScopeHash: 'h1' });
   assert.notStrictEqual(saved && saved.queued, true, 'save is not queued — the shared key carries it through');
@@ -410,11 +410,7 @@ async function testUnauthenticatedSaveFallsBackToSharedKey() {
   const headers = saveCalls[0].options.headers || {};
   const body = JSON.parse(saveCalls[0].options.body);
   assert.strictEqual(body.meta.scopeCursorReconcileV1, undefined, 'a caller that did not advertise capability remains legacy');
-  assert.strictEqual(
-    headers['x-api-key'],
-    '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc',
-    'save fetch carried the shared x-api-key when no session was present'
-  );
+  assert(!('x-api-key' in headers), 'save fetch carries no shared key when no session is present');
   assert(!('Authorization' in headers), 'no bearer Authorization header when the session is missing');
 }
 

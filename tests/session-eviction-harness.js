@@ -386,7 +386,7 @@ async function run() {
 
     localStorage.removeItem(SESSION_KEY); // any eviction source: quota sweep, iOS ITP
     const headers = await cloud.authorizedHeaders();
-    assert(headers['x-api-key'], 'field sync still falls back to the shared key');
+    assert(!headers['x-api-key'] && !headers['Authorization'], 'field sync goes out unsigned, never with a shared key');
     assert.strictEqual(lost, 1, 'the lost session is announced so the badge can flip to signed-out');
   });
 
