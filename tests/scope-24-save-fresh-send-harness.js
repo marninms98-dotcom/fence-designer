@@ -127,6 +127,7 @@ function buildApp(localStorage, opts) {
     updateSyncDot() {},
   };
   sandbox.globalThis = sandbox;
+  sandbox.app = app;
   vm.createContext(sandbox);
 
   const methods = [
@@ -146,6 +147,12 @@ function buildApp(localStorage, opts) {
     ['_cleanupStorage() {', '_cleanupStorage', ''],
     ['save() {', 'save', ''],
     ['loadFromStorage() {', 'loadFromStorage', ''],
+    // Pure custom-line helpers loadFromStorage calls since main's custom-item kinds landed.
+    ['customItemKind(c) {', 'customItemKind', 'c'],
+    ['_blankCustomItem() {', '_blankCustomItem', ''],
+    ['_blankCustomItems() {', '_blankCustomItems', ''],
+    ['_normaliseEmptyCustomSlots(job) {', '_normaliseEmptyCustomSlots', 'job'],
+    ['_customItemHasContent(c) {', '_customItemHasContent', 'c'],
   ];
   for (const [signature, name, args] of methods) {
     vm.runInContext(`window.app.${name} = function(${args}) {${methodBody(signature)}};`, sandbox);
