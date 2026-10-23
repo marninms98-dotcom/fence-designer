@@ -47,13 +47,14 @@ record(
 );
 
 record(
-  'cloud proxy calls prefer session bearer auth with a shared-key fallback (ba5d37e)',
+  'cloud proxy calls carry the session bearer and never a shared key',
   /async function authorizedHeaders/.test(cloud) &&
     /h\['Authorization'\] = 'Bearer ' \+ token;/.test(cloud) &&
     /refreshSession\(\)/.test(cloud) &&
-    /h\['x-api-key'\] = SW_API_KEY;/.test(cloud) &&
+    !/x-api-key/.test(cloud) &&
+    !/SW_API_KEY/.test(cloud) &&
     /async function authorizedFetch/.test(cloud),
-  'authorizedHeaders prefers the per-user JWT (with one refreshSession retry) and only falls back to the shared x-api-key when no session is available, so an evicted field session never hard-blocks sync (per ba5d37e)'
+  'authorizedHeaders sends the per-user JWT (with one refreshSession retry); with no session the call goes out unsigned and the session-lost signal asks the user to sign in. The shared key is no longer in the page source.'
 );
 
 record(

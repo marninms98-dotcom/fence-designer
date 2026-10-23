@@ -51,8 +51,6 @@
   var metaKey = document.querySelector('meta[name="supabase-anon-key"]');
   var SUPABASE_URL = window.SUPABASE_URL || (metaUrl && metaUrl.content) || '';
   var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || (metaKey && metaKey.content) || '';
-  // Shared key fallback: field work must never hard-block when a per-user session is absent.
-  var SW_API_KEY = window.SW_API_KEY || '097a1160f9a8b2f517f4770ebbe88dca105a36f816ef728cc8724da25b2667dc';
 
   console.log('[SecureWorks Cloud] URL:', SUPABASE_URL ? 'found' : 'MISSING');
   console.log('[SecureWorks Cloud] Key:', SUPABASE_ANON_KEY ? 'found' : 'MISSING');
@@ -118,7 +116,7 @@
   function _signalSessionLost() {
     if (!_user || _sessionLostAnnounced) return;
     _sessionLostAnnounced = true;
-    console.warn('[Cloud] Signed-in user has no Supabase session — requests are downgrading to the shared key');
+    console.warn('[Cloud] Signed-in user has no Supabase session — sign in again to sync');
     emit('auth:session_lost', _userProfile);
   }
   // Companion recovery signal: fires only on the lost→restored transition, so a
@@ -132,9 +130,9 @@
   }
 
   async function authorizedHeaders(extra) {
-    // Prefer the signed-in user's JWT (per-user attribution). If the session is
-    // missing or expired, try one refresh, then fall back to the shared key so a
-    // logged-in-but-session-evicted field user is never hard-blocked from syncing.
+    // The signed-in user's JWT, never a shared key. If the session is missing or
+    // expired, try one refresh; with none, the call goes out unsigned, the server
+    // answers 401 and the session-lost signal shows the sign-in box.
     var token = null;
     try {
       var result = await sb.auth.getSession();
@@ -152,7 +150,6 @@
       h['Authorization'] = 'Bearer ' + token;
       _signalSessionRestored();
     } else {
-      h['x-api-key'] = SW_API_KEY;
       _signalSessionLost();
     }
     if (extra) { for (var k in extra) h[k] = extra[k]; }
