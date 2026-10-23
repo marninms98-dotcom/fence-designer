@@ -610,17 +610,16 @@ record(
 // revision, so the load-time readonly flag must not survive and mute autosave.
 record(
   'new-job path clears the load-time readonly flag (review #14)',
-  /_isReadonly = false;/.test(newJobHelper) &&
-    /classList\.remove\('readonly-mode'\)/.test(newJobHelper) &&
-    newJobHelper.indexOf('_isReadonly = false;') < newJobHelper.indexOf('_shouldAutoSave()'),
-  'a new job started from a frozen sent-job viewer still autosaves to the cloud'
+  /exitReadonly\(\);/.test(newJobHelper) &&
+    newJobHelper.indexOf('exitReadonly()') < newJobHelper.indexOf('_shouldAutoSave()'),
+  'a new job started from a frozen sent-job viewer still autosaves to the cloud (SCOPE-23 exitReadonly)'
 );
 
 // Review round 4: clearing the readonly flag is not enough — the frozen
 // viewer's banner controls close over the OLD revision/job.
 record(
   'new-job path tears down the frozen viewer chrome (review #14b)',
-  /_clearFrozenViewerChrome\(\);/.test(newJobHelper) &&
+  /exitReadonly\(\);/.test(newJobHelper) &&
     /function _clearFrozenViewerChrome\(\)/.test(integration) &&
     /'sw-frozen-revision-banner', 'sw-frozen-error-banner'/.test(integration) &&
     /banner\.dataset\.swPadTop = '36';/.test(integration) &&

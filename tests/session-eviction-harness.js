@@ -299,6 +299,7 @@ async function run() {
     const localStorage = makeLocalStorage();
     seedSession(localStorage);
     localStorage.setItem('fenceJob', '{"probe":"linked job"}');
+    localStorage.setItem('fenceJob:20000000-job', '{"probe":"per-job save"}');
     localStorage.setItem('fenceJob_checkpoint_draft_b301e00a', '{"probe":"checkpoint"}');
     localStorage.setItem('sw_offline_queue', '[]');
     localStorage.setItem('sw_media_manifest_job-1', '{}');
@@ -312,6 +313,7 @@ async function run() {
     assert.strictEqual(localStorage.getItem('orphan_old_draft'), null, 'unrelated junk is still removed');
     assert.strictEqual(localStorage.getItem('patioJob'), null, 'another tool\'s key is still removed');
     assert(localStorage.getItem('fenceJob') !== null, 'the primary save is kept');
+    assert(localStorage.getItem('fenceJob:20000000-job') !== null, 'per-job saves (fenceJob:<id>) are kept');
     assert(localStorage.getItem('fenceJob_checkpoint_draft_b301e00a') !== null, 'checkpoints are kept');
     assert(localStorage.getItem('sw_offline_queue') !== null, 'the offline queue is kept');
     assert(localStorage.getItem('sw_media_manifest_job-1') !== null, 'the media manifest is kept');
@@ -366,6 +368,8 @@ async function run() {
     const prefixes = match[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
     assert(prefixes.indexOf('sb-') !== -1,
       "keepPrefixes must contain 'sb-' or a quota sweep evicts the Supabase session again");
+    assert(prefixes.indexOf('fenceJob:') !== -1,
+      "keepPrefixes must contain 'fenceJob:' or a quota sweep evicts per-job saves (SCOPE-24)");
   });
 
   // 4. The mask: a lost session must be announced, not hidden behind the cached
