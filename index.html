@@ -1372,6 +1372,13 @@
   </style>
 </head>
 <body>
+<!-- Old tool retired (T43): a bar sending new work to the Scope Engine. Hidden in embedded, view and read-only modes. -->
+<div id="retiredToolBar" style="display:none;position:sticky;top:0;z-index:100000;background:#293C46;color:#fff;font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:10px 16px;gap:12px;align-items:center;flex-wrap:wrap;">
+  <span style="flex:1;min-width:200px;">This fence page is retired. Fence jobs are now scoped in the Scope Engine.</span>
+  <a id="retiredToolLink" href="https://marninms98-dotcom.github.io/fence-designer/scope-engine/" style="background:#F15A29;color:#fff;text-decoration:none;font-weight:600;padding:8px 14px;border-radius:6px;white-space:nowrap;">Open in the Scope Engine</a>
+</div>
+<script>(function(){var p=new URLSearchParams(location.search);var m=p.get('mode');if(m==='embedded'||m==='view'||m==='readonly'||p.get('scope_revision_id')||window.self!==window.top)return;var bar=document.getElementById('retiredToolBar');var a=document.getElementById('retiredToolLink');var id=p.get('jobId');if(id)a.href+='?jobId='+encodeURIComponent(id);bar.style.display='flex';})();</script>
+
   <!-- Header Bar -->
   <div class="header" id="headerBar">
     <div class="header-top">
